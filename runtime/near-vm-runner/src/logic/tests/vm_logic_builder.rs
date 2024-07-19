@@ -35,7 +35,11 @@ impl VMLogicBuilder {
     }
 
     pub fn build(&mut self) -> TestVMLogic<'_> {
-        let result_state = ExecutionResultState::new(&self.context, Arc::new(self.config.clone()));
+        let result_state = ExecutionResultState::new(
+            &self.context,
+            self.context.make_gas_counter(&self.config),
+            Arc::new(self.config.clone()),
+        );
         TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             &self.context,

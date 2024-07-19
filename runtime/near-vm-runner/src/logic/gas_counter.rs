@@ -1,6 +1,7 @@
 use super::dependencies::TrieNodesCount;
 use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
+use near_parameters::vm::Config;
 use near_parameters::ExtCosts::{read_cached_trie_node, touching_trie_node};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::Gas;
@@ -26,7 +27,7 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 /// instance by intrinsifying host functions responsible for gas metering.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FastGasCounter {
+pub(crate) struct FastGasCounter {
     /// The following three fields must be put next to another to make sure
     /// generated gas counting code can use and adjust them.
     /// We will share counter to ensure we never miss synchronization.
@@ -189,9 +190,64 @@ impl GasCounter {
     ///    cmp rax, [base + 8] ; unsigned compare with burnt limit
     ///    mov [base + 0], rax
     ///    ja emit_gas_exceeded
-    pub fn gas_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
+    pub(crate) fn gas_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
         use std::ptr;
         ptr::addr_of_mut!(self.fast_counter)
+    }
+
+    /// Add a cost for loading the contract code in the VM.
+    ///
+    /// This cost does not consider the structure of the contract code, only the
+    /// size. This is currently the only loading fee. A fee that takes the code
+    /// structure into consideration could be added. But since that would have
+    /// to happen after loading, we cannot pre-charge it. This is the main
+    /// motivation to (only) have this simple fee.
+    pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
+        self.pay_per(ExtCosts::contract_loading_bytes, code_len)?;
+        self.pay_base(ExtCosts::contract_loading_base)
+    }
+
+    /// VM independent setup before loading the executable.
+    ///
+    /// Does VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// costs for loading the executable, which depends on the size of the WASM code.
+    pub fn before_loading_executable(
+        &mut self,
+        config: &Config,
+        method_name: &str,
+        wasm_code_bytes: u64,
+    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+        if method_name.is_empty() {
+            let error = super::errors::FunctionCallError::MethodResolveError(
+                super::errors::MethodResolveError::MethodEmptyName,
+            );
+            return Err(error);
+        }
+        if config.fix_contract_loading_cost {
+            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
+                let error =
+                    super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    pub fn after_loading_executable(
+        &mut self,
+        config: &Config,
+        wasm_code_bytes: u64,
+    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+        if !config.fix_contract_loading_cost {
+            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
+                return Err(super::errors::FunctionCallError::HostError(
+                    super::HostError::GasExceeded,
+                ));
+            }
+        }
+        Ok(())
     }
 
     #[inline]

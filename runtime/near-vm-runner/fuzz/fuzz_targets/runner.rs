@@ -25,10 +25,11 @@ fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
     wasm_config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
     let vm_kind = config.wasm_config.vm_kind;
     let fees = Arc::clone(&config.fees);
+    let gas_counter = context.make_gas_counter(&wasm_config);
     vm_kind
         .runtime(wasm_config.into())
         .unwrap()
-        .prepare(&fake_external, &context, None)
+        .prepare(&fake_external, None, gas_counter, &method_name)
         .run(&mut fake_external, &context, fees)
         .unwrap_or_else(|err| panic!("fatal error: {err:?}"))
 }

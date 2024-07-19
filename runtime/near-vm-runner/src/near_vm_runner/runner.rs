@@ -5,7 +5,9 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::gas_counter::FastGasCounter;
-use crate::logic::{Config, ExecutionResultState, External, VMContext, VMLogic, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, VMContext, VMLogic, VMOutcome,
+};
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
@@ -212,8 +214,9 @@ impl NearVM {
         self: Box<Self>,
         cache: &dyn ContractRuntimeCache,
         contract: &dyn Contract,
-        context: &VMContext,
-        closure: impl FnOnce(ExecutionResultState, &VMArtifact, Box<Self>) -> VMResult<PreparedContract>,
+        mut gas_counter: GasCounter,
+        method: &str,
+        closure: impl FnOnce(GasCounter, &VMArtifact, Box<Self>) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
@@ -299,24 +302,26 @@ impl NearVM {
         )?;
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
-
-        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
-        let result = result_state.before_loading_executable(&context.method, wasm_bytes);
+        let config = Arc::clone(&self.config);
+        let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
         if let Err(e) = result {
-            return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
+            let result = PreparationResult::OutcomeAbort(e);
+            return Ok(PreparedContract { config, gas_counter, result });
         }
         match artifact_result {
             Ok(artifact) => {
-                let result = result_state.after_loading_executable(wasm_bytes);
+                let result = gas_counter.after_loading_executable(&config, wasm_bytes);
                 if let Err(e) = result {
-                    return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
+                    let result = PreparationResult::OutcomeAbort(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
                 }
-                closure(result_state, &artifact, self)
+                closure(gas_counter, &artifact, self)
             }
-            Err(e) => Ok(PreparedContract::Outcome(VMOutcome::abort(
-                result_state,
-                FunctionCallError::CompilationError(e),
-            ))),
+            Err(e) => {
+                let e = FunctionCallError::CompilationError(e);
+                let result = PreparationResult::OutcomeAbort(e);
+                return Ok(PreparedContract { config, gas_counter, result });
+            }
         }
     }
 
@@ -575,35 +580,37 @@ impl crate::runner::VM for NearVM {
     fn prepare(
         self: Box<Self>,
         contract: &dyn Contract,
-        context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
+        gas_counter: GasCounter,
+        method: &str,
     ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
+        let config = Arc::clone(&self.config);
         let prepd = self.with_compiled_and_loaded(
             cache,
             contract,
-            context,
-            |result_state, artifact, vm| {
+            gas_counter,
+            method,
+            |gas_counter, artifact, vm| {
                 let memory = NearVmMemory::new(
                     vm.config.limit_config.initial_memory_pages,
                     vm.config.limit_config.max_memory_pages,
                 )
                 .expect("Cannot create memory for a contract call");
-                let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
+                let entrypoint = match get_entrypoint_index(&*artifact, method) {
                     Ok(index) => index,
                     Err(e) => {
-                        return Ok(PreparedContract::Outcome(
-                            VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
-                        ))
+                        let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                        return Ok(PreparedContract { config, gas_counter, result });
                     }
                 };
-                Ok(PreparedContract::Ready(ReadyContract {
+                let result = PreparationResult::Ready(ReadyContract {
                     memory,
-                    result_state,
                     entrypoint,
                     artifact: Arc::clone(artifact),
                     vm,
-                }))
+                });
+                Ok(PreparedContract { config, gas_counter, result })
             },
         );
         Box::new(prepd)
@@ -625,15 +632,21 @@ impl crate::runner::VM for NearVM {
 
 struct ReadyContract {
     memory: NearVmMemory,
-    result_state: ExecutionResultState,
     entrypoint: FunctionIndex,
     artifact: VMArtifact,
     vm: Box<NearVM>,
 }
 
+struct PreparedContract {
+    config: Arc<Config>,
+    gas_counter: GasCounter,
+    result: PreparationResult,
+}
+
 #[allow(clippy::large_enum_variant)]
-enum PreparedContract {
-    Outcome(VMOutcome),
+enum PreparationResult {
+    OutcomeAbortButNopInOldProtocol(FunctionCallError),
+    OutcomeAbort(FunctionCallError),
     Ready(ReadyContract),
 }
 
@@ -644,9 +657,16 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> VMResult {
-        let ReadyContract { memory, result_state, entrypoint, artifact, vm } = match (*self)? {
-            PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready(r) => r,
+        let PreparedContract { config, gas_counter, result } = (*self)?;
+        let result_state = ExecutionResultState::new(&context, gas_counter, config);
+        let ReadyContract { memory, entrypoint, artifact, vm } = match result {
+            PreparationResult::Ready(r) => r,
+            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+            }
+            PreparationResult::OutcomeAbort(e) => {
+                return Ok(VMOutcome::abort(result_state, e));
+            }
         };
         let config = Arc::clone(&result_state.config);
         let vmmemory = memory.vm();

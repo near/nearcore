@@ -21,7 +21,8 @@ pub fn test_ts_contract() {
 
         // Call method that panics.
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.prepare(&fake_external, &context, None).run(
+        let gas_counter = context.make_gas_counter(&config);
+        let result = runtime.prepare(&fake_external, None, gas_counter, &context.method).run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
@@ -37,8 +38,9 @@ pub fn test_ts_contract() {
         // Call method that writes something into storage.
         let context = create_context("try_storage_write", b"foo bar".to_vec());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let gas_counter = context.make_gas_counter(&config);
         runtime
-            .prepare(&fake_external, &context, None)
+            .prepare(&fake_external, None, gas_counter, &context.method)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
@@ -53,8 +55,9 @@ pub fn test_ts_contract() {
         // Call method that reads the value from storage using registers.
         let context = create_context("try_storage_read", b"foo".to_vec());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let gas_counter = context.make_gas_counter(&config);
         let outcome = runtime
-            .prepare(&fake_external, &context, None)
+            .prepare(&fake_external, None, gas_counter, &context.method)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("execution failed");
 

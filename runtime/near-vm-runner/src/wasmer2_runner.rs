@@ -5,7 +5,8 @@ use crate::logic::errors::{
 };
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::{
-    Config, ExecutionResultState, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
+    Config, ExecutionResultState, External, GasCounter, MemSlice, MemoryLike, VMContext, VMLogic,
+    VMOutcome,
 };
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
@@ -579,41 +580,42 @@ impl crate::runner::VM for Wasmer2VM {
     fn prepare(
         self: Box<Self>,
         contract: &dyn Contract,
-        context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
+        mut gas_counter: GasCounter,
+        method: &str,
     ) -> Box<dyn crate::PreparedContract> {
         type Result = VMResult<PreparedContract>;
         let Some(code) = contract.get_code() else {
             return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
         };
-        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let config = Arc::clone(&self.config);
         let result =
-            result_state.before_loading_executable(&context.method, code.code().len() as u64);
+            gas_counter.before_loading_executable(&config, &method, code.code().len() as u64);
         if let Err(e) = result {
-            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+            let result = PreparationResult::OutcomeAbort(e);
+            return Box::new(Ok(PreparedContract { config, gas_counter, result }));
         }
         let artifact = match self.compile_and_load(&code, cache) {
             Ok(Ok(it)) => it,
             Ok(Err(err)) => {
-                return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(
-                    result_state,
-                    FunctionCallError::CompilationError(err),
-                ))));
+                let e = FunctionCallError::CompilationError(err);
+                let result = PreparationResult::OutcomeAbort(e);
+                return Box::new(Ok(PreparedContract { config, gas_counter, result }));
             }
             Err(err) => {
                 return Box::new(Result::Err(err));
             }
         };
-        let result = result_state.after_loading_executable(code.code().len() as u64);
+        let result = gas_counter.after_loading_executable(&config, code.code().len() as u64);
         if let Err(e) = result {
-            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+            let result = PreparationResult::OutcomeAbort(e);
+            return Box::new(Ok(PreparedContract { config, gas_counter, result }));
         }
-        let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
+        let entrypoint = match get_entrypoint_index(&*artifact, method) {
             Ok(index) => index,
             Err(e) => {
-                return Box::new(Ok(PreparedContract::Outcome(
-                    VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
-                )))
+                let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                return Box::new(Ok(PreparedContract { config, gas_counter, result }));
             }
         };
 
@@ -622,27 +624,29 @@ impl crate::runner::VM for Wasmer2VM {
             self.config.limit_config.max_memory_pages,
         )
         .expect("Cannot create memory for a contract call");
-        Box::new(Ok(PreparedContract::Ready(ReadyContract {
-            vm: self,
-            memory,
-            result_state,
-            entrypoint,
-            artifact,
-        })))
+        let result =
+            PreparationResult::Ready(ReadyContract { vm: self, memory, entrypoint, artifact });
+        Box::new(Ok(PreparedContract { config, gas_counter, result }))
     }
 }
 
 struct ReadyContract {
     vm: Box<Wasmer2VM>,
     memory: Wasmer2Memory,
-    result_state: ExecutionResultState,
     entrypoint: FunctionIndex,
     artifact: VMArtifact,
 }
 
+struct PreparedContract {
+    config: Arc<Config>,
+    gas_counter: GasCounter,
+    result: PreparationResult,
+}
+
 #[allow(clippy::large_enum_variant)]
-enum PreparedContract {
-    Outcome(VMOutcome),
+enum PreparationResult {
+    OutcomeAbortButNopInOldProtocol(FunctionCallError),
+    OutcomeAbort(FunctionCallError),
     Ready(ReadyContract),
 }
 
@@ -653,9 +657,16 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> VMResult {
-        let ReadyContract { vm, memory, result_state, entrypoint, artifact } = match (*self)? {
-            PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready(r) => r,
+        let PreparedContract { config, gas_counter, result } = (*self)?;
+        let result_state = ExecutionResultState::new(&context, gas_counter, config);
+        let ReadyContract { vm, memory, entrypoint, artifact } = match result {
+            PreparationResult::Ready(r) => r,
+            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+            }
+            PreparationResult::OutcomeAbort(e) => {
+                return Ok(VMOutcome::abort(result_state, e));
+            }
         };
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.

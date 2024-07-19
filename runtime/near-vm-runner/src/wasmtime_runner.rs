@@ -3,7 +3,7 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, PrepareError,
     VMLogicError, VMRunnerError, WasmTrap,
 };
-use crate::logic::{Config, ExecutionResultState};
+use crate::logic::{Config, ExecutionResultState, GasCounter};
 use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::runner::VMResult;
 use crate::{
@@ -187,8 +187,9 @@ impl WasmtimeVM {
         &self,
         cache: &dyn ContractRuntimeCache,
         contract: &dyn Contract,
-        context: &VMContext,
-        closure: impl FnOnce(ExecutionResultState, Module) -> VMResult<PreparedContract>,
+        mut gas_counter: GasCounter,
+        method: &str,
+        closure: impl FnOnce(GasCounter, Module) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
         let code_hash = contract.hash();
         type MemoryCacheType = (u64, Result<Module, CompilationError>);
@@ -246,23 +247,26 @@ impl WasmtimeVM {
             },
         )?;
 
-        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
-        let result = result_state.before_loading_executable(&context.method, wasm_bytes);
+        let config = Arc::clone(&self.config);
+        let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
         if let Err(e) = result {
-            return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
+            let result = PreparationResult::OutcomeAbort(e);
+            return Ok(PreparedContract { config, gas_counter, result });
         }
         match module_result {
             Ok(module) => {
-                let result = result_state.after_loading_executable(wasm_bytes);
+                let result = gas_counter.after_loading_executable(&config, wasm_bytes);
                 if let Err(e) = result {
-                    return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
+                    let result = PreparationResult::OutcomeAbort(e);
+                    return Ok(PreparedContract { config, gas_counter, result });
                 }
-                closure(result_state, module)
+                closure(gas_counter, module)
             }
-            Err(e) => Ok(PreparedContract::Outcome(VMOutcome::abort(
-                result_state,
-                FunctionCallError::CompilationError(e),
-            ))),
+            Err(e) => {
+                let result =
+                    PreparationResult::OutcomeAbort(FunctionCallError::CompilationError(e));
+                return Ok(PreparedContract { config, gas_counter, result });
+            }
         }
     }
 }
@@ -284,55 +288,57 @@ impl crate::runner::VM for WasmtimeVM {
     fn prepare(
         self: Box<Self>,
         code: &dyn Contract,
-        context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
+        gas_counter: GasCounter,
+        method: &str,
     ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        let prepd = self.with_compiled_and_loaded(cache, code, context, |result_state, module| {
-            match module.get_export(&context.method) {
-                Some(export) => match export {
-                    Func(func_type) => {
-                        if func_type.params().len() != 0 || func_type.results().len() != 0 {
-                            let err = FunctionCallError::MethodResolveError(
-                                MethodResolveError::MethodInvalidSignature,
-                            );
-                            return Ok(PreparedContract::Outcome(
-                                VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, err),
-                            ));
+        let prepd = self.with_compiled_and_loaded(
+            cache,
+            code,
+            gas_counter,
+            method,
+            |gas_counter, module| {
+                let config = Arc::clone(&self.config);
+                match module.get_export(method) {
+                    Some(export) => match export {
+                        Func(func_type) => {
+                            if func_type.params().len() != 0 || func_type.results().len() != 0 {
+                                let e = FunctionCallError::MethodResolveError(
+                                    MethodResolveError::MethodInvalidSignature,
+                                );
+                                let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                                return Ok(PreparedContract { config, gas_counter, result });
+                            }
                         }
-                    }
-                    _ => {
-                        return Ok(PreparedContract::Outcome(
-                            VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                                result_state,
-                                FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodNotFound,
-                                ),
-                            ),
-                        ));
-                    }
-                },
-                None => {
-                    return Ok(PreparedContract::Outcome(
-                        VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                            result_state,
-                            FunctionCallError::MethodResolveError(
+                        _ => {
+                            let e = FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodNotFound,
-                            ),
-                        ),
-                    ));
+                            );
+                            let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                            return Ok(PreparedContract { config, gas_counter, result });
+                        }
+                    },
+                    None => {
+                        let e = FunctionCallError::MethodResolveError(
+                            MethodResolveError::MethodNotFound,
+                        );
+                        let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                        return Ok(PreparedContract { config, gas_counter, result });
+                    }
                 }
-            }
 
-            let mut store = Store::new(&self.engine, ());
-            let memory = WasmtimeMemory::new(
-                &mut store,
-                self.config.limit_config.initial_memory_pages,
-                self.config.limit_config.max_memory_pages,
-            )
-            .unwrap();
-            Ok(PreparedContract::Ready(ReadyContract { store, memory, module, result_state }))
-        });
+                let mut store = Store::new(&self.engine, ());
+                let memory = WasmtimeMemory::new(
+                    &mut store,
+                    self.config.limit_config.initial_memory_pages,
+                    self.config.limit_config.max_memory_pages,
+                )
+                .unwrap();
+                let result = PreparationResult::Ready(ReadyContract { store, memory, module });
+                Ok(PreparedContract { config, gas_counter, result })
+            },
+        );
         Box::new(prepd)
     }
 }
@@ -341,12 +347,18 @@ struct ReadyContract {
     store: Store<()>,
     memory: WasmtimeMemory,
     module: Module,
-    result_state: ExecutionResultState,
+}
+
+struct PreparedContract {
+    config: Arc<Config>,
+    gas_counter: GasCounter,
+    result: PreparationResult,
 }
 
 #[allow(clippy::large_enum_variant)]
-enum PreparedContract {
-    Outcome(VMOutcome),
+enum PreparationResult {
+    OutcomeAbortButNopInOldProtocol(FunctionCallError),
+    OutcomeAbort(FunctionCallError),
     Ready(ReadyContract),
 }
 
@@ -357,10 +369,18 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> VMResult {
-        let ReadyContract { mut store, memory, module, result_state } = match (*self)? {
-            PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready(r) => r,
+        let PreparedContract { config, gas_counter, result } = (*self)?;
+        let result_state = ExecutionResultState::new(&context, gas_counter, config);
+        let ReadyContract { mut store, memory, module } = match result {
+            PreparationResult::Ready(r) => r,
+            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+            }
+            PreparationResult::OutcomeAbort(e) => {
+                return Ok(VMOutcome::abort(result_state, e));
+            }
         };
+
         let memory_copy = memory.0;
         let config = Arc::clone(&result_state.config);
         let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);

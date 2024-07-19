@@ -24,7 +24,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
-use near_primitives::utils::{account_is_implicit, create_random_seed};
+use near_primitives::utils::account_is_implicit;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -37,7 +37,6 @@ use near_store::{
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
-use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, PreparedContract};
@@ -130,49 +129,23 @@ pub(crate) fn prepare_function_call(
     state_update: &TrieUpdate,
     apply_state: &ApplyState,
     account: &Account,
-    predecessor_id: AccountId,
-    action_receipt: &ActionReceipt,
-    promise_results: Arc<[PromiseResult]>,
     account_id: &AccountId,
     function_call: &FunctionCallAction,
-    action_hash: &CryptoHash,
     config: &RuntimeConfig,
-    is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
     view_config: Option<ViewConfig>,
-) -> (VMContext, Box<dyn PreparedContract>) {
-    // Output data receipts are ignored if the function call is not the last action in the batch.
-    let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
-    } else {
-        vec![]
+) -> Box<dyn PreparedContract> {
+    let max_gas_burnt = match view_config {
+        Some(ViewConfig { max_gas_burnt }) => max_gas_burnt,
+        None => config.wasm_config.limit_config.max_gas_burnt,
     };
-    let random_seed = create_random_seed(
-        apply_state.current_protocol_version,
-        *action_hash,
-        apply_state.random_seed,
+    let gas_counter = near_vm_runner::logic::GasCounter::new(
+        config.wasm_config.ext_costs.clone(),
+        max_gas_burnt,
+        config.wasm_config.regular_op_cost,
+        function_call.gas,
+        view_config.is_some(),
     );
-    let context = VMContext {
-        current_account_id: account_id.clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
-            .expect("Failed to serialize"),
-        predecessor_account_id: predecessor_id,
-        method: function_call.method_name.clone(),
-        input: function_call.args.clone(),
-        promise_results,
-        block_height: apply_state.block_height,
-        block_timestamp: apply_state.block_timestamp,
-        epoch_height: apply_state.epoch_height,
-        account_balance: account.amount(),
-        account_locked_balance: account.locked(),
-        storage_usage: account.storage_usage(),
-        attached_deposit: function_call.deposit,
-        prepaid_gas: function_call.gas,
-        random_seed,
-        view_config,
-        output_data_receivers,
-    };
     let code_ext = RuntimeContractExt {
         trie_update: state_update,
         account_id,
@@ -182,11 +155,12 @@ pub(crate) fn prepare_function_call(
     };
     let contract = near_vm_runner::prepare(
         &code_ext,
-        &context,
         Arc::clone(&config.wasm_config),
         apply_state.cache.as_deref(),
+        gas_counter,
+        &function_call.method_name,
     );
-    (context, contract)
+    contract
 }
 
 pub(crate) fn action_function_call(

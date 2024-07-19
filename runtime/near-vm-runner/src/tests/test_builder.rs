@@ -216,13 +216,13 @@ impl TestBuilder {
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
-
+                let gas_counter = context.make_gas_counter(&config);
                 let Some(runtime) = vm_kind.runtime(config) else {
                     panic!("runtime for {:?} has not been compiled", vm_kind);
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .prepare(&fake_external, &context, None)
+                    .prepare(&fake_external, None, gas_counter, &context.method)
                     .run(&mut fake_external, &context, fees)
                     .expect("execution failed");
 

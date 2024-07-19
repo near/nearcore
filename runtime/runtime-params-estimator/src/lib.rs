@@ -929,10 +929,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context("cpu_ram_soak_test", vec![]);
+        let gas_counter = context.make_gas_counter(&config);
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
-            .prepare(&fake_external, &context, Some(&cache))
+            .prepare(&fake_external, Some(&cache), gas_counter, &context.method)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(vm_result.aborted.is_some());

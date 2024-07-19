@@ -58,7 +58,8 @@ pub fn test_read_write() {
         let context = create_context("write_key_value", encode(&[10u64, 20u64]));
 
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.prepare(&fake_external, &context, None).run(
+        let gas_counter = context.make_gas_counter(&config);
+        let result = runtime.prepare(&fake_external, None, gas_counter, &context.method).run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
@@ -67,7 +68,8 @@ pub fn test_read_write() {
 
         let context = create_context("read_value", encode(&[10u64]));
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.prepare(&fake_external, &context, None).run(
+        let gas_counter = context.make_gas_counter(&config);
+        let result = runtime.prepare(&fake_external, None, gas_counter, &context.method).run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
@@ -120,10 +122,10 @@ fn run_test_ext(
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let fees = Arc::new(RuntimeFeesConfig::test());
     let context = create_context(method, input.to_vec());
+    let gas_counter = context.make_gas_counter(&config);
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-
     let outcome = runtime
-        .prepare(&fake_external, &context, None)
+        .prepare(&fake_external, None, gas_counter, &context.method)
         .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
@@ -228,8 +230,9 @@ pub fn test_out_of_memory() {
         let context = create_context("out_of_memory", Vec::new());
         let fees = Arc::new(RuntimeFeesConfig::free());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let gas_counter = context.make_gas_counter(&config);
         let result = runtime
-            .prepare(&fake_external, &context, None)
+            .prepare(&fake_external, None, gas_counter, &context.method)
             .run(&mut fake_external, &context, fees)
             .expect("execution failed");
         assert_eq!(
@@ -262,8 +265,9 @@ fn attach_unspent_gas_but_use_all_gas() {
         let fees = Arc::new(RuntimeFeesConfig::test());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
+        let gas_counter = context.make_gas_counter(&config);
         let outcome = runtime
-            .prepare(&external, &context, None)
+            .prepare(&external, None, gas_counter, &context.method)
             .run(&mut external, &context, fees)
             .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 

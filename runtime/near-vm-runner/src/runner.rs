@@ -40,15 +40,16 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 ))]
 pub fn prepare(
     contract: &dyn Contract,
-    context: &VMContext,
     wasm_config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
+    gas_counter: crate::logic::GasCounter,
+    method: &str,
 ) -> Box<dyn crate::PreparedContract> {
     let vm_kind = wasm_config.vm_kind;
     let runtime = vm_kind
         .runtime(wasm_config)
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    runtime.prepare(contract, context, cache)
+    runtime.prepare(contract, cache, gas_counter, method)
 }
 
 /// Validate and run the specified contract.
@@ -131,8 +132,9 @@ pub trait VM {
     fn prepare(
         self: Box<Self>,
         ext: &dyn Contract,
-        context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
+        gas_counter: crate::logic::GasCounter,
+        method: &str,
     ) -> Box<dyn PreparedContract>;
 
     /// Precompile a WASM contract to a VM specific format and store the result

@@ -15,7 +15,6 @@ use near_parameters::vm::{Config, StorageGetMode};
 use near_parameters::{
     transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
 };
-use near_primitives_core::config::ViewConfig;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
@@ -60,23 +59,12 @@ impl ExecutionResultState {
     ///
     /// Note that `context.account_balance + context.attached_deposit` must not overflow `u128`,
     /// otherwise this function will panic.
-    pub fn new(context: &VMContext, config: Arc<Config>) -> Self {
+    pub fn new(context: &VMContext, gas_counter: GasCounter, config: Arc<Config>) -> Self {
         let current_account_balance = context
             .account_balance
             .checked_add(context.attached_deposit)
             .expect("current_account_balance overflowed");
         let current_storage_usage = context.storage_usage;
-        let max_gas_burnt = match context.view_config {
-            Some(ViewConfig { max_gas_burnt: max_gas_burnt_view }) => max_gas_burnt_view,
-            None => config.limit_config.max_gas_burnt,
-        };
-        let gas_counter = GasCounter::new(
-            config.ext_costs.clone(),
-            max_gas_burnt,
-            config.regular_op_cost,
-            context.prepaid_gas,
-            context.is_view(),
-        );
         Self {
             config,
             gas_counter,
@@ -154,59 +142,6 @@ impl ExecutionResultState {
             profile,
             aborted: None,
         }
-    }
-
-    /// Add a cost for loading the contract code in the VM.
-    ///
-    /// This cost does not consider the structure of the contract code, only the
-    /// size. This is currently the only loading fee. A fee that takes the code
-    /// structure into consideration could be added. But since that would have
-    /// to happen after loading, we cannot pre-charge it. This is the main
-    /// motivation to (only) have this simple fee.
-    pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
-        self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
-        self.gas_counter.pay_base(contract_loading_base)
-    }
-
-    /// VM independent setup before loading the executable.
-    ///
-    /// Does VM independent checks that happen after the instantiation of
-    /// VMLogic but before loading the executable. This includes pre-charging gas
-    /// costs for loading the executable, which depends on the size of the WASM code.
-    pub fn before_loading_executable(
-        &mut self,
-        method_name: &str,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
-        if method_name.is_empty() {
-            let error = super::errors::FunctionCallError::MethodResolveError(
-                super::errors::MethodResolveError::MethodEmptyName,
-            );
-            return Err(error);
-        }
-        if self.config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                let error =
-                    super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
-                return Err(error);
-            }
-        }
-        Ok(())
-    }
-
-    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    pub fn after_loading_executable(
-        &mut self,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
-        if !self.config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                return Err(super::errors::FunctionCallError::HostError(
-                    super::HostError::GasExceeded,
-                ));
-            }
-        }
-        Ok(())
     }
 }
 
@@ -3527,7 +3462,7 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Gets pointer to the fast gas counter.
-    pub fn gas_counter_pointer(&mut self) -> *mut FastGasCounter {
+    pub(crate) fn gas_counter_pointer(&mut self) -> *mut FastGasCounter {
         self.result_state.gas_counter.gas_counter_raw_ptr()
     }
 

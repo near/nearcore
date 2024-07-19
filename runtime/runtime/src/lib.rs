@@ -434,25 +434,57 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                let (context, contract) = prepare_function_call(
+                let is_last_action = action_index + 1 == actions.len();
+                let output_data_receivers: Vec<_> = if is_last_action {
+                    action_receipt
+                        .output_data_receivers
+                        .iter()
+                        .map(|r| r.receiver_id.clone())
+                        .collect()
+                } else {
+                    vec![]
+                };
+                let random_seed = near_primitives::utils::create_random_seed(
+                    apply_state.current_protocol_version,
+                    *action_hash,
+                    apply_state.random_seed,
+                );
+                let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
+                let context = near_vm_runner::logic::VMContext {
+                    current_account_id: account_id.clone(),
+                    signer_account_id: action_receipt.signer_id.clone(),
+                    signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
+                        .expect("Failed to serialize"),
+                    predecessor_account_id: receipt.predecessor_id().clone(),
+                    method: function_call.method_name.clone(),
+                    input: function_call.args.clone(),
+                    promise_results,
+                    block_height: apply_state.block_height,
+                    block_timestamp: apply_state.block_timestamp,
+                    epoch_height: apply_state.epoch_height,
+                    account_balance: account.amount(),
+                    account_locked_balance: account.locked(),
+                    storage_usage: account.storage_usage(),
+                    attached_deposit: function_call.deposit,
+                    prepaid_gas: function_call.gas,
+                    random_seed,
+                    view_config: None,
+                    output_data_receivers,
+                };
+                let contract = prepare_function_call(
                     state_update,
                     apply_state,
-                    account.as_ref().expect(EXPECT_ACCOUNT_EXISTS),
-                    receipt.predecessor_id().clone(),
-                    action_receipt,
-                    Arc::clone(&promise_results),
+                    account,
                     account_id,
                     function_call,
-                    action_hash,
                     &apply_state.config,
-                    action_index + 1 == actions.len(),
                     epoch_info_provider,
                     None,
                 );
                 action_function_call(
                     state_update,
                     apply_state,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    account,
                     action_receipt,
                     &mut result,
                     account_id,

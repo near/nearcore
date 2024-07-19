@@ -119,10 +119,11 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
 
     let fees = Arc::new(RuntimeFeesConfig::test());
+    let gas_counter = context.make_gas_counter(&config);
     let mut res = vm_kind
         .runtime(config.into())
         .unwrap()
-        .prepare(&fake_external, &context, None)
+        .prepare(&fake_external, None, gas_counter, &method_name)
         .run(&mut fake_external, &context, Arc::clone(&fees));
 
     // Remove the VMError message details as they can differ between runtimes
