@@ -209,8 +209,7 @@ impl ProtocolFeature {
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
-            ProtocolFeature::EthImplicitAccounts => 70,
-            ProtocolFeature::BLS12381 => 71,
+            ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
