@@ -1,6 +1,6 @@
 //! Settings of the parameters of the runtime.
 use super::parameter_table::InvalidConfigError;
-use crate::config_store::{INITIAL_BENCHMARKNET_CONFIG, INITIAL_TESTNET_CONFIG};
+use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
