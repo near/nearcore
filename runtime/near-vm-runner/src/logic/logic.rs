@@ -1192,7 +1192,7 @@ bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
     );
 
     bls12381_impl!(
-r"Calculates multiexp on twisted BLS12-381 curve:
+        r"Calculates multiexp on twisted BLS12-381 curve:
 accepts an arbitrary number of pairs (p_i, s_i),
 where p_i from G2 and s_i is a scalar and
 calculates sum_i s_i*p_i
