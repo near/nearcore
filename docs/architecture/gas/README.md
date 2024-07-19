@@ -148,7 +148,7 @@ shard. In terms of gas costs, each account is conceptually its own shard. This
 makes dynamic resharding possible without user-observable impact.
 
 When the send step is performed, the minimum required gas to start execution of
-that action is known. Thus, if the receipt has not enough gas, it can be aborted
+that action is known. Thus, if the receipt does not have enough gas, it can be aborted
 instead of forwarding it. Here we have to introduce the concept of used gas.
 
 `gas_used` is different from `gas_burnt`. The former includes the gas that needs
@@ -181,7 +181,7 @@ smart contract) are charged only at the receiver. Thus, they have only one value
 to define them, in contrast to action costs.
 
 The most fundamental dynamic gas cost is `wasm_regular_op_cost`. It is
-multiplied with the exact number of WASM operations executed. You can read about
+multiplied by the exact number of WASM operations executed. You can read about
 [Gas Instrumentation](https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation)
 if you are curious how we count WASM ops.
 

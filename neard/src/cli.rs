@@ -619,22 +619,31 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
 
 #[derive(clap::Parser)]
 pub(super) struct LocalnetCmd {
-    /// Number of non-validators to initialize the localnet with.
-    #[clap(short = 'n', long, alias = "n", default_value = "0")]
-    non_validators: NumSeats,
-    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
-    /// ‘node0’, ‘node1’, ...)
-    #[clap(long, default_value = "node")]
-    prefix: String,
     /// Number of shards to initialize the localnet with.
     #[clap(short = 's', long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the localnet with.
     #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    /// Whether to configure nodes as archival.
-    #[clap(long)]
-    archival_nodes: bool,
+    /// Number of non-validator archival nodes to initialize the localnet with.
+    /// They are created in addition to the other non-validators.
+    /// The archival nodes will have split storage (hot + cold) and they will track all shards.
+    #[clap(long, default_value = "0")]
+    non_validators_archival: NumSeats,
+    /// Number of non-validator RPC nodes to initialize the localnet with.
+    /// They are created in addition to the other non-validators.
+    /// The RPC nodes will track all shards.
+    #[clap(long, default_value = "0")]
+    non_validators_rpc: NumSeats,
+    /// Number of non-validators to initialize the localnet with.
+    /// Prefer `--non_validators_archival` and `--non_validators_rpc`
+    /// to create non-validator nodes configured for the archival and RPC roles.
+    #[clap(short = 'n', long, alias = "n", default_value = "0")]
+    non_validators: NumSeats,
+    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
+    /// ‘node0’, ‘node1’, ...)
+    #[clap(long, default_value = "node")]
+    prefix: String,
     /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
     #[clap(long, default_value = "all")]
     tracked_shards: String,
@@ -656,15 +665,14 @@ impl LocalnetCmd {
 
     pub(super) fn run(self, home_dir: &Path) {
         let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
-
-        nearcore::config::init_testnet_configs(
+        nearcore::config::init_localnet_configs(
             home_dir,
             self.shards,
             self.validators,
+            self.non_validators_archival,
+            self.non_validators_rpc,
             self.non_validators,
             &self.prefix,
-            true,
-            self.archival_nodes,
             tracked_shards,
         );
     }

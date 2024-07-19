@@ -1,5 +1,5 @@
 use crate::{
-    error::{AccountIdError, CallerError, Error, RelayerError, UserError},
+    error::{AccountIdError, Error, RelayerError, UserError},
     eth_emulation, ethabi_utils, near_action,
     types::{
         Action, EthEmulationKind, ExecutionContext, ParsableTransactionKind, TargetKind,
@@ -11,9 +11,12 @@ use crate::{
 use aurora_engine_transactions::{EthTransactionKind, NormalizedEthTransaction};
 use base64::Engine;
 use ethabi::{ethereum_types::U256, Address};
-use near_sdk::{AccountId, NearToken};
+use near_sdk::{env, AccountId, NearToken};
 
-// TODO(eth-implicit): Decide on chain id.
+/// The chain ID is pulled from a file to allow this contract to be easily
+/// compiled with the appropriate value for the network it will be deployed on.
+/// The chain ID for Near mainnet is [397](https://chainlist.org/chain/397)
+/// while the value for testnet is [398](https://chainlist.org/chain/398).
 pub const CHAIN_ID: u64 = std::include!("CHAIN_ID");
 const U64_MAX: U256 = U256([u64::MAX, 0, 0, 0]);
 /// Only up to this amount of yoctoNear can be directly mentioned in an action,
@@ -27,6 +30,12 @@ pub const MAX_YOCTO_NEAR: u32 = 1_000_000;
 /// by `1_000_000` and then add back any lower digits that were truncated.
 const VALUE_MAX: U256 = U256([10175519178963368024, 18446744073709, 0, 0]);
 
+/// To make gas values look more familiar to Ethereum users, we say that
+/// 1 EVM gas is equal to 0.1 GGas on Near. This means 2.1 Tgas on Near
+/// is equal to 21k EVM gas and both amounts are "small" in their respective
+/// ecosystems.
+pub const GAS_MULTIPLIER: u64 = 100_000_000;
+
 /// Given an RLP-encoded Ethereum transaction (bytes encoded in base64),
 /// a Near account the transaction is supposed to interact with, the current
 /// account ID, and the current nonce, this function will attempt to transform
@@ -35,15 +44,24 @@ pub fn parse_rlp_tx_to_action(
     tx_bytes_b64: &str,
     target: &AccountId,
     context: &ExecutionContext,
-    expected_nonce: &mut u64,
+    expected_nonce: u64,
 ) -> Result<(near_action::Action, TransactionKind), Error> {
     let tx_bytes = decode_b64(tx_bytes_b64)?;
     let tx_kind: EthTransactionKind = tx_bytes.as_slice().try_into()?;
     let tx: NormalizedEthTransaction = tx_kind.try_into()?;
-    let target_kind = validate_tx_relayer_data(&tx, target, context, *expected_nonce)?;
+    let target_kind = validate_tx_relayer_data(&tx, target, context, expected_nonce)?;
 
-    // If the transaction is valid then increment the nonce to prevent replay
-    *expected_nonce = expected_nonce.saturating_add(1);
+    // Compute the fee based on the user's Ethereum transaction.
+    // This is sent as a refund to the relayer in the case of an emulated base token
+    // transfer or ERC-20 transfer. The reason for this refund is that it allows a
+    // user with $NEAR to use a relayer service from their wallet immediately without
+    // additional on-boarding.
+    let tx_fee = {
+        // Limit the cost by `VALUE_MAX` since we will convert this to a $NEAR amount.
+        // The call to `low_u128` is safe because `VALUE_MAX` is the largest accepted value.
+        let wei_amount = tx.max_fee_per_gas.saturating_mul(tx.gas_limit).min(VALUE_MAX).low_u128();
+        NearToken::from_yoctonear(wei_amount.saturating_mul(MAX_YOCTO_NEAR as u128))
+    };
 
     // The way an honest relayer assigns `target` is as follows:
     // 1. If the Ethereum transaction payload represents a Near action then use the receiver_id,
@@ -62,7 +80,7 @@ pub fn parse_rlp_tx_to_action(
     // Note: the `TargetKind` is determined in `validate_tx_relayer_data` above, and that function
     // also confirms that the `target` is compatible with the user's `tx.to`.
 
-    let (action, transaction_kind) = match parse_tx_data(target, &tx, context) {
+    let (action, transaction_kind) = match parse_tx_data(target, &tx, tx_fee, context) {
         Ok((action, ParsableTransactionKind::NearNativeAction)) => {
             (action, TransactionKind::NearNativeAction)
         }
@@ -79,6 +97,7 @@ pub fn parse_rlp_tx_to_action(
                     Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
                     TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                         address_check: None,
+                        fee: tx_fee,
                     }),
                 )
             } else {
@@ -94,6 +113,7 @@ pub fn parse_rlp_tx_to_action(
                     Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
                     TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                         address_check: Some(address),
+                        fee: tx_fee,
                     }),
                 )
             } else {
@@ -104,23 +124,39 @@ pub fn parse_rlp_tx_to_action(
             error @ (Error::User(UserError::InvalidAbiEncodedData)
             | Error::User(UserError::UnknownFunctionSelector)),
         ) => {
-            // Unparsable actions can still be base token transfers, but no
-            // registrar check is required.
-            if let TargetKind::EthImplicit(_) = target_kind {
-                (
-                    Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
-                    TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
-                        address_check: None,
-                    }),
-                )
-            } else {
-                return Err(error);
+            match target_kind {
+                TargetKind::EthImplicit(_) => {
+                    // Unparsable actions can still be base token transfers, but no
+                    // registrar check is required.
+                    (
+                        Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
+                        TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                            address_check: None,
+                            fee: tx_fee,
+                        }),
+                    )
+                }
+                TargetKind::CurrentAccount => {
+                    // Base token transfers to self are also allowed by the Ethereum standard.
+                    (
+                        Action::Transfer {
+                            receiver_id: context.current_account_id.to_string(),
+                            yocto_near: 0,
+                        },
+                        TransactionKind::EthEmulation(EthEmulationKind::SelfBaseTokenTransfer),
+                    )
+                }
+                TargetKind::OtherNearAccount(_) => {
+                    // No interaction with other Near accounts is possible
+                    // when the payload is not parsable
+                    return Err(error);
+                }
             }
         }
         Err(other_err) => return Err(other_err),
     };
 
-    validate_tx_value(&tx, context, &action)?;
+    validate_tx_value(&tx)?;
 
     // Call to `low_u128` here is safe because of the validation done in `validate_tx_value`
     let near_action = action
@@ -198,6 +234,7 @@ fn parse_target(target: &AccountId, current_address: Address) -> TargetKind<'_> 
 fn parse_tx_data(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
+    fee: NearToken,
     context: &ExecutionContext,
 ) -> Result<(Action, ParsableTransactionKind), Error> {
     if tx.data.len() < 4 {
@@ -210,7 +247,7 @@ fn parse_tx_data(
             if target.as_str() != receiver_id.as_str() {
                 return Err(Error::Relayer(RelayerError::InvalidTarget));
             }
-            if yocto_near > MAX_YOCTO_NEAR {
+            if yocto_near >= MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
             Ok((
@@ -224,7 +261,7 @@ fn parse_tx_data(
             if target.as_str() != receiver_id.as_str() {
                 return Err(Error::Relayer(RelayerError::InvalidTarget));
             }
-            if yocto_near > MAX_YOCTO_NEAR {
+            if yocto_near >= MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
             Ok((
@@ -266,7 +303,7 @@ fn parse_tx_data(
             ))
         }
         _ => {
-            let (action, emulation_kind) = eth_emulation::try_emulation(target, tx, context)?;
+            let (action, emulation_kind) = eth_emulation::try_emulation(target, tx, fee, context)?;
             Ok((action, ParsableTransactionKind::EthEmulation(emulation_kind)))
         }
     }
@@ -321,32 +358,18 @@ fn validate_tx_relayer_data<'a>(
         return Err(Error::Relayer(RelayerError::InvalidNonce));
     }
 
+    // Relayers must attach at least as much gas as the user requested.
+    let gas_limit = if tx.gas_limit < U64_MAX { tx.gas_limit.as_u64() } else { u64::MAX };
+    if env::prepaid_gas().as_gas() < gas_limit.saturating_mul(GAS_MULTIPLIER) {
+        return Err(Error::Relayer(RelayerError::InsufficientGas));
+    }
+
     Ok(target_kind)
 }
 
-fn validate_tx_value(
-    tx: &NormalizedEthTransaction,
-    context: &ExecutionContext,
-    action: &Action,
-) -> Result<(), Error> {
+fn validate_tx_value(tx: &NormalizedEthTransaction) -> Result<(), Error> {
     if tx.value.raw() > VALUE_MAX {
         return Err(Error::User(UserError::ValueTooLarge));
-    }
-
-    let total_value = tx
-        .value
-        .raw()
-        .low_u128()
-        .saturating_mul(MAX_YOCTO_NEAR.into())
-        .saturating_add(action.value().as_yoctonear());
-
-    if total_value > 0 {
-        let is_self_call = context.predecessor_account_id == context.current_account_id;
-        let sufficient_attached_deposit =
-            context.attached_deposit >= NearToken::from_yoctonear(total_value);
-        if !is_self_call && !sufficient_attached_deposit {
-            return Err(Error::Caller(CallerError::InsufficientAttachedValue));
-        }
     }
 
     Ok(())

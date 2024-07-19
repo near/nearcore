@@ -21,7 +21,7 @@ impl Chain {
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if cfg!(feature = "shadow_chunk_validation")
-            || checked_feature!("stable", StatelessValidationV0, protocol_version)
+            || checked_feature!("stable", StatelessValidation, protocol_version)
         {
             let chain_store = self.chain_store();
             let final_block_hash = *block.header().last_final_block();
