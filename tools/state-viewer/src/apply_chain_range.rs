@@ -1,9 +1,7 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-};
+use near_chain::types::{ApplyChunkBlockContext, ApplyChunkShardContext, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -11,7 +9,6 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
@@ -280,19 +277,10 @@ fn apply_block_from_range(
             .unwrap()
     };
 
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        protocol_version,
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals,
-        apply_result.total_gas_burnt,
-        genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-    );
+    let gas_limit = block.chunks()[shard_id as usize].gas_limit();
+    let protocol_version = block.header().latest_protocol_version();
+    let chunk_extra =
+        crate::commands::resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
@@ -304,7 +292,7 @@ fn apply_block_from_range(
             if verbose_output {
                 println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             }
-            if !smart_equals(&existing_chunk_extra, &chunk_extra) {
+            if !crate::commands::chunk_extras_equal(&existing_chunk_extra, &chunk_extra) {
                 panic!("Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
             }
         }
@@ -490,36 +478,6 @@ pub fn apply_chain_range(
         "No differences found after applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
     );
-}
-
-/**
- * With the database migration we can get into the situation where there are different
- * ChunkExtra versions in database and produced by `neard` playback. Consider them equal as
- * long as the content is equal.
- */
-fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
-    if (extra1.outcome_root() != extra2.outcome_root())
-        || (extra1.state_root() != extra2.state_root())
-        || (extra1.gas_limit() != extra2.gas_limit())
-        || (extra1.gas_used() != extra2.gas_used())
-        || (extra1.balance_burnt() != extra2.balance_burnt())
-    {
-        return false;
-    }
-    let mut proposals1 = extra1.validator_proposals();
-    let mut proposals2 = extra2.validator_proposals();
-    if proposals1.len() != proposals2.len() {
-        return false;
-    }
-    for _ in 0..proposals1.len() {
-        let p1 = proposals1.next().unwrap();
-        let p2 = proposals2.next().unwrap();
-
-        if p1.into_v1() != p2.into_v1() {
-            return false;
-        }
-    }
-    true
 }
 
 #[cfg(test)]
