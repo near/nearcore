@@ -63,7 +63,11 @@ nodes[0].kill()
 
 for i in range(1, EPOCH_LENGTH * 6):
     res = nodes[1].json_rpc('block', [i], timeout=10)
-    assert 'error' in res, f'height {i}, {res}'
+    # State sync fetches a block at height EPOCH * LENGTH - 1
+    if i == EPOCH_LENGTH * 3 - 1:
+        assert 'result' in res, f'height {i}, {res}'
+    else:
+        assert 'error' in res, f'height {i}, {res}'
 
 for i in range(EPOCH_LENGTH * 6, EPOCH_LENGTH * 10 + 1):
     res = nodes[1].json_rpc('block', [i], timeout=10)
