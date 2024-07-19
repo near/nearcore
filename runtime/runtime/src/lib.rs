@@ -447,6 +447,7 @@ impl Runtime {
                     &apply_state.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
+                    None,
                 );
                 action_function_call(
                     state_update,

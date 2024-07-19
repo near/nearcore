@@ -250,6 +250,7 @@ impl TrieViewer {
             config,
             true,
             epoch_info_provider,
+            Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         );
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -270,7 +271,6 @@ impl TrieViewer {
             &mut runtime_ext,
             &function_call,
             config,
-            Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         )
         .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
         let elapsed = now.elapsed();

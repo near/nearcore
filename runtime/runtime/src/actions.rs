@@ -52,7 +52,6 @@ pub(crate) fn execute_function_call(
     runtime_ext: &mut RuntimeExt,
     function_call: &FunctionCallAction,
     config: &RuntimeConfig,
-    view_config: Option<ViewConfig>,
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id().clone();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
@@ -118,11 +117,12 @@ pub(crate) fn execute_function_call(
         Ok(r) => r,
     };
 
-    if !view_config.is_some() {
+    if !context.view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }
+
     Ok(outcome)
 }
 
@@ -139,6 +139,7 @@ pub(crate) fn prepare_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
+    view_config: Option<ViewConfig>,
 ) -> (VMContext, Box<dyn PreparedContract>) {
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -169,7 +170,7 @@ pub(crate) fn prepare_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config: None,
+        view_config,
         output_data_receivers,
     };
     let code_ext = RuntimeContractExt {
@@ -232,7 +233,6 @@ pub(crate) fn action_function_call(
         &mut runtime_ext,
         function_call,
         config,
-        None,
     )?;
 
     match &outcome.aborted {
