@@ -250,7 +250,6 @@ impl TrieViewer {
             signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
                 .expect("Failed to serialize"),
             predecessor_account_id: originator_id.clone(),
-            method: function_call.method_name.clone(),
             input: function_call.args.clone(),
             promise_results: [].into(),
             block_height: apply_state.block_height,

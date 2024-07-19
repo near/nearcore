@@ -122,7 +122,7 @@ fn make_cached_contract_call_vm(
         MockedExternal::new()
     };
     fake_external.code_hash = code_hash;
-    let mut context = create_context(method_name, vec![]);
+    let mut context = create_context(vec![]);
     let fees = Arc::new(RuntimeFeesConfig::test());
     context.prepaid_gas = prepaid_gas;
     let gas_counter = context.make_gas_counter(&config);

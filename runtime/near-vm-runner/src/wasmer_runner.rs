@@ -493,7 +493,12 @@ impl crate::runner::VM for Wasmer0VM {
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         );
-        let result = PreparationResult::Ready(ReadyContract { vm: self, memory, module });
+        let result = PreparationResult::Ready(ReadyContract {
+            vm: self,
+            memory,
+            module,
+            method: method.into(),
+        });
         Box::new(Ok(PreparedContract { config, gas_counter, result }))
     }
 }
@@ -502,6 +507,7 @@ struct ReadyContract {
     vm: Box<Wasmer0VM>,
     memory: WasmerMemory,
     module: Module,
+    method: String,
 }
 
 struct PreparedContract {
@@ -526,7 +532,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> Result<VMOutcome, VMRunnerError> {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { vm, memory, module } = match result {
+        let ReadyContract { vm, memory, module, method } = match result {
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
             }
@@ -539,7 +545,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let memory_copy = memory.clone();
         let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
         let import_object = build_imports(memory_copy, &vm.config, &mut logic);
-        match run_method(&module, &import_object, &context.method)? {
+        match run_method(&module, &import_object, &method)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         }

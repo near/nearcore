@@ -20,8 +20,6 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
-    /// The name of the method to invoke.
-    pub method: String,
     /// The input to the contract call.
     /// Encoded as base64 string to be able to pass input in borsh binary format.
     pub input: Vec<u8>,

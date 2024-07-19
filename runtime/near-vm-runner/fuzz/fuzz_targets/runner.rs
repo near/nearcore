@@ -19,7 +19,7 @@ libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
 fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    let mut context = create_context(&method_name, vec![]);
+    let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
     let mut wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
     wasm_config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know

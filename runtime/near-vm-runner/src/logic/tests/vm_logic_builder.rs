@@ -70,7 +70,6 @@ fn get_context() -> VMContext {
         signer_account_id: "bob.near".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol.near".parse().unwrap(),
-        method: "VMLogicBuilder::method_not_specified".into(),
         input: vec![0, 1, 2, 3, 4],
         promise_results: vec![].into(),
         block_height: 10,

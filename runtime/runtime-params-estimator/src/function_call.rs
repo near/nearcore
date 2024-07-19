@@ -71,14 +71,14 @@ fn compute_function_call_cost(
     let vm_config = runtime_config.wasm_config.clone();
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
-    let fake_context = create_context("hello0", vec![]);
+    let fake_context = create_context(vec![]);
 
     // Warmup.
     for _ in 0..warmup_repeats {
         let gas_counter = fake_context.make_gas_counter(&vm_config);
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .prepare(&fake_external, cache, gas_counter, &fake_context.method)
+            .prepare(&fake_external, cache, gas_counter, "hello0")
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal error");
         assert!(result.aborted.is_none());
@@ -89,7 +89,7 @@ fn compute_function_call_cost(
         let gas_counter = fake_context.make_gas_counter(&vm_config);
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .prepare(&fake_external, cache, gas_counter, &fake_context.method)
+            .prepare(&fake_external, cache, gas_counter, "hello0")
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_none());

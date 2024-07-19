@@ -16,13 +16,13 @@ pub fn test_ts_contract() {
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::with_code(code);
-        let context = create_context("try_panic", Vec::new());
+        let context = create_context(Vec::new());
         let fees = Arc::new(RuntimeFeesConfig::test());
 
         // Call method that panics.
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
-        let result = runtime.prepare(&fake_external, None, gas_counter, &context.method).run(
+        let result = runtime.prepare(&fake_external, None, gas_counter, "try_panic").run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
@@ -36,11 +36,11 @@ pub fn test_ts_contract() {
         );
 
         // Call method that writes something into storage.
-        let context = create_context("try_storage_write", b"foo bar".to_vec());
+        let context = create_context(b"foo bar".to_vec());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
         runtime
-            .prepare(&fake_external, None, gas_counter, &context.method)
+            .prepare(&fake_external, None, gas_counter, "try_storage_write")
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
@@ -53,11 +53,11 @@ pub fn test_ts_contract() {
         }
 
         // Call method that reads the value from storage using registers.
-        let context = create_context("try_storage_read", b"foo".to_vec());
+        let context = create_context(b"foo".to_vec());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
         let outcome = runtime
-            .prepare(&fake_external, None, gas_counter, &context.method)
+            .prepare(&fake_external, None, gas_counter, "try_storage_read")
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("execution failed");
 

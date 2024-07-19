@@ -335,7 +335,12 @@ impl crate::runner::VM for WasmtimeVM {
                     self.config.limit_config.max_memory_pages,
                 )
                 .unwrap();
-                let result = PreparationResult::Ready(ReadyContract { store, memory, module });
+                let result = PreparationResult::Ready(ReadyContract {
+                    store,
+                    memory,
+                    module,
+                    method: method.into(),
+                });
                 Ok(PreparedContract { config, gas_counter, result })
             },
         );
@@ -347,6 +352,7 @@ struct ReadyContract {
     store: Store<()>,
     memory: WasmtimeMemory,
     module: Module,
+    method: String,
 }
 
 struct PreparedContract {
@@ -371,7 +377,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { mut store, memory, module } = match result {
+        let ReadyContract { mut store, memory, module, method } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -390,7 +396,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // figure it out...
         link(&mut linker, memory_copy, &store, &config, &mut logic);
         match linker.instantiate(&mut store, &module) {
-            Ok(instance) => match instance.get_func(&mut store, &context.method) {
+            Ok(instance) => match instance.get_func(&mut store, &method) {
                 Some(func) => match func.typed::<(), ()>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
                         Ok(_) => Ok(VMOutcome::ok(logic.result_state)),
