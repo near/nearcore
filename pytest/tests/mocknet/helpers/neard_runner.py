@@ -895,7 +895,7 @@ class NeardRunner:
         out_path = os.path.join(self.neard_logs_dir, self.neard_logs_file_name)
         with open(out_path, 'ab') as out:
             if self.is_traffic_generator():
-                self.get_start_traffic_generator_cmd(batch_interval_millis)
+                cmd = self.get_start_traffic_generator_cmd(batch_interval_millis)
             else:
                 cmd = self.get_start_cmd()
 
@@ -962,6 +962,8 @@ class NeardRunner:
 
             cmd.append('--config-path')
             cmd.append(self.target_near_home_path('mirror-config.json'))
+
+        return cmd
 
     # returns a bool that tells whether we should attempt a restart
     def on_neard_died(self):
