@@ -5,7 +5,7 @@ import json
 import os
 import pathlib
 import rc
-from geventhttpclient import Session
+from geventhttpclient import Session, useragent
 import shutil
 import signal
 import subprocess
@@ -434,17 +434,20 @@ class BaseNode(object):
 
     def check_store(self):
         if self.is_check_store:
-            res = self.json_rpc('adv_check_store', [])
-            if not 'result' in res:
-                # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+            try:
+                res = self.json_rpc('adv_check_store', [])
+                if not 'result' in res:
+                    # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+                    pass
+                else:
+                    if res['result'] == 0:
+                        logger.error(
+                            "Storage for %s:%s in inconsistent state, stopping" %
+                            self.addr())
+                        self.kill()
+                    self.store_tests += res['result']
+            except useragent.BadStatusCode:
                 pass
-            else:
-                if res['result'] == 0:
-                    logger.error(
-                        "Storage for %s:%s in inconsistent state, stopping" %
-                        self.addr())
-                    self.kill()
-                self.store_tests += res['result']
 
 
 class RpcNode(BaseNode):
