@@ -1360,9 +1360,7 @@ async fn rpc_handler(
         match &response.result {
             Ok(_) => HttpResponse::Ok(),
             Err(err) => match err.error_struct {
-                Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
-                    HttpResponse::InternalServerError()
-                }
+                Some(RpcErrorKind::InternalError(_)) => HttpResponse::InternalServerError(),
                 _ => HttpResponse::Ok(),
             },
         }
