@@ -1,5 +1,6 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
+use crate::trim_database;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
@@ -39,7 +40,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
 /// Use the following sub-commands:
@@ -412,15 +412,34 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        tracing::info!("Delete unneeded columns in the original DB");
-        let mut update = store.store_update();
-        for col in DBCol::iter() {
-            match col {
-                DBCol::DbVersion | DBCol::Misc | DBCol::State | DBCol::FlatState => {}
-                _ => update.delete_all(col),
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
+        let temp_store_home = store_path.join("temp-trimmed-db");
+        if std::fs::metadata(&temp_store_home).is_ok() {
+            anyhow::bail!("Temp trimmed DB already exists; please delete temp-trimmed-db in the data directory first");
+        }
+        let temp_storage = open_storage(&temp_store_home, near_config).unwrap();
+        let temp_store = temp_storage.get_hot_store();
+        let temp_store_path = temp_store_home.join("data");
+
+        trim_database::trim_database(store, &near_config.genesis.config, temp_store)?;
+        drop((storage, temp_storage));
+
+        tracing::info!("Removing all current data");
+        for entry in std::fs::read_dir(&store_path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                std::fs::remove_file(&entry.path())?;
             }
         }
-        update.commit()?;
+        tracing::info!("Moving in the new database");
+        for entry in std::fs::read_dir(&temp_store_path)? {
+            let entry = entry?;
+            std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
+        }
+        std::fs::remove_dir(&temp_store_path)?;
+        std::fs::remove_dir(&temp_store_home)?;
+
         Ok(())
     }
 
