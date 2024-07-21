@@ -52,9 +52,7 @@ fn get_promise_resume_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHas
 }
 
 /// Create environment with deployed test contract.
-fn prepare_env(
-    test_env_gas_limit: Option<u64>,
-) -> TestEnv {
+fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     if let Some(gas_limit) = test_env_gas_limit {
