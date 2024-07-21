@@ -442,8 +442,8 @@ class BaseNode(object):
                 else:
                     if res['result'] == 0:
                         logger.error(
-                            "Storage for %s:%s in inconsistent state, stopping" %
-                            self.addr())
+                            "Storage for %s:%s in inconsistent state, stopping"
+                            % self.addr())
                         self.kill()
                     self.store_tests += res['result']
             except useragent.BadStatusCode:
