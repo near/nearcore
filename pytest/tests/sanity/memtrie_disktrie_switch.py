@@ -45,12 +45,12 @@ SHARD_LAYOUT = {
 
 NUM_SHARDS = len(SHARD_LAYOUT["V1"]["boundary_accounts"]) + 1
 
-ALL_ACCOUNTS = [
-    "aaa.test0",
-    "ggg.test0",
-    "lll.test0",
-    "rrr.test0",
-    "vvv.test0",
+ALL_ACCOUNTS_PREFIXES = [
+    "aaa",
+    "ggg",
+    "lll",
+    "rrr",
+    "vvv",
 ]
 
 TxHash = str
@@ -135,12 +135,19 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         stop_height = random.randint(1, EPOCH_LENGTH)
         return current_height + num_epochs * EPOCH_LENGTH + stop_height
 
-    def next_nonce(self, signer_key):
+    def __next_nonce(self, signer_key):
         """Returns the next nonce to use for sending transactions for the given signing key."""
         assert signer_key in self.nonces
         nonce = self.nonces[signer_key]
-        self.nonces[signer_key] = nonce + 42
+        self.nonces[signer_key] = nonce + 1
         return nonce
+
+    def __retrieve_nonces(self, account_keys):
+        """Retrieves the next nonce for the accounts and stores them locally."""
+        for account_key in account_keys:
+            nonce = self.rpc_node.get_nonce_for_pk(account_key.account_id,
+                                                   account_key.pk) + 1
+            self.nonces[account_key] = nonce
 
     def __restart_nodes(self, enable_memtries):
         """Stops and restarts the nodes with the config that enables/disables memtries.
@@ -179,7 +186,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 ] + ["near"])
                 payment_tx = transaction.sign_payment_tx(
                     from_account_key, to_account_id, 1,
-                    self.next_nonce(from_account_key), last_block_hash)
+                    self.__next_nonce(from_account_key), last_block_hash)
                 result = self.rpc_node.send_tx(payment_tx)
                 assert 'result' in result and 'error' not in result, (
                     'Expected "result" and no "error" in response, got: {}'.
@@ -194,7 +201,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                     tx = transaction.sign_function_call_tx(
                         account_key, account_key.account_id,
                         'read_value', key, 300 * TGAS, 0,
-                        self.next_nonce(account_key), last_block_hash)
+                        self.__next_nonce(account_key), last_block_hash)
                     result = self.rpc_node.send_tx(tx)
                     assert 'result' in result and 'error' not in result, (
                         'Expected "result" and no "error" in response, got: {}'.
@@ -210,7 +217,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                     tx = transaction.sign_function_call_tx(
                         account_key, account_key.account_id, 'write_key_value',
                         key + random_u64(), 300 * TGAS, 0,
-                        self.next_nonce(account_key), last_block_hash)
+                        self.__next_nonce(account_key), last_block_hash)
                     result = self.rpc_node.send_tx(tx)
                     assert 'result' in result and 'error' not in result, (
                         'Expected "result" and no "error" in response, got: {}'.
@@ -229,7 +236,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
             contract = utils.load_test_contract()
             last_block_hash = self.rpc_node.get_latest_block().hash_bytes
             deploy_contract_tx = transaction.sign_deploy_contract_tx(
-                account_key, contract, self.next_nonce(account_key),
+                account_key, contract, self.__next_nonce(account_key),
                 last_block_hash)
             result = self.rpc_node.send_tx(deploy_contract_tx)
             assert 'result' in result and 'error' not in result, (
@@ -244,38 +251,39 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
     def __create_accounts(self):
         """Creates the test accounts.
-        
+
         Waits for the create-account transactions to complete."""
+
+        # Update nonces for the validator accounts, as we will use them to create the new accounts.
+        self.__retrieve_nonces([node.signer_key for node in self.nodes])
+
+        create_account_tx_list = []
         account_keys = []
-        for account_id in ALL_ACCOUNTS:
+        for i in range(len(ALL_ACCOUNTS_PREFIXES)):
+            # Choose one of the nodes to sign the transaction for creating the new account.
+            # We do not use a single node to sign all the transactions, since transactions and
+            # their nonces can be reordered, which would invalidate the transactions with smaller nonces.
+            signer_key = self.nodes[i].signer_key
+
+            # Append the signer validator's account id to the account id to make is a valid AccountId.
+            account_id = ALL_ACCOUNTS_PREFIXES[i] + '.' + signer_key.account_id
             account_key = key.Key.from_random(account_id)
             account_keys.append(account_key)
 
-        # Use the first validator node to sign the transactions.
-        signer_key = self.nodes[0].signer_key
-        # Update nonce of the signer account using the access key nonce.
-        signer_nonce = self.rpc_node.get_nonce_for_pk(signer_key.account_id,
-                                                      signer_key.pk) + 42
-
-        create_account_tx_list = []
-        for account_key in account_keys:
             tx_hash = self.__create_account(account_key, 1000 * ONE_NEAR,
-                                            signer_key, signer_nonce)
-            signer_nonce += 1
+                                            signer_key)
             create_account_tx_list.append((signer_key.account_id, tx_hash))
             logger.info(
                 f"Creating account: {account_key.account_id}, tx: {tx_hash}")
+
         self.__wait_for_txs(create_account_tx_list)
 
-        # Update nonces for the newly created accounts using the access key nonces.
-        for account_key in account_keys:
-            nonce = self.rpc_node.get_nonce_for_pk(account_key.account_id,
-                                                   account_key.pk) + 42
-            self.nonces[account_key] = nonce
+        # Update nonces for the newly created accounts.
+        self.__retrieve_nonces(account_keys)
 
         self.account_keys = account_keys
 
-    def __create_account(self, account_key, balance, signer_key, signer_nonce):
+    def __create_account(self, account_key, balance, signer_key):
         block_hash = self.rpc_node.get_latest_block().hash_bytes
         new_signer_key = key.Key(
             account_key.account_id,
@@ -287,7 +295,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
             account_key.account_id,
             new_signer_key,
             balance,
-            signer_nonce,
+            self.__next_nonce(signer_key),
             block_hash,
         )
         result = self.rpc_node.send_tx(create_account_tx)

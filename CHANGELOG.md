@@ -6,6 +6,7 @@
 * Congestion Control [NEP-0539](https://github.com/near/NEPs/pull/539)
 * Stateless Validation [NEP-0509](https://github.com/near/NEPs/pull/509)
 * Eth-Implicit Accounts [NEP-0518](https://github.com/near/NEPs/pull/518)
+* Host Functions for BLS12-381 Curve Operations [NEP-0488](https://github.com/near/NEPs/pull/488)
 
 ### Non-protocol Changes
 

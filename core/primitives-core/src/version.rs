@@ -132,7 +132,6 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonrefundableStorage,
     // NEP: https://github.com/near/NEPs/pull/488
-    #[cfg(feature = "protocol_feature_bls12381")]
     BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
@@ -210,7 +209,7 @@ impl ProtocolFeature {
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
-            ProtocolFeature::EthImplicitAccounts => 70,
+            ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -226,8 +225,6 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
-            #[cfg(feature = "protocol_feature_bls12381")]
-            ProtocolFeature::BLS12381 => 141,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
