@@ -10,7 +10,7 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::version::ProtocolFeature::StatelessValidationV0;
+use near_primitives::version::ProtocolFeature::StatelessValidation;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 use nearcore::NightshadeRuntime;
@@ -114,7 +114,7 @@ fn test_burn_mint() {
         .as_u128()
     };
     // In stateless validation, chunk endorsements are also included in the reward calculation.
-    let expected_total_supply = if StatelessValidationV0.enabled(PROTOCOL_VERSION) {
+    let expected_total_supply = if StatelessValidation.enabled(PROTOCOL_VERSION) {
         // supply + 1% of protocol rewards + 2/3 * 9% of validator rewards.
         initial_total_supply + epoch_total_reward * 700 / 1000 - half_transfer_cost
     } else {

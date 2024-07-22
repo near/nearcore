@@ -37,14 +37,8 @@ struct WalletContract {
 }
 
 impl WalletContract {
-    #[cfg(feature = "nightly")]
     const fn new(code: &'static [u8]) -> Self {
         Self { contract: OnceLock::new(), magic_bytes: OnceLock::new(), code }
-    }
-
-    #[cfg(not(feature = "nightly"))]
-    const fn new(_code: &'static [u8]) -> Self {
-        Self { contract: OnceLock::new(), magic_bytes: OnceLock::new(), code: &[] }
     }
 
     fn read_contract(&self) -> Arc<ContractCode> {
@@ -62,7 +56,6 @@ impl WalletContract {
     }
 }
 
-#[cfg(feature = "nightly")]
 #[cfg(test)]
 mod tests {
     use crate::{wallet_contract, wallet_contract_magic_bytes};
@@ -74,24 +67,24 @@ mod tests {
 
     #[test]
     fn check_mainnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "8FBpAzxX5tUBdymyi7GzQDaemc9aZ36LsN2u7LKMPKQS";
-        const MAGIC_BYTES_HASH: &'static str = "5QFxBYLfxLAZyMU6SRp77B3g17Mo5AcxVvp7zG77L1hY";
+        const WALLET_CONTRACT_HASH: &'static str = "83PPBGX9KNgC2TRJgX7mvZfFPx92bFkdYvZNARQjRt8G";
+        const MAGIC_BYTES_HASH: &'static str = "34E1b7f2S3XjvjZv4RXiQ3GM9ioJtCoECT3CiyWwmxAQ";
         check_wallet_contract(MAINNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(MAINNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
     }
 
     #[test]
     fn check_testnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "8tfDr2HUYU5wMVTgc3XdBm5qGH3Bg7VkGUWZAsHnDkud";
-        const MAGIC_BYTES_HASH: &'static str = "42dPV6SXMU7iDnTkXexr4RnGoDYj4HcotkWbH15K7CT9";
+        const WALLET_CONTRACT_HASH: &'static str = "3Za8tfLX6nKa2k4u2Aq5CRrM7EmTVSL9EERxymfnSFKd";
+        const MAGIC_BYTES_HASH: &'static str = "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ";
         check_wallet_contract(TESTNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(TESTNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
     }
 
     #[test]
     fn check_localnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "Gp6zEtywMeB228VU31nV4GBF2pKtVseoVBgfPQvNz7zN";
-        const MAGIC_BYTES_HASH: &'static str = "7H117uXfLUKWN25KCF6eBErvpg5qg2f1Kuz1uwY47DDA";
+        const WALLET_CONTRACT_HASH: &'static str = "2dQzuvePVCmkXwe1oF3AgY9pZvqtDtq43nFHph928CU4";
+        const MAGIC_BYTES_HASH: &'static str = "EGfMEySfUgt9cti4TENBLk9mMK3t8SFXr8YowJ7G5pXK";
         const LOCALNET: &str = "localnet";
         check_wallet_contract(LOCALNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(LOCALNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);

@@ -2,6 +2,7 @@ mod client;
 mod dependencies;
 mod genesis_helpers;
 mod nearcore;
+#[cfg(feature = "new_epoch_sync")]
 mod nearcore_utils;
 mod network;
 mod runtime;

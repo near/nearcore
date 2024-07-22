@@ -178,7 +178,7 @@ expression: config_view
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
-    "discard_custom_sections": false,
+    "discard_custom_sections": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
@@ -186,7 +186,7 @@ expression: config_view
     "ed25519_verify": true,
     "alt_bn128": true,
     "function_call_weight": true,
-    "eth_implicit_accounts": false,
+    "eth_implicit_accounts": true,
     "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,

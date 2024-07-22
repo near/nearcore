@@ -1534,8 +1534,15 @@ fn test_genesis_hash() {
         StateSnapshotType::EveryEpoch,
     );
 
-    let block = Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)
-        .unwrap();
+    let state_roots =
+        get_genesis_state_roots(runtime.store()).unwrap().expect("genesis should be initialized.");
+    let (block, _chunks) = Chain::make_genesis_block(
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
+        &chain_genesis,
+        state_roots,
+    )
+    .unwrap();
     assert_eq!(block.header().hash().to_string(), "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H");
 
     let epoch_manager = EpochManager::new_from_genesis_config(store, &genesis.config).unwrap();
@@ -1672,7 +1679,7 @@ fn prepare_transactions(
 /// Check that transactions validation works the same when using recorded storage proof instead of db.
 #[test]
 fn test_prepare_transactions_storage_proof() {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -1721,7 +1728,7 @@ fn test_prepare_transactions_storage_proof() {
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -1769,7 +1776,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         return;
     }
     let shard_id = 0;
