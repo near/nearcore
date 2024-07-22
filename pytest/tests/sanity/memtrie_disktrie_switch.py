@@ -139,14 +139,14 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         """Returns the next nonce to use for sending transactions for the given signing key."""
         assert signer_key in self.nonces
         nonce = self.nonces[signer_key]
-        self.nonces[signer_key] = nonce + 42
+        self.nonces[signer_key] = nonce + 1
         return nonce
 
     def __retrieve_nonces(self, account_keys):
         """Retrieves the next nonce for the accounts and stores them locally."""
         for account_key in account_keys:
             nonce = self.rpc_node.get_nonce_for_pk(account_key.account_id,
-                                                   account_key.pk) + 42
+                                                   account_key.pk) + 1
             self.nonces[account_key] = nonce
 
     def __restart_nodes(self, enable_memtries):
@@ -260,10 +260,10 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         create_account_tx_list = []
         account_keys = []
         for i in range(len(ALL_ACCOUNTS_PREFIXES)):
-            # Choose a validator node to sign the transaction for creating the new account.
-            # We do not use a single validator, since transactions and their nonces can be
-            # reordered, which will make the transactions with smaller nonces invalid.
-            signer_key = self.nodes[i % len(self.nodes)].signer_key
+            # Choose one of the nodes to sign the transaction for creating the new account.
+            # We do not use a single node to sign all the transactions, since transactions and
+            # their nonces can be reordered, which would invalidate the transactions with smaller nonces.
+            signer_key = self.nodes[i].signer_key
 
             # Append the signer validator's account id to the account id to make is a valid AccountId.
             account_id = ALL_ACCOUNTS_PREFIXES[i] + '.' + signer_key.account_id
