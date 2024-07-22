@@ -16,8 +16,11 @@ nearup stop
 # Build the project
 make neard
 
+# Clean data for the next run TODO: should be more robust for stateful runs
+rm -rf ~/.near/localnet/node0/data
+
 # Start neard
-nearup run localnet --binary-path target/release/ --num-nodes $NODES --num-shards $SHARDS --override
+nearup run localnet --binary-path target/release/ --num-nodes $NODES --num-shards $SHARDS
 
 # Prepare python environment
 python3 -m venv .venv
