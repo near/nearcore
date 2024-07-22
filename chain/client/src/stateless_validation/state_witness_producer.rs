@@ -34,7 +34,7 @@ impl Client {
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if !checked_feature!("stable", StatelessValidation, protocol_version) {
             return Ok(());
         }
         let chunk_header = chunk.cloned_header();

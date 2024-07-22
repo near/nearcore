@@ -13,7 +13,7 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use std::string::ToString;
 
 fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -56,7 +56,7 @@ fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
     }
     let genesis = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas } = builder
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .clients(clients)
         // Drop only chunks validated by `account_id`.
@@ -97,7 +97,7 @@ fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
         Duration::seconds((5 * epoch_length) as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_datas }
+    TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

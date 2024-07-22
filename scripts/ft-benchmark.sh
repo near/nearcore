@@ -8,6 +8,7 @@ date
 # Otherwise nearup and cargo don't work even if installed properly
 PATH=/home/ubuntu/.local/bin/:$PATH
 export PATH=$PATH:$HOME/.cargo/bin
+source benchmarks/continous/db/tool/dbprofile
 
 # Fetch the latest changes from the remote
 git fetch

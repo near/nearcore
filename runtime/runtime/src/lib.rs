@@ -53,9 +53,9 @@ use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_code, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
+    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
+    set_access_key, set_account, set_code, set_postponed_receipt, set_promise_yield_receipt,
+    set_received_data, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -1330,6 +1330,17 @@ impl Runtime {
             vec![]
         };
 
+        // Remove the only testnet account with large storage key.
+        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
+            && migration_flags.is_first_block_with_chunk_of_version
+        {
+            let account_id = "contractregistry.testnet".parse().unwrap();
+            if get_account(state_update, &account_id)?.is_some() {
+                remove_account(state_update, &account_id)?;
+                state_update.commit(StateChangeCause::Migration);
+            }
+        }
+
         Ok((gas_used, receipts_to_restore))
     }
 
@@ -1399,9 +1410,8 @@ impl Runtime {
             .map_err(RuntimeError::StorageError)?;
         processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
-        let delayed_receipts = DelayedReceiptQueueWrapper::new(DelayedReceiptQueue::load(
-            &processing_state.state_update,
-        )?);
+        let delayed_receipts = DelayedReceiptQueue::load(&processing_state.state_update)?;
+        let delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts);
 
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
@@ -1519,13 +1529,9 @@ impl Runtime {
                     processing_state.epoch_info_provider,
                 )?;
             }
-            total.add(
-                outcome_with_id.outcome.gas_burnt,
-                outcome_with_id
-                    .outcome
-                    .compute_usage
-                    .expect("`process_transaction` must populate compute usage"),
-            )?;
+            let compute = outcome_with_id.outcome.compute_usage;
+            let compute = compute.expect("`process_transaction` must populate compute usage");
+            total.add(outcome_with_id.outcome.gas_burnt, compute)?;
             if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
                 assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
             }
@@ -1789,12 +1795,11 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
-        let proof_size_limit =
-            if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
-                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
-            } else {
-                None
-            };
+        let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+        } else {
+            None
+        };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
@@ -1953,6 +1958,7 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
+        metrics::report_recorded_column_sizes(&trie, &apply_state);
         let proof = trie.recorded_storage();
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;
@@ -3459,7 +3465,7 @@ mod tests {
 
     #[test]
     fn test_main_storage_proof_size_soft_limit() {
-        if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
             return;
         }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =

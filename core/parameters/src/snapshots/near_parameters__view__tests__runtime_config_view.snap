@@ -18,7 +18,7 @@ expression: "&view"
       },
       "cost_per_byte": {
         "send_sir": 17212011,
-        "send_not_sir": 17212011,
+        "send_not_sir": 47683715,
         "execution": 17212011
       }
     },
@@ -35,7 +35,7 @@ expression: "&view"
       },
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
-        "send_not_sir": 6812999,
+        "send_not_sir": 47683715,
         "execution": 64572944
       },
       "function_call_cost": {
@@ -45,7 +45,7 @@ expression: "&view"
       },
       "function_call_cost_per_byte": {
         "send_sir": 2235934,
-        "send_not_sir": 2235934,
+        "send_not_sir": 47683715,
         "execution": 2235934
       },
       "transfer_cost": {
@@ -71,7 +71,7 @@ expression: "&view"
         },
         "function_call_cost_per_byte": {
           "send_sir": 1925331,
-          "send_not_sir": 1925331,
+          "send_not_sir": 47683715,
           "execution": 1925331
         }
       },
@@ -178,6 +178,7 @@ expression: "&view"
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
+    "discard_custom_sections": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
@@ -185,7 +186,7 @@ expression: "&view"
     "ed25519_verify": true,
     "alt_bn128": true,
     "function_call_weight": true,
-    "eth_implicit_accounts": false,
+    "eth_implicit_accounts": true,
     "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
@@ -205,8 +206,8 @@ expression: "&view"
       "max_arguments_length": 4194304,
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
-      "max_transaction_size": 4194304,
-      "max_receipt_size": 999999999999999,
+      "max_transaction_size": 1572864,
+      "max_receipt_size": 4194304,
       "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
@@ -217,7 +218,7 @@ expression: "&view"
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "per_receipt_storage_proof_size_limit": 999999999999999
+      "per_receipt_storage_proof_size_limit": 4000000
     }
   },
   "account_creation_config": {
@@ -225,22 +226,22 @@ expression: "&view"
     "registrar_account_id": "registrar"
   },
   "congestion_control_config": {
-    "max_congestion_incoming_gas": 9223372036854775807,
-    "max_congestion_outgoing_gas": 9223372036854775807,
-    "max_congestion_memory_consumption": 9223372036854775807,
-    "max_congestion_missed_chunks": 9223372036854775807,
-    "max_outgoing_gas": 9223372036854775807,
-    "min_outgoing_gas": 9223372036854775807,
-    "allowed_shard_outgoing_gas": 9223372036854775807,
-    "max_tx_gas": 9223372036854775807,
-    "min_tx_gas": 9223372036854775807,
-    "reject_tx_congestion_threshold": 1.0,
-    "outgoing_receipts_usual_size_limit": 999999999999999,
-    "outgoing_receipts_big_size_limit": 999999999999999
+    "max_congestion_incoming_gas": 20000000000000000,
+    "max_congestion_outgoing_gas": 10000000000000000,
+    "max_congestion_memory_consumption": 1000000000,
+    "max_congestion_missed_chunks": 5,
+    "max_outgoing_gas": 300000000000000000,
+    "min_outgoing_gas": 1000000000000000,
+    "allowed_shard_outgoing_gas": 1000000000000000,
+    "max_tx_gas": 500000000000000,
+    "min_tx_gas": 20000000000000,
+    "reject_tx_congestion_threshold": 0.5,
+    "outgoing_receipts_usual_size_limit": 102400,
+    "outgoing_receipts_big_size_limit": 4718592
   },
   "witness_config": {
-    "main_storage_proof_size_soft_limit": 999999999999999,
-    "combined_transactions_size_limit": 999999999999999,
-    "new_transactions_validation_state_size_soft_limit": 999999999999999
+    "main_storage_proof_size_soft_limit": 3000000,
+    "combined_transactions_size_limit": 4194304,
+    "new_transactions_validation_state_size_soft_limit": 572864
   }
 }

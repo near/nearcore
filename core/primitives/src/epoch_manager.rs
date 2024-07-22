@@ -6,6 +6,7 @@ use crate::types::{
     AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, ProtocolVersion,
     ValidatorId, ValidatorKickoutReason,
 };
+use crate::version::ProtocolFeature;
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
@@ -13,9 +14,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
-
-#[cfg(feature = "nightly")]
-use crate::version::ProtocolFeature;
 
 pub type RngSeed = [u8; 32];
 
@@ -177,6 +175,7 @@ impl AllEpochConfig {
     }
 
     /// Configures statelessnet-specific features only.
+    /// TODO: Remove this function when statelessnet is no longer used.
     fn config_stateless_net(
         config: &mut EpochConfig,
         chain_id: &str,
@@ -187,7 +186,7 @@ impl AllEpochConfig {
         }
         // Lower the kickout threshold so the network is more stable while
         // we figure out issues with block and chunk production.
-        if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
             config.chunk_validator_only_kickout_threshold = 50;
@@ -260,18 +259,22 @@ impl AllEpochConfig {
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
         if chain_id == near_primitives_core::chains::TESTNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
-            && !checked_feature!("stable", NoChunkOnlyProducers, protocol_version)
         {
             let shard_ids = config.shard_layout.shard_ids();
-            // Decrease the number of block producers from 100 to 20.
+            // Decrease the number of block and chunk producers from 100 to 20.
             config.num_block_producer_seats = 20;
+            // Checking feature NoChunkOnlyProducers in stateless validation
+            if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+                config.validator_selection_config.num_chunk_producer_seats = 20;
+            }
             config.num_block_producer_seats_per_shard =
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
         }
 
-        if checked_feature!("stable", NoChunkOnlyProducers, protocol_version) {
+        // Checking feature NoChunkOnlyProducers in stateless validation
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             // Make sure there is no chunk only producer in stateless validation
             config.validator_selection_config.num_chunk_only_producer_seats = 0;
         }
@@ -629,6 +632,7 @@ pub mod epoch_info {
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
 
+    use near_primitives_core::version::ProtocolFeature;
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -801,7 +805,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+                if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,

@@ -192,12 +192,8 @@ def run_test(cluster: Cluster) -> None:
         assert False
 
     # Since Fred’s in-memory cache is clear, all Barney’s requests are served
-    # from storage.  Since DBCol::PartialChunks is garbage collected, some of the
-    # requests are served from DBCol::Chunks.
-    assert_metrics(get_metrics('fred', fred), (
-        'chunk/ok',
-        'partial/ok',
-    ))
+    # from storage.
+    assert_metrics(get_metrics('fred', fred), ('partial/ok',))
 
 
 if __name__ == '__main__':

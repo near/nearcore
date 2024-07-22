@@ -16,8 +16,9 @@ use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::checked_feature;
-use near_primitives::congestion_info::{CongestionControl, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{
+    CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
+};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -534,13 +535,19 @@ impl NightshadeRuntime {
         let kind = self.store.get_db_kind()?;
         let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
-            let cold_head_hash = cold_head.last_block_hash;
-            let cold_epoch_first_block =
-                *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-            let cold_epoch_first_block_info =
-                epoch_manager.get_block_info(&cold_epoch_first_block)?;
-            return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+        if let Some(DbKind::Hot) = kind {
+            if let Some(cold_head) = cold_head {
+                let cold_head_hash = cold_head.last_block_hash;
+                let cold_epoch_first_block =
+                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
+                let cold_epoch_first_block_info =
+                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
+                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+            } else {
+                // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
+                // migration has not finished yet, in which case we should not garbage collect anything.
+                return Ok(self.genesis_config.genesis_height);
+            }
         }
         Ok(epoch_start_height)
     }
@@ -659,12 +666,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                 congestion_info.congestion_info,
                 congestion_info.missed_chunks_count,
             );
-            if !congestion_control.shard_accepts_transactions() {
+            if let ShardAcceptsTransactions::No(reason) =
+                congestion_control.shard_accepts_transactions()
+            {
                 let receiver_shard =
                     self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
-                return Ok(Some(InvalidTxError::ShardCongested {
-                    shard_id: receiver_shard.shard_id,
-                }));
+                let shard_id = receiver_shard.shard_id;
+                let err = match reason {
+                    RejectTransactionReason::IncomingCongestion { congestion_level }
+                    | RejectTransactionReason::OutgoingCongestion { congestion_level }
+                    | RejectTransactionReason::MemoryCongestion { congestion_level } => {
+                        InvalidTxError::ShardCongested { shard_id, congestion_level }
+                    }
+                    RejectTransactionReason::MissedChunks { missed_chunks } => {
+                        InvalidTxError::ShardStuck { shard_id, missed_chunks }
+                    }
+                };
+                return Ok(Some(err));
             }
         }
 
@@ -732,17 +750,24 @@ impl RuntimeAdapter for NightshadeRuntime {
             StorageDataSource::Db => {
                 self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
             }
+            StorageDataSource::DbTrieOnly => {
+                // If there is no flat storage on disk, use trie but simulate costs with enabled
+                // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
+                trie.dont_charge_gas_for_trie_node_access();
+                trie
+            }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
                 storage,
                 storage_config.state_root,
                 storage_config.use_flat_storage,
             ),
         };
-        // We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data
-        // in the current epoch to be able to produce the state witness in the
-        // next epoch.
-        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -774,20 +799,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let delayed_receipts_indices: DelayedReceiptIndices =
             near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
         let min_fee = runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        let new_receipt_count_limit = if min_fee > 0 {
-            // Round up to include at least one receipt.
-            let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
-            // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
-            // after processing a single chunk, we will still have at least 1 chunk worth of
-            // delayed receipts, ensuring the high throughput even if the next chunk producer
-            // does not include any receipts.
-            // This buffer size is a trade-off between the max queue size and system efficiency
-            // under congestion.
-            let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
-            delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
-        } else {
-            usize::MAX
-        };
+        let new_receipt_count_limit =
+            get_new_receipt_count_limit(min_fee, gas_limit, delayed_receipts_indices);
 
         let size_limit: u64 = calculate_transactions_size_limit(
             protocol_version,
@@ -811,10 +824,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
             if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                // Local Congestion Control.
                 // Keep this for the upgrade phase, afterwards it can be
                 // removed. It does not need to be kept because it does not
                 // affect replayability.
-                // TODO: remove at release CongestionControl + 1 or later
+                // TODO(congestion_control): remove at release CongestionControl + 1 or later
                 if result.transactions.len() >= new_receipt_count_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
                     break;
@@ -828,7 +842,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+            // Checking feature WitnessTransactionLimits
+            if ProtocolFeature::StatelessValidation.enabled(protocol_version)
                 && state_update.trie.recorded_storage_size()
                     > runtime_config
                         .witness_config
@@ -840,39 +855,34 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
-                // Stop adding transactions if the size limit would be exceeded
-                if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                // WitnessTransactionLimits: Stop adding transactions if the size limit would be exceeded
+                if ProtocolFeature::StatelessValidation.enabled(protocol_version)
                     && total_size.saturating_add(tx_peek.get_size()) > size_limit as u64
                 {
                     result.limited_by = Some(PrepareTransactionsLimit::Size);
                     break 'add_txs_loop;
                 }
 
-                // Take the transaction out of the pool
+                // Take the transaction out of the pool. Please take note that
+                // the transaction may still be rejected in which case it will
+                // not be returned to the pool. Most notably this may happen
+                // under congestion.
                 let tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
 
-                if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                    let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
-                        self.epoch_manager.as_ref(),
-                        tx.transaction.receiver_id(),
-                        &epoch_id,
-                    )?;
-                    if let Some(congestion_info) = prev_block.congestion_info.get(&receiving_shard)
-                    {
-                        let congestion_control = CongestionControl::new(
-                            runtime_config.congestion_control_config,
-                            congestion_info.congestion_info,
-                            congestion_info.missed_chunks_count,
-                        );
-                        if !congestion_control.shard_accepts_transactions() {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
-                            rejected_due_to_congestion += 1;
-                            continue;
-                        }
-                    }
+                if !congestion_control_accepts_transaction(
+                    self.epoch_manager.as_ref(),
+                    protocol_version,
+                    &runtime_config,
+                    &epoch_id,
+                    &prev_block,
+                    &tx,
+                )? {
+                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                    rejected_due_to_congestion += 1;
+                    continue;
                 }
 
                 // Verifying the transaction is on the same chain and hasn't expired yet.
@@ -961,6 +971,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.state_root,
                 storage_config.use_flat_storage,
             )?,
+            StorageDataSource::DbTrieOnly => {
+                // If there is no flat storage on disk, use trie but simulate costs with enabled
+                // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                let mut trie = self.get_trie_for_shard(
+                    shard_id,
+                    &block.prev_block_hash,
+                    storage_config.state_root,
+                    false,
+                )?;
+                trie.dont_charge_gas_for_trie_node_access();
+                trie
+            }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
                 storage,
                 storage_config.state_root,
@@ -972,11 +995,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        // We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data
-        // in the current epoch to be able to produce the state witness in the
-        // next epoch.
-        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -1359,6 +1381,27 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
+/// Get the limit on the number of new receipts imposed by the local congestion control.
+fn get_new_receipt_count_limit(
+    min_fee: u64,
+    gas_limit: u64,
+    delayed_receipts_indices: DelayedReceiptIndices,
+) -> usize {
+    if min_fee == 0 {
+        return usize::MAX;
+    }
+    // Round up to include at least one receipt.
+    let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
+    // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
+    // after processing a single chunk, we will still have at least 1 chunk worth of
+    // delayed receipts, ensuring the high throughput even if the next chunk producer
+    // does not include any receipts.
+    // This buffer size is a trade-off between the max queue size and system efficiency
+    // under congestion.
+    let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
+    delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
+}
+
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
@@ -1368,28 +1411,22 @@ fn chunk_tx_gas_limit(
     shard_id: u64,
     gas_limit: u64,
 ) -> u64 {
-    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
-            let congestion_control = CongestionControl::new(
-                runtime_config.congestion_control_config,
-                own_congestion.congestion_info,
-                own_congestion.missed_chunks_count,
-            );
-            congestion_control.process_tx_limit()
-        } else {
-            // When a new shard is created, or when the feature is just being enabled.
-            // Using the default (no congestion) is a reasonable choice in this case.
-            let own_congestion = ExtendedCongestionInfo::default();
-            let congestion_control = CongestionControl::new(
-                runtime_config.congestion_control_config,
-                own_congestion.congestion_info,
-                own_congestion.missed_chunks_count,
-            );
-            congestion_control.process_tx_limit()
-        }
-    } else {
-        gas_limit / 2
+    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return gas_limit / 2;
     }
+
+    // The own congestion may be None when a new shard is created, or when the
+    // feature is just being enabled. Using the default (no congestion) is a
+    // reasonable choice in this case.
+    let own_congestion = prev_block.congestion_info.get(&shard_id).cloned();
+    let own_congestion = own_congestion.unwrap_or_default();
+
+    let congestion_control = CongestionControl::new(
+        runtime_config.congestion_control_config,
+        own_congestion.congestion_info,
+        own_congestion.missed_chunks_count,
+    );
+    congestion_control.process_tx_limit()
 }
 
 fn calculate_transactions_size_limit(
@@ -1398,7 +1435,8 @@ fn calculate_transactions_size_limit(
     last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
-    if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+    // Checking feature WitnessTransactionLimits
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
@@ -1415,11 +1453,43 @@ fn calculate_transactions_size_limit(
         // cost of roundtripping a byte of data through disk. For today's value
         // of parameters, this corresponds to about 13megs worth of
         // transactions.
-        let roundtripping_cost =
-            runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte);
+        let ext_costs_config = &runtime_config.wasm_config.ext_costs;
+        let write_cost = ext_costs_config.gas_cost(ExtCosts::storage_write_value_byte);
+        let read_cost = ext_costs_config.gas_cost(ExtCosts::storage_read_value_byte);
+        let roundtripping_cost = write_cost + read_cost;
         transactions_gas_limit / roundtripping_cost
     }
+}
+
+/// Returns true if the transaction passes the congestion control checks. The
+/// transaction will be accepted if the receiving shard is not congested or its
+/// congestion level is below the threshold.
+fn congestion_control_accepts_transaction(
+    epoch_manager: &dyn EpochManagerAdapter,
+    protocol_version: ProtocolVersion,
+    runtime_config: &RuntimeConfig,
+    epoch_id: &EpochId,
+    prev_block: &PrepareTransactionsBlockContext,
+    tx: &SignedTransaction,
+) -> Result<bool, Error> {
+    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return Ok(true);
+    }
+    let receiver_id = tx.transaction.receiver_id();
+    let receiving_shard = epoch_manager.account_id_to_shard_id(receiver_id, &epoch_id)?;
+
+    let congestion_info = prev_block.congestion_info.get(&receiving_shard);
+    let Some(congestion_info) = congestion_info else {
+        return Ok(true);
+    };
+
+    let congestion_control = CongestionControl::new(
+        runtime_config.congestion_control_config,
+        congestion_info.congestion_info,
+        congestion_info.missed_chunks_count,
+    );
+    let shard_accepts_transactions = congestion_control.shard_accepts_transactions();
+    Ok(shard_accepts_transactions.is_yes())
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {

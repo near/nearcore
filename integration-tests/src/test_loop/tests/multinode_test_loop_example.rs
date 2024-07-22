@@ -7,7 +7,8 @@ use near_primitives::types::AccountId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::{execute_money_transfers, ONE_NEAR};
+use crate::test_loop::utils::transactions::execute_money_transfers;
+use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_CLIENTS: usize = 4;
 
@@ -38,8 +39,8 @@ fn test_client_with_multi_test_loop() {
     }
     let genesis = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas } =
-        builder.genesis(genesis).clients(clients).disable_gc().build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
+        builder.genesis(genesis).clients(clients).build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -71,6 +72,6 @@ fn test_client_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas }
+    TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
+use near_structs_checker_lib::ProtocolStruct;
 use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -1058,6 +1059,7 @@ pub enum ValidatorInfoIdentifier {
     Debug,
     PartialEq,
     Eq,
+    ProtocolStruct,
 )]
 pub enum ValidatorKickoutReason {
     /// Slashed validators are kicked out.

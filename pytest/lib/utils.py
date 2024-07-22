@@ -17,7 +17,8 @@ from rc import gcloud
 
 import cluster
 from configured_logger import logger
-from transaction import sign_payment_tx
+import key
+import transaction
 
 
 class TxContext:
@@ -54,7 +55,7 @@ class TxContext:
             if self.expected_balances[from_] >= amt:
                 logger.info("Sending a tx from %s to %s for %s" %
                             (from_, to, amt))
-                tx = sign_payment_tx(
+                tx = transaction.sign_payment_tx(
                     self.nodes[from_].signer_key, 'test%s' % to, amt,
                     self.next_nonce,
                     base58.b58decode(last_block_hash.encode('utf8')))
