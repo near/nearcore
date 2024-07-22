@@ -11,7 +11,8 @@ use near_chain_configs::MutableConfigValue;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::{hash::CryptoHash, types::EpochId};
+use near_primitives::types::EpochId;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_store::db::{MixedDB, ReadOrder, RocksDB, SplitDB};
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{Mode, NodeStorage, Store, Temperature};
@@ -21,10 +22,10 @@ use nearcore::{open_storage, NearConfig, NightshadeRuntime};
 #[derive(clap::Args)]
 pub(crate) struct ReshardingCommand {
     #[clap(long)]
-    block_hash: CryptoHash,
+    height: BlockHeight,
 
     #[clap(long)]
-    shard_id: u64,
+    shard_id: ShardId,
 
     #[clap(long)]
     write_path: PathBuf,
@@ -36,9 +37,11 @@ impl ReshardingCommand {
 
         let mut chain = self.get_chain(config, home_dir)?;
 
+        let block_hash = *chain.get_block_by_height(self.height)?.hash();
+
         let resharding_request = chain.custom_build_state_for_resharding_preprocessing(
-            &self.block_hash,
-            &self.block_hash,
+            &block_hash,
+            &block_hash,
             self.shard_id,
         )?;
 
