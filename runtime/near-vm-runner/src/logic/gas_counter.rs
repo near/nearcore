@@ -1,7 +1,6 @@
 use super::dependencies::TrieNodesCount;
 use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
-use near_parameters::vm::Config;
 use near_parameters::ExtCosts::{read_cached_trie_node, touching_trie_node};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::Gas;
@@ -120,7 +119,7 @@ impl GasCounter {
     /// Simpler version of `deduct_gas()` for when no promises are involved.
     ///
     /// Return an error if there are arithmetic overflows.
-    pub fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
+    pub(crate) fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
         let new_burnt_gas =
             self.fast_counter.burnt_gas.checked_add(gas_burnt).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.fast_counter.gas_limit {
@@ -139,7 +138,7 @@ impl GasCounter {
         }
     }
 
-    pub fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> HostError {
+    pub(crate) fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> HostError {
         use std::cmp::min;
         // Never burn more gas than what was paid for.
         let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
@@ -194,7 +193,14 @@ impl GasCounter {
     /// structure into consideration could be added. But since that would have
     /// to happen after loading, we cannot pre-charge it. This is the main
     /// motivation to (only) have this simple fee.
-    pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
+    #[cfg(any(
+        feature = "wasmtime_vm",
+        all(
+            target_arch = "x86_64",
+            any(feature = "wasmer0_vm", feature = "wasmer2_vm", feature = "near_vm")
+        )
+    ))]
+    pub(crate) fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.pay_per(ExtCosts::contract_loading_bytes, code_len)?;
         self.pay_base(ExtCosts::contract_loading_base)
     }
@@ -204,9 +210,16 @@ impl GasCounter {
     /// Does VM independent checks that happen after the instantiation of
     /// VMLogic but before loading the executable. This includes pre-charging gas
     /// costs for loading the executable, which depends on the size of the WASM code.
-    pub fn before_loading_executable(
+    #[cfg(any(
+        feature = "wasmtime_vm",
+        all(
+            target_arch = "x86_64",
+            any(feature = "wasmer0_vm", feature = "wasmer2_vm", feature = "near_vm")
+        )
+    ))]
+    pub(crate) fn before_loading_executable(
         &mut self,
-        config: &Config,
+        config: &near_parameters::vm::Config,
         method_name: &str,
         wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
@@ -227,9 +240,16 @@ impl GasCounter {
     }
 
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    pub fn after_loading_executable(
+    #[cfg(any(
+        feature = "wasmtime_vm",
+        all(
+            target_arch = "x86_64",
+            any(feature = "wasmer0_vm", feature = "wasmer2_vm", feature = "near_vm")
+        )
+    ))]
+    pub(crate) fn after_loading_executable(
         &mut self,
-        config: &Config,
+        config: &near_parameters::vm::Config,
         wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if !config.fix_contract_loading_cost {
@@ -258,7 +278,7 @@ impl GasCounter {
     }
 
     /// A helper function to pay a multiple of a cost.
-    pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
+    pub(crate) fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
         let use_gas =
             num.checked_mul(cost.gas(&self.ext_costs_config)).ok_or(HostError::IntegerOverflow)?;
 
@@ -270,7 +290,7 @@ impl GasCounter {
     }
 
     /// A helper function to pay base cost gas.
-    pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
+    pub(crate) fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.gas(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
         let old_burnt_gas = self.fast_counter.burnt_gas;
@@ -284,7 +304,7 @@ impl GasCounter {
     /// * `burn_gas`: amount of gas to burn;
     /// * `use_gas`: amount of gas to reserve;
     /// * `action`: what kind of action is charged for;
-    pub fn pay_action_accumulated(
+    pub(crate) fn pay_action_accumulated(
         &mut self,
         burn_gas: Gas,
         use_gas: Gas,
@@ -299,31 +319,26 @@ impl GasCounter {
         deduct_gas_result
     }
 
-    pub fn add_trie_fees(&mut self, count: &TrieNodesCount) -> Result<()> {
+    pub(crate) fn add_trie_fees(&mut self, count: &TrieNodesCount) -> Result<()> {
         self.pay_per(touching_trie_node, count.db_reads)?;
         self.pay_per(read_cached_trie_node, count.mem_reads)?;
         Ok(())
     }
 
-    pub fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
+    pub(crate) fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
         self.deduct_gas(0, use_gas)
     }
 
-    pub fn burnt_gas(&self) -> Gas {
+    pub(crate) fn burnt_gas(&self) -> Gas {
         self.fast_counter.burnt_gas
     }
 
     /// Amount of gas used through promises and amount burned.
-    pub fn used_gas(&self) -> Gas {
+    pub(crate) fn used_gas(&self) -> Gas {
         self.promises_gas + self.fast_counter.burnt_gas
     }
 
-    /// Remaining gas based on the amount of prepaid gas not yet used.
-    pub fn unused_gas(&self) -> Gas {
-        self.prepaid_gas - self.used_gas()
-    }
-
-    pub fn profile_data(&self) -> ProfileDataV3 {
+    pub(crate) fn profile_data(&self) -> ProfileDataV3 {
         self.profile.clone()
     }
 }
