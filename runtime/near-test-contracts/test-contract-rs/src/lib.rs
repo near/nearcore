@@ -1012,6 +1012,18 @@ pub unsafe fn call_yield_create_return_promise() {
         data_id_register,
     );
 
+    // Write the data id to state for convenience in testing.
+    let key = 42u64.to_le_bytes().to_vec();
+    let data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+    storage_write(
+        key.len() as u64,
+        key.as_ptr() as u64,
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        0,
+    );
+
     promise_return(promise_index);
 }
 
@@ -1058,6 +1070,35 @@ pub unsafe fn call_yield_resume() {
 
     let data_id = &data[data_len - 32..];
     let payload = &data[0..data_len - 32];
+
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+    );
+
+    let result = vec![success as u8];
+    value_return(result.len() as u64, result.as_ptr() as u64);
+}
+
+/// Call promise_yield_resume.
+/// Input is the payload to be passed to `promise_yield_resume`.
+/// The data_id is read from storage.
+#[no_mangle]
+pub unsafe fn call_yield_resume_read_data_id_from_storage() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    let data_id_key = 42u64.to_le_bytes().to_vec();
+    storage_read(
+        data_id_key.len() as u64,
+        data_id_key.as_ptr() as u64,
+        0
+    );
+    let data_id = vec![0u8; register_len(0) as usize];
+    read_register(0, data_id.as_ptr() as u64);
 
     let success = promise_yield_resume(
         data_id.len() as u64,

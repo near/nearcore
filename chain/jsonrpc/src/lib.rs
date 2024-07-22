@@ -6,8 +6,6 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};
-use futures::Future;
-use futures::FutureExt;
 use near_async::actix::ActixResult;
 use near_async::messaging::{
     AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
@@ -21,7 +19,7 @@ use near_client::{
 };
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
@@ -288,15 +286,13 @@ struct JsonRpcHandler {
 }
 
 impl JsonRpcHandler {
-    pub async fn process(&self, message: Message) -> Result<Message, HttpError> {
+    async fn process(&self, message: Message) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => {
-                Ok(Message::response(id, self.process_request(request).await))
-            }
-            _ => Ok(Message::error(RpcError::parse_error(
+            Message::Request(request) => Message::response(id, self.process_request(request).await),
+            _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
-            ))),
+            )),
         }
     }
 
@@ -1355,29 +1351,34 @@ impl JsonRpcHandler {
     }
 }
 
-fn rpc_handler(
+async fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    let response = async move {
-        let message = handler.process(message.0).await?;
-        Ok(HttpResponse::Ok().json(&message))
+) -> HttpResponse {
+    let message = handler.process(message.0).await;
+    let mut response = if let Message::Response(response) = &message {
+        match &response.result {
+            Ok(_) => HttpResponse::Ok(),
+            Err(err) => match err.error_struct {
+                Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
+                    HttpResponse::InternalServerError()
+                }
+                _ => HttpResponse::Ok(),
+            },
+        }
+    } else {
+        HttpResponse::InternalServerError()
     };
-    response.boxed()
+    response.json(message)
 }
 
-fn status_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+async fn status_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
     metrics::HTTP_STATUS_REQUEST_COUNT.inc();
 
-    let response = async move {
-        match handler.status().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        }
-    };
-    response.boxed()
+    match handler.status().await {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
 }
 
 async fn debug_handler(
@@ -1420,28 +1421,20 @@ async fn debug_block_status_handler(
     }
 }
 
-fn health_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    let response = async move {
-        match handler.health().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        }
-    };
-    response.boxed()
+async fn health_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.health().await {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
 }
 
-fn network_info_handler(
+async fn network_info_handler(
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    let response = async move {
-        match handler.network_info().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        }
-    };
-    response.boxed()
+) -> Result<HttpResponse, HttpError> {
+    match handler.network_info().await {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
 }
 
 pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
@@ -1457,16 +1450,13 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     }
 }
 
-fn client_config_handler(
+async fn client_config_handler(
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    let response = async move {
-        match handler.client_config().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        }
-    };
-    response.boxed()
+) -> Result<HttpResponse, HttpError> {
+    match handler.client_config().await {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
 }
 
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
