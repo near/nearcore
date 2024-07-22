@@ -346,7 +346,7 @@ impl NearVM {
             offset_of!(FastGasCounter, gas_limit),
             offset_of!(near_vm_types::FastGasCounter, gas_limit)
         );
-        let gas = import.vmlogic.gas_counter_pointer() as *mut near_vm_types::FastGasCounter;
+        let gas = import.vmlogic.gas_counter().fast_counter_raw_ptr();
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -365,7 +365,7 @@ impl NearVM {
                     // by the virtue of it being contained within `import` which lives for the
                     // entirety of this function.
                     InstanceConfig::with_stack_limit(self.config.limit_config.max_stack_height)
-                        .with_counter(gas),
+                        .with_counter(gas.cast()),
                 );
                 let handle = match maybe_handle {
                     Ok(handle) => handle,

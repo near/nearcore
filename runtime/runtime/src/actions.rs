@@ -87,7 +87,7 @@ pub(crate) fn execute_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config: view_config.clone(),
+        view_config,
         output_data_receivers,
     };
 

@@ -1,7 +1,7 @@
 use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
-use super::gas_counter::{FastGasCounter, GasCounter};
+use super::gas_counter::GasCounter;
 use super::recorded_storage_counter::RecordedStorageCounter;
 use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
@@ -265,11 +265,6 @@ impl<'a> VMLogic<'a> {
     /// Returns reference to logs that have been created so far.
     pub fn logs(&self) -> &[String] {
         &self.result_state.logs
-    }
-
-    #[cfg(test)]
-    pub(super) fn gas_counter(&self) -> &GasCounter {
-        &self.result_state.gas_counter
     }
 
     #[cfg(test)]
@@ -3461,9 +3456,16 @@ impl<'a> VMLogic<'a> {
         }))
     }
 
-    /// Gets pointer to the fast gas counter.
-    pub(crate) fn gas_counter_pointer(&mut self) -> *mut FastGasCounter {
-        self.result_state.gas_counter.gas_counter_raw_ptr()
+    /// Obtain a reference to the gas counter.
+    ///
+    /// This is meant for use in tests and implementation of VMs only. Implementations of host
+    /// functions should be using `pay_*` functions instead.
+    #[cfg(any(
+        test,
+        all(any(feature = "wasmer2_vm", feature = "near_vm"), target_arch = "x86_64")
+    ))]
+    pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
+        &mut self.result_state.gas_counter
     }
 
     /// Properly handles gas limit exceeded error.

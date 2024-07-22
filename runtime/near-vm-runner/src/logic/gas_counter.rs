@@ -179,18 +179,10 @@ impl GasCounter {
     }
 
     /// Very special function to get the gas counter pointer for generated machine code.
+    ///
     /// Please do not use, unless fully understand Rust aliasing and other consequences.
-    /// Can be used to emit inlined code like `pay_wasm_gas()`, i.e.
-    ///    mov base, gas_counter_raw_ptr
-    ///    mov rax, [base + 0] ; current burnt gas
-    ///    mov rcx, [base + 16] ; opcode cost
-    ///    imul rcx, block_ops_count ; block cost
-    ///    add rax, rcx ; new burnt gas
-    ///    jo emit_integer_overflow
-    ///    cmp rax, [base + 8] ; unsigned compare with burnt limit
-    ///    mov [base + 0], rax
-    ///    ja emit_gas_exceeded
-    pub(crate) fn gas_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
+    #[cfg(all(any(feature = "wasmer2_vm", feature = "near_vm"), target_arch = "x86_64"))]
+    pub(crate) fn fast_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
         use std::ptr;
         ptr::addr_of_mut!(self.fast_counter)
     }

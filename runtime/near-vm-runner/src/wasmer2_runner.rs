@@ -416,7 +416,7 @@ impl Wasmer2VM {
             offset_of!(FastGasCounter, opcode_cost),
             offset_of!(wasmer_types::FastGasCounter, opcode_cost)
         );
-        let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
+        let gas = import.vmlogic.gas_counter().fast_counter_raw_ptr();
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -435,7 +435,7 @@ impl Wasmer2VM {
                     // by the virtue of it being contained within `import` which lives for the
                     // entirety of this function.
                     InstanceConfig::default()
-                        .with_counter(gas)
+                        .with_counter(gas.cast())
                         .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
                 );
                 let handle = match maybe_handle {
