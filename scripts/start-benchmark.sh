@@ -6,6 +6,8 @@ USERS=$2
 SHARDS=$3
 NODES=$4
 RUMP_UP=$5
+USER=$6
+CONTEXT=$7
 
 # Stop previous experiment
 pkill -9 locust || true
@@ -33,6 +35,6 @@ sleep 30
 
 # Run data collector
 cd ~/nearcore
-python3 scripts/ft-benchmark-data-sender.py --duration $TIME --users $USERS
+python3 scripts/ft-benchmark-data-sender.py --duration $TIME --users $USERS --user $USER --context $CONTEXT
 
 echo "Benchmark completed."

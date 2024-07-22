@@ -2,7 +2,7 @@
 """
 
 """
-from argparse import ArgumentParser, BooleanOptionalAction
+from argparse import ArgumentParser, Action
 import datetime
 import pathlib
 import json
@@ -11,6 +11,7 @@ from rc import pmap
 import re
 import sys
 import time
+import numpy as np
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -316,7 +317,7 @@ def status_cmd(args, traffic_generator, nodes):
 def reset_cmd(args, traffic_generator, nodes):
     if not args.yes:
         print(
-            'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
+            'this will reset selected nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
@@ -473,11 +474,40 @@ def filter_hosts(args, traffic_generator, nodes):
         logger.error(f'No hosts selected. Change filters and try again.')
         exit(1)
 
+    if args.select_partition is not None:
+        i, n = args.select_partition
+
+        if len(nodes) < n and traffic_generator == None:
+            logger.error(
+                f'Partitioning {len(nodes)} nodes in {n} groups will result in empty groups.'
+            )
+            exit(1)
+        nodes.sort(key=lambda node: node.name())
+        nodes = np.array_split(nodes, n)[i - 1]
+
     return traffic_generator, nodes
+
+
+class ParseFraction(Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        pattern = r"(\d+)/(\d+)"
+        match = re.match(pattern, values)
+        if not match:
+            parser.error(f"Invalid input '{values}'. Expected format 'i/n'.")
+        numerator = int(match.group(1))
+        denominator = int(match.group(2))
+        setattr(namespace, self.dest, (numerator, denominator))
 
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Control a mocknet instance')
+    parser.add_argument('--mocknet-id',
+                        type=str,
+                        help='''
+                        Identifier of the mocknet instance to use. Can be used instead of specifying
+                        `chain-id`, `start-height` and `unique-id`.
+                        ''')
     parser.add_argument('--chain-id', type=str)
     parser.add_argument('--start-height', type=int)
     parser.add_argument('--unique-id', type=str)
@@ -490,6 +520,15 @@ if __name__ == '__main__':
     parser.add_argument('--host-filter',
                         type=str,
                         help='Filter through the selected nodes using regex.')
+    parser.add_argument('--select-partition',
+                        action=ParseFraction,
+                        type=str,
+                        help='''
+                        Input should be in the form of "i/n" where 0 < i <= n.
+                        Select a group of hosts based on the division provided.
+                        For i/n, it will split the selected hosts into n groups and select the i-th group.
+                        Use this if you want to target just a partition of the hosts.'''
+                       )
 
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',
@@ -662,19 +701,26 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.local_test:
-        if args.chain_id is not None or args.start_height is not None or args.unique_id is not None:
+        if (args.chain_id is not None or args.start_height is not None or
+                args.unique_id is not None or args.mocknet_id is not None):
             sys.exit(
-                f'cannot give --chain-id --start-height or --unique-id along with --local-test'
+                f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
         traffic_generator, nodes = local_test_node.get_nodes()
         node_config.configure_nodes(nodes + [traffic_generator],
                                     node_config.TEST_CONFIG)
     else:
-        if args.chain_id is None or args.start_height is None or args.unique_id is None:
+        if (args.chain_id is not None and args.start_height is not None and
+                args.unique_id is not None):
+            mocknet_id = args.chain_id + '-' + str(
+                args.start_height) + '-' + args.unique_id
+        elif args.mocknet_id is not None:
+            mocknet_id = args.mocknet_id
+        else:
             sys.exit(
-                f'must give all of --chain-id --start-height and --unique-id')
-        traffic_generator, nodes = remote_node.get_nodes(
-            args.chain_id, args.start_height, args.unique_id)
+                f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
+            )
+        traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
         node_config.configure_nodes(nodes + [traffic_generator],
                                     node_config.REMOTE_CONFIG)
 

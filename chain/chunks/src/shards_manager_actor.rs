@@ -98,7 +98,7 @@ use near_chain::byzantine_assert;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::types::EpochManagerAdapter;
-use near_chain_configs::MutableConfigValue;
+use near_chain_configs::MutableValidatorSigner;
 pub use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -125,10 +125,10 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
 };
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
-use near_primitives::{checked_feature, unwrap_or_return};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -247,7 +247,7 @@ pub struct ShardsManagerActor {
     /// Contains validator info about this node. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator_signer: MutableValidatorSigner,
     store: ReadOnlyChunksStore,
 
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -297,7 +297,7 @@ pub fn start_shards_manager(
     shard_tracker: ShardTracker,
     network_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter_for_shards_manager: Sender<ShardsManagerResponse>,
-    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator_signer: MutableValidatorSigner,
     store: Store,
     chunk_request_retry_period: Duration,
 ) -> (actix::Addr<ActixWrapper<ShardsManagerActor>>, actix::ArbiterHandle) {
@@ -335,7 +335,7 @@ pub fn start_shards_manager(
 impl ShardsManagerActor {
     pub fn new(
         clock: time::Clock,
-        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         network_adapter: Sender<PeerManagerMessageRequest>,
@@ -1844,7 +1844,8 @@ impl ShardsManagerActor {
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
-        if checked_feature!("stable", SingleShardTracking, protocol_version) {
+        // SingleShardTracking: If enabled, we only forward the parts to the block producers
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());
@@ -2245,6 +2246,7 @@ mod test {
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
+    use near_chain_configs::MutableConfigValue;
     use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -2260,9 +2262,7 @@ mod test {
     use crate::logic::persist_chunk;
     use crate::test_utils::*;
 
-    fn mutable_validator_signer(
-        account_id: &AccountId,
-    ) -> MutableConfigValue<Option<Arc<ValidatorSigner>>> {
+    fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
         MutableConfigValue::new(
             Some(Arc::new(EmptyValidatorSigner::new(account_id.clone()))),
             "validator_signer",

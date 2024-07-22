@@ -1,4 +1,3 @@
-use near_async::time::Clock;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -9,6 +8,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_time::Clock;
 use num_rational::Ratio;
 
 use crate::{

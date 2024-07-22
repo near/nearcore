@@ -25,7 +25,7 @@ smart-default.workspace = true
 time.workspace = true
 tracing.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
@@ -35,13 +35,11 @@ near-config-utils.workspace = true
 [features]
 protocol_feature_nonrefundable_transfer_nep491 = []
 nightly_protocol = [
-  "near-async/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 nightly = [
-  "near-async/nightly",
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
@@ -51,4 +49,4 @@ nightly = [
 test_genesis = ["near-primitives/rand"]
 test_utils = ["near-primitives/rand"]
 default = []
-metrics = ["near-o11y"]
+metrics = ["near-o11y", "near-time/clock"]

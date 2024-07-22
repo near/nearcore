@@ -40,13 +40,12 @@ use near_chain::{
     DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{
-    ClientConfig, LogSummaryStyle, MutableConfigValue, UpdateableClientConfig,
+    ClientConfig, LogSummaryStyle, MutableValidatorSigner, UpdateableClientConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
-    cares_about_shard_this_or_next_epoch, decode_encoded_chunk,
-    get_shards_cares_about_this_or_next_epoch, persist_chunk,
+    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
@@ -78,11 +77,11 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use near_primitives::{checked_feature, unwrap_or_return};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -151,7 +150,7 @@ pub struct Client {
     /// Signer for block producer (if present). This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    pub validator_signer: MutableValidatorSigner,
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
@@ -209,12 +208,24 @@ impl AsRef<Client> for Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
-        self.config.expected_shutdown.update(update_client_config.expected_shutdown);
-        self.config.resharding_config.update(update_client_config.resharding_config);
-        self.config
+    pub(crate) fn update_client_config(
+        &self,
+        update_client_config: UpdateableClientConfig,
+    ) -> bool {
+        let mut is_updated = false;
+        is_updated |= self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        is_updated |= self.config.resharding_config.update(update_client_config.resharding_config);
+        is_updated |= self
+            .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated
+    }
+
+    /// Updates client's mutable validator signer.
+    /// It will update all validator signers that synchronize with it.
+    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
+        self.validator_signer.update(Some(signer))
     }
 }
 
@@ -235,8 +246,8 @@ impl Client {
         state_sync_adapter: Arc<RwLock<SyncAdapter>>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
-        shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        shards_manager_sender: Sender<ShardsManagerRequestFromClient>,
+        validator_signer: MutableValidatorSigner,
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
@@ -379,7 +390,7 @@ impl Client {
             epoch_manager,
             shard_tracker,
             runtime_adapter,
-            shards_manager_adapter,
+            shards_manager_adapter: shards_manager_sender,
             sharded_tx_pool,
             network_adapter,
             validator_signer,
@@ -1041,7 +1052,7 @@ impl Client {
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let last_chunk_transactions_size =
-                if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+                if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
                     borsh::to_vec(last_chunk.transactions())
                         .map_err(|e| {
                             Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
@@ -1675,13 +1686,12 @@ impl Client {
                 return;
             }
 
-            if provenance != Provenance::SYNC
-                && !self.sync_status.is_syncing()
-                && !skip_produce_chunk
-            {
+            let can_produce_with_provenance = provenance != Provenance::SYNC;
+            let can_produce_with_sync_status = !self.sync_status.is_syncing();
+            if can_produce_with_provenance && can_produce_with_sync_status && !skip_produce_chunk {
                 self.produce_chunks(&block, &signer);
             } else {
-                info!(target: "client", "not producing a chunk");
+                info!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, skip_produce_chunk, "not producing a chunk");
             }
         }
 
@@ -2512,20 +2522,6 @@ impl Client {
                     .epoch_manager
                     .get_shard_layout(&epoch_id)
                     .expect("Cannot get shard layout");
-
-                // Make sure mem-tries for shards we do not care about are unloaded before we start a new state sync.
-                let shards_cares_this_or_next_epoch = get_shards_cares_about_this_or_next_epoch(
-                    me.as_ref(),
-                    true,
-                    &block_header,
-                    &self.shard_tracker,
-                    self.epoch_manager.as_ref(),
-                );
-                let shard_uids: Vec<_> = shards_cares_this_or_next_epoch
-                    .iter()
-                    .map(|id| self.epoch_manager.shard_id_to_uid(*id, &epoch_id).unwrap())
-                    .collect();
-                self.runtime_adapter.get_tries().retain_mem_tries(&shard_uids);
 
                 for &shard_id in &tracking_shards {
                     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);

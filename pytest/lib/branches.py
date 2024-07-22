@@ -63,7 +63,7 @@ class Executables(typing.NamedTuple):
     def node_config(self) -> typing.Dict[str, typing.Any]:
         return {
             'local': True,
-            'neard_root': self.root,
+            'near_root': self.root,
             'binary_name': self.neard.name
         }
 

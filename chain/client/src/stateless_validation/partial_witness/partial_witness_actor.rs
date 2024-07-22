@@ -5,7 +5,7 @@ use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
-use near_chain_configs::MutableConfigValue;
+use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
     ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
@@ -36,7 +36,7 @@ pub struct PartialWitnessActor {
     /// Validator signer to sign the state witness. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    my_signer: MutableValidatorSigner,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
@@ -106,7 +106,7 @@ impl PartialWitnessActor {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
-        my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        my_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         store: Store,
     ) -> Self {
@@ -174,8 +174,7 @@ impl PartialWitnessActor {
         );
 
         // Break the state witness into parts using Reed Solomon encoding.
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let encoder = self.encoders.entry(chunk_validators.len(), protocol_version);
+        let encoder = self.encoders.entry(chunk_validators.len());
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
         Ok(chunk_validators
@@ -383,13 +382,8 @@ impl PartialWitnessActor {
             )));
         }
 
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&partial_witness.epoch_id())?;
-        let max_part_len = witness_part_length(
-            MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize,
-            num_parts,
-            protocol_version,
-        );
+        let max_part_len =
+            witness_part_length(MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
         if partial_witness.part_size() > max_part_len {
             return Err(Error::InvalidPartialChunkStateWitness(format!(
                 "Part size {} exceed limit of {} (total parts: {})",

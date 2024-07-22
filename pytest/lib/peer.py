@@ -2,14 +2,16 @@ import asyncio
 import concurrent
 import hashlib
 import struct
+import time
 
 import base58
 
 from configured_logger import logger
 from messages import schema
 from messages.crypto import PublicKey, Signature
-from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
-                              PeerMessage, RoutedMessage, PeerIdOrHash)
+from messages.network import (GenesisId, Handshake, PartialEdgeInfo,
+                              PeerChainInfoV2, PeerMessage, RoutedMessage,
+                              PeerIdOrHash)
 from serializer import BinarySerializer
 from nacl.signing import SigningKey
 from typing import Optional
@@ -110,7 +112,7 @@ def create_handshake(my_key_pair_nacl,
     handshake.target_peer_id = PublicKey()
     handshake.listen_port = listen_port
     handshake.chain_info = PeerChainInfoV2()
-    handshake.edge_info = EdgeInfo()
+    handshake.edge_info = PartialEdgeInfo()
 
     handshake.peer_id.keyType = 0
     handshake.peer_id.data = bytes(my_key_pair_nacl.verify_key)
@@ -127,7 +129,11 @@ def create_handshake(my_key_pair_nacl,
     handshake.chain_info.genesis_id.chain_id = 'moo'
     handshake.chain_info.genesis_id.hash = bytes([0] * 32)
 
-    handshake.edge_info.nonce = 1
+    nonce = int(time.time())
+    if nonce % 2 == 0:
+        nonce += 1
+    handshake.edge_info.nonce = nonce
+
     handshake.edge_info.signature = Signature()
 
     handshake.edge_info.signature.keyType = 0

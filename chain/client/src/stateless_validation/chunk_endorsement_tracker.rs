@@ -229,7 +229,7 @@ impl ChunkEndorsementTrackerInner {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if !checked_feature!("stable", StatelessValidation, protocol_version) {
             // Return an empty array of chunk endorsements for older protocol versions.
             return Ok(ChunkEndorsementsState::Endorsed(None, vec![]));
         }

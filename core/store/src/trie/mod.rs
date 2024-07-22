@@ -40,6 +40,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
+pub use trie_recording::{SubtreeSize, TrieRecorderStats};
 
 pub mod accounting_cache;
 mod config;
@@ -659,6 +660,11 @@ impl Trie {
         }
     }
 
+    /// Helper to simulate gas costs as if flat storage was present.
+    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
+        self.charge_gas_for_trie_node_access = false;
+    }
+
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads(&self) -> Self {
@@ -716,6 +722,12 @@ impl Trie {
         trie
     }
 
+    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// This scans all of the recorded data, so could potentially be expensive to run.
+    pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
+        self.recorder.as_ref().map(|recorder| recorder.borrow().get_stats(&self.root))
+    }
+
     pub fn get_root(&self) -> &StateRoot {
         &self.root
     }
@@ -749,6 +761,24 @@ impl Trie {
             let mut r = recorder.borrow_mut();
             r.record_code_len(value_ref.len());
         }
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
+        let Some(recorder) = &self.recorder else {
+            return false;
+        };
+        let mut data = vec![0u8; (size_mbs as usize) * 1000_000];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut data);
+        // We want to have at most 1 instance of garbage data included per chunk so
+        // that it is possible to generated continuous stream of witnesses with a fixed
+        // size. Using static key achieves that since in case of multiple receipts garbage
+        // data will simply be overwritten, not accumulated.
+        recorder.borrow_mut().record_unaccounted(
+            &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
+            data.into(),
+        );
+        true
     }
 
     /// All access to trie nodes or values must go through this method, so it

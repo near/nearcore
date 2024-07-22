@@ -7,7 +7,7 @@ use futures::FutureExt;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
-use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableConfigValue};
+use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
     create_bucket_readwrite, external_storage_location, StateFileType,
 };
@@ -22,7 +22,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
-use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
@@ -39,7 +38,7 @@ pub struct StateSyncDumper {
     /// Contains validator key for this node. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    pub validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    pub validator: MutableValidatorSigner,
     pub dump_future_runner: Box<dyn Fn(BoxFuture<'static, ()>) -> Box<dyn FnOnce()>>,
     pub handle: Option<StateSyncDumpHandle>,
 }
@@ -170,7 +169,8 @@ impl Drop for StateSyncDumpHandle {
 }
 
 impl StateSyncDumpHandle {
-    pub fn stop(&mut self) {
+    fn stop(&mut self) {
+        tracing::warn!(target: "state_sync_dump", "Stopping state dumper");
         self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
         self.handles.drain(..).for_each(|dropper| {
             dropper();
@@ -338,7 +338,7 @@ async fn state_sync_dump(
     restart_dump_for_shards: Vec<ShardId>,
     external: ExternalConnection,
     iteration_delay: Duration,
-    validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");

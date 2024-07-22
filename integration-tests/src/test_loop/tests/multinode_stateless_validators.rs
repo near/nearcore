@@ -1,25 +1,19 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-use near_async::messaging::SendAsync;
-use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_client::test_utils::test_loop::ClientQueries;
 use near_client::Client;
-use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ValidatorInfoIdentifier};
-use near_primitives::version::ProtocolFeature::StatelessValidationV0;
+use near_primitives::version::ProtocolFeature::StatelessValidation;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::CurrentEpochValidatorInfo;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+use crate::test_loop::utils::transactions::execute_money_transfers;
+use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_ACCOUNTS: usize = 20;
 const NUM_SHARDS: u64 = 4;
@@ -31,7 +25,7 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 
 #[test]
 fn test_stateless_validators_with_multi_test_loop() {
-    if !StatelessValidationV0.enabled(PROTOCOL_VERSION) {
+    if !StatelessValidation.enabled(PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -70,75 +64,16 @@ fn test_stateless_validators_with_multi_test_loop() {
     }
     let genesis = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas } =
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
         builder.genesis(genesis).clients(clients).build();
 
-    // Bootstrap the test by starting the components.
-    for idx in 0..NUM_VALIDATORS {
-        let state_sync_dumper_handle = node_datas[idx].state_sync_dumper_handle.clone();
-        test_loop.send_adhoc_event("start_state_sync_dumper".to_owned(), move |test_loop_data| {
-            test_loop_data.get_mut(&state_sync_dumper_handle).start().unwrap();
-        });
-    }
-
-    // Give it some condition to stop running at. Here we run the test until the first client
-    // reaches height 10003, with a timeout of 5sec (failing if it doesn't reach 10003 in time).
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data| {
-            let client_actor = test_loop_data.get(&client_handle);
-            client_actor.client.chain.head().unwrap().height == 10003
-        },
-        Duration::seconds(5),
-    );
-    for idx in 0..NUM_VALIDATORS {
-        let client_handle = node_datas[idx].client_sender.actor_handle();
-        let event = move |test_loop_data: &mut TestLoopData| {
-            let client_actor = test_loop_data.get(&client_handle);
-            let block = client_actor.client.chain.get_block_by_height(10002).unwrap();
-            assert_eq!(block.header().chunk_mask(), &(0..NUM_SHARDS).map(|_| true).collect_vec());
-        };
-        test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
-    }
-    test_loop.run_instant();
-
     // Capture the initial validator info in the first epoch.
+    let client_handle = node_datas[0].client_sender.actor_handle();
     let chain = &test_loop.data.get(&client_handle).client.chain;
     let initial_epoch_id = chain.head().unwrap().epoch_id;
-    let mut balances = accounts
-        .iter()
-        .cloned()
-        .map(|account| (account, initial_balance))
-        .collect::<HashMap<_, _>>();
-    let anchor_hash = *chain.get_block_by_height(10002).unwrap().hash();
 
-    // Run send-money transactions between "non-validator" accounts.
-    for i in NUM_VALIDATORS..NUM_ACCOUNTS {
-        let amount = ONE_NEAR * (i as u128 + 1);
-        let tx = SignedTransaction::send_money(
-            1,
-            accounts[i].clone(),
-            accounts[(i + 1) % NUM_ACCOUNTS].clone(),
-            &create_user_test_signer(&accounts[i]).into(),
-            amount,
-            anchor_hash,
-        );
-        *balances.get_mut(&accounts[i]).unwrap() -= amount;
-        *balances.get_mut(&accounts[(i + 1) % NUM_ACCOUNTS]).unwrap() += amount;
-        let future = node_datas[i % NUM_VALIDATORS]
-            .client_sender
-            .clone()
-            .with_delay(Duration::milliseconds(300 * i as i64))
-            .send_async(ProcessTxRequest {
-                transaction: tx,
-                is_forwarded: false,
-                check_only: false,
-            });
-        drop(future);
-    }
-
-    // Run the chain some time to allow transactions be processed.
-    test_loop.run_for(Duration::seconds(20));
+    let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
+    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts);
 
     // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
     let prev_epoch_id = test_loop.data.get(&client_handle).client.chain.head().unwrap().epoch_id;
@@ -153,25 +88,6 @@ fn test_stateless_validators_with_multi_test_loop() {
         Duration::seconds(EPOCH_LENGTH as i64),
     );
 
-    // Check that the balances are correct.
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    for i in NUM_VALIDATORS..NUM_ACCOUNTS {
-        let account = &accounts[i];
-        assert_eq!(
-            clients.query_balance(account),
-            *balances.get(account).unwrap(),
-            "Account balance mismatch for account {}",
-            account
-        );
-    }
-
-    for idx in 0..NUM_VALIDATORS {
-        test_loop.data.get_mut(&node_datas[idx].state_sync_dumper_handle).stop();
-    }
-
     // Check the validator information for the epoch with the prev_epoch_id.
     assert_validator_info(
         &test_loop.data.get(&client_handle).client,
@@ -182,7 +98,8 @@ fn test_stateless_validators_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    test_loop.shutdown_and_drain_remaining_events(Duration::seconds(20));
+    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Returns the CurrentEpochValidatorInfo for each validator account for the given epoch id.

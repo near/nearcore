@@ -18,13 +18,12 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 
+use crate::test_loop::utils::ONE_NEAR;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[test]
 fn test_client_with_simple_test_loop() {
@@ -93,7 +92,7 @@ fn test_client_with_simple_test_loop() {
 
     let client = Client::new(
         test_loop.clock(),
-        client_config.clone(),
+        client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -127,7 +126,6 @@ fn test_client_with_simple_test_loop() {
         test_loop.clock(),
         client,
         client_adapter.as_multi_sender(),
-        client_config,
         PeerId::random(),
         noop().into_multi_sender(),
         noop().into_sender(),

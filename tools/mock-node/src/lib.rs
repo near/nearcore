@@ -2,7 +2,6 @@
 //! components of the mock network.
 
 use anyhow::{anyhow, Context as AnyhowContext};
-use near_async::time;
 use near_chain::{Block, Chain, ChainStoreAccess, Error};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
@@ -305,7 +304,7 @@ impl MockPeer {
             network_start_height,
             (0..num_shards).collect(),
             archival,
-            30 * time::Duration::SECOND,
+            30 * near_time::Duration::SECOND,
         )
         .await?;
         let incoming_requests =

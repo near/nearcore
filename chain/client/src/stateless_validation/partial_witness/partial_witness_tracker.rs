@@ -22,7 +22,7 @@ use super::encoding::{WitnessEncoder, WitnessEncoderCache, WitnessPart};
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
 /// This effectively limits memory usage to the size of the cache multiplied by
-/// MAX_COMPRESSED_STATE_WITNESS_SIZE, currently 40 * 32MiB = 1280MiB
+/// MAX_COMPRESSED_STATE_WITNESS_SIZE, currently 40 * 48MiB = 1920MiB.
 const WITNESS_PARTS_CACHE_SIZE: usize = 40;
 
 /// Number of entries to keep in LRU cache of the processed state witnesses
@@ -206,9 +206,7 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
         let num_parts = self.get_num_parts(&partial_witness)?;
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(partial_witness.epoch_id())?;
-        let new_entry = CacheEntry::new(self.encoders.entry(num_parts, protocol_version));
+        let new_entry = CacheEntry::new(self.encoders.entry(num_parts));
         if let Some((evicted_key, evicted_entry)) = self.parts_cache.push(key, new_entry) {
             tracing::warn!(
                 target: "client",

@@ -1,4 +1,4 @@
-use super::types::PublicKey;
+use super::types::{PromiseResult, PublicKey};
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
@@ -20,9 +20,14 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
+    /// The name of the method to invoke.
+    pub method: String,
     /// The input to the contract call.
     /// Encoded as base64 string to be able to pass input in borsh binary format.
     pub input: Vec<u8>,
+    /// If this method execution is invoked directly as a callback by one or more contract calls
+    /// the results of the methods that made the callback are stored in this collection.
+    pub promise_results: std::sync::Arc<[PromiseResult]>,
     /// The current block height.
     pub block_height: BlockHeight,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).

@@ -1,7 +1,6 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
-use crate::logic::types::PromiseResult;
-use crate::logic::{Config, MemSlice, VMContext, VMLogic};
+use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
 use std::sync::Arc;
@@ -10,7 +9,6 @@ pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
     pub config: Config,
     pub fees_config: RuntimeFeesConfig,
-    pub promise_results: Arc<[PromiseResult]>,
     pub memory: MockedMemory,
     pub context: VMContext,
 }
@@ -22,7 +20,6 @@ impl Default for VMLogicBuilder {
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
-            promise_results: [].into(),
             context: get_context(),
         }
     }
@@ -38,12 +35,12 @@ impl VMLogicBuilder {
     }
 
     pub fn build(&mut self) -> TestVMLogic<'_> {
+        let result_state = ExecutionResultState::new(&self.context, Arc::new(self.config.clone()));
         TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             &self.context,
-            Arc::new(self.config.clone()),
             Arc::new(self.fees_config.clone()),
-            Arc::clone(&self.promise_results),
+            result_state,
             self.memory.clone(),
         ))
     }
@@ -58,7 +55,6 @@ impl VMLogicBuilder {
             fees_config: RuntimeFeesConfig::free(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
-            promise_results: [].into(),
             context: get_context(),
         }
     }
@@ -70,7 +66,9 @@ fn get_context() -> VMContext {
         signer_account_id: "bob.near".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol.near".parse().unwrap(),
+        method: "VMLogicBuilder::method_not_specified".into(),
         input: vec![0, 1, 2, 3, 4],
+        promise_results: vec![].into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
@@ -154,6 +152,6 @@ impl TestVMLogic<'_> {
     }
 
     pub fn compute_outcome(self) -> crate::logic::VMOutcome {
-        self.logic.compute_outcome()
+        self.logic.result_state.compute_outcome()
     }
 }

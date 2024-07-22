@@ -1,3 +1,4 @@
+import logging
 from concurrent import futures
 import random
 import string
@@ -9,6 +10,7 @@ from locust import events
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
+from account import TGAS
 from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, INIT_DONE
 
 
@@ -53,7 +55,7 @@ class FTContract:
         """
         Passive users are only used as receiver, not as signer.
         """
-        node.send_tx_retry(InitFTAccount(self.account, account),
+        node.send_tx_async(InitFTAccount(self.account, account),
                            locust_name="Init FT Account")
         self.registered_users.append(account.key.account_id)
 
@@ -85,20 +87,47 @@ class FTContract:
         assert prefix_len > 4, f"user key {parent.key.account_id} is too long"
         chars = string.ascii_lowercase + string.digits
 
-        def create_account():
-            prefix = ''.join(random.choices(chars, k=prefix_len))
+        def create_account_id(i):
+            prefix = ''.join(random.Random(i).choices(chars, k=prefix_len))
             account_id = f"{prefix}.{parent.key.account_id}"
-            return Account(key.Key.from_seed_testonly(account_id))
+            return account_id
 
-        accounts = [create_account() for _ in range(num)]
-        node.prepare_accounts(accounts,
-                              parent,
-                              balance=7,
-                              msg="create passive user")
-        with futures.ThreadPoolExecutor() as executor:
-            futures.wait(
-                executor.submit(self.register_passive_user, node, account)
-                for account in accounts)
+        with futures.ThreadPoolExecutor(max_workers=4) as executor:
+            batch_size = 10000
+            num_batches = (num + batch_size - 1) // batch_size
+            # If the last account exists, we assume that all accounts exist.
+            if node.account_exists(create_account_id(num - 1)):
+                logging.info(
+                    f"{parent.key.account_id}: Skipping creation of passive users, already present."
+                )
+                create_accounts = False
+            else:
+                create_accounts = True
+
+            for i in range(num_batches):
+                account_ids = [
+                    create_account_id(i)
+                    for i in range(i * batch_size, min((i + 1) *
+                                                       batch_size, num))
+                ]
+                if create_accounts:
+                    accounts = [
+                        Account(key.Key.from_seed_testonly(account_id))
+                        for account_id in account_ids
+                    ]
+                    node.prepare_accounts(accounts,
+                                          parent,
+                                          balance=1,
+                                          msg="create passive user")
+                    futures.wait(
+                        executor.submit(self.register_passive_user, node,
+                                        account) for account in accounts)
+                else:
+                    self.registered_users.extend(account_ids)
+
+                logging.info(
+                    f"{parent.key.account_id}: Processed batch {i + 1}/{num_batches}, created {(i + 1) * batch_size} users"
+                )
 
 
 class TransferFT(FunctionCall):
@@ -121,6 +150,15 @@ class TransferFT(FunctionCall):
             "amount": str(int(self.how_much)),
         }
 
+    def attached_gas(self) -> int:
+        """
+        We overwrite this setting to minimize effects on congestion control that relies on attached
+        gas to determine the capacity of delayed receipt queues. See
+        https://near.zulipchat.com/#narrow/stream/295306-contract-runtime/topic/ft_transfer.20benchmark/near/448814523
+        for more details.
+        """
+        return 10 * TGAS
+
     def sender_account(self) -> Account:
         return self.sender
 
@@ -136,6 +174,12 @@ class InitFT(FunctionCall):
             "owner_id": self.contract.key.account_id,
             "total_supply": str(10**33)
         }
+
+    def attached_gas(self) -> int:
+        """
+        Avoid attaching excess gas to prevent triggering false-positive congestion control.
+        """
+        return 10 * TGAS
 
     def sender_account(self) -> Account:
         return self.contract
@@ -153,6 +197,12 @@ class InitFTAccount(FunctionCall):
 
     def args(self) -> dict:
         return {"account_id": self.account.key.account_id}
+
+    def attached_gas(self) -> int:
+        """
+        Avoid attaching excess gas to prevent triggering false-positive congestion control.
+        """
+        return 10 * TGAS
 
     def sender_account(self) -> Account:
         return self.account
@@ -183,7 +233,12 @@ def on_locust_init(environment, **kwargs):
         ft_account = Account(contract_key)
         ft_contract = FTContract(ft_account, ft_account, ft_contract_code)
         ft_contract.install(node, funding_account)
+        if environment.parsed_options.num_passive_users > 0:
+            ft_contract.create_passive_users(
+                environment.parsed_options.num_passive_users, node,
+                funding_account)
         environment.ft_contracts.append(ft_contract)
+        logging.info(f"Finished setup for account {i} on worker {parent_id}")
 
 
 # FT specific CLI args
@@ -205,3 +260,8 @@ def _(parser):
         help=
         "Whether the names of FT contracts will deterministically based on worker id and run id."
     )
+    parser.add_argument(
+        "--num-passive-users",
+        type=int,
+        default=0,
+        help="Number of passive users to create in each FT contract.")

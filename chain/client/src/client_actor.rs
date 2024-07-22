@@ -41,7 +41,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -70,7 +70,7 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -134,7 +134,7 @@ pub fn start_client(
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
@@ -150,7 +150,7 @@ pub fn start_client(
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
         clock.clone(),
-        client_config.clone(),
+        client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker,
@@ -179,7 +179,6 @@ pub fn start_client(
             clock,
             client,
             client_sender_for_client_clone.as_multi_sender(),
-            client_config,
             node_id,
             network_adapter,
             telemetry_sender,
@@ -300,12 +299,39 @@ impl messaging::Actor for ClientActorInner {
     }
 }
 
+/// Before stateless validation we require validators to track all shards, see
+/// https://github.com/near/nearcore/issues/7388
+fn check_validator_tracked_shards(client: &Client) -> Result<(), Error> {
+    if !matches!(
+        client.config.chain_id.as_ref(),
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
+    ) {
+        return Ok(());
+    }
+    let head = client.chain.head()?;
+    let protocol_version =
+        client.epoch_manager.get_epoch_protocol_version(&head.epoch_id).into_chain_error()?;
+
+    if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
+        && client.config.tracked_shards.is_empty()
+    {
+        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+    }
+
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
+        && !client.config.tracked_shards.is_empty()
+    {
+        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector");
+    }
+
+    Ok(())
+}
+
 impl ClientActorInner {
     pub fn new(
         clock: Clock,
         client: Client,
         myself_sender: ClientSenderForClient,
-        config: ClientConfig,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
@@ -317,8 +343,9 @@ impl ClientActorInner {
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
+            check_validator_tracked_shards(&client)?;
         }
-        let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &config);
+        let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &client.config);
 
         let now = clock.now_utc();
         Ok(ClientActorInner {
@@ -1163,9 +1190,19 @@ impl ClientActorInner {
     fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
-            config_updater.try_update(&|updateable_client_config| {
-                self.client.update_client_config(updateable_client_config)
-            });
+            let update_result = config_updater.try_update(
+                &|updateable_client_config| {
+                    self.client.update_client_config(updateable_client_config)
+                },
+                &|validator_signer| self.client.update_validator_signer(validator_signer),
+            );
+            if update_result.validator_signer_updated {
+                check_validator_tracked_shards(&self.client)
+                    .expect("Could not check validator tracked shards");
+                // Request PeerManager to advertise tier1 proxies.
+                // It is needed to advertise that our validator key changed.
+                self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
+            }
         }
 
         // Check block height to trigger expected shutdown
@@ -1840,7 +1877,7 @@ impl ClientActorInner {
                 break;
             };
 
-            if next_header.height() < min_height_included - 1 {
+            if next_header.height() + 1 < min_height_included {
                 break;
             }
 

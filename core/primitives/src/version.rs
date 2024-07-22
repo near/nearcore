@@ -1,5 +1,4 @@
 use crate::types::Balance;
-use near_time::Clock;
 use once_cell::sync::Lazy;
 
 /// Data structure for semver version and github tag or commit.
@@ -88,9 +87,10 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
 /// <https://github.com/near/NEPs/issues/205>
+#[cfg(feature = "clock")]
 pub fn get_protocol_version(
     next_epoch_protocol_version: ProtocolVersion,
-    clock: Clock,
+    clock: near_time::Clock,
 ) -> ProtocolVersion {
     let now = clock.now_utc();
     let chrono = chrono::DateTime::from_timestamp(now.unix_timestamp(), now.nanosecond());
