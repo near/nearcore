@@ -517,4 +517,45 @@ impl Chain {
         }
         Ok(())
     }
+
+    pub fn custom_build_state_for_resharding_preprocessing(
+        &self,
+        // The resharding will execute on the post state of the target_hash block.
+        target_hash: &CryptoHash,
+        // The block hash of the state snapshot.
+        snapshot_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ReshardingRequest, Error> {
+        let sync_hash = target_hash;
+        tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
+        let block_header = self.get_block_header(sync_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
+        let next_epoch_id = block_header.next_epoch_id();
+        let next_epoch_shard_layout = self.epoch_manager.get_shard_layout(next_epoch_id)?;
+        assert_ne!(shard_layout, next_epoch_shard_layout);
+
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let state_root = *self.get_chunk_extra(&target_hash, &shard_uid)?.state_root();
+
+        let resharding_request = ReshardingRequest {
+            tries: Arc::new(self.runtime_adapter.get_tries()),
+            sync_hash: *sync_hash,
+            prev_hash: *target_hash,
+            prev_prev_hash: *snapshot_hash,
+            shard_uid,
+            state_root,
+            next_epoch_shard_layout,
+            curr_poll_time: Duration::ZERO,
+            config: self.resharding_config.clone(),
+            handle: self.resharding_handle.clone(),
+        };
+
+        // Technically it's not scheduled yet but it should be immediately after
+        // this method returns.
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::Scheduled.into());
+
+        Ok(resharding_request)
+    }
 }

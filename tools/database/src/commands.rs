@@ -8,6 +8,7 @@ use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
+use crate::resharding::ReshardingCommand;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
@@ -59,6 +60,9 @@ enum SubCommand {
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
+
+    // Perform resharding.
+    Resharding(ReshardingCommand),
 }
 
 impl DatabaseCommand {
@@ -70,11 +74,7 @@ impl DatabaseCommand {
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {
-                let near_config = nearcore::config::load_config(
-                    &home,
-                    near_chain_configs::GenesisValidationMode::UnsafeFast,
-                )
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+                let near_config = load_config(home);
                 cmd.run(home, near_config.config.archive, &near_config.config.store)
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home),
@@ -84,6 +84,17 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home),
+            SubCommand::Resharding(cmd) => {
+                let near_config = load_config(home);
+                cmd.run(near_config, home)
+            }
         }
     }
+}
+
+fn load_config(home: &PathBuf) -> nearcore::NearConfig {
+    let genesis_validation = near_chain_configs::GenesisValidationMode::UnsafeFast;
+    let near_config = nearcore::config::load_config(&home, genesis_validation);
+    let near_config = near_config.unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+    near_config
 }

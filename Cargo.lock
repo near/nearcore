@@ -4246,6 +4246,7 @@ dependencies = [
  "bytesize",
  "clap",
  "indicatif",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
@@ -4258,6 +4259,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "tracing",
  "zstd",
 ]
 

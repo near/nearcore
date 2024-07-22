@@ -23,6 +23,7 @@ strum.workspace = true
 tempfile.workspace = true
 bytesize.workspace = true
 zstd.workspace = true
+tracing.workspace = true
 
 nearcore.workspace = true
 near-o11y.workspace = true
@@ -31,6 +32,7 @@ near-chain.workspace = true
 near-chain-configs.workspace = true
 near-store.workspace = true
 near-primitives.workspace = true
+near-async.workspace = true
 
 [features]
 nightly = [
