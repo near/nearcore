@@ -524,7 +524,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     println!("Receipt: {:#?}", receipt);
 }
 
-pub(crate) fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     // explicitly enumerate the versions in a match here first so that if a new version is
     // added, we'll get a compile error here and be reminded to update it correctly.
     //
@@ -576,7 +576,7 @@ pub(crate) fn check_apply_block_result(
         block.chunks()[shard_id as usize].gas_limit(),
         protocol_version,
     );
-    tracing::debug!(target: "state_viewer",
+    println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
     );
