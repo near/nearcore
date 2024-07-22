@@ -37,11 +37,9 @@ impl AccountsIterCommand {
 fn iter_accounts(store: Store) {
     let shard_uids = ShardLayout::get_simple_nightshade_layout_v3().shard_uids().collect::<Vec<_>>();
     for shard_uid in shard_uids {
-        for key in iter_flat_state_entries(shard_uid, &store, None, None)
+        for trie_key in iter_flat_state_entries(shard_uid, &store, None, None)
             .flat_map(|res| res.map(|(key, _)| key))
         {
-            let trie_storage = near_store::TrieDBStorage::new(store.clone(), shard_uid);
-            let trie_key = decode_flat_state_db_key(&key).unwrap().1;
             let account_id = trie_key_parsers::parse_account_id_from_raw_key(&trie_key).unwrap().unwrap();
             eprintln!("{} -> {}", shard_uid.shard_id, account_id);
             break;
