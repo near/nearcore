@@ -124,41 +124,23 @@ use utils::{
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381MapFpToG1Base, bls12381_map_fp_to_g1_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381MapFpToG1Element, bls12381_map_fp_to_g1_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381MapFp2ToG2Base, bls12381_map_fp2_to_g2_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381MapFp2ToG2Element, bls12381_map_fp2_to_g2_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381PairingBase, bls12381_pairing_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381PairingElement, bls12381_pairing_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P1SumBase, bls12381_p1_sum_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P1SumElement, bls12381_p1_sum_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P2SumBase, bls12381_p2_sum_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P2SumElement, bls12381_p2_sum_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381G1MultiexpBase, bls12381_g1_multiexp_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381G1MultiexpElement, bls12381_g1_multiexp_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381G2MultiexpBase, bls12381_g2_multiexp_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381G2MultiexpElement, bls12381_g2_multiexp_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P1DecompressBase, bls12381_p1_decompress_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P1DecompressElement, bls12381_p1_decompress_element),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P2DecompressBase, bls12381_p2_decompress_base),
-    #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381P2DecompressElement, bls12381_p2_decompress_element),
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
@@ -1101,62 +1083,50 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
     )
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p1_sum_0_100", ExtCosts::bls12381_p1_sum_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p1_sum_50_100", ExtCosts::bls12381_p1_sum_element, 5000)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p2_sum_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p2_sum_0_100", ExtCosts::bls12381_p2_sum_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p2_sum_50_100", ExtCosts::bls12381_p2_sum_element, 5000)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_g1_multiexp_0_100", ExtCosts::bls12381_g1_multiexp_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_g1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_g1_multiexp_50_100", ExtCosts::bls12381_g1_multiexp_element, 50 * 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_g2_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_g2_multiexp_0_100", ExtCosts::bls12381_g2_multiexp_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_g2_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_g2_multiexp_50_100", ExtCosts::bls12381_g2_multiexp_element, 50 * 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp_to_g1_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_map_fp_to_g1_0_100", ExtCosts::bls12381_map_fp_to_g1_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp_to_g1_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_map_fp_to_g1_50_100", ExtCosts::bls12381_map_fp_to_g1_element, 50 * 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp2_to_g2_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_map_fp2_to_g2_0_100", ExtCosts::bls12381_map_fp2_to_g2_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp2_to_g2_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(
         ctx,
@@ -1166,32 +1136,26 @@ fn bls12381_map_fp2_to_g2_element(ctx: &mut EstimatorContext) -> GasCost {
     )
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_pairing_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_pairing_0_100", ExtCosts::bls12381_pairing_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_pairing_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_pairing_5_100", ExtCosts::bls12381_pairing_element, 5 * 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p1_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p1_decompress_0_100", ExtCosts::bls12381_p1_decompress_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p1_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p1_decompress_50_100", ExtCosts::bls12381_p1_decompress_element, 5000)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p2_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p2_decompress_0_100", ExtCosts::bls12381_p2_decompress_base, 100)
 }
 
-#[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p2_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p2_decompress_50_100", ExtCosts::bls12381_p2_decompress_element, 5000)
 }
