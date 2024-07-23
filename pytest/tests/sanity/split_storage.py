@@ -439,7 +439,7 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Restart legacy archival node.")
         # Restart archival node. This should trigger sync.
         archival.start(boot_node=split)
-        
+
         logger.info("Wait for legacy archival node to start syncing.")
 
         # Archival node should be able to sync to split storage without problems.
