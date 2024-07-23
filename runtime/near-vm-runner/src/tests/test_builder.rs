@@ -17,7 +17,6 @@ pub(crate) fn test_builder() -> TestBuilder {
         predecessor_account_id: "carol".parse().unwrap(),
         input: Vec::new(),
         promise_results: Vec::new().into(),
-        method: "main".into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
@@ -43,6 +42,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         skip,
         opaque_error: false,
         opaque_outcome: false,
+        method: "main".into(),
     }
 }
 
@@ -53,6 +53,7 @@ pub(crate) struct TestBuilder {
     skip: HashSet<VMKind>,
     opaque_error: bool,
     opaque_outcome: bool,
+    method: String,
 }
 
 impl TestBuilder {
@@ -74,7 +75,7 @@ impl TestBuilder {
     }
 
     pub(crate) fn method(mut self, method: &str) -> Self {
-        self.context.method = method.to_string();
+        self.method = method.to_string();
         self
     }
 
@@ -216,13 +217,13 @@ impl TestBuilder {
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
-
+                let gas_counter = context.make_gas_counter(&config);
                 let Some(runtime) = vm_kind.runtime(config) else {
                     panic!("runtime for {:?} has not been compiled", vm_kind);
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .prepare(&fake_external, &context, None)
+                    .prepare(&fake_external, None, gas_counter, &self.method)
                     .run(&mut fake_external, &context, fees)
                     .expect("execution failed");
 
