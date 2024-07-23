@@ -1,6 +1,8 @@
 use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
+use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -129,11 +131,25 @@ impl RuntimeConfigStore {
     /// first protocol versions.
     /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
     /// need to override it specifically to preserve compatibility.
+    /// In benchmarknet, we are measuring the peak throughput that the NEAR network can handle while still being stable.
+    /// This requires increasing the limits below that are set too conservatively.
     pub fn for_chain_id(chain_id: &str) -> Self {
         match chain_id {
             near_primitives_core::chains::TESTNET => {
                 let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
                 Self::new(Some(&genesis_runtime_config))
+            }
+            near_primitives_core::chains::BENCHMARKNET => {
+                let mut config_store = Self::new(None);
+                let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
+                config.congestion_control_config.max_tx_gas = 10u64.pow(16);
+                config.congestion_control_config.min_tx_gas = 10u64.pow(16);
+                config.witness_config.main_storage_proof_size_soft_limit = 999_999_999_999_999;
+                let mut wasm_config = vm::Config::clone(&config.wasm_config);
+                wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
+                config.wasm_config = Arc::new(wasm_config);
+                config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
+                config_store
             }
             _ => Self::new(None),
         }
@@ -413,5 +429,12 @@ mod tests {
         for (_, config) in store.store.iter() {
             assert_eq!(config.storage_amount_per_byte(), 0u128);
         }
+    }
+
+    #[test]
+    fn test_benchmarknet_config() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
+        let config = store.get_config(PROTOCOL_VERSION);
+        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, 999_999_999_999_999);
     }
 }

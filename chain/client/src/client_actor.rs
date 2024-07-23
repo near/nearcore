@@ -1958,6 +1958,7 @@ impl ClientActorInner {
             &self.client.chain,
             highest_height,
             &self.network_info.highest_height_peers,
+            self.client.config.sync_max_block_requests,
         )?;
         Ok(block_sync_result)
     }
