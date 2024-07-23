@@ -66,7 +66,7 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -303,17 +303,27 @@ impl messaging::Actor for ClientActorInner {
 }
 
 /// Before stateless validation we require validators to track all shards, see
-/// https://github.com/near/nearcore/issues/7388
-fn check_validator_tracked_shards(client: &Client) -> Result<(), Error> {
+/// https://github.com/near/nearcore/issues/7388.
+/// Since stateless validation we use single shard tracking.
+fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> Result<(), Error> {
     if !matches!(
         client.config.chain_id.as_ref(),
         near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
     ) {
         return Ok(());
     }
-    let head = client.chain.head()?;
-    let protocol_version =
-        client.epoch_manager.get_epoch_protocol_version(&head.epoch_id).into_chain_error()?;
+
+    let epoch_id = client.chain.head()?.epoch_id;
+    let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).into_chain_error()?;
+
+    // We do not apply the check if this is not a current validator, see
+    // https://github.com/near/nearcore/issues/11821.
+    if epoch_info.get_validator_by_account(validator_id).is_none() {
+        warn!(target: "client", "The account '{}' is not a current validator, this node won't be validating in the current epoch", validator_id);
+        return Ok(());
+    }
+
+    let protocol_version = epoch_info.protocol_version();
 
     if !ProtocolFeature::StatelessValidationV0.enabled(protocol_version)
         && client.config.tracked_shards.is_empty()
@@ -346,7 +356,7 @@ impl ClientActorInner {
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
-            check_validator_tracked_shards(&client)?;
+            check_validator_tracked_shards(&client, vs.validator_id())?;
         }
         let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &client.config);
 
@@ -1199,9 +1209,14 @@ impl ClientActorInner {
                 },
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
+
             if update_result.validator_signer_updated {
-                check_validator_tracked_shards(&self.client)
+                let validator_signer =
+                    self.client.validator_signer.get().expect("Validator signer just updated");
+
+                check_validator_tracked_shards(&self.client, validator_signer.validator_id())
                     .expect("Could not check validator tracked shards");
+
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
                 self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
