@@ -1322,7 +1322,7 @@ impl ClientActorInner {
                     || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash, &signer)
                 {
                     for approval in approvals {
-                        if let Err(e) = self.client.send_approval(
+                        if let Err(e) = self.client.send_block_approval(
                             &self.client.doomslug.get_tip().0,
                             approval,
                             &signer,
@@ -1446,6 +1446,7 @@ impl ClientActorInner {
         .entered();
         for accepted_block in accepted_blocks {
             let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);
