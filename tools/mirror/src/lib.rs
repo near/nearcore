@@ -13,6 +13,7 @@ use near_client_primitives::types::{
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
 use near_o11y::WithSpanContextExt;
+use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
@@ -804,6 +805,119 @@ async fn fetch_access_key_nonce(
     }
 }
 
+// pub(crate) struct ActionMapper<'a> {
+//     secret: Option<&'a [u8; crate::secret::SECRET_LEN]>,
+//     default_key: &'a PublicKey,
+//     nonce_updates: HashSet<(AccountId, PublicKey)>,
+//     account_created: bool,
+//     full_key_added: bool,
+// }
+
+// impl<'a> ActionMapper<'a> {
+//     fn new(secret: Option<&'a [u8; crate::secret::SECRET_LEN]>, default_key: &'a PublicKey) -> Self {
+//         Self {
+//             secret,
+//             default_key,
+//         }
+//     }
+
+pub(crate) fn map_action(
+    action: &Action,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+    default_key: &PublicKey,
+    delegate_allowed: bool,
+) -> Option<Action> {
+    match action {
+        Action::AddKey(add_key) => {
+            let public_key = crate::key_mapping::map_key(&add_key.public_key, secret).public_key();
+
+            Some(Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: add_key.access_key.clone(),
+            })))
+        }
+        Action::DeleteKey(delete_key) => {
+            let public_key =
+                crate::key_mapping::map_key(&delete_key.public_key, secret).public_key();
+
+            Some(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })))
+        }
+        Action::DeleteAccount(delete_account) => {
+            let beneficiary_id =
+                crate::key_mapping::map_account(&delete_account.beneficiary_id, secret);
+            Some(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }))
+        }
+        Action::Delegate(delegate) => {
+            if delegate_allowed {
+                map_delegate_action(delegate, secret, default_key)
+            } else {
+                // This should not happen, but we handle the case here defensively
+                tracing::warn!(target: "mirror", "a delegate action was contained inside another delegate action: {:?}", delegate);
+                None
+            }
+        }
+        // We don't want to mess with the set of validators in the target chain
+        Action::Stake(_) => None,
+        _ => Some(action.clone()),
+    }
+}
+
+fn map_delegate_action(
+    delegate: &SignedDelegateAction,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+    default_key: &PublicKey,
+) -> Option<Action> {
+    let source_actions = delegate.delegate_action.get_actions();
+    let mut actions = Vec::with_capacity(source_actions.len());
+
+    let mut account_created = false;
+    let mut full_key_added = false;
+    for action in source_actions.iter() {
+        if let Some(a) = map_action(action, secret, default_key, false) {
+            match &a {
+                Action::AddKey(add_key) => {
+                    if add_key.access_key.permission == AccessKeyPermission::FullAccess {
+                        full_key_added = true;
+                    }
+                }
+                Action::CreateAccount(_) => {
+                    account_created = true;
+                }
+                _ => {}
+            };
+            actions.push(a.try_into().unwrap());
+        }
+    }
+    if actions.is_empty() {
+        return None;
+    }
+    if account_created && !full_key_added {
+        actions.push(
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: default_key.clone(),
+                access_key: AccessKey::full_access(),
+            }))
+            .try_into()
+            .unwrap(),
+        );
+    }
+    let mapped_key = crate::key_mapping::map_key(&delegate.delegate_action.public_key, secret);
+    let mapped_action = DelegateAction {
+        sender_id: crate::key_mapping::map_account(&delegate.delegate_action.sender_id, secret),
+        receiver_id: crate::key_mapping::map_account(&delegate.delegate_action.receiver_id, secret),
+        actions,
+        nonce: delegate.delegate_action.nonce,
+        max_block_height: delegate.delegate_action.max_block_height,
+        public_key: mapped_key.public_key(),
+    };
+    let tx_hash = mapped_action.get_nep461_hash();
+    let d = SignedDelegateAction {
+        delegate_action: mapped_action,
+        signature: mapped_key.sign(tx_hash.as_ref()),
+    };
+    Some(Action::Delegate(Box::new(d)))
+}
+
 impl<T: ChainAccess> TxMirror<T> {
     fn new<P: AsRef<Path>>(
         source_chain_access: T,
@@ -934,76 +1048,60 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut account_created = false;
         let mut full_key_added = false;
         for action in tx.transaction.actions().iter() {
-            match &action {
-                Action::AddKey(add_key) => {
-                    if add_key.access_key.permission == AccessKeyPermission::FullAccess {
-                        full_key_added = true;
-                    }
-                    let public_key =
-                        crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref())
-                            .public_key();
-                    let receiver_id = crate::key_mapping::map_account(
-                        &tx.transaction.receiver_id(),
-                        self.secret.as_ref(),
-                    );
-
-                    nonce_updates.insert((receiver_id, public_key.clone()));
-                    actions.push(Action::AddKey(Box::new(AddKeyAction {
-                        public_key,
-                        access_key: add_key.access_key.clone(),
-                    })));
-                }
-                Action::DeleteKey(delete_key) => {
-                    let replacement =
-                        crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref());
-                    let public_key = replacement.public_key();
-
-                    actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
-                }
-                Action::Transfer(_) => {
-                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                    if tx.transaction.receiver_id().get_account_type()
-                        == AccountType::NearImplicitAccount
-                        && tx.transaction.actions().len() == 1
-                    {
-                        let target_account = crate::key_mapping::map_account(
-                            &tx.transaction.receiver_id(),
+            if let Some(a) = crate::map_action(
+                action,
+                self.secret.as_ref(),
+                &self.default_extra_key.public_key(),
+                true,
+            ) {
+                match &a {
+                    Action::AddKey(add_key) => {
+                        if add_key.access_key.permission == AccessKeyPermission::FullAccess {
+                            full_key_added = true;
+                        }
+                        let receiver_id = crate::key_mapping::map_account(
+                            tx.transaction.receiver_id(),
                             self.secret.as_ref(),
                         );
-                        if !account_exists(&self.target_view_client, &target_account)
-                            .await
-                            .with_context(|| {
-                                format!("failed checking existence for account {}", &target_account)
-                            })?
+                        nonce_updates.insert((receiver_id, add_key.public_key.clone()));
+                    }
+                    Action::CreateAccount(_) => {
+                        account_created = true;
+                    }
+                    Action::Transfer(_) => {
+                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                        if tx.transaction.receiver_id().get_account_type()
+                            == AccountType::NearImplicitAccount
+                            && tx.transaction.actions().len() == 1
                         {
-                            if target_account.get_account_type() == AccountType::NearImplicitAccount
+                            let target_account = crate::key_mapping::map_account(
+                                tx.transaction.receiver_id(),
+                                self.secret.as_ref(),
+                            );
+                            if !account_exists(&self.target_view_client, &target_account)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "failed checking existence for account {}",
+                                        tx.transaction.receiver_id()
+                                    )
+                                })?
                             {
-                                let public_key =
-                                    PublicKey::from_near_implicit_account(&target_account)
-                                        .expect("must be near-implicit");
-                                nonce_updates.insert((target_account, public_key));
+                                if target_account.get_account_type()
+                                    == AccountType::NearImplicitAccount
+                                {
+                                    let public_key =
+                                        PublicKey::from_near_implicit_account(&target_account)
+                                            .expect("must be near-implicit");
+                                    nonce_updates.insert((target_account, public_key));
+                                }
                             }
                         }
                     }
-                    actions.push(action.clone());
-                }
-                // We don't want to mess with the set of validators in the target chain
-                Action::Stake(_) => {}
-                Action::CreateAccount(_) => {
-                    account_created = true;
-                    actions.push(action.clone());
-                }
-                Action::DeleteAccount(d) => {
-                    actions.push(Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: crate::key_mapping::map_account(
-                            &d.beneficiary_id,
-                            self.secret.as_ref(),
-                        ),
-                    }));
-                }
-                // TODO: handle delegate actions
-                _ => actions.push(action.clone()),
-            };
+                    _ => {}
+                };
+                actions.push(a);
+            }
         }
         if account_created && !full_key_added {
             actions.push(Action::AddKey(Box::new(AddKeyAction {
