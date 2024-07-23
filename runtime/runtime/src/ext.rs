@@ -13,7 +13,7 @@ use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdat
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
-use near_vm_runner::ContractCode;
+use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -359,16 +359,26 @@ impl<'a> External for RuntimeExt<'a> {
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
     }
+}
 
-    fn code_hash(&self) -> CryptoHash {
+pub(crate) struct RuntimeContractExt<'a> {
+    pub(crate) trie_update: &'a TrieUpdate,
+    pub(crate) account_id: &'a AccountId,
+    pub(crate) account: &'a Account,
+    pub(crate) chain_id: &'a str,
+    pub(crate) current_protocol_version: ProtocolVersion,
+}
+
+impl<'a> Contract for RuntimeContractExt<'a> {
+    fn hash(&self) -> CryptoHash {
         self.account.code_hash()
     }
 
-    fn get_contract(&self) -> Option<Arc<ContractCode>> {
-        let account_id = self.account_id();
-        let code_hash = self.code_hash();
+    fn get_code(&self) -> Option<Arc<ContractCode>> {
+        let account_id = self.account_id;
+        let code_hash = self.hash();
         let version = self.current_protocol_version;
-        let chain_id = self.chain_id();
+        let chain_id = self.chain_id;
         if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
             && &code_hash == wallet_contract_magic_bytes(&chain_id).hash()
