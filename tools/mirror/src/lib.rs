@@ -1045,6 +1045,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut actions = Vec::new();
         let mut nonce_updates = HashSet::new();
 
+        let mut delegate_action = false;
         let mut account_created = false;
         let mut full_key_added = false;
         for action in tx.transaction.actions().iter() {
@@ -1098,6 +1099,9 @@ impl<T: ChainAccess> TxMirror<T> {
                             }
                         }
                     }
+                    Action::Delegate(_) => {
+                        delegate_action = true;
+                    }
                     _ => {}
                 };
                 actions.push(a);
@@ -1108,6 +1112,14 @@ impl<T: ChainAccess> TxMirror<T> {
                 public_key: self.default_extra_key.public_key(),
                 access_key: AccessKey::full_access(),
             })));
+        }
+        if delegate_action {
+            tracing::info!(
+                "zzzzzzzzzz delegate {} {} -> {}",
+                tx.get_hash(),
+                crate::key_mapping::map_account(tx.transaction.signer_id(), self.secret.as_ref(),),
+                crate::key_mapping::map_account(tx.transaction.receiver_id(), self.secret.as_ref(),)
+            );
         }
         Ok((actions, nonce_updates))
     }
