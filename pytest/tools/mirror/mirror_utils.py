@@ -331,8 +331,12 @@ def send_delete_access_key(node, key, target_key, nonce, block_hash):
     )
 
 
-def create_subaccount(node, signer_key, nonce, block_hash):
-    k = key.Key.from_random('foo.' + signer_key.account_id)
+def create_subaccount_tx(signer_key,
+                         sub_name,
+                         nonce,
+                         block_hash,
+                         delegated=False):
+    k = key.Key.from_random(sub_name + '.' + signer_key.account_id)
     actions = []
     actions.append(transaction.create_create_account_action())
     actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
@@ -342,11 +346,23 @@ def create_subaccount(node, signer_key, nonce, block_hash):
         transaction.create_full_access_key_action(
             key.Key.from_random(k.account_id).decoded_pk()))
 
-    tx = transaction.sign_and_serialize_transaction(k.account_id, nonce,
-                                                    actions, block_hash,
-                                                    signer_key.account_id,
-                                                    signer_key.decoded_pk(),
-                                                    signer_key.decoded_sk())
+    if delegated:
+        tx = transaction.create_signed_delegated_action(signer_key.account_id,
+                                                        k.account_id, actions,
+                                                        nonce, 1000,
+                                                        signer_key.decoded_pk(),
+                                                        signer_key.decoded_sk())
+    else:
+        tx = transaction.sign_and_serialize_transaction(k.account_id, nonce,
+                                                        actions, block_hash,
+                                                        signer_key.account_id,
+                                                        signer_key.decoded_pk(),
+                                                        signer_key.decoded_sk())
+    return tx, k
+
+
+def create_subaccount(node, signer_key, nonce, block_hash):
+    tx, k = create_subaccount_tx(signer_key, 'foo', nonce, block_hash)
     res = node.send_tx(tx)
     logger.info(f'sent create account tx for {k.account_id} {k.pk}: {res}')
     return k
@@ -417,6 +433,24 @@ def call_stake(node, signer_key, amount, public_key, nonce, block_hash):
     )
 
 
+def send_meta_create_subaccount(node, meta_signer_key, meta_nonce, signer_key,
+                                nonce, block_hash):
+    tx, new_key = create_subaccount_tx(signer_key,
+                                       'meta',
+                                       nonce,
+                                       block_hash,
+                                       delegated=True)
+
+    meta_tx = transaction.sign_delegate_action(tx, meta_signer_key,
+                                               signer_key.account_id,
+                                               meta_nonce, block_hash)
+    res = node.send_tx(meta_tx)
+    logger.info(
+        f'sent meta create subaccount for {new_key.account_id} from {meta_signer_key.account_id}: {res}'
+    )
+    return new_key
+
+
 def contract_deployed(node, account_id):
     return 'error' not in node.json_rpc('query', {
         "request_type": "view_code",
@@ -433,7 +467,7 @@ class AddedKey:
         self.nonce = None
         self.key = key
 
-    def send_if_inited(self, node, transfers, block_hash):
+    def check_nonce(self, node):
         if self.nonce is None:
             self.nonce = node.get_nonce_for_pk(self.key.account_id,
                                                self.key.pk,
@@ -442,6 +476,9 @@ class AddedKey:
                 logger.info(
                     f'added key {self.key.account_id} {self.key.pk} inited @ {self.nonce}'
                 )
+
+    def send_if_inited(self, node, transfers, block_hash):
+        self.check_nonce(node)
 
         if self.nonce is not None:
             for (receiver_id, amount) in transfers:
@@ -717,6 +754,15 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
                         traffic_data.nonces[1], block_hash_bytes)
     traffic_data.nonces[1] += 1
 
+    meta_subaccount_key = send_meta_create_subaccount(
+        source_nodes[1], source_nodes[0].signer_key, traffic_data.nonces[0],
+        source_nodes[1].signer_key, traffic_data.nonces[1], block_hash_bytes)
+    meta_subaccount_key = AddedKey(meta_subaccount_key)
+
+    time.sleep(5)
+    traffic_data.nonces[0] += 1
+    traffic_data.nonces[1] += 1
+
     test0_deleted_height = None
     test0_readded_key = None
     implicit_added = None
@@ -742,6 +788,8 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
         if not callback():
             break
         block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
+
+        meta_subaccount_key.check_nonce(source_nodes[1])
 
         if test0_deleted_height is None:
             traffic_data.send_transfers(source_nodes, block_hash_bytes)
