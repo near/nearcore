@@ -837,6 +837,7 @@ def init_cluster(
     genesis_config_changes: GenesisConfigChanges,
     client_config_changes: ClientConfigChanges,
     prefix="test",
+    initialize_cold_storage=True,
 ) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
@@ -900,8 +901,9 @@ def init_cluster(
 
     # apply config changes for nodes marked as archival node.
     # for now, we do this only for local nodes (eg. nayduck tests).
-    for i, node_dir in enumerate(node_dirs):
-        configure_cold_storage_for_archival_node(node_dir)
+    if initialize_cold_storage:
+        for i, node_dir in enumerate(node_dirs):
+            configure_cold_storage_for_archival_node(node_dir)
 
     return near_root, node_dirs
 
