@@ -163,25 +163,37 @@ pub enum HostError {
     /// Tried to call an empty method name
     EmptyMethodName,
     /// Smart contract panicked
-    GuestPanic { panic_msg: String },
+    GuestPanic {
+        panic_msg: String,
+    },
     /// IntegerOverflow happened during a contract execution
     IntegerOverflow,
     /// `promise_idx` does not correspond to existing promises
-    InvalidPromiseIndex { promise_idx: u64 },
+    InvalidPromiseIndex {
+        promise_idx: u64,
+    },
     /// Actions can only be appended to non-joint promise.
     CannotAppendActionToJointPromise,
     /// Returning joint promise is currently prohibited
     CannotReturnJointPromise,
     /// Accessed invalid promise result index
-    InvalidPromiseResultIndex { result_idx: u64 },
+    InvalidPromiseResultIndex {
+        result_idx: u64,
+    },
     /// Accessed invalid register id
-    InvalidRegisterId { register_id: u64 },
+    InvalidRegisterId {
+        register_id: u64,
+    },
     /// Accessed memory outside the bounds
     MemoryAccessViolation,
     /// VM Logic returned an invalid receipt index
-    InvalidReceiptIndex { receipt_index: u64 },
+    InvalidReceiptIndex {
+        receipt_index: u64,
+    },
     /// Iterator index `iterator_index` does not exist
-    InvalidIteratorIndex { iterator_index: u64 },
+    InvalidIteratorIndex {
+        iterator_index: u64,
+    },
     /// VM Logic returned an invalid account id
     InvalidAccountId,
     /// VM Logic returned an invalid method name
@@ -189,42 +201,81 @@ pub enum HostError {
     /// VM Logic provided an invalid public key
     InvalidPublicKey,
     /// `method_name` is not allowed in view calls
-    ProhibitedInView { method_name: String },
+    ProhibitedInView {
+        method_name: String,
+    },
     /// The total number of logs will exceed the limit.
-    NumberOfLogsExceeded { limit: u64 },
+    NumberOfLogsExceeded {
+        limit: u64,
+    },
     /// The storage key length exceeded the limit.
-    KeyLengthExceeded { length: u64, limit: u64 },
+    KeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The storage value length exceeded the limit.
-    ValueLengthExceeded { length: u64, limit: u64 },
+    ValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The total log length exceeded the limit.
-    TotalLogLengthExceeded { length: u64, limit: u64 },
+    TotalLogLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The maximum number of promises within a FunctionCall exceeded the limit.
-    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
+    NumberPromisesExceeded {
+        number_of_promises: u64,
+        limit: u64,
+    },
     /// The maximum number of input data dependencies exceeded the limit.
-    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    NumberInputDataDependenciesExceeded {
+        number_of_input_data_dependencies: u64,
+        limit: u64,
+    },
     /// The returned value length exceeded the limit.
-    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    ReturnedValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The contract size for DeployContract action exceeded the limit.
-    ContractSizeExceeded { size: u64, limit: u64 },
+    ContractSizeExceeded {
+        size: u64,
+        limit: u64,
+    },
     /// The host function was deprecated.
-    Deprecated { method_name: String },
+    Deprecated {
+        method_name: String,
+    },
     /// General errors for ECDSA recover.
-    ECRecoverError { msg: String },
+    ECRecoverError {
+        msg: String,
+    },
     /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
     /// on the curve).
-    AltBn128InvalidInput { msg: String },
+    AltBn128InvalidInput {
+        msg: String,
+    },
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
-    Ed25519VerifyInvalidInput { msg: String },
+    Ed25519VerifyInvalidInput {
+        msg: String,
+    },
     // Invalid input to bls12381 family of functions
-    #[cfg(feature = "protocol_feature_bls12381")]
-    BLS12381InvalidInput { msg: String },
+    BLS12381InvalidInput {
+        msg: String,
+    },
     /// Yield payload length exceeds the maximum permitted.
-    YieldPayloadLength { length: u64, limit: u64 },
+    YieldPayloadLength {
+        length: u64,
+        limit: u64,
+    },
     /// Yield resumption data id is malformed.
     DataIdMalformed,
     /// Size of the recorded trie storage proof has exceeded the allowed limit.
-    RecordedStorageExceeded { limit: ByteSize },
+    RecordedStorageExceeded {
+        limit: ByteSize,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -457,7 +508,6 @@ impl std::fmt::Display for HostError {
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
-            #[cfg(feature = "protocol_feature_bls12381")]
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(
                 f,

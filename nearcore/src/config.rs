@@ -15,18 +15,18 @@ use near_chain_configs::{
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
     default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
-    default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
-    ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
-    MutableConfigValue, MutableValidatorSigner, ReshardingConfig, StateSyncConfig,
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
-    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
-    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-    TRANSACTION_VALIDITY_PERIOD,
+    default_sync_check_period, default_sync_height_threshold, default_sync_max_block_requests,
+    default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    ChunkDistributionNetworkConfig, ClientConfig, GCConfig, Genesis, GenesisConfig,
+    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, MutableValidatorSigner,
+    ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+    EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
+    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE,
+    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
@@ -174,6 +174,9 @@ pub struct Consensus {
     pub doomslug_step_period: Duration,
     #[serde(default = "default_sync_height_threshold")]
     pub sync_height_threshold: u64,
+    /// Maximum number of block requests to send to peers to sync
+    #[serde(default = "default_sync_max_block_requests")]
+    pub sync_max_block_requests: usize,
 }
 
 impl Default for Consensus {
@@ -201,6 +204,7 @@ impl Default for Consensus {
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
             sync_height_threshold: default_sync_height_threshold(),
+            sync_max_block_requests: default_sync_max_block_requests(),
         }
     }
 }
@@ -538,6 +542,7 @@ impl NearConfig {
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
                 sync_height_threshold: config.consensus.sync_height_threshold,
+                sync_max_block_requests: config.consensus.sync_max_block_requests,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
