@@ -2329,12 +2329,6 @@ impl<'a> ApplyProcessingReceiptState<'a> {
     fn next_local_receipt(&mut self) -> Option<Receipt> {
         self.local_receipts.pop_front()
     }
-
-    /// Observe the information about a receipt that would be processed `ahead` receipts later.
-    #[allow(dead_code)] // TODO
-    fn peek_receipt(&self, ahead: usize) -> Option<&Receipt> {
-        self.local_receipts.get(ahead)
-    }
 }
 
 #[cfg(test)]
