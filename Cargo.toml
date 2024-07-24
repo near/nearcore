@@ -1,5 +1,5 @@
 [workspace.package]
-version = "2.0.0-rc.4"                               # managed by cargo-workspaces, see below
+version = "2.0.0-rc.5"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 rust-version = "1.78.0"
