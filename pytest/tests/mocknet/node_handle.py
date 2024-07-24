@@ -65,6 +65,9 @@ class NodeHandle:
             except (ConnectionRefusedError,
                     requests.exceptions.ConnectionError) as e:
                 pass
+            logger.info(
+                f'Node {self.node.name()} is not ready yet, will check again in 10 seconds'
+            )
             time.sleep(10)
 
     # Same as neard_runner_jsonrpc() without checking the error
