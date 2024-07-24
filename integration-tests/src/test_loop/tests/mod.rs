@@ -4,4 +4,5 @@ pub mod congestion_control_genesis_bootstrap;
 pub mod in_memory_tries;
 pub mod multinode_stateless_validators;
 pub mod multinode_test_loop_example;
+pub mod rpc_to_archival_node;
 pub mod simple_test_loop_example;

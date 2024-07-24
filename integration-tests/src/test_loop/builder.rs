@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 
 use near_async::futures::FutureSpawner;
@@ -30,8 +31,8 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::create_test_store;
-use near_store::{StoreConfig, TrieConfig};
+use near_store::test_utils::{create_test_split_store, create_test_store};
+use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
@@ -43,11 +44,16 @@ pub struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
+    /// Accounts whose clients should be configured as an archival node.
+    /// This should be a subset of the accounts in the `clients` list.
+    archival: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
     gc: bool,
+    /// Number of latest epochs to keep before garbage collecting associated data.
+    gc_num_epochs_to_keep: Option<u64>,
 }
 
 impl TestLoopBuilder {
@@ -56,9 +62,11 @@ impl TestLoopBuilder {
             test_loop: TestLoopV2::new(),
             genesis: None,
             clients: vec![],
+            archival: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
             gc: true,
+            gc_num_epochs_to_keep: None,
         }
     }
 
@@ -79,8 +87,20 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Set the accounts whose clients should be configured as archival nodes in the test loop.
+    /// These accounts should be a subset of the accounts provided to the `clients` method.
+    pub fn archival(mut self, clients: HashSet<AccountId>) -> Self {
+        self.archival = clients;
+        self
+    }
+
     pub fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
         self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
+        self
+    }
+
+    pub fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
+        self.gc_num_epochs_to_keep = Some(num_epochs);
         self
     }
 
@@ -96,6 +116,10 @@ impl TestLoopBuilder {
 
     fn ensure_clients(self) -> Self {
         assert!(!self.clients.is_empty(), "Clients must be provided to the test loop");
+        assert!(
+            self.archival.is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
+            "Archival accounts must be subset of the clients"
+        );
         self
     }
 
@@ -105,7 +129,10 @@ impl TestLoopBuilder {
         let mut epoch_manager_adapters = Vec::new();
         let tempdir = tempfile::tempdir().unwrap();
         for idx in 0..self.clients.len() {
-            let (data, network_adapter, epoch_manager_adapter) = self.setup_client(idx, &tempdir);
+            let account = &self.clients[idx];
+            let is_archival = self.archival.contains(account);
+            let (data, network_adapter, epoch_manager_adapter) =
+                self.setup_client(idx, &tempdir, is_archival);
             datas.push(data);
             network_adapters.push(network_adapter);
             epoch_manager_adapters.push(epoch_manager_adapter);
@@ -120,6 +147,7 @@ impl TestLoopBuilder {
         &mut self,
         idx: usize,
         tempdir: &TempDir,
+        is_archival: bool,
     ) -> (
         TestData,
         Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>,
@@ -132,10 +160,14 @@ impl TestLoopBuilder {
         let sync_jobs_adapter = LateBoundSender::new();
 
         let genesis = self.genesis.clone().unwrap();
-        let mut client_config = ClientConfig::test(true, 600, 2000, 4, false, true, false, false);
+        let mut client_config =
+            ClientConfig::test(true, 600, 2000, 4, is_archival, true, false, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
         client_config.state_sync_timeout = Duration::milliseconds(100);
+        if let Some(num_epochs) = self.gc_num_epochs_to_keep {
+            client_config.gc.gc_num_epochs_to_keep = num_epochs;
+        }
         let external_storage_location =
             ExternalStorageLocation::Filesystem { root_dir: tempdir.path().join("state_sync") };
         client_config.state_sync = StateSyncConfig {
@@ -154,7 +186,7 @@ impl TestLoopBuilder {
 
         // Configure tracked shards.
         // * single shard tracking for validators
-        // * all shard tracking for RPCs
+        // * all shard tracking for non-validators (RPCs and archival)
         let num_block_producer = genesis.config.num_block_producer_seats;
         let num_chunk_producer = genesis.config.num_chunk_producer_seats;
         let num_chunk_validator = genesis.config.num_chunk_validator_seats;
@@ -174,7 +206,14 @@ impl TestLoopBuilder {
             load_mem_tries_for_tracked_shards: true,
             ..Default::default()
         };
-        let store = create_test_store();
+
+        let (store, split_store): (Store, Option<Store>) = if is_archival {
+            let (hot_store, split_store) = create_test_split_store();
+            (hot_store, Some(split_store))
+        } else {
+            let hot_store = create_test_store();
+            (hot_store, None)
+        };
         initialize_genesis_state(store.clone(), &genesis, None);
 
         let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
@@ -189,12 +228,11 @@ impl TestLoopBuilder {
             test_loop_sync_actor_maker(idx, self.test_loop.sender().for_index(idx)),
         )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
-            .expect("filesystem contract cache")
-            .handle();
+            .expect("filesystem contract cache");
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
             &homedir,
             store.clone(),
-            contract_cache,
+            ContractRuntimeCache::handle(&contract_cache),
             &genesis.config,
             epoch_manager.clone(),
             None,
@@ -276,13 +314,38 @@ impl TestLoopBuilder {
         )
         .unwrap();
 
+        // If this is an archival node and split storage is initialized, then create view-specific
+        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initiaze the
+        // ViewClientActorInner. Otherwise, we use the regular versions created above.
+        let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
+            if let Some(split_store) = &split_store {
+                let view_epoch_manager =
+                    EpochManager::new_arc_handle(split_store.clone(), &genesis.config);
+                let view_shard_tracker = ShardTracker::new(
+                    TrackedConfig::from_config(&client_config),
+                    epoch_manager.clone(),
+                );
+                let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
+                    &homedir,
+                    split_store.clone(),
+                    ContractRuntimeCache::handle(&contract_cache),
+                    &genesis.config,
+                    view_epoch_manager.clone(),
+                    None,
+                    TrieConfig::from_store_config(&store_config),
+                    StateSnapshotType::EveryEpoch,
+                );
+                (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
+            } else {
+                (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
+            };
         let view_client_actor = ViewClientActorInner::new(
             self.test_loop.clock(),
             validator_signer.clone(),
             chain_genesis.clone(),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            runtime_adapter.clone(),
+            view_epoch_manager.clone(),
+            view_shard_tracker.clone(),
+            view_runtime_adapter.clone(),
             network_adapter.as_multi_sender(),
             client_config.clone(),
             near_client::adversarial::Controls::default(),
