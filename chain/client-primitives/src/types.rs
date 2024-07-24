@@ -435,7 +435,7 @@ impl Message for GetBlockWithMerkleTree {
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum GetChunk {
     Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),

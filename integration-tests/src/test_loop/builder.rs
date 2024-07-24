@@ -369,7 +369,7 @@ impl TestLoopBuilder {
         );
         // We don't send messages to `GCActor` so adapter is not needed.
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
-        
+
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
             clock: self.test_loop.clock(),
