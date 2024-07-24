@@ -1187,6 +1187,7 @@ impl TxTracker {
         db: &DB,
         sent_batch: SentBatch,
         target_height: BlockHeight,
+        start_time: Option<tokio::time::Instant>
     ) -> anyhow::Result<()> {
         let mut total_sent = 0;
         let now = Instant::now();
@@ -1199,7 +1200,7 @@ impl TxTracker {
                         .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
                 });
                 let reset_time_debug = chrono::Utc::now() + block_delay;
-                let reset_time = tokio::time::Instant::now() + block_delay;
+                let reset_time = start_time.unwrap_or_else(tokio::time::Instant::now) + block_delay;
                 tracing::info!(target: "mirror", "xxxxxxxx reset next send time to {:?}", reset_time_debug);
                 self.send_time.as_mut().reset(reset_time);
                 crate::set_last_source_height(db, b.source_height)?;

@@ -1736,6 +1736,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     &self.db,
                     crate::chain_tracker::SentBatch::ExtraTxs(txs),
                     target_height,
+                    None,
                 )
                 .await?;
         }
@@ -1756,9 +1757,10 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracing::info!(target: "mirror", "xxxxxxxx do next batch");
                     let mut tx_batch = tx_batch?;
                     source_hash = tx_batch.source_hash;
+                    let start = tokio::time::Instant::now();
                     self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                     self.source_chain_access.allow_gc(source_hash).await;
-                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(tx_batch), target_height).await?;
+                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(tx_batch), target_height, Some(start)).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
@@ -1892,6 +1894,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         &self.db,
                         crate::chain_tracker::SentBatch::MappedBlock(b),
                         target_height,
+                        None,
                     )
                     .await?;
             }
