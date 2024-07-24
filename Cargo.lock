@@ -4429,6 +4429,7 @@ dependencies = [
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
+ "near-jsonrpc-traits",
  "near-network",
  "near-o11y",
  "near-primitives",
@@ -4519,6 +4520,19 @@ dependencies = [
  "near-store",
  "near-time",
  "once_cell",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "near-jsonrpc-traits"
+version = "0.0.0"
+dependencies = [
+ "near-async",
+ "near-client",
+ "near-jsonrpc-primitives",
+ "near-network",
+ "near-primitives",
  "serde",
  "serde_json",
 ]

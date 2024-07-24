@@ -33,6 +33,7 @@ members = [
     "chain/jsonrpc/client",
     "chain/jsonrpc/fuzz",
     "chain/jsonrpc/jsonrpc-tests",
+    "chain/near-jsonrpc-traits",
     "chain/network",
     "chain/pool",
     "chain/rosetta-rpc",
@@ -247,6 +248,7 @@ near-fmt = { path = "utils/fmt" }
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
+near-jsonrpc-traits = { path = "chain/near-jsonrpc-traits" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [

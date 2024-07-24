@@ -30,6 +30,7 @@ use near_jsonrpc_primitives::types::split_storage::{
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
 };
+use near_jsonrpc_traits::JsonRpcHandlerTrait;
 use near_network::debug::GetDebugStatus;
 use near_network::tcp;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
@@ -524,6 +525,153 @@ impl JsonRpcHandler {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
+    async fn old_debug(
+        &self,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let status =
+                self.client_send(Status { is_health_check: false, detailed: true }).await?;
+            Ok(Some(status.rpc_into()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn debug(
+        &self,
+        path: &str,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status: near_jsonrpc_primitives::types::status::DebugStatusResponse =
+                match path {
+                    "/debug/api/tracked_shards" => {
+                        self.client_send(DebugStatus::TrackedShards).await?.rpc_into()
+                    }
+                    "/debug/api/sync_status" => {
+                        self.client_send(DebugStatus::SyncStatus).await?.rpc_into()
+                    }
+                    "/debug/api/catchup_status" => {
+                        self.client_send(DebugStatus::CatchupStatus).await?.rpc_into()
+                    }
+                    "/debug/api/epoch_info" => {
+                        self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
+                    }
+                    "/debug/api/block_status" => {
+                        self.client_send(DebugStatus::BlockStatus(None)).await?.rpc_into()
+                    }
+                    "/debug/api/validator_status" => {
+                        self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
+                    }
+                    "/debug/api/chain_processing_status" => {
+                        self.client_send(DebugStatus::ChainProcessingStatus).await?.rpc_into()
+                    }
+                    "/debug/api/requested_state_parts" => {
+                        self.client_send(DebugStatus::RequestedStateParts).await?.rpc_into()
+                    }
+                    "/debug/api/peer_store" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
+                        .await?
+                        .rpc_into(),
+                    "/debug/api/network_graph" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::Graph)
+                        .await?
+                        .rpc_into(),
+                    "/debug/api/recent_outbound_connections" => self
+                        .peer_manager_send(
+                            near_network::debug::GetDebugStatus::RecentOutboundConnections,
+                        )
+                        .await?
+                        .rpc_into(),
+                    "/debug/api/network_routes" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
+                        .await?
+                        .rpc_into(),
+                    "/debug/api/snapshot_hosts" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
+                        .await?
+                        .rpc_into(),
+                    "/debug/api/split_store_info" => {
+                        let split_storage_info: RpcSplitStorageInfoResponse = self
+                            .split_storage_info(RpcSplitStorageInfoRequest {})
+                            .await
+                            .map_err(|e| e.into_rpc_status_error())?;
+                        near_jsonrpc_primitives::types::status::DebugStatusResponse::SplitStoreStatus(split_storage_info.result)
+                    }
+                    _ => return Ok(None),
+                };
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn debug_block_status(
+        &self,
+        starting_height: Option<BlockHeight>,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status =
+                self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// If experimental_debug_pages_src_path config is set, reads the html file from that
+    /// directory. Otherwise, returns None.
+    fn read_html_file_override(&self, html_file: &'static str) -> Option<String> {
+        if let Some(directory) = &self.debug_pages_src_path {
+            let path = directory.join(html_file);
+            return Some(std::fs::read_to_string(path.clone()).unwrap_or_else(|err| {
+                format!("Could not load path {}: {:?}", path.display(), err)
+            }));
+        }
+        None
+    }
+
+    /// Returns the future windows for maintenance in current epoch for the specified account
+    /// In the maintenance windows, the node will not be block producer or chunk producer
+    async fn maintenance_windows(
+        &self,
+        request: near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsResponse,
+        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsError,
+    > {
+        let near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest {
+            account_id,
+        } = request;
+        let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
+        Ok(windows.iter().map(|r| (r.start, r.end)).collect())
+    }
+
+    async fn split_storage_info(
+        &self,
+        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
+    > {
+        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
+        Ok(RpcSplitStorageInfoResponse { result: split_storage })
+    }
+}
+
+impl JsonRpcHandlerTrait for JsonRpcHandler {
     async fn send_tx_async(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
@@ -738,7 +886,7 @@ impl JsonRpcHandler {
         Ok(status.rpc_into())
     }
 
-    pub async fn status(
+    async fn status(
         &self,
     ) -> Result<
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
@@ -748,113 +896,7 @@ impl JsonRpcHandler {
         Ok(status.rpc_into())
     }
 
-    pub async fn old_debug(
-        &self,
-    ) -> Result<
-        Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
-        near_jsonrpc_primitives::types::status::RpcStatusError,
-    > {
-        if self.enable_debug_rpc {
-            let status =
-                self.client_send(Status { is_health_check: false, detailed: true }).await?;
-            Ok(Some(status.rpc_into()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn debug(
-        &self,
-        path: &str,
-    ) -> Result<
-        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
-        near_jsonrpc_primitives::types::status::RpcStatusError,
-    > {
-        if self.enable_debug_rpc {
-            let debug_status: near_jsonrpc_primitives::types::status::DebugStatusResponse =
-                match path {
-                    "/debug/api/tracked_shards" => {
-                        self.client_send(DebugStatus::TrackedShards).await?.rpc_into()
-                    }
-                    "/debug/api/sync_status" => {
-                        self.client_send(DebugStatus::SyncStatus).await?.rpc_into()
-                    }
-                    "/debug/api/catchup_status" => {
-                        self.client_send(DebugStatus::CatchupStatus).await?.rpc_into()
-                    }
-                    "/debug/api/epoch_info" => {
-                        self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
-                    }
-                    "/debug/api/block_status" => {
-                        self.client_send(DebugStatus::BlockStatus(None)).await?.rpc_into()
-                    }
-                    "/debug/api/validator_status" => {
-                        self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
-                    }
-                    "/debug/api/chain_processing_status" => {
-                        self.client_send(DebugStatus::ChainProcessingStatus).await?.rpc_into()
-                    }
-                    "/debug/api/requested_state_parts" => {
-                        self.client_send(DebugStatus::RequestedStateParts).await?.rpc_into()
-                    }
-                    "/debug/api/peer_store" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
-                        .await?
-                        .rpc_into(),
-                    "/debug/api/network_graph" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::Graph)
-                        .await?
-                        .rpc_into(),
-                    "/debug/api/recent_outbound_connections" => self
-                        .peer_manager_send(
-                            near_network::debug::GetDebugStatus::RecentOutboundConnections,
-                        )
-                        .await?
-                        .rpc_into(),
-                    "/debug/api/network_routes" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
-                        .await?
-                        .rpc_into(),
-                    "/debug/api/snapshot_hosts" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
-                        .await?
-                        .rpc_into(),
-                    "/debug/api/split_store_info" => {
-                        let split_storage_info: RpcSplitStorageInfoResponse = self
-                            .split_storage_info(RpcSplitStorageInfoRequest {})
-                            .await
-                            .map_err(|e| e.into_rpc_status_error())?;
-                        near_jsonrpc_primitives::types::status::DebugStatusResponse::SplitStoreStatus(split_storage_info.result)
-                    }
-                    _ => return Ok(None),
-                };
-            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
-                status_response: debug_status,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn debug_block_status(
-        &self,
-        starting_height: Option<BlockHeight>,
-    ) -> Result<
-        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
-        near_jsonrpc_primitives::types::status::RpcStatusError,
-    > {
-        if self.enable_debug_rpc {
-            let debug_status =
-                self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
-            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
-                status_response: debug_status,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn protocol_config(
+    async fn protocol_config(
         &self,
         request_data: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
     ) -> Result<
@@ -1132,34 +1174,6 @@ impl JsonRpcHandler {
         Ok(validators)
     }
 
-    /// If experimental_debug_pages_src_path config is set, reads the html file from that
-    /// directory. Otherwise, returns None.
-    fn read_html_file_override(&self, html_file: &'static str) -> Option<String> {
-        if let Some(directory) = &self.debug_pages_src_path {
-            let path = directory.join(html_file);
-            return Some(std::fs::read_to_string(path.clone()).unwrap_or_else(|err| {
-                format!("Could not load path {}: {:?}", path.display(), err)
-            }));
-        }
-        None
-    }
-
-    /// Returns the future windows for maintenance in current epoch for the specified account
-    /// In the maintenance windows, the node will not be block producer or chunk producer
-    async fn maintenance_windows(
-        &self,
-        request: near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsResponse,
-        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsError,
-    > {
-        let near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest {
-            account_id,
-        } = request;
-        let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
-        Ok(windows.iter().map(|r| (r.start, r.end)).collect())
-    }
-
     async fn client_config(
         &self,
     ) -> Result<
@@ -1168,17 +1182,6 @@ impl JsonRpcHandler {
     > {
         let client_config = self.client_send(GetClientConfig {}).await?;
         Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
-    }
-
-    pub async fn split_storage_info(
-        &self,
-        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
-        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
-    > {
-        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
-        Ok(RpcSplitStorageInfoResponse { result: split_storage })
     }
 }
 

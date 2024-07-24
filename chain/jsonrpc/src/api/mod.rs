@@ -86,6 +86,7 @@ mod params {
     use serde_json::Value;
 
     use near_jsonrpc_primitives::errors::RpcParseError;
+    use near_jsonrpc_traits::ParamsTrait;
 
     /// Helper wrapper for parsing JSON value into expected request format.
     ///
@@ -109,12 +110,12 @@ mod params {
         Result<Result<T, RpcParseError>, Value>,
     );
 
-    impl<T> Params<T> {
-        pub fn new(params: Value) -> Self {
+    impl<T> ParamsTrait<T> for Params<T> {
+        fn new(params: Value) -> Self {
             Self(Err(params))
         }
 
-        pub fn parse(value: Value) -> Result<T, RpcParseError>
+        fn parse(value: Value) -> Result<T, RpcParseError>
         where
             T: DeserializeOwned,
         {
@@ -124,7 +125,7 @@ mod params {
 
         /// If value hasn’t been parsed yet, tries to deserialise it directly
         /// into `T`.
-        pub fn unwrap_or_parse(self) -> Result<T, RpcParseError>
+        fn unwrap_or_parse(self) -> Result<T, RpcParseError>
         where
             T: DeserializeOwned,
         {
@@ -137,7 +138,7 @@ mod params {
         /// `try_singleton` and `try_pair` methods can be chained together
         /// (though it doesn’t make sense to use the same method twice) before
         /// a final `parse` call.
-        pub fn try_singleton<U: DeserializeOwned>(
+        fn try_singleton<U: DeserializeOwned>(
             self,
             func: impl FnOnce(U) -> Result<T, RpcParseError>,
         ) -> Self {
@@ -155,7 +156,7 @@ mod params {
         /// `try_singleton` and `try_pair` methods can be chained together
         /// (though it doesn’t make sense to use the same method twice) before
         /// a final `parse` call.
-        pub fn try_pair<U: DeserializeOwned, V: DeserializeOwned>(
+        fn try_pair<U: DeserializeOwned, V: DeserializeOwned>(
             self,
             func: impl FnOnce(U, V) -> Result<T, RpcParseError>,
         ) -> Self {

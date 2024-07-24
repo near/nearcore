@@ -1,11 +1,14 @@
-use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::{GetReceipt, GetReceiptError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
     ReceiptReference, RpcReceiptError, RpcReceiptRequest,
 };
+use near_jsonrpc_traits::ParamsTrait;
+
 use serde_json::Value;
+
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcReceiptRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

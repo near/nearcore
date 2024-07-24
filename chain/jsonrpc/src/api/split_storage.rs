@@ -4,6 +4,8 @@ use near_jsonrpc_primitives::{
     errors::RpcParseError,
     types::split_storage::{RpcSplitStorageInfoError, RpcSplitStorageInfoRequest},
 };
+use near_jsonrpc_traits::ParamsTrait;
+
 use serde_json::Value;
 
 use super::{Params, RpcFrom, RpcRequest};

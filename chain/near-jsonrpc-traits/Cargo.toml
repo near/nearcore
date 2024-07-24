@@ -1,0 +1,22 @@
+[package]
+name = "near-jsonrpc-traits"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+near-async.workspace = true
+near-client.workspace = true
+near-network.workspace = true
+near-primitives.workspace = true
+near-jsonrpc-primitives.workspace = true
+
+[lints]
+workspace = true

@@ -4,6 +4,7 @@ use serde_json::Value;
 use near_client_primitives::types::GetBlockError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::blocks::{RpcBlockError, RpcBlockRequest};
+use near_jsonrpc_traits::ParamsTrait;
 use near_primitives::types::BlockReference;
 
 use super::{Params, RpcFrom, RpcRequest};

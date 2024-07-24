@@ -35,6 +35,7 @@ near-primitives.workspace = true
 near-client.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
+near-jsonrpc-traits.workspace = true
 near-jsonrpc-client.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-jsonrpc-adversarial-primitives = { workspace = true, optional = true }

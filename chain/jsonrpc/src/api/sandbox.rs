@@ -6,6 +6,7 @@ use near_jsonrpc_primitives::types::sandbox::{
     RpcSandboxFastForwardError, RpcSandboxFastForwardRequest, RpcSandboxPatchStateError,
     RpcSandboxPatchStateRequest,
 };
+use near_jsonrpc_traits::ParamsTrait;
 
 use super::{Params, RpcFrom, RpcRequest};
 
