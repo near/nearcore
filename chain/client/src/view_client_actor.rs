@@ -7,7 +7,7 @@ use crate::{
 };
 use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
-use near_async::messaging::{CanSend, Handler};
+use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -114,6 +114,8 @@ impl ViewClientRequestManager {
     }
 }
 
+impl Actor for ViewClientActorInner {}
+
 impl ViewClientActorInner {
     /// Maximum number of state requests allowed per `view_client_throttle_period`.
     const MAX_NUM_STATE_REQUESTS: usize = 30;
@@ -129,34 +131,56 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
     ) -> Addr<ViewClientActor> {
-        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         SyncArbiter::start(config.view_client_threads, move || {
-            // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-            let chain = Chain::new_for_view_client(
+            let view_client_actor = ViewClientActorInner::new(
                 clock.clone(),
+                validator.clone(),
+                chain_genesis.clone(),
                 epoch_manager.clone(),
                 shard_tracker.clone(),
                 runtime.clone(),
-                &chain_genesis,
-                DoomslugThresholdMode::TwoThirds,
-                config.save_trie_changes,
+                network_adapter.clone(),
+                config.clone(),
+                adv.clone(),
             )
             .unwrap();
-
-            let view_client_actor = ViewClientActorInner {
-                clock: clock.clone(),
-                adv: adv.clone(),
-                validator: validator.clone(),
-                chain,
-                epoch_manager: epoch_manager.clone(),
-                shard_tracker: shard_tracker.clone(),
-                runtime: runtime.clone(),
-                network_adapter: network_adapter.clone(),
-                config: config.clone(),
-                request_manager: request_manager.clone(),
-                state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
-            };
             SyncActixWrapper::new(view_client_actor)
+        })
+    }
+
+    pub fn new(
+        clock: Clock,
+        validator: MutableValidatorSigner,
+        chain_genesis: ChainGenesis,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime: Arc<dyn RuntimeAdapter>,
+        network_adapter: PeerManagerAdapter,
+        config: ClientConfig,
+        adv: crate::adversarial::Controls,
+    ) -> Result<Self, Error> {
+        // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
+        let chain = Chain::new_for_view_client(
+            clock.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            runtime.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+            config.save_trie_changes,
+        )?;
+        Ok(Self {
+            clock,
+            adv,
+            validator,
+            chain,
+            epoch_manager,
+            shard_tracker,
+            runtime,
+            network_adapter,
+            config,
+            request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
         })
     }
 
