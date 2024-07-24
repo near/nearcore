@@ -268,6 +268,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.epoch_length,
             args.num_seats,
             args.genesis_protocol_version,
+            args.new_chain_id,
             genesis_time=genesis_time), targeted)
 
     if args.local_test:
@@ -547,6 +548,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--epoch-length', type=int)
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
+    new_test_parser.add_argument('--new-chain-id', type=str)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument('--gcs-state-sync', action='store_true')
