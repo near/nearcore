@@ -51,7 +51,6 @@ pub struct TestLoopBuilder {
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
-    gc: bool,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
 }
@@ -65,7 +64,6 @@ impl TestLoopBuilder {
             archival: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
-            gc: true,
             gc_num_epochs_to_keep: None,
         }
     }
@@ -361,19 +359,17 @@ impl TestLoopBuilder {
             store,
         );
 
-        if self.gc {
-            let gc_actor = GCActor::new(
-                runtime_adapter.store().clone(),
-                chain_genesis.height,
-                runtime_adapter.clone(),
-                epoch_manager.clone(),
-                client_config.gc.clone(),
-                client_config.archive,
-            );
-            // We don't send messages to `GCActor` so adapter is not needed.
-            self.test_loop.register_actor_for_index(idx, gc_actor, None);
-        }
-
+        let gc_actor = GCActor::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            runtime_adapter.clone(),
+            epoch_manager.clone(),
+            client_config.gc.clone(),
+            client_config.archive,
+        );
+        // We don't send messages to `GCActor` so adapter is not needed.
+        self.test_loop.register_actor_for_index(idx, gc_actor, None);
+        
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
             clock: self.test_loop.clock(),
