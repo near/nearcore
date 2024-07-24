@@ -107,6 +107,10 @@ struct SetValidatorsCmd {
     pub epoch_length: NumBlocks,
     #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
     pub chain_id_suffix: String,
+    /// Sets the chain id to this value. By default, if this value is not set, the initial chain_id
+    /// will be reused by appending the suffix.
+    #[arg(long)]
+    pub chain_id: Option<String>,
     /// Timestamp that should be set in the genesis block. This is required if you want
     /// to create a consistent forked network across many machines
     #[arg(long)]
@@ -189,6 +193,7 @@ impl ForkNetworkCommand {
                 validators,
                 epoch_length,
                 chain_id_suffix,
+                chain_id,
             }) => {
                 self.set_validators(
                     genesis_time.unwrap_or_else(chrono::Utc::now),
@@ -196,6 +201,7 @@ impl ForkNetworkCommand {
                     validators,
                     *epoch_length,
                     chain_id_suffix,
+                    chain_id,
                     near_config,
                     home_dir,
                 )?;
@@ -361,6 +367,7 @@ impl ForkNetworkCommand {
         validators: &Path,
         epoch_length: u64,
         chain_id_suffix: &str,
+        chain_id: &Option<String>,
         near_config: &mut NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
@@ -394,6 +401,7 @@ impl ForkNetworkCommand {
             epoch_length,
             block_height,
             chain_id_suffix,
+            chain_id,
             &epoch_id,
             new_state_roots.clone(),
             new_validator_accounts.clone(),
@@ -760,6 +768,7 @@ impl ForkNetworkCommand {
         epoch_length: u64,
         height: BlockHeight,
         chain_id_suffix: &str,
+        chain_id: &Option<String>,
         epoch_id: &EpochId,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
@@ -778,7 +787,9 @@ impl ForkNetworkCommand {
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
-            chain_id: original_config.chain_id.clone() + chain_id_suffix,
+            chain_id: chain_id
+                .clone()
+                .unwrap_or(original_config.chain_id.clone() + chain_id_suffix),
             genesis_height: height,
             genesis_time,
             epoch_length,

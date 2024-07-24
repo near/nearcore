@@ -514,6 +514,7 @@ class NeardRunner:
                         boot_nodes,
                         epoch_length=1000,
                         num_seats=100,
+                        new_chain_id=None,
                         protocol_version=None,
                         genesis_time=None):
         if not isinstance(validators, list):
@@ -559,6 +560,7 @@ class NeardRunner:
                         'boot_nodes': boot_nodes,
                         'epoch_length': epoch_length,
                         'num_seats': num_seats,
+                        'new_chain_id': new_chain_id,
                         'protocol_version': protocol_version,
                         'genesis_time': genesis_time,
                     }, f)
@@ -1042,6 +1044,8 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
+        new_chain_id = n.get('new_chain_id')
+
         if self.legacy_records:
             cmd = [
                 self.data['binaries'][0]['system_path'],
@@ -1057,7 +1061,7 @@ class NeardRunner:
                 '--validators',
                 self.home_path('validators.json'),
                 '--chain-id',
-                'mocknet',
+                new_chain_id if new_chain_id is not None else 'mocknet',
                 '--transaction-validity-period',
                 '10000',
                 '--epoch-length',
@@ -1078,11 +1082,17 @@ class NeardRunner:
                 self.data['binaries'][0]['system_path'], '--home',
                 self.target_near_home_path(), 'fork-network', 'set-validators',
                 '--validators',
-                self.home_path('validators.json'), '--chain-id-suffix',
-                '_mocknet', '--epoch-length',
+                self.home_path('validators.json'), '--epoch-length',
                 str(n['epoch_length']), '--genesis-time',
                 str(n['genesis_time'])
             ]
+            if new_chain_id is not None:
+                cmd.append('--chain-id')
+                cmd.append(new_chain_id)
+            else:
+                cmd.append('--chain-id-suffix')
+                cmd.append('_mocknet')
+
             if n['protocol_version'] is not None:
                 cmd.append('--protocol-version')
                 cmd.append(str(n['protocol_version']))
