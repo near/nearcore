@@ -377,7 +377,7 @@ impl From<SyncStatus> for SyncStatusView {
 }
 
 /// Actor message requesting block by id, hash or sync state.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
