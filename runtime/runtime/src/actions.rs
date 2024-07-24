@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
-use crate::ext::{ExternalError, RuntimeContractExt, RuntimeExt};
+use crate::ext::{ContractStorage, ExternalError, RuntimeContractExt, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -183,7 +183,7 @@ pub(crate) fn prepare_function_call(
         view_config.is_some(),
     );
     let code_ext = RuntimeContractExt {
-        trie_update: state_update,
+        storage: ContractStorage::Transaction(state_update),
         account_id,
         account,
         chain_id: &epoch_info_provider.chain_id(),

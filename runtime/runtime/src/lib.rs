@@ -80,6 +80,7 @@ mod prefetch;
 pub mod receipt_manager;
 pub mod state_viewer;
 mod verifier;
+mod pipelining;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -2290,7 +2291,16 @@ impl<'a> ApplyProcessingState<'a> {
         incoming_receipts: &'a [Receipt],
         delayed_receipts: DelayedReceiptQueueWrapper,
     ) -> ApplyProcessingReceiptState<'a> {
+        let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
+            Arc::clone(&self.apply_state.config),
+            self.apply_state.cache.as_ref().map(|v| v.handle()),
+            self.epoch_info_provider.chain_id(),
+            self.apply_state.current_protocol_version,
+            todo!(),
+            // self.state_update.trie.storage, // TODO??
+        );
         ApplyProcessingReceiptState {
+            pipeline_manager,
             protocol_version: self.protocol_version,
             apply_state: self.apply_state,
             prefetcher: self.prefetcher,
@@ -2324,12 +2334,15 @@ struct ApplyProcessingReceiptState<'a> {
     local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
+
+    pipeline_manager: pipelining::ReceiptPreparationPipeline,
 }
 
 impl<'a> ApplyProcessingReceiptState<'a> {
     /// Obtain the next receipt that should be executed.
     fn next_local_receipt(&mut self) -> Option<Receipt> {
-        self.local_receipts.pop_front()
+        let receipt = self.local_receipts.pop_front()?;
+        Some(receipt)
     }
 }
 

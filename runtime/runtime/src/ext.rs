@@ -9,7 +9,9 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
-use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{
+    has_promise_yield_receipt, KeyLookupMode, TrieStorage, TrieUpdate, TrieUpdateValuePtr,
+};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
@@ -361,8 +363,19 @@ impl<'a> External for RuntimeExt<'a> {
     }
 }
 
+pub(crate) enum ContractStorage<'a> {
+    /// Access the transaction first.
+    Transaction(&'a TrieUpdate),
+    /// Access the storage layer directly, forgoing the transaction.
+    ///
+    /// When using this, care must be taken to not accidentally access outdated contract code (i.e.
+    /// old code for an account that has deployed a contract but for which the code has not been
+    /// committed yet.)
+    DB(&'a dyn TrieStorage),
+}
+
 pub(crate) struct RuntimeContractExt<'a> {
-    pub(crate) trie_update: &'a TrieUpdate,
+    pub(crate) storage: ContractStorage<'a>,
     pub(crate) account_id: &'a AccountId,
     pub(crate) account: &'a Account,
     pub(crate) chain_id: &'a str,
@@ -389,7 +402,17 @@ impl<'a> Contract for RuntimeContractExt<'a> {
             true => Some(TrieCacheMode::CachingShard),
             false => None,
         };
-        let _guard = self.trie_update.with_trie_cache_mode(mode);
-        self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new)
+        match self.storage {
+            ContractStorage::Transaction(trie_update) => {
+                let _guard = trie_update.with_trie_cache_mode(mode);
+                trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new)
+            }
+            ContractStorage::DB(db) => match db.retrieve_raw_bytes(&code_hash) {
+                Ok(raw_code) => {
+                    Some(Arc::new(ContractCode::new(raw_code.to_vec(), Some(code_hash))))
+                }
+                Err(_) => None,
+            },
+        }
     }
 }
