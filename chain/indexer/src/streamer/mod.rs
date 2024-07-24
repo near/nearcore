@@ -430,9 +430,10 @@ pub(crate) async fn start(
             }
         };
 
-        debug!(
+
+        tracing::info!(
             target: INDEXER,
-            "Streaming is about to start from block #{} and the latest block is #{}",
+            "xxxxxxxx Streaming is about to start from block #{} and the latest block is #{}",
             start_syncing_block_height,
             latest_block_height
         );
@@ -441,7 +442,9 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
+                tracing::info!(target: "indexer", "xxxxxxxx do build streamer message");
                 let response = build_streamer_message(&view_client, block).await;
+                tracing::info!(target: "indexer", "xxxxxxxx did build streamer message");
 
                 match response {
                     Ok(streamer_message) => {

@@ -1198,7 +1198,10 @@ impl TxTracker {
                     self.second_longest_recent_block_delay()
                         .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
                 });
-                self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
+                let reset_time_debug = chrono::Utc::now() + block_delay;
+                let reset_time = tokio::time::Instant::now() + block_delay;
+                tracing::info!(target: "mirror", "xxxxxxxx reset next send time to {:?}", reset_time_debug);
+                self.send_time.as_mut().reset(reset_time);
                 crate::set_last_source_height(db, b.source_height)?;
                 let txs =
                     b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();
