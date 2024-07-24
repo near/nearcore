@@ -18,6 +18,7 @@ async-trait.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 clap.workspace = true
+chrono.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
 hkdf.workspace = true
