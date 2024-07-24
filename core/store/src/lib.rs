@@ -199,6 +199,19 @@ impl NodeStorage {
         }
     }
 
+    /// Returns an instance of recovery store. The recovery store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// Recovery store should be use only to perform data recovery on archival nodes.
+    pub fn get_recovery_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => {
+                Some(Store { storage: Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())) })
+            }
+            None => None,
+        }
+    }
+
     /// Returns the split store. The split store is only available in archival
     /// nodes with split storage configured.
     ///

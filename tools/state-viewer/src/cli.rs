@@ -955,7 +955,7 @@ impl ViewTrieCmd {
 fn initialize_write_store(temperature: SaveTrieTemperature, node_storage: NodeStorage) -> Store {
     match temperature {
         SaveTrieTemperature::Cold => node_storage
-            .get_cold_store()
-            .expect("cold store must be present if explicitly requested"),
+            .get_recovery_store()
+            .expect("recovery store must be present if explicitly requested"),
     }
 }
