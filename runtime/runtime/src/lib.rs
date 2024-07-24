@@ -974,14 +974,18 @@ impl Runtime {
 
     fn process_receipt(
         &self,
-        state_update: &mut TrieUpdate,
-        apply_state: &ApplyState,
+        processing_state: &mut ApplyProcessingReceiptState,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
-        stats: &mut ApplyStats,
-        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let ApplyProcessingReceiptState {
+            ref mut state_update,
+            apply_state,
+            epoch_info_provider,
+            ref mut stats,
+            ..
+        } = *processing_state;
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1574,24 +1578,22 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
-        let total = &mut processing_state.total;
         let state_update = &mut processing_state.state_update;
         let node_counter_before = state_update.trie().get_trie_nodes_count();
         let recorded_storage_size_before = state_update.trie().recorded_storage_size();
         let storage_proof_size_upper_bound_before =
             state_update.trie().recorded_storage_size_upper_bound();
         let result = self.process_receipt(
-            state_update,
-            processing_state.apply_state,
+            processing_state,
             receipt,
             &mut receipt_sink,
             &mut validator_proposals,
-            &mut processing_state.stats,
-            processing_state.epoch_info_provider,
         );
+
+        let total = &mut processing_state.total;
+        let state_update = &mut processing_state.state_update;
         let node_counter_after = state_update.trie().get_trie_nodes_count();
         tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
-
         let recorded_storage_diff = state_update
             .trie()
             .recorded_storage_size()
