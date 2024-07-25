@@ -1092,11 +1092,7 @@ pub unsafe fn call_yield_resume_read_data_id_from_storage() {
     read_register(0, payload.as_ptr() as u64);
 
     let data_id_key = 42u64.to_le_bytes().to_vec();
-    storage_read(
-        data_id_key.len() as u64,
-        data_id_key.as_ptr() as u64,
-        0
-    );
+    storage_read(data_id_key.len() as u64, data_id_key.as_ptr() as u64, 0);
     let data_id = vec![0u8; register_len(0) as usize];
     read_register(0, data_id.as_ptr() as u64);
 
