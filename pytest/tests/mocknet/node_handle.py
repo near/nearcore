@@ -107,6 +107,7 @@ class NodeHandle:
                                   boot_nodes,
                                   epoch_length,
                                   num_seats,
+                                  new_chain_id,
                                   protocol_version,
                                   genesis_time=None):
         params = {
@@ -114,6 +115,7 @@ class NodeHandle:
             'boot_nodes': boot_nodes,
             'epoch_length': epoch_length,
             'num_seats': num_seats,
+            'new_chain_id': new_chain_id,
             'protocol_version': protocol_version,
         }
         if genesis_time is not None:

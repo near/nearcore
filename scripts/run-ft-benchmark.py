@@ -60,6 +60,7 @@ def main() -> None:
         create_lock_file(args.user)
         run_benchmark(REPO_DIR, time_seconds, args.users, args.shards,
                       args.nodes, args.rump_up, args.user, args.context)
+        remove_lock_file()
     except RuntimeError as e:
         print(e)
         remove_lock_file()
