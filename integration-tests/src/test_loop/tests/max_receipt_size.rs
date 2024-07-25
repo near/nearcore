@@ -103,7 +103,7 @@ fn test_max_receipt_size() {
     let sum_4_tx = SignedTransaction::call(
         104,
         account0.clone(),
-        account0.clone(),
+        account0,
         &account0_signer,
         0,
         "sum_n".into(),
