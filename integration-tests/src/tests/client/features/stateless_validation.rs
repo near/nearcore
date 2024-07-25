@@ -6,7 +6,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::version::ProtocolFeature;
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;

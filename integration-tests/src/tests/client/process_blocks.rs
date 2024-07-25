@@ -48,7 +48,7 @@ use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{

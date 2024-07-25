@@ -19,7 +19,8 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
@@ -2788,7 +2789,6 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
 fn test_verify_chunk_endorsements() {
     use near_chain_primitives::Error;
     use near_crypto::Signature;
-    use near_primitives::stateless_validation::ChunkEndorsement;
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 

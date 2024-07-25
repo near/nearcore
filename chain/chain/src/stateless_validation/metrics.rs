@@ -2,7 +2,7 @@ use near_o11y::metrics::{
     exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter,
     try_create_int_gauge, HistogramVec, IntCounter, IntGauge,
 };
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use once_cell::sync::Lazy;
 
 pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: Lazy<HistogramVec> = Lazy::new(|| {

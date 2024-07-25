@@ -122,7 +122,7 @@ mod tests {
 
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::stateless_validation::StoredChunkStateTransitionData;
+    use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
     use near_primitives::types::{BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
