@@ -4528,11 +4528,7 @@ dependencies = [
 name = "near-jsonrpc-traits"
 version = "0.0.0"
 dependencies = [
- "near-async",
- "near-client",
  "near-jsonrpc-primitives",
- "near-network",
- "near-primitives",
  "serde",
  "serde_json",
 ]

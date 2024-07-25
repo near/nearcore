@@ -1,51 +1,7 @@
-use near_client::ProcessTxResponse;
-use near_primitives::{hash::CryptoHash, transaction::SignedTransaction, types::AccountId};
-
 use std::future::Future;
 
 pub trait JsonRpcHandlerExt {
-    fn send_tx_async(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> impl Future<Output = CryptoHash> + Send;
-    fn tx_exists(
-        &self,
-        tx_hash: CryptoHash,
-        signer_account_id: &AccountId,
-    ) -> impl Future<
-        Output = Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError>,
-    > + Send;
-    fn tx_status_fetch(
-        &self,
-        tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
-        finality: near_primitives::views::TxExecutionStatus,
-        fetch_receipt: bool,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-        >,
-    > + Send;
-    fn send_tx_internal(
-        &self,
-        tx: SignedTransaction,
-        check_only: bool,
-    ) -> impl Future<
-        Output = Result<
-            ProcessTxResponse,
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-        >,
-    > + Send;
     fn send_tx(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-        >,
-    > + Send;
-    fn send_tx_commit(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
     ) -> impl Future<
@@ -116,15 +72,6 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::chunks::RpcChunkError,
         >,
     > + Send;
-    fn congestion_level(
-        &self,
-        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse,
-            near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError,
-        >,
-    > + Send;
     fn receipt(
         &self,
         request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
@@ -140,15 +87,6 @@ pub trait JsonRpcHandlerExt {
     ) -> impl Future<
         Output = Result<
             near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
-            near_jsonrpc_primitives::types::changes::RpcStateChangesError,
-        >,
-    > + Send;
-    fn changes_in_block_by_type(
-        &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
             near_jsonrpc_primitives::types::changes::RpcStateChangesError,
         >,
     > + Send;
@@ -212,14 +150,6 @@ pub trait JsonRpcHandlerExt {
         Output = Result<
             near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedResponse,
             near_jsonrpc_primitives::types::validator::RpcValidatorError,
-        >,
-    > + Send;
-    fn client_config(
-        &self,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
-            near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
         >,
     > + Send;
 }
