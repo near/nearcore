@@ -20,3 +20,20 @@ near-jsonrpc-primitives.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+nightly = [
+  "near-async/nightly",
+  "near-client/nightly",
+  "near-jsonrpc-primitives/nightly",
+  "near-network/nightly",
+  "near-primitives/nightly",
+  "nightly_protocol",
+]
+nightly_protocol = [
+  "near-async/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-jsonrpc-primitives/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]
