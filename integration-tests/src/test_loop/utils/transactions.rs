@@ -180,7 +180,7 @@ pub fn call_contract(
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
-fn get_shared_block_hash(node_datas: &[TestData], test_loop: &mut TestLoopV2) -> CryptoHash {
+pub fn get_shared_block_hash(node_datas: &[TestData], test_loop: &TestLoopV2) -> CryptoHash {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
