@@ -268,8 +268,8 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             boot_nodes,
             args.epoch_length,
             args.num_seats,
-            args.genesis_protocol_version,
             args.new_chain_id,
+            args.genesis_protocol_version,
             genesis_time=genesis_time), targeted)
 
     if args.local_test:
