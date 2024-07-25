@@ -18,10 +18,13 @@ type StateTransitionStartHeights = HashMap<ShardId, BlockHeight>;
 
 impl Chain {
     pub(crate) fn garbage_collect_state_transition_data(&self, block: &Block) -> Result<(), Error> {
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        // We start garbage collecting as soon as the epoch before Stateless Validation, because
+        // that is the epoch where we start writing state transition data. Don't wait until we
+        // enter the first Stateless Validation epoch, or else we'd have a lot to delete at once.
+        let next_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().next_epoch_id())?;
         if cfg!(feature = "shadow_chunk_validation")
-            || checked_feature!("stable", StatelessValidation, protocol_version)
+            || checked_feature!("stable", StatelessValidation, next_protocol_version)
         {
             let chain_store = self.chain_store();
             let final_block_hash = *block.header().last_final_block();
