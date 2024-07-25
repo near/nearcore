@@ -61,7 +61,7 @@ enum SubCommand {
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
 
-    // Perform resharding.
+    /// Perform on demand resharding
     Resharding(ReshardingCommand),
 }
 
