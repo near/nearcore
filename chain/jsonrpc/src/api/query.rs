@@ -4,7 +4,7 @@ use serde_json::Value;
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
-use near_jsonrpc_traits::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsTrait;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
 

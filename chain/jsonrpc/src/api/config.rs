@@ -2,7 +2,7 @@ use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};
-use near_jsonrpc_traits::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsTrait;
 
 use serde_json::Value;
 

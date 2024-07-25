@@ -6,7 +6,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::validator::{
     RpcValidatorError, RpcValidatorRequest, RpcValidatorsOrderedRequest,
 };
-use near_jsonrpc_traits::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsTrait;
 use near_primitives::types::EpochReference;
 
 use super::{Params, RpcFrom, RpcRequest};
@@ -19,7 +19,7 @@ impl RpcRequest for RpcValidatorRequest {
                 None => Ok(EpochReference::Latest),
             })
             .unwrap_or_parse()?;
-        Ok(Self { epoch_reference: epoch_reference })
+        Ok(Self { epoch_reference })
     }
 }
 

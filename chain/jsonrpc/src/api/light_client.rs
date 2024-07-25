@@ -12,7 +12,7 @@ use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientNextBlockError, RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
     RpcLightClientProofError,
 };
-use near_jsonrpc_traits::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsTrait;
 use near_primitives::views::LightClientBlockView;
 
 use super::{Params, RpcFrom, RpcRequest};

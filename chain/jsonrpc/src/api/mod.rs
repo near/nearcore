@@ -86,7 +86,7 @@ mod params {
     use serde_json::Value;
 
     use near_jsonrpc_primitives::errors::RpcParseError;
-    use near_jsonrpc_traits::ParamsTrait;
+    use near_jsonrpc_traits::params::ParamsTrait;
 
     /// Helper wrapper for parsing JSON value into expected request format.
     ///

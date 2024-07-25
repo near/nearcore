@@ -6,7 +6,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesError, RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockRequest,
 };
-use near_jsonrpc_traits::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsTrait;
 
 use super::{Params, RpcFrom, RpcRequest};
 
