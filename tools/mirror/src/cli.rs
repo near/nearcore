@@ -13,6 +13,7 @@ pub struct MirrorCommand {
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
+    ShowKeys(ShowKeysCmd),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -131,6 +132,77 @@ impl PrepareCmd {
     }
 }
 
+#[derive(clap::Parser)]
+struct ShowKeysFromSourceDBCmd {
+    #[clap(long)]
+    home: PathBuf,
+    #[clap(long)]
+    account_id: String,
+    #[clap(long)]
+    block_height: Option<BlockHeight>,
+}
+
+#[derive(clap::Parser)]
+struct ShowKeysFromRPCCmd {
+    #[clap(long)]
+    rpc_url: String,
+    #[clap(long)]
+    account_id: String,
+    #[clap(long)]
+    block_height: Option<BlockHeight>,
+}
+
+#[derive(clap::Parser)]
+struct ShowKeyFromKeyCmd {
+    #[clap(long)]
+    public_key: String,
+}
+
+#[derive(clap::Parser)]
+struct ShowDefaultExtraKeyCmd;
+
+#[derive(clap::Parser)]
+enum ShowKeysSubCommand {
+    FromSourceDB(ShowKeysFromSourceDBCmd),
+    FromRPC(ShowKeysFromRPCCmd),
+    FromPubKey(ShowKeyFromKeyCmd),
+    DefaultExtraKey(ShowDefaultExtraKeyCmd),
+}
+
+#[derive(clap::Parser)]
+struct ShowKeysCmd {
+    #[clap(long)]
+    secret_file: Option<PathBuf>,
+    #[clap(subcommand)]
+    subcmd: ShowKeysSubCommand,
+}
+
+impl ShowKeysCmd {
+    fn run(self) -> anyhow::Result<()> {
+        let secret = if let Some(secret_file) = &self.secret_file {
+            let secret = crate::secret::load(secret_file)
+                .with_context(|| format!("Failed to load secret from {:?}", secret_file))?;
+            secret
+        } else {
+            None
+        };
+        let keys = match self.subcmd {
+            ShowKeysSubCommand::FromSourceDB(c) => todo!(),
+            ShowKeysSubCommand::FromRPC(c) => todo!(),
+            ShowKeysSubCommand::FromPubKey(c) => {
+                vec![crate::key_util::map_pub_key(&c.public_key, secret.as_ref())?]
+            }
+            ShowKeysSubCommand::DefaultExtraKey(c) => {
+                vec![crate::key_mapping::default_extra_key(secret.as_ref())]
+            }
+        };
+        for key in keys {
+            println!("secret key: {}\npublic key: {}\n------------", &key, key.public_key());
+        }
+        Ok(())
+    }
+}
+
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
@@ -151,6 +223,7 @@ impl MirrorCommand {
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
+            SubCommand::ShowKeys(r) => r.run(),
         }
     }
 }
