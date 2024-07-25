@@ -123,7 +123,7 @@ impl Config {
         rate_limits.insert(SyncAccountsData, SingleMessageConfig::new(25_000, 250.0, None));
         rate_limits.insert(PeersRequest, SingleMessageConfig::new(20, 0.2, None));
         rate_limits.insert(PeersResponse, SingleMessageConfig::new(15_000, 150.0, None));
-        rate_limits.insert(BlockRequest, SingleMessageConfig::new(100, 1.0, None));
+        rate_limits.insert(BlockRequest, SingleMessageConfig::new(300, 3.0, None));
         rate_limits.insert(Block, SingleMessageConfig::new(500, 5.0, None));
         rate_limits.insert(SyncSnapshotHosts, SingleMessageConfig::new(2_000, 20.0, None));
         rate_limits.insert(
@@ -131,14 +131,14 @@ impl Config {
             SingleMessageConfig::new(1_000_000, 10_000.0, None),
         );
         rate_limits
-            .insert(PartialEncodedChunkResponse, SingleMessageConfig::new(10_000, 100.0, None));
+            .insert(PartialEncodedChunkResponse, SingleMessageConfig::new(15_000, 150.0, None));
         rate_limits
             .insert(PartialEncodedChunkForward, SingleMessageConfig::new(25_000, 250.0, None));
         rate_limits.insert(VersionedPartialEncodedChunk, SingleMessageConfig::new(200, 2.0, None));
         rate_limits.insert(ForwardTx, SingleMessageConfig::new(600, 6.0, None));
         rate_limits.insert(BlockApproval, SingleMessageConfig::new(200, 2.0, None));
-        rate_limits.insert(TxStatusRequest, SingleMessageConfig::new(10, 0.1, None));
-        rate_limits.insert(TxStatusResponse, SingleMessageConfig::new(10, 0.1, None));
+        rate_limits.insert(TxStatusRequest, SingleMessageConfig::new(50, 0.5, None));
+        rate_limits.insert(TxStatusResponse, SingleMessageConfig::new(50, 0.5, None));
 
         Self { rate_limits }
     }
