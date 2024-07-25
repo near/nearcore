@@ -55,6 +55,7 @@ mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
 pub mod trie;
+pub mod contract;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
@@ -948,15 +949,6 @@ pub fn get_access_key_raw(
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.

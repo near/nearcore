@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+use crate::ext::RuntimeContractExt;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::action::Action;
@@ -9,8 +12,6 @@ use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Condvar, Mutex};
-
-use crate::ext::{ContractStorage, RuntimeContractExt};
 
 pub(crate) struct ReceiptPreparationPipeline {
     /// Mapping from a Receipt's ID to a parallel "task" to prepare the receipt's data.
@@ -54,8 +55,8 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// Protocol version for this chunk.
     protocol_version: u32,
 
-    /// Storage.
-    storage: Arc<dyn near_store::TrieStorage>,
+    /// Storage for WASM code.
+    storage: near_store::contract::Storage,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -81,7 +82,7 @@ impl ReceiptPreparationPipeline {
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
         chain_id: String,
         protocol_version: u32,
-        storage: Arc<dyn near_store::TrieStorage>,
+        storage: near_store::contract::Storage,
     ) -> Self {
         Self {
             map: Default::default(),
@@ -143,7 +144,7 @@ impl ReceiptPreparationPipeline {
                     );
                     // TODO: This part needs to be executed in a thread eventually.
                     let code_ext = RuntimeContractExt {
-                        storage: ContractStorage::DB(&*self.storage),
+                        storage: self.storage.clone(),
                         account_id,
                         account,
                         chain_id: &self.chain_id,

@@ -431,7 +431,8 @@ impl Runtime {
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     account_id,
                     deploy_contract,
-                    apply_state,
+                    Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.cache.as_deref(),
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -2296,8 +2297,7 @@ impl<'a> ApplyProcessingState<'a> {
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.epoch_info_provider.chain_id(),
             self.apply_state.current_protocol_version,
-            todo!(),
-            // self.state_update.trie.storage, // TODO??
+            self.state_update.contract_storage.clone(),
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -2334,7 +2334,6 @@ struct ApplyProcessingReceiptState<'a> {
     local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
-
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
 }
 
@@ -2342,6 +2341,8 @@ impl<'a> ApplyProcessingReceiptState<'a> {
     /// Obtain the next receipt that should be executed.
     fn next_local_receipt(&mut self) -> Option<Receipt> {
         let receipt = self.local_receipts.pop_front()?;
+        #[allow(dropping_references)]
+        drop(&self.pipeline_manager);
         Some(receipt)
     }
 }

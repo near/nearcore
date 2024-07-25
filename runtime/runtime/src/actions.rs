@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
-use crate::ext::{ContractStorage, ExternalError, RuntimeContractExt, RuntimeExt};
+use crate::ext::{ExternalError, RuntimeContractExt, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -30,15 +30,14 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
-    remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
-    StorageError, TrieUpdate,
+    enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
+    remove_account, set_access_key, set_code, set_promise_yield_indices, StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::ContractCode;
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_vm_runner::{precompile_contract, PreparedContract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
@@ -183,7 +182,7 @@ pub(crate) fn prepare_function_call(
         view_config.is_some(),
     );
     let code_ext = RuntimeContractExt {
-        storage: ContractStorage::Transaction(state_update),
+        storage: state_update.contract_storage.clone(),
         account_id,
         account,
         chain_id: &epoch_info_provider.chain_id(),
@@ -645,11 +644,12 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
-    apply_state: &ApplyState,
+    config: Arc<near_parameters::vm::Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
+    let prev_code = state_update.contract_storage.get(account.code_hash());
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
@@ -661,16 +661,25 @@ pub(crate) fn action_deploy_contract(
         })?,
     );
     account.set_code_hash(*code.hash());
+    // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
+    // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
+    // contracts into the storage as part of the commit routine, however no code should be relying
+    // on this per se.
     set_code(state_update, account_id.clone(), &code);
-    // Precompile the contract and store result (compiled code or error) in the database.
-    // Note, that contract compilation costs are already accounted in deploy cost using
-    // special logic in estimator (see get_runtime_config() function).
+    // Precompile the contract and store result (compiled code or error) in the contract runtime
+    // cache.
+    // Note, that contract compilation costs are already accounted in deploy cost using special
+    // logic in estimator (see get_runtime_config() function).
     precompile_contract(
         &code,
-        Arc::clone(&apply_state.config.wasm_config),
-        apply_state.cache.as_deref(),
+        config,
+        cache,
     )
     .ok();
+    // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
+    // return the contract before the contract is written out to the underlying storage as part of
+    // the `TrieUpdate` commit.)
+    state_update.contract_storage.store(code);
     Ok(())
 }
 
@@ -687,7 +696,7 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
+        let contract_code = state_update.contract_storage.get(account.code_hash());
         if let Some(code) = contract_code {
             // account storage usage should be larger than code size
             let code_len = code.code().len() as u64;
@@ -1190,10 +1199,8 @@ mod tests {
     use near_primitives::action::delegate::NonDelegateAction;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
-    use near_primitives::hash::hash;
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
-    use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
@@ -1355,11 +1362,25 @@ mod tests {
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
-        let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
-        let empty_contract = [0; 10_000].to_vec();
-        let contract_hash = hash(&empty_contract);
-        state_update.set(trie_key, empty_contract);
-        test_delete_large_account(&account_id, &contract_hash, storage_usage, &mut state_update)
+        let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
+        let mut account =
+            Account::new(100, 0, 0, CryptoHash::default(), storage_usage, PROTOCOL_VERSION);
+        let apply_state = create_apply_state(0);
+        let res = action_deploy_contract(
+            &mut state_update,
+            &mut account,
+            &account_id,
+            &deploy_action,
+            Arc::clone(&apply_state.config.wasm_config),
+            None,
+        );
+        assert!(res.is_ok());
+        test_delete_large_account(
+            &account_id,
+            &account.code_hash(),
+            storage_usage,
+            &mut state_update,
+        )
     }
 
     #[test]

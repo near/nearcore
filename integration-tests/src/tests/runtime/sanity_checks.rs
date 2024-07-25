@@ -115,8 +115,8 @@ fn test_cost_sanity() {
     let res = node
         .user()
         .function_call(
-            alice_account(),
-            test_contract_account(),
+            dbg!(alice_account()),
+            dbg!(test_contract_account()),
             "sanity_check",
             args.into_bytes(),
             MAX_GAS,

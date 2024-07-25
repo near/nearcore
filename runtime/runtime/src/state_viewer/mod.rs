@@ -17,7 +17,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{get_access_key, get_account, get_code, TrieUpdate};
+use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -89,7 +89,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        get_code(state_update, account_id, Some(account.code_hash()))?.ok_or_else(|| {
+        state_update.contract_storage.get(account.code_hash()).ok_or_else(|| {
             errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
             }
@@ -146,7 +146,7 @@ impl TrieViewer {
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
-                let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
+                let code_len = state_update.contract_storage.get(account.code_hash())
                     .map(|c| c.code().len() as u64)
                     .unwrap_or_default();
                 if let Some(limit) = self.state_size_limit {
