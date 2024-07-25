@@ -1,7 +1,9 @@
 use anyhow::Context;
-use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
+
+use near_primitives::types::BlockHeight;
+use near_primitives::views::AccessKeyPermissionView;
 
 #[derive(clap::Parser)]
 pub struct MirrorCommand {
@@ -186,18 +188,51 @@ impl ShowKeysCmd {
         } else {
             None
         };
+        let mut probably_extra_key = false;
         let keys = match self.subcmd {
-            ShowKeysSubCommand::FromSourceDB(c) => todo!(),
+            ShowKeysSubCommand::FromSourceDB(c) => {
+                let keys = crate::key_util::keys_from_source_db(
+                    &c.home,
+                    &c.account_id,
+                    c.block_height,
+                    secret.as_ref(),
+                )?;
+                probably_extra_key = keys.iter().all(|key| {
+                    key.permission
+                        .as_ref()
+                        .map_or(false, |p| *p != AccessKeyPermissionView::FullAccess)
+                });
+                keys
+            }
             ShowKeysSubCommand::FromRPC(c) => todo!(),
             ShowKeysSubCommand::FromPubKey(c) => {
                 vec![crate::key_util::map_pub_key(&c.public_key, secret.as_ref())?]
             }
-            ShowKeysSubCommand::DefaultExtraKey(c) => {
-                vec![crate::key_mapping::default_extra_key(secret.as_ref())]
+            ShowKeysSubCommand::DefaultExtraKey(_c) => {
+                vec![crate::key_util::default_extra_key(secret.as_ref())]
             }
         };
-        for key in keys {
-            println!("secret key: {}\npublic key: {}\n------------", &key, key.public_key());
+        for key in keys.iter() {
+            if let Some(k) = &key.original_key {
+                println!("original pub key: {}", k);
+            }
+            println!(
+                "mapped secret key: {}\nmapped public key: {}",
+                &key.mapped_key,
+                key.mapped_key.public_key()
+            );
+            if let Some(a) = &key.permission {
+                println!("access: {:?}", a);
+            }
+            println!("------------")
+        }
+        if probably_extra_key {
+            let extra_key = crate::key_mapping::default_extra_key(secret.as_ref());
+            println!(
+                "{} account probably has an extra full access key added:\nmapped secret key: {}\npublic key: {}",
+                if keys.is_empty() { "If it exists, this" } else { "This" },
+                &extra_key, extra_key.public_key(),
+            );
         }
         Ok(())
     }
