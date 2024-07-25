@@ -6,7 +6,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::validator::{
     RpcValidatorError, RpcValidatorRequest, RpcValidatorsOrderedRequest,
 };
-use near_jsonrpc_traits::params::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsExt;
 use near_primitives::types::EpochReference;
 
 use super::{Params, RpcFrom, RpcRequest};

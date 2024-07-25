@@ -30,7 +30,7 @@ use near_jsonrpc_primitives::types::split_storage::{
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
 };
-use near_jsonrpc_traits::handler::JsonRpcHandlerTrait;
+use near_jsonrpc_traits::handler::JsonRpcHandlerExt;
 use near_network::debug::GetDebugStatus;
 use near_network::tcp;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
@@ -671,7 +671,7 @@ impl JsonRpcHandler {
     }
 }
 
-impl JsonRpcHandlerTrait for JsonRpcHandler {
+impl JsonRpcHandlerExt for JsonRpcHandler {
     async fn send_tx_async(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,

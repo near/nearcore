@@ -6,7 +6,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionError, RpcTransactionStatusRequest, TransactionInfo,
 };
-use near_jsonrpc_traits::params::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsExt;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::transaction::SignedTransaction;
 

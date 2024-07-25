@@ -3,7 +3,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-pub trait ParamsTrait<T> {
+pub trait ParamsExt<T> {
     fn new(params: Value) -> Self;
     fn parse(value: Value) -> Result<T, RpcParseError>
     where

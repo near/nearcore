@@ -86,7 +86,7 @@ mod params {
     use serde_json::Value;
 
     use near_jsonrpc_primitives::errors::RpcParseError;
-    use near_jsonrpc_traits::params::ParamsTrait;
+    use near_jsonrpc_traits::params::ParamsExt;
 
     /// Helper wrapper for parsing JSON value into expected request format.
     ///
@@ -110,7 +110,7 @@ mod params {
         Result<Result<T, RpcParseError>, Value>,
     );
 
-    impl<T> ParamsTrait<T> for Params<T> {
+    impl<T> ParamsExt<T> for Params<T> {
         fn new(params: Value) -> Self {
             Self(Err(params))
         }

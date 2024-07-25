@@ -4,7 +4,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
     ReceiptReference, RpcReceiptError, RpcReceiptRequest,
 };
-use near_jsonrpc_traits::params::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsExt;
 
 use serde_json::Value;
 

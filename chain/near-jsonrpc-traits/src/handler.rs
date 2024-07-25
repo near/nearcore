@@ -3,7 +3,7 @@ use near_primitives::{hash::CryptoHash, transaction::SignedTransaction, types::A
 
 use std::future::Future;
 
-pub trait JsonRpcHandlerTrait {
+pub trait JsonRpcHandlerExt {
     fn send_tx_async(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,

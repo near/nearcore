@@ -4,7 +4,7 @@ use serde_json::Value;
 use near_client_primitives::types::{GetChunk, GetChunkError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::chunks::{ChunkReference, RpcChunkError, RpcChunkRequest};
-use near_jsonrpc_traits::params::ParamsTrait;
+use near_jsonrpc_traits::params::ParamsExt;
 use near_primitives::types::BlockId;
 
 use super::{Params, RpcFrom, RpcRequest};
