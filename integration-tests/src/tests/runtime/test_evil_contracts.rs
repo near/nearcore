@@ -105,11 +105,16 @@ fn test_self_delay() {
         )
         .unwrap();
     let expected_max_depth = 60u32;
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(expected_max_depth.to_be_bytes().to_vec()),
-        "{res:?} has not recursed the expected number of times",
-    );
+    match res.status {
+        FinalExecutionStatus::SuccessValue(depth_bytes) => {
+            let depth = u32::from_be_bytes(depth_bytes.try_into().unwrap());
+            assert_eq!(
+                depth, expected_max_depth,
+                "The function has not recursed the expected number of times"
+            );
+        }
+        _ => panic!("Expected success, got: {:?}", res),
+    }
 }
 
 #[test]
