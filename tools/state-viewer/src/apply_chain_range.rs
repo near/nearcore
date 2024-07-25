@@ -1,9 +1,8 @@
-use crate::cli::ApplyRangeMode;
+use crate::cli::{ApplyRangeMode, StorageSource};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
@@ -125,7 +124,7 @@ fn apply_block_from_range(
     verbose_output: bool,
     csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
@@ -232,9 +231,10 @@ fn apply_block_from_range(
                 return;
             }
         }
+
         runtime_adapter
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -246,7 +246,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.block_congestion_info(),
+                    block.block_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -260,7 +260,7 @@ fn apply_block_from_range(
 
         runtime_adapter
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                storage.create_runtime_storage(*chunk_extra.state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -376,7 +376,7 @@ pub fn apply_chain_range(
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) {
     let parent_span = tracing::debug_span!(
         target: "state_viewer",
@@ -386,14 +386,14 @@ pub fn apply_chain_range(
         ?end_height,
         %shard_id,
         only_contracts,
-        use_flat_storage)
+        ?storage)
     .entered();
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let (start_height, end_height) = match mode {
         ApplyRangeMode::Benchmarking => {
             // Benchmarking mode requires flat storage and retrieves start and
             // end heights from flat storage and chain.
-            assert!(use_flat_storage);
+            assert!(matches!(storage, StorageSource::FlatStorage));
             assert!(start_height.is_none());
             assert!(end_height.is_none());
 
@@ -457,7 +457,7 @@ pub fn apply_chain_range(
             verbose_output,
             &csv_file_mutex,
             only_contracts,
-            use_flat_storage,
+            storage,
         );
     };
 
@@ -542,7 +542,7 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::apply_chain_range::apply_chain_range;
-    use crate::cli::ApplyRangeMode;
+    use crate::cli::{ApplyRangeMode, StorageSource};
 
     fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
         let mut genesis =
@@ -641,7 +641,7 @@ mod test {
             true,
             None,
             false,
-            false,
+            StorageSource::Trie,
         );
     }
 
@@ -685,7 +685,7 @@ mod test {
             true,
             Some(file.as_file_mut()),
             false,
-            false,
+            StorageSource::Trie,
         );
         let mut csv = String::new();
         file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();

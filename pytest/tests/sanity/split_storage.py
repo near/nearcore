@@ -64,7 +64,6 @@ class TestSplitStorage(unittest.TestCase):
         msg,
         node,
         expected_head_height,
-        expected_hot_db_kind,
         check_cold_head,
     ):
         info = self._get_split_storage_info(node)
@@ -80,7 +79,7 @@ class TestSplitStorage(unittest.TestCase):
         cold_head_height = result["cold_head_height"]
         hot_db_kind = result["hot_db_kind"]
 
-        self.assertEqual(hot_db_kind, expected_hot_db_kind)
+        self.assertEqual(hot_db_kind, "Hot")
         self.assertGreaterEqual(head_height, expected_head_height)
         self.assertGreaterEqual(final_head_height, expected_head_height - 10)
         if check_cold_head:
@@ -97,15 +96,12 @@ class TestSplitStorage(unittest.TestCase):
 
         # Wait until a few blocks are produced so that we're sure that the db is
         # properly created and populated with some data.
-        n = 5
-        n = wait_for_blocks(archival, target=n).height
+        n = wait_for_blocks(archival, count=5).height
 
         self._check_split_storage_info(
             "migration_phase_1",
             node=archival,
             expected_head_height=n,
-            # The hot db kind should remain archive until fully migrated.
-            expected_hot_db_kind="Archive",
             # The cold storage is not configured so cold head should be none.
             check_cold_head=False,
         )
@@ -116,17 +112,13 @@ class TestSplitStorage(unittest.TestCase):
         archival.kill()
         archival.start()
 
-        # Wait for a few seconds to:
-        # - Give the node enough time to get started.
-        # - Give the cold store loop enough time to run - it runs every 1s.
+        # Wait until enough blocks so that we produce enough blocks to fill 5
+        # epochs to trigger GC - otherwise the tail won't be set, and wait for
+        # cold store loop to have enough time to run - it runs every 1s.
         # TODO(posvyatokum) this is a quick stop-gap solution to fix nayduck, this
         # should be solved by waiting in a loop until cold store head is at
         # expected proximity to final head.
-        time.sleep(4)
-
-        # Wait until enough blocks so that we produce enough blocks to fill 5
-        # epochs to trigger GC - otherwise the tail won't be set.
-        n = max(n, wait_period) + 5
+        n = max(n, wait_period) + 10
         logger.info(f"Wait until RPC reaches #{n}")
         wait_for_blocks(rpc, target=n)
         logger.info(f"Wait until archival reaches #{n}")
@@ -136,8 +128,6 @@ class TestSplitStorage(unittest.TestCase):
             "migration_phase_2",
             node=archival,
             expected_head_height=n,
-            # The hot db kind should remain archive until fully migrated.
-            expected_hot_db_kind="Archive",
             # The cold storage head should be fully caught up by now.
             check_cold_head=True,
         )
@@ -183,24 +173,17 @@ class TestSplitStorage(unittest.TestCase):
         archival.start()
         rpc.start()
 
-        # Wait for a few seconds to:
-        # - Give the node enough time to get started.
-        # - Give the cold store loop enough time to run - it runs every 1s.
+        # Wait for a few blocks to make sure neard correctly restarted and
+        # wait for cold store loop to have enough time to run - it runs every 1s.
         # TODO(posvyatokum) this is a quick stop-gap solution to fix nayduck, this
         # should be solved by waiting in a loop until cold store head is at
         # expected proximity to final head.
-        time.sleep(4)
-
-        # Wait for just a few blocks to make sure neard correctly restarted.
-        n += 5
-        wait_for_blocks(archival, target=n)
+        wait_for_blocks(archival, count=10)
 
         self._check_split_storage_info(
             "migration_phase_4",
             node=archival,
             expected_head_height=n,
-            # The migration is over, the hot db kind should be set to hot.
-            expected_hot_db_kind="Hot",
             # The cold storage head should be fully caught up.
             check_cold_head=True,
         )
@@ -232,6 +215,9 @@ class TestSplitStorage(unittest.TestCase):
             genesis_config_changes,
             client_config_changes,
             "test_base_case_",
+            # Disable auto-configuration of cold storage for archival nodes
+            # since we configure the cold storage manually in this test.
+            initialize_cold_storage=False,
         )
 
         self._configure_cold_storage(node_dir)
@@ -251,7 +237,6 @@ class TestSplitStorage(unittest.TestCase):
             "base_case",
             node=node,
             expected_head_height=n,
-            expected_hot_db_kind="Archive",
             check_cold_head=True,
         )
 
@@ -312,6 +297,9 @@ class TestSplitStorage(unittest.TestCase):
             genesis_config_changes=genesis_config_changes,
             client_config_changes=client_config_changes,
             prefix="test_migration_",
+            # Disable auto-configuration of cold storage for archival nodes
+            # since we configure the cold storage manually in this test.
+            initialize_cold_storage=False,
         )
 
         validator = spin_up_node(
@@ -385,16 +373,20 @@ class TestSplitStorage(unittest.TestCase):
             },
         }
         config = load_config()
-        near_root, [validator_dir, split_dir, archival_dir,
-                    rpc_dir] = init_cluster(
-                        num_nodes=1,
-                        num_observers=3,
-                        num_shards=1,
-                        config=config,
-                        genesis_config_changes=genesis_config_changes,
-                        client_config_changes=client_config_changes,
-                        prefix="test_archival_node_sync_",
-                    )
+        near_root, [
+            validator_dir, split_dir, archival_dir, rpc_dir
+        ] = init_cluster(
+            num_nodes=1,
+            num_observers=3,
+            num_shards=1,
+            config=config,
+            genesis_config_changes=genesis_config_changes,
+            client_config_changes=client_config_changes,
+            prefix="test_archival_node_sync_",
+            # Disable auto-configuration of cold storage for archival nodes
+            # since we configure the cold storage manually in this test.
+            initialize_cold_storage=False,
+        )
 
         validator = spin_up_node(
             config,
@@ -447,12 +439,11 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Restart legacy archival node.")
         # Restart archival node. This should trigger sync.
         archival.start(boot_node=split)
-        time.sleep(10)
 
         logger.info("Wait for legacy archival node to start syncing.")
 
         # Archival node should be able to sync to split storage without problems.
-        wait_for_blocks(archival, target=n + epoch_length, timeout=120)
+        wait_for_blocks(archival, target=n + epoch_length + 10, timeout=140)
         archival.kill()
         split.kill()
 

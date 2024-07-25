@@ -77,11 +77,11 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use near_primitives::{checked_feature, unwrap_or_return};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -954,7 +954,7 @@ impl Client {
             %prev_block_hash,
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
-            "Produced chunk");
+            "produced_chunk");
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
         self.chunk_production_info.put(
@@ -1051,7 +1051,7 @@ impl Client {
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let last_chunk_transactions_size =
-                if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+                if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
                     borsh::to_vec(last_chunk.transactions())
                         .map_err(|e| {
                             Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
@@ -1562,7 +1562,7 @@ impl Client {
         Duration::nanoseconds(ns)
     }
 
-    pub fn send_approval(
+    pub fn send_block_approval(
         &mut self,
         parent_hash: &CryptoHash,
         approval: Approval,
@@ -1580,7 +1580,8 @@ impl Client {
                 account_id = ?approval.account_id,
                 next_bp = ?next_block_producer,
                 target_height = approval.target_height,
-                "Sending an approval");
+                approval_type="PeerApproval",
+                "send_block_approval");
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Approval { approval_message },
@@ -1684,13 +1685,12 @@ impl Client {
                 return;
             }
 
-            if provenance != Provenance::SYNC
-                && !self.sync_status.is_syncing()
-                && !skip_produce_chunk
-            {
+            let can_produce_with_provenance = provenance != Provenance::SYNC;
+            let can_produce_with_sync_status = !self.sync_status.is_syncing();
+            if can_produce_with_provenance && can_produce_with_sync_status && !skip_produce_chunk {
                 self.produce_chunks(&block, &signer);
             } else {
-                info!(target: "client", "not producing a chunk");
+                info!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, skip_produce_chunk, "not producing a chunk");
             }
         }
 
@@ -2070,7 +2070,12 @@ impl Client {
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let Approval { inner, account_id, target_height, signature } = approval;
-
+        debug!(target: "client",
+            approval_inner=?inner,
+            account_id=?account_id,
+            target_height=target_height,
+            approval_type=?approval_type,
+            "collect_block_approval");
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {

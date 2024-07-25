@@ -38,6 +38,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use num_rational::Rational32;
 use std::collections::HashMap;
+use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -125,10 +126,13 @@ pub struct ApplyChunkResult {
 
 impl ApplyChunkResult {
     /// Returns root and paths for all the outcomes in the result.
+    #[instrument(target = "runtime", level = "debug", "compute_outcomes_proof", skip_all, fields(
+        num_outcomes = outcomes.len()
+    ))]
     pub fn compute_outcomes_proof(
         outcomes: &[ExecutionOutcomeWithId],
     ) -> (MerkleHash, Vec<MerklePath>) {
-        let mut result = vec![];
+        let mut result = Vec::with_capacity(outcomes.len());
         for outcome_with_id in outcomes.iter() {
             result.push(outcome_with_id.to_hashes());
         }
@@ -261,6 +265,11 @@ impl ChainGenesis {
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
+    /// Trie is present in DB and flat storage is not.
+    /// Used to reply past blocks and simulate gas costs as if flat storage
+    /// was present.
+    /// WARNING: do not use this variant in production!
+    DbTrieOnly,
     /// State data is supplied from state witness, there is no state data
     /// stored on disk.
     Recorded(PartialStorage),
@@ -279,6 +288,19 @@ impl RuntimeStorageConfig {
             state_root,
             use_flat_storage,
             source: StorageDataSource::Db,
+            state_patch: Default::default(),
+        }
+    }
+
+    /// Creates a [RuntimeStorageConfig] with [StorageDataSource::DbTrieOnly].
+    /// Flat storage is disabled because it is implied to be missing.
+    ///
+    /// This's meant to be used only to replay blocks.
+    pub fn new_with_db_trie_only(state_root: StateRoot) -> Self {
+        Self {
+            state_root,
+            use_flat_storage: false,
+            source: StorageDataSource::DbTrieOnly,
             state_patch: Default::default(),
         }
     }

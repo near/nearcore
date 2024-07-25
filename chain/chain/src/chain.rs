@@ -314,13 +314,13 @@ pub enum VerifyBlockHashAndSignatureResult {
 }
 
 impl Chain {
+    /// Builds genesis block and chunks from the current configuration obtained through the arguments.
     pub fn make_genesis_block(
         epoch_manager: &dyn EpochManagerAdapter,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
-    ) -> Result<Block, Error> {
-        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
-            .expect("genesis should be initialized.");
+        state_roots: Vec<CryptoHash>,
+    ) -> Result<(Block, Vec<ShardChunk>), Error> {
         let congestion_infos =
             get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
         let genesis_chunks = genesis_chunks(
@@ -331,9 +331,9 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.protocol_version,
         );
-        Ok(Block::genesis(
+        let genesis_block = Block::genesis(
             chain_genesis.protocol_version,
-            genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
+            genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
             chain_genesis.time,
             chain_genesis.height,
             chain_genesis.min_gas_price,
@@ -344,7 +344,8 @@ impl Chain {
                 EpochId::default(),
                 &CryptoHash::default(),
             )?,
-        ))
+        );
+        Ok((genesis_block, genesis_chunks))
     }
 
     pub fn new_for_view_client(
@@ -358,10 +359,13 @@ impl Chain {
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
         let chain_store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
-        let genesis = Self::make_genesis_block(
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+            .expect("genesis should be initialized.");
+        let (genesis, _genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
             chain_genesis,
+            state_roots,
         )?;
         let (sc, rc) = unbounded();
         Ok(Chain {
@@ -407,44 +411,21 @@ impl Chain {
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
     ) -> Result<Chain, Error> {
-        // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
-        let congestion_infos = get_genesis_congestion_infos(
+        let (genesis, genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
-            &state_roots,
-        )?;
-        let genesis_chunks = genesis_chunks(
+            chain_genesis,
             state_roots.clone(),
-            congestion_infos,
-            &epoch_manager.shard_ids(&EpochId::default())?,
-            chain_genesis.gas_limit,
-            chain_genesis.height,
-            chain_genesis.protocol_version,
-        );
-        let genesis = Block::genesis(
-            chain_genesis.protocol_version,
-            genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
-            chain_genesis.time,
-            chain_genesis.height,
-            chain_genesis.min_gas_price,
-            chain_genesis.total_supply,
-            Chain::compute_bp_hash(
-                epoch_manager.as_ref(),
-                EpochId::default(),
-                EpochId::default(),
-                &CryptoHash::default(),
-            )?,
-        );
+        )?;
 
+        // Check if we have a head in the store, otherwise pick genesis block.
         let mut chain_store = ChainStore::new(
             runtime_adapter.store().clone(),
             chain_genesis.height,
             chain_config.save_trie_changes,
         );
-
-        // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = chain_store.store_update();
         let (block_head, header_head) = match store_update.head() {
             Ok(block_head) => {
@@ -1482,7 +1463,7 @@ impl Chain {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
-            match self.postprocess_block(
+            match self.postprocess_ready_block(
                 me,
                 block_hash,
                 apply_result,
@@ -1864,7 +1845,7 @@ impl Chain {
     /// Run postprocessing on this block, which stores the block on chain.
     /// Check that if accepting the block unlocks any orphans in the orphan pool and start
     /// the processing of those blocks.
-    fn postprocess_block(
+    fn postprocess_ready_block(
         &mut self,
         me: &Option<AccountId>,
         block_hash: CryptoHash,
@@ -1884,7 +1865,7 @@ impl Chain {
         // function.
         let _span = tracing::debug_span!(
             target: "chain",
-            "postprocess_block",
+            "postprocess_ready_block",
             height = block.header().height())
         .entered();
 
@@ -2215,7 +2196,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             self.validate_chunk_endorsements_in_block(&block)?;
         }
 
@@ -3548,7 +3529,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", StatelessValidationV0, next_protocol_version) {
+        if !checked_feature!("stable", StatelessValidation, next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }

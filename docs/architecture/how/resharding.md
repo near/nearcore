@@ -89,10 +89,10 @@ The state sync of the parent shard, the resharing and the catchup of the childre
 
 ### Flow
 
-The resharding will be initiated by having it included in a dedicated protocol version together with neard . Here is the expected flow of events:
+The resharding will be initiated by having it included in a dedicated protocol version together with neard. Here is the expected flow of events:
 
 * A new neard release is published and protocol version upgrade date is set to D, roughly a week from the release. 
-* All node operatores upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. 
+* All node operators upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. 
 * The protocol version upgrade voting takes place at D in an epoch E and nodes vote in favour of switching to the new protocol version in epoch E+2. 
 * The resharding begins at the beginning of epoch E+1. 
 * The network switches to the new shard layout in the first block of epoch E+2. 
@@ -147,8 +147,8 @@ Here is an example of what that may look like in a grafana dashboard. Please kee
 
 The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file. 
 
-* batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.
-* batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. 
+* batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource-consuming.
+* batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming. 
 
 The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. 
 
@@ -173,4 +173,4 @@ The dynamic resharding would mean that the network itself can automatically dete
 
 ### Support different changes to shard layout
 
-The current implementation only supports splitting a shard. In the future we can consider adding support of other operations such as merging two shards or moving an existing boundary account. 
+The current implementation only supports splitting a shard. In the future we can consider adding support for other operations such as merging two shards or moving an existing boundary account. 

@@ -40,7 +40,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
-pub use trie_recording::TrieRecorderStats;
+pub use trie_recording::{SubtreeSize, TrieRecorderStats};
 
 pub mod accounting_cache;
 mod config;
@@ -658,6 +658,11 @@ impl Trie {
             accounting_cache,
             recorder: None,
         }
+    }
+
+    /// Helper to simulate gas costs as if flat storage was present.
+    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
+        self.charge_gas_for_trie_node_access = false;
     }
 
     /// Makes a new trie that has everything the same except that access

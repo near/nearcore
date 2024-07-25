@@ -208,9 +208,12 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
+    // It is possible that the same validator appears multiple times in the upcoming block producers,
+    // thus we collect the unique set of account ids.
     let block_height = chunk_header.height_created();
     let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
         .map_while(|i| epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
+        .unique()
         .collect_vec();
     assert!(!block_producers.is_empty());
 
@@ -218,6 +221,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     tracing::debug!(
         target: "client",
         chunk_hash=?chunk_hash,
+        shard_id=chunk_header.shard_id(),
         ?block_producers,
         "send_chunk_endorsement",
     );
@@ -225,10 +229,16 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
-            // Unwrap here as we always expect our own endorsements to be valid
-            chunk_endorsement_tracker
+            // Our own endorsements are not always valid (see issue #11750).
+            if let Err(err) = chunk_endorsement_tracker
                 .process_chunk_endorsement(chunk_header, endorsement.clone())
-                .unwrap();
+            {
+                tracing::warn!(
+                    target: "client",
+                    ?chunk_hash,
+                    ?endorsement,
+                    "Failed to process self chunk endorsement ({err:?})");
+            }
         } else {
             network_sender.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),

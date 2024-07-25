@@ -34,7 +34,7 @@ impl Client {
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if !checked_feature!("stable", StatelessValidation, protocol_version) {
             return Ok(());
         }
         let chunk_header = chunk.cloned_header();
@@ -62,7 +62,7 @@ impl Client {
             .contains(my_signer.validator_id())
         {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), "send_chunk_endorsement_from_chunk_producer");
+            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
             send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),

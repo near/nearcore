@@ -10,6 +10,8 @@ use crate::{
     types::{Action, ExecuteResponse},
 };
 use aurora_engine_types::types::{Address, Wei};
+use near_gas::NearGas;
+use near_sdk::NearToken;
 use near_workspaces::{
     network::Sandbox,
     types::{AccessKeyPermission, SecretKey},
@@ -192,6 +194,7 @@ async fn test_relayer_invalid_address_target() -> anyhow::Result<()> {
             "account_id": token_contract.contract.id().as_str()
         }))
         .max_gas()
+        .deposit(NearToken::from_millinear(1))
         .transact()
         .await?
         .json()?;
@@ -263,6 +266,54 @@ async fn test_relayer_wrong_chain_id() -> anyhow::Result<()> {
     let result = wallet_contract
         .rlp_execute(wallet_contract.inner.id().as_str(), &signed_transaction)
         .await?;
+
+    assert!(!result.success);
+    assert_eq!(result.error.as_deref(), Some("Error: faulty relayer"));
+
+    assert_revoked_key(&wallet_contract.inner, &relayer_pk).await;
+
+    Ok(())
+}
+
+// A relayer sending a transaction without sufficient gas is a ban-worthy offense.
+#[tokio::test]
+async fn test_relayer_insufficient_gas() -> anyhow::Result<()> {
+    let TestContext { worker, mut wallet_contract, wallet_sk, wallet_address, .. } =
+        TestContext::new().await?;
+
+    let relayer_pk = wallet_contract.register_relayer(&worker).await?;
+
+    // Relayer does not attach enough gas
+    let attached_gas = NearGas::from_tgas(30);
+    let requested_gas = attached_gas.as_gas() / crate::internal::GAS_MULTIPLIER + 100;
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 0.into(),
+        gas_price: 0.into(),
+        gas_limit: requested_gas.into(),
+        to: Some(Address::new(wallet_address)),
+        value: Wei::zero(),
+        data: [
+            crate::eth_emulation::ERC20_BALANCE_OF_SELECTOR.to_vec(),
+            ethabi::encode(&[ethabi::Token::Address(wallet_address)]),
+        ]
+        .concat(),
+        chain_id: CHAIN_ID + 1,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let result: ExecuteResponse = wallet_contract
+        .inner
+        .call(RLP_EXECUTE)
+        .args_json(serde_json::json!({
+            "target": wallet_contract.inner.id().as_str(),
+            "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
+        }))
+        .gas(attached_gas)
+        .transact()
+        .await?
+        .into_result()?
+        .json()?;
 
     assert!(!result.success);
     assert_eq!(result.error.as_deref(), Some("Error: faulty relayer"));

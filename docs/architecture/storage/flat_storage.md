@@ -146,7 +146,7 @@ all these seemingly-simple but actually-really-hard problems.
 ## Flat state for writes
 
 How to use flat storage for writes is not fully designed, yet, but we have some
-rough ideas how to do it. But we don't know the performance we should expect.
+rough ideas on how to do it. But we don't know the performance we should expect.
 Algorithmically, it can only get worse but the speedup on RocksDB we found with
 the read-only flat storage is promising. But one has to wonder if there are not
 also simpler ways to achieve better data locality in RocksDB.
@@ -181,7 +181,7 @@ shard for some set of blocks. It is shared by multiple threads, so it is guarded
 * View client (not fully decided)
 
 Requires ChainAccessForFlatStorage on creation because it needs to know the tree of blocks after
-the flat storage head, to support get queries correctly.
+the flat storage head, to support getting queries correctly.
 
 ## FlatStorageManager
 

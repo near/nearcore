@@ -21,7 +21,7 @@ use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
-use near_client::{Client, PartialWitnessActor, SyncAdapter};
+use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::TestLoopPeerManagerActor;
@@ -265,7 +265,6 @@ impl TestLoopBuilder {
             self.test_loop.clock(),
             client,
             client_adapter.as_multi_sender(),
-            client_config.clone(),
             PeerId::random(),
             network_adapter.as_multi_sender(),
             noop().into_sender(),
@@ -274,6 +273,19 @@ impl TestLoopBuilder {
             None,
             sync_jobs_adapter.as_multi_sender(),
             Box::new(self.test_loop.future_spawner()),
+        )
+        .unwrap();
+
+        let view_client_actor = ViewClientActorInner::new(
+            self.test_loop.clock(),
+            validator_signer.clone(),
+            chain_genesis.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            runtime_adapter.clone(),
+            network_adapter.as_multi_sender(),
+            client_config.clone(),
+            near_client::adversarial::Controls::default(),
         )
         .unwrap();
 
@@ -318,6 +330,8 @@ impl TestLoopBuilder {
 
         let client_sender =
             self.test_loop.register_actor_for_index(idx, client_actor, Some(client_adapter));
+        let view_client_sender =
+            self.test_loop.register_actor_for_index(idx, view_client_actor, None);
         let shards_manager_sender = self.test_loop.register_actor_for_index(
             idx,
             shards_manager,
@@ -343,6 +357,7 @@ impl TestLoopBuilder {
         let data = TestData {
             account_id: self.clients[idx].clone(),
             client_sender,
+            view_client_sender,
             shards_manager_sender,
             partial_witness_sender,
             state_sync_dumper_handle,

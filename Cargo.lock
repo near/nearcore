@@ -3344,6 +3344,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f958d3d68f4167080a18141e10381e7634563984a537f2a49a30fd8e53ac5767"
+
+[[package]]
 name = "ipnet"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4763,6 +4769,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
+ "near-structs-checker-lib",
  "near-time",
  "num-rational 0.3.2",
  "once_cell",
@@ -4796,6 +4803,7 @@ dependencies = [
  "expect-test",
  "insta",
  "near-account-id",
+ "near-structs-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_json",
@@ -4857,6 +4865,10 @@ dependencies = [
  "serde_json",
  "syn 2.0.70",
 ]
+
+[[package]]
+name = "near-stable-hasher"
+version = "0.0.0"
 
 [[package]]
 name = "near-state-parts"
@@ -4951,6 +4963,31 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "near-structs-checker-core"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+]
+
+[[package]]
+name = "near-structs-checker-lib"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+ "near-structs-checker-core",
+ "near-structs-checker-macro",
+]
+
+[[package]]
+name = "near-structs-checker-macro"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -5628,9 +5665,9 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "openssl"
-version = "0.10.60"
+version = "0.10.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79a4c6c3a2b158f7f8f2a2fc5a969fa3a068df6fc9dbb4a43845436e3af7c800"
+checksum = "9529f4786b70a3e8c61e11179af17ab6188ad8d0ded78c5529441ed39d4bd9c1"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if 1.0.0",
@@ -5660,18 +5697,18 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "300.1.6+3.1.4"
+version = "300.3.1+3.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439fac53e092cd7442a3660c85dde4643ab3b5bd39040912388dcdabf6b88085"
+checksum = "7259953d42a81bf137fbbd73bd30a8e1914d6dce43c2b90ed575783a22608b91"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.96"
+version = "0.9.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3812c071ba60da8b5677cc12bcb1d42989a65553772897a7e0355545a819838f"
+checksum = "7f9e8deee91df40a943c71b917e5874b951d32a802526c85721ce3b776c929d6"
 dependencies = [
  "cc",
  "libc",
@@ -6313,6 +6350,19 @@ version = "3.0.2"
 source = "git+https://github.com/near/rust-protobuf.git?branch=3.0.2-patch#86cdbf1ce1f085486b15ec94af1954c55c1e2862"
 dependencies = [
  "thiserror",
+]
+
+[[package]]
+name = "protocol-schema-check"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+ "near-primitives",
+ "near-primitives-core",
+ "near-stable-hasher",
+ "near-structs-checker-lib",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

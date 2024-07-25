@@ -1,5 +1,6 @@
 import atexit
 import base64
+import copy
 import json
 import os
 import pathlib
@@ -29,6 +30,27 @@ os.environ["ADVERSARY_CONSENT"] = "1"
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
+
+Config = typing.Dict[str, typing.Any]
+
+# Example value: [
+#   ("num_block_producer_seats_per_shard", [100]),
+#   ("epoch_length", 100)
+# ]
+# Note that we also support using list instead of a tuple here, but that
+# should be discouraged
+GenesisConfigChanges = typing.List[typing.Tuple[str, typing.Any]]
+
+# Example value: {
+#   "tracked_shards": [],
+#   "consensus.min_block_production_delay": {
+#       "secs": 1,
+#       "nanos": 300000000
+#   }
+# }
+ClientConfigChange = typing.Dict[str, typing.Any]
+# Key represent the index of the node.
+ClientConfigChanges = typing.Dict[int, ClientConfigChange]
 
 
 # Return the session object that can be used for making http requests.
@@ -548,7 +570,7 @@ class LocalNode(BaseNode):
         self.stdout_name = node_dir / 'stdout'
         self.stderr_name = node_dir / 'stderr'
         with open(self.stdout_name, 'ab') as stdout, \
-             open(self.stderr_name, 'ab') as stderr:
+                open(self.stderr_name, 'ab') as stderr:
             self._process = subprocess.Popen(cmd,
                                              stdin=subprocess.DEVNULL,
                                              stdout=stdout,
@@ -807,13 +829,16 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes,
-                 num_observers,
-                 num_shards,
-                 config,
-                 genesis_config_changes,
-                 client_config_changes,
-                 prefix="test"):
+def init_cluster(
+    num_nodes: int,
+    num_observers: int,
+    num_shards: int,
+    config: Config,
+    genesis_config_changes: GenesisConfigChanges,
+    client_config_changes: ClientConfigChanges,
+    prefix="test",
+    initialize_cold_storage=True,
+) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
     """
@@ -866,6 +891,7 @@ def init_cluster(num_nodes,
         len(node_dirs), num_nodes, num_observers)
 
     logger.info("Search for stdout and stderr in %s" % node_dirs)
+
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
@@ -873,10 +899,60 @@ def init_cluster(num_nodes,
         if overrides:
             apply_config_changes(node_dir, overrides)
 
+    # apply config changes for nodes marked as archival node.
+    # for now, we do this only for local nodes (eg. nayduck tests).
+    if initialize_cold_storage:
+        for i, node_dir in enumerate(node_dirs):
+            configure_cold_storage_for_archival_node(node_dir)
+
     return near_root, node_dirs
 
 
-def apply_genesis_changes(node_dir, genesis_config_changes):
+def configure_cold_storage_for_archival_node(node_dir: str):
+    """ If the node is marked as an archival node, configures the split storage.
+
+    In particular, it assumes that the hot storage is already configured, and
+    it creates and configures the cold storage based on the hot storage.
+    """
+    node_dir = pathlib.Path(node_dir)
+    fname = node_dir / 'config.json'
+    with open(fname) as fd:
+        config_json = json.load(fd)
+
+    # Skip if this is not an archival node or cold storage is already configured.
+    if not config_json.get("archive",
+                           False) or config_json.get("cold_store") is not None:
+        return
+
+    logger.debug(f"Configuring cold storage for archival node: {node_dir.stem}")
+
+    hot_store_config = config_json.get("store")
+    assert hot_store_config is not None, "Hot storage is not configured"
+
+    cold_store_config = copy.deepcopy(hot_store_config)
+    cold_store_config["path"] = "cold-data"
+    config_json["cold_store"] = cold_store_config
+    config_json["save_trie_changes"] = True
+
+    if "split_storage" not in config_json:
+        config_json["split_storage"] = {
+            "enable_split_storage_view_client": True,
+            "cold_store_initial_migration_loop_sleep_duration": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+            "cold_store_loop_sleep_duration": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+        }
+
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
+
+
+def apply_genesis_changes(node_dir: str,
+                          genesis_config_changes: GenesisConfigChanges):
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as fd:
@@ -891,7 +967,8 @@ def apply_genesis_changes(node_dir, genesis_config_changes):
         json.dump(genesis_config, fd, indent=2)
 
 
-def apply_config_changes(node_dir, client_config_change):
+def apply_config_changes(node_dir: str,
+                         client_config_change: ClientConfigChange):
     # apply config.json changes
     fname = os.path.join(node_dir, 'config.json')
     with open(fname) as fd:
@@ -946,13 +1023,15 @@ def set_config_json(node_dir, config_json):
         json.dump(config_json, fd, indent=2)
 
 
-def start_cluster(num_nodes,
-                  num_observers,
-                  num_shards,
-                  config,
-                  genesis_config_changes,
-                  client_config_changes,
-                  message_handler=None):
+def start_cluster(
+    num_nodes: int,
+    num_observers: int,
+    num_shards: int,
+    config: typing.Optional[Config],
+    genesis_config_changes: GenesisConfigChanges,
+    client_config_changes: ClientConfigChanges,
+    message_handler=None,
+) -> typing.List[BaseNode]:
     if not config:
         config = load_config()
 
@@ -973,7 +1052,7 @@ def start_cluster(num_nodes,
     proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
-    def spin_up_node_and_push(i, boot_node: BootNode):
+    def spin_up_node_and_push(i: int, boot_node: BootNode) -> BaseNode:
         single_node = (num_nodes == 1) and (num_observers == 0)
         node = spin_up_node(
             config,
@@ -1016,7 +1095,7 @@ def get_near_root():
     return os.environ.get('NEAR_ROOT', str(default_root))
 
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: Config = {
     'local': True,
     'near_root': get_near_root(),
     'binary_name': 'neard',
@@ -1025,7 +1104,7 @@ DEFAULT_CONFIG = {
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
-def load_config():
+def load_config() -> Config:
     config = DEFAULT_CONFIG
 
     config_file = os.environ.get(CONFIG_ENV_VAR, '')

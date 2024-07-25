@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
-use crate::ext::{ExternalError, RuntimeExt};
+use crate::ext::{ExternalError, RuntimeContractExt, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -24,7 +24,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
-use near_primitives::utils::{account_is_implicit, create_random_seed};
+use near_primitives::utils::account_is_implicit;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -37,20 +37,20 @@ use near_store::{
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
-use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
+use near_vm_runner::{precompile_contract, PreparedContract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
+    contract: Box<dyn near_vm_runner::PreparedContract>,
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
-    promise_results: Arc<[PromiseResult]>,
+    promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
@@ -65,7 +65,7 @@ pub(crate) fn execute_function_call(
     } else {
         vec![]
     };
-    let random_seed = create_random_seed(
+    let random_seed = near_primitives::utils::create_random_seed(
         apply_state.current_protocol_version,
         *action_hash,
         apply_state.random_seed,
@@ -76,7 +76,6 @@ pub(crate) fn execute_function_call(
         signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
-        method: function_call.method_name.clone(),
         input: function_call.args.clone(),
         promise_results,
         block_height: apply_state.block_height,
@@ -88,7 +87,7 @@ pub(crate) fn execute_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config: view_config.clone(),
+        view_config,
         output_data_receivers,
     };
 
@@ -103,13 +102,7 @@ pub(crate) fn execute_function_call(
         false => None,
     };
     let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
-    let result = near_vm_runner::run(
-        runtime_ext,
-        &context,
-        Arc::clone(&config.wasm_config),
-        Arc::clone(&config.fees),
-        apply_state.cache.as_deref(),
-    );
+    let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
@@ -159,12 +152,51 @@ pub(crate) fn execute_function_call(
         Ok(r) => r,
     };
 
-    if !view_config.is_some() {
+    if !context.view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }
+
     Ok(outcome)
+}
+
+pub(crate) fn prepare_function_call(
+    state_update: &TrieUpdate,
+    apply_state: &ApplyState,
+    account: &Account,
+    account_id: &AccountId,
+    function_call: &FunctionCallAction,
+    config: &RuntimeConfig,
+    epoch_info_provider: &(dyn EpochInfoProvider),
+    view_config: Option<ViewConfig>,
+) -> Box<dyn PreparedContract> {
+    let max_gas_burnt = match view_config {
+        Some(ViewConfig { max_gas_burnt }) => max_gas_burnt,
+        None => config.wasm_config.limit_config.max_gas_burnt,
+    };
+    let gas_counter = near_vm_runner::logic::GasCounter::new(
+        config.wasm_config.ext_costs.clone(),
+        max_gas_burnt,
+        config.wasm_config.regular_op_cost,
+        function_call.gas,
+        view_config.is_some(),
+    );
+    let code_ext = RuntimeContractExt {
+        trie_update: state_update,
+        account_id,
+        account,
+        chain_id: &epoch_info_provider.chain_id(),
+        current_protocol_version: apply_state.current_protocol_version,
+    };
+    let contract = near_vm_runner::prepare(
+        &code_ext,
+        Arc::clone(&config.wasm_config),
+        apply_state.cache.as_deref(),
+        gas_counter,
+        &function_call.method_name,
+    );
+    contract
 }
 
 pub(crate) fn action_function_call(
@@ -173,7 +205,7 @@ pub(crate) fn action_function_call(
     account: &mut Account,
     receipt: &Receipt,
     action_receipt: &ActionReceipt,
-    promise_results: Arc<[PromiseResult]>,
+    promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
     result: &mut ActionResult,
     account_id: &AccountId,
     function_call: &FunctionCallAction,
@@ -181,6 +213,7 @@ pub(crate) fn action_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
+    contract: Box<dyn PreparedContract>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -191,6 +224,7 @@ pub(crate) fn action_function_call(
     state_update.trie.request_code_recording(account_id.clone());
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
+
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -205,6 +239,7 @@ pub(crate) fn action_function_call(
         apply_state.current_protocol_version,
     );
     let outcome = execute_function_call(
+        contract,
         apply_state,
         &mut runtime_ext,
         receipt.predecessor_id(),

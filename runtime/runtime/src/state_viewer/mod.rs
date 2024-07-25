@@ -1,7 +1,7 @@
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::receipt_manager::ReceiptManager;
-use crate::ApplyState;
+use crate::{prepare_function_call, ApplyState};
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -200,18 +200,6 @@ impl TrieViewer {
         let public_key = PublicKey::empty(KeyType::ED25519);
         let empty_hash = CryptoHash::default();
         let mut receipt_manager = ReceiptManager::default();
-        let mut runtime_ext = RuntimeExt::new(
-            &mut state_update,
-            &mut receipt_manager,
-            contract_id.clone(),
-            account,
-            empty_hash,
-            view_state.epoch_id,
-            view_state.prev_block_hash,
-            view_state.block_hash,
-            epoch_info_provider,
-            view_state.current_protocol_version,
-        );
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
@@ -249,7 +237,31 @@ impl TrieViewer {
             gas: self.max_gas_burnt_view,
             deposit: 0,
         };
+        let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
+        let contract = prepare_function_call(
+            &state_update,
+            &apply_state,
+            &account,
+            &contract_id,
+            &function_call,
+            config,
+            epoch_info_provider,
+            view_config.clone(),
+        );
+        let mut runtime_ext = RuntimeExt::new(
+            &mut state_update,
+            &mut receipt_manager,
+            contract_id.clone(),
+            account,
+            empty_hash,
+            view_state.epoch_id,
+            view_state.prev_block_hash,
+            view_state.block_hash,
+            epoch_info_provider,
+            view_state.current_protocol_version,
+        );
         let outcome = execute_function_call(
+            contract,
             &apply_state,
             &mut runtime_ext,
             originator_id,
@@ -259,7 +271,7 @@ impl TrieViewer {
             &empty_hash,
             config,
             true,
-            Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
+            view_config,
         )
         .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
         let elapsed = now.elapsed();

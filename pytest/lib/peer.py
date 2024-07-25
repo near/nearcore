@@ -9,8 +9,9 @@ import base58
 from configured_logger import logger
 from messages import schema
 from messages.crypto import PublicKey, Signature
-from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
-                              PeerMessage, RoutedMessage, PeerIdOrHash)
+from messages.network import (GenesisId, Handshake, PartialEdgeInfo,
+                              PeerChainInfoV2, PeerMessage, RoutedMessage,
+                              PeerIdOrHash)
 from serializer import BinarySerializer
 from nacl.signing import SigningKey
 from typing import Optional
@@ -111,7 +112,7 @@ def create_handshake(my_key_pair_nacl,
     handshake.target_peer_id = PublicKey()
     handshake.listen_port = listen_port
     handshake.chain_info = PeerChainInfoV2()
-    handshake.edge_info = EdgeInfo()
+    handshake.edge_info = PartialEdgeInfo()
 
     handshake.peer_id.keyType = 0
     handshake.peer_id.data = bytes(my_key_pair_nacl.verify_key)

@@ -277,15 +277,15 @@ imports! {
     // #############
     // # BLS12-381 #
     // #############
-    ##["protocol_feature_bls12381"] bls12381_p1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_p2_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_g2_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_map_fp_to_g1<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_map_fp2_to_g2<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_p1_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    ##["protocol_feature_bls12381"] bls12381_p2_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_p1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_p2_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_g2_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_map_fp_to_g1<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_map_fp2_to_g2<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    bls12381_p1_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    bls12381_p2_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
 
     // #############
     // #  Sandbox  #

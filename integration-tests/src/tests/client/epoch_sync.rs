@@ -131,8 +131,6 @@ fn test_continuous_epoch_sync_info_population() {
 /// Start second node without epoch sync, but with state sync.
 /// Sync second node to first node (at least headers).
 /// Check that it has all EpochSyncInfo records and all of them are correct.
-///
-/// The header sync part is based on `integration-tests::nearcore::sync_nodes::sync_nodes`.
 #[test]
 fn test_continuous_epoch_sync_info_population_on_header_sync() {
     heavy_test(|| {
@@ -182,8 +180,6 @@ fn test_continuous_epoch_sync_info_population_on_header_sync() {
             // Wait for second node's headers to sync.
             // Timeout here means that header sync is not working.
             // Header sync is better debugged through other tests.
-            // For example, run `integration-tests::nearcore::sync_nodes::sync_nodes` test,
-            // on which this test's setup is based.
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let actor = view_client2.send(GetBlock::latest().with_span_context());

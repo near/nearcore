@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    types::{ExecuteResponse, ExecutionContext},
+    types::{CallerDeposit, ExecuteResponse, ExecutionContext},
 };
 use error::{UnsupportedAction, UserError};
 use near_contract_standards::storage_management::StorageBalance;
@@ -39,6 +39,13 @@ const NEP_141_STORAGE_BALANCE_OF_GAS: Gas = Gas::from_tgas(5);
 #[borsh(crate = "near_sdk::borsh")]
 pub struct WalletContract {
     pub nonce: u64,
+    /// Tracks whether a transaction is currently being executed
+    /// (i.e. has receipts that have not yet resolved).
+    /// Invariant: `has_in_flight_tx` must be `true` when a mutable method
+    /// of this contract returns a promise and `false` otherwise (except
+    /// for the check if a transaction is already in flight at the beginning
+    /// of `rlp_execute`).
+    pub has_in_flight_tx: bool,
 }
 
 #[near_bindgen]
@@ -78,6 +85,18 @@ impl WalletContract {
         target: AccountId,
         tx_bytes_b64: String,
     ) -> PromiseOrValue<ExecuteResponse> {
+        // To ensure user actions are executed in the desired order,
+        // having multiple transactions in flight at the same time is
+        // not allowed.
+        if self.has_in_flight_tx {
+            return PromiseOrValue::Value(ExecuteResponse {
+                success: false,
+                success_value: None,
+                error: Some(
+                    "Error: transaction already in progress, please try again later.".into(),
+                ),
+            });
+        }
         let current_account_id = env::current_account_id();
         let predecessor_account_id = env::predecessor_account_id();
         let result = inner_rlp_execute(
@@ -89,9 +108,13 @@ impl WalletContract {
         );
 
         match result {
-            Ok(promise) => PromiseOrValue::Promise(promise),
+            Ok(promise) => {
+                self.has_in_flight_tx = true;
+                PromiseOrValue::Promise(promise)
+            }
             Err(Error::Relayer(_)) if env::signer_account_id() == current_account_id => {
                 let promise = create_ban_relayer_promise(current_account_id);
+                self.has_in_flight_tx = true;
                 PromiseOrValue::Promise(promise)
             }
             Err(e) => PromiseOrValue::Value(e.into()),
@@ -106,7 +129,9 @@ impl WalletContract {
         &mut self,
         target: AccountId,
         action: near_action::Action,
+        caller_deposit: Option<CallerDeposit>,
     ) -> PromiseOrValue<ExecuteResponse> {
+        self.has_in_flight_tx = false;
         let maybe_account_id: Option<AccountId> = match env::promise_result(0) {
             PromiseResult::Failed => {
                 return PromiseOrValue::Value(ExecuteResponse {
@@ -115,11 +140,22 @@ impl WalletContract {
                     error: Some("Call to Address Registrar contract failed".into()),
                 });
             }
-            PromiseResult::Successful(value) => serde_json::from_slice(&value)
-                .unwrap_or_else(|_| env::panic_str("Unexpected response from account registrar")),
+            PromiseResult::Successful(value) => match serde_json::from_slice(&value) {
+                Ok(x) => x,
+                Err(_) => {
+                    return PromiseOrValue::Value(ExecuteResponse {
+                        success: false,
+                        success_value: None,
+                        error: Some("Unexpected response from account registrar".into()),
+                    });
+                }
+            },
         };
         let current_account_id = env::current_account_id();
         let promise = if maybe_account_id.is_some() {
+            // We intentionally do not increment the nonce in this case because the
+            // error is caused by a faulty relayer, not the user. An honest relayer
+            // may still be able to successfully send the user's intended transaction.
             if env::signer_account_id() == current_account_id {
                 create_ban_relayer_promise(current_account_id)
             } else {
@@ -130,14 +166,21 @@ impl WalletContract {
                 });
             }
         } else {
+            // We must increment the nonce at this point to prevent replay of the transaction.
+            // Recall that the nonce was not incremented in `inner_rlp_execute` in the case that
+            // the registrar contract was called (i.e. in the case we end up inside this callback).
+            self.nonce = self.nonce.saturating_add(1);
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
-            match action_to_promise(target, action).map(|p| p.then(ext.rlp_execute_callback())) {
+            match action_to_promise(target, action)
+                .map(|p| p.then(ext.rlp_execute_callback(caller_deposit)))
+            {
                 Ok(p) => p,
                 Err(e) => {
                     return PromiseOrValue::Value(e.into());
                 }
             }
         };
+        self.has_in_flight_tx = true;
         PromiseOrValue::Promise(promise)
     }
 
@@ -147,7 +190,9 @@ impl WalletContract {
         token_id: AccountId,
         receiver_id: AccountId,
         action: near_action::Action,
+        caller_deposit: Option<CallerDeposit>,
     ) -> PromiseOrValue<ExecuteResponse> {
+        self.has_in_flight_tx = false;
         let maybe_storage_balance: Option<StorageBalance> = match env::promise_result(0) {
             PromiseResult::Failed => {
                 return PromiseOrValue::Value(ExecuteResponse {
@@ -156,11 +201,16 @@ impl WalletContract {
                     error: Some(format!("Call to NEP-141 {token_id}::storage_balance_of failed")),
                 });
             }
-            PromiseResult::Successful(value) => {
-                serde_json::from_slice(&value).unwrap_or_else(|_| {
-                    env::panic_str("Unexpected response from NEP-141 storage_balance_of")
-                })
-            }
+            PromiseResult::Successful(value) => match serde_json::from_slice(&value) {
+                Ok(x) => x,
+                Err(_) => {
+                    return PromiseOrValue::Value(ExecuteResponse {
+                        success: false,
+                        success_value: None,
+                        error: Some("Unexpected response from NEP-141 storage_balance_of".into()),
+                    });
+                }
+            },
         };
         let current_account_id = env::current_account_id();
         let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
@@ -171,7 +221,7 @@ impl WalletContract {
                 // implementation it is impossible to have `Some` storage balance,
                 // but have it be insufficient to transact.
                 match action_to_promise(token_id, action)
-                    .map(|p| p.then(ext.rlp_execute_callback()))
+                    .map(|p| p.then(ext.rlp_execute_callback(caller_deposit)))
                 {
                     Ok(p) => p,
                     Err(e) => {
@@ -186,7 +236,13 @@ impl WalletContract {
                 let transfer_function_call = match action {
                     near_action::Action::FunctionCall(x) => x,
                     _ => {
-                        env::panic_str("Expected function call action to perform NEP-141 transfer")
+                        return PromiseOrValue::Value(ExecuteResponse {
+                            success: false,
+                            success_value: None,
+                            error: Some(
+                                "Expected function call action to perform NEP-141 transfer".into(),
+                            ),
+                        });
                     }
                 };
                 Promise::new(token_id)
@@ -202,33 +258,60 @@ impl WalletContract {
                         transfer_function_call.deposit,
                         transfer_function_call.gas,
                     )
-                    .then(ext.rlp_execute_callback())
+                    .then(ext.rlp_execute_callback(caller_deposit))
             }
         };
+        self.has_in_flight_tx = true;
         PromiseOrValue::Promise(promise)
     }
 
     #[private]
-    pub fn rlp_execute_callback(&mut self) -> ExecuteResponse {
+    pub fn rlp_execute_callback(
+        &mut self,
+        caller_deposit: Option<CallerDeposit>,
+    ) -> ExecuteResponse {
+        self.has_in_flight_tx = false;
         let n = env::promise_results_count();
-        let mut success_value = None;
-        for i in 0..n {
-            match env::promise_result(i) {
-                PromiseResult::Failed => {
-                    return ExecuteResponse {
-                        success: false,
-                        success_value: None,
-                        error: Some("Failed Near promise".into()),
-                    };
+
+        if n == 0 {
+            // `rlp_execute_callback` is called directly in the case of an emulated self-transfer.
+            return ExecuteResponse { success: true, success_value: None, error: None };
+        } else if n > 1 {
+            return ExecuteResponse {
+                success: false,
+                success_value: None,
+                error: Some(format!(
+                    "Invariant violation: this callback comes after a single promise. n={n}"
+                )),
+            };
+        }
+
+        match env::promise_result(0) {
+            PromiseResult::Failed => {
+                // The cross-contract call failed, refund the caller if needed
+                if let Some(CallerDeposit { account_id, yocto_near }) = caller_deposit {
+                    let refund_promise = env::promise_batch_create(&account_id);
+                    env::promise_batch_action_transfer(
+                        refund_promise,
+                        NearToken::from_yoctonear(yocto_near.into()),
+                    );
                 }
-                PromiseResult::Successful(value) => success_value = Some(value),
+
+                ExecuteResponse {
+                    success: false,
+                    success_value: None,
+                    error: Some("Failed Near promise".into()),
+                }
+            }
+            PromiseResult::Successful(value) => {
+                ExecuteResponse { success: true, success_value: Some(value), error: None }
             }
         }
-        ExecuteResponse { success: true, success_value, error: None }
     }
 
     #[private]
     pub fn ban_relayer(&mut self) -> ExecuteResponse {
+        self.has_in_flight_tx = false;
         ExecuteResponse {
             success: false,
             success_value: None,
@@ -252,12 +335,77 @@ fn inner_rlp_execute(
         predecessor_account_id,
         env::attached_deposit(),
     )?;
+    let caller_deposit = CallerDeposit::new(&context);
 
-    let (action, transaction_kind) =
-        internal::parse_rlp_tx_to_action(&tx_bytes_b64, &target, &context, nonce)?;
+    let parsing_result = internal::parse_rlp_tx_to_action(&tx_bytes_b64, &target, &context, *nonce);
+    let (action, transaction_kind) = match parsing_result {
+        Ok((action, transaction_kind)) => {
+            // Increment nonce for all cases where the registrar contract is not needed
+            // to prevent replay of those transactions. For transactions that go through
+            // the registrar we still do not know if the transaction has a relayer error
+            // or not, therefore we must delay incrementing the nonce.
+            //
+            // Note: relayers with access keys cannot use this delay to needlessly spend
+            // the users tokens because only one transaction is allowed to be in-flight
+            // at a time.
+            if let TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                address_check: Some(_),
+                ..
+            }) = &transaction_kind
+            {
+            } else {
+                *nonce = nonce.saturating_add(1);
+            }
+
+            // If the action is an emulated base token or ERC-20 transfer with a non-zero fee then
+            // create a promise to send the refund to the relayer. This allows any relayer
+            // to safely serve base token transfers from any wallet without additional
+            // on-boarding because the relayer will receive some compensation for sending
+            // the transaction. Users should always verify the fee before signing a base token
+            // transfer. Relayers should also verify the fee before sending to make sure the
+            // user's signed transaction will refund enough to cover the relayer's gas costs.
+            if let TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                fee,
+                ..
+            })
+            | TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { fee, .. }) =
+                &transaction_kind
+            {
+                if !fee.is_zero() && context.predecessor_account_id != context.current_account_id {
+                    let refund_promise = env::promise_batch_create(&context.predecessor_account_id);
+                    env::promise_batch_action_transfer(refund_promise, *fee);
+                }
+            }
+
+            (action, transaction_kind)
+        }
+        Err(err @ Error::User(_)) => {
+            // Increment nonce on all user errors to prevent replay.
+            *nonce = nonce.saturating_add(1);
+            return Err(err);
+        }
+        Err(err) => {
+            // Do not increment nonce on Relayer or AccountId errors.
+            // The latter error is an issue in the deployment (so the nonce is meaningless).
+            // The former arises from the relayer itself doing something wrong and thus the
+            // user's transaction could still be valid and potentially submitted properly by
+            // another relayer. To allow this we do not increment the nonce.
+            //
+            // Note: if a relayer is using an access key for this wallet then that key will
+            // still be revoked (in the main logic of `rlp_execute`). This fact together with
+            // the condition that there only be one in-flight transaction at a time implies
+            // that a relayer cannot maliciously burn a large portion of the user's tokens.
+            // If the relayer is not using an access key then they are spending their own
+            // resources on the gas and therefore we do not care if the relayer submits
+            // the same faulty transaction multiple times.
+            return Err(err);
+        }
+    };
+
     let promise = match transaction_kind {
         TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
             address_check: Some(address),
+            ..
         }) => {
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
             let address_registrar = {
@@ -268,9 +416,13 @@ fn inner_rlp_execute(
                 ext_registrar::ext(account_id).with_static_gas(Gas::from_tgas(5))
             };
             let address = format!("0x{}", hex::encode(address));
-            address_registrar.lookup(address).then(ext.address_check_callback(target, action))
+            address_registrar.lookup(address).then(ext.address_check_callback(
+                target,
+                action,
+                caller_deposit,
+            ))
         }
-        TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { receiver_id }) => {
+        TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { receiver_id, .. }) => {
             // In the case of the emulated ERC-20 transfer, the receiving account
             // might not be registered with the NEP-141 contract (per the NEP-145)
             // storage standard. Therefore we must create a multi-step promise where
@@ -288,11 +440,23 @@ fn inner_rlp_execute(
                     NearToken::from_yoctonear(0),
                     NEP_141_STORAGE_BALANCE_OF_GAS,
                 )
-                .then(ext.nep_141_storage_balance_callback(token_id, receiver_id, action))
+                .then(ext.nep_141_storage_balance_callback(
+                    token_id,
+                    receiver_id,
+                    action,
+                    caller_deposit,
+                ))
+        }
+        TransactionKind::EthEmulation(EthEmulationKind::SelfBaseTokenTransfer) => {
+            // Base token transfers to self are no-ops on Near, so we do not need to
+            // schedule an additional call. We can simply go straight to `rlp_execute_callback`.
+            let ext: WalletContractExt =
+                WalletContract::ext(current_account_id).with_unused_gas_weight(1);
+            ext.rlp_execute_callback(caller_deposit)
         }
         _ => {
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
-            action_to_promise(target, action)?.then(ext.rlp_execute_callback())
+            action_to_promise(target, action)?.then(ext.rlp_execute_callback(caller_deposit))
         }
     };
     Ok(promise)
