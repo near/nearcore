@@ -1359,11 +1359,17 @@ async fn rpc_handler(
     let mut response = if let Message::Response(response) = &message {
         match &response.result {
             Ok(_) => HttpResponse::Ok(),
-            Err(err) => match err.error_struct {
-                Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
-                    HttpResponse::InternalServerError()
+            Err(err) => match &err.error_struct {
+                Some(RpcErrorKind::RequestValidationError(_)) => HttpResponse::BadRequest(),
+                Some(RpcErrorKind::HandlerError(error_struct)) => {
+                    if error_struct["name"] == "TIMEOUT_ERROR" {
+                        HttpResponse::RequestTimeout()
+                    } else {
+                        HttpResponse::Ok()
+                    }
                 }
-                _ => HttpResponse::Ok(),
+                Some(RpcErrorKind::InternalError(_)) => HttpResponse::InternalServerError(),
+                None => HttpResponse::Ok(),
             },
         }
     } else {
