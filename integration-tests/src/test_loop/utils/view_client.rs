@@ -10,6 +10,7 @@ use crate::test_loop::env::TestData;
 /// Utility for making calls to [`ViewClientActor`] to retrieve some information.
 pub(crate) struct ViewRequestSender {
     /// List of data handles to the view client senders for sending the requests.
+    /// Used to locate the right view client to send a request (by index).
     handles: Vec<TestLoopDataHandle<ViewClientActorInner>>,
 }
 
@@ -32,10 +33,7 @@ impl ViewRequestSender {
         idx: usize,
     ) -> Result<BlockView, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
-        match view_client.handle(request) {
-            Ok(block) => Ok(block),
-            Err(e) => Err(e.into()),
-        }
+        view_client.handle(request).map_err(|e| e.into())
     }
 
     /// Gets a chunk using a [`GetChunk`] request from the view client at index `idx`.
@@ -46,10 +44,7 @@ impl ViewRequestSender {
         idx: usize,
     ) -> Result<ChunkView, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
-        match view_client.handle(request) {
-            Ok(chunk) => Ok(chunk),
-            Err(e) => Err(e.into()),
-        }
+        view_client.handle(request).map_err(|e| e.into())
     }
 
     /// Gets validator information using a [`GetValidatorInfo`] request from the view client at index `idx`.
@@ -62,9 +57,6 @@ impl ViewRequestSender {
         idx: usize,
     ) -> Result<EpochValidatorInfo, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
-        match view_client.handle(request) {
-            Ok(info) => Ok(info),
-            Err(e) => Err(e.into()),
-        }
+        view_client.handle(request).map_err(|e| e.into())
     }
 }

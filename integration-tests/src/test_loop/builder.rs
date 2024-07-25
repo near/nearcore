@@ -46,7 +46,7 @@ pub struct TestLoopBuilder {
     clients: Vec<AccountId>,
     /// Accounts whose clients should be configured as an archival node.
     /// This should be a subset of the accounts in the `clients` list.
-    archival: HashSet<AccountId>,
+    archival_clients: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
@@ -61,7 +61,7 @@ impl TestLoopBuilder {
             test_loop: TestLoopV2::new(),
             genesis: None,
             clients: vec![],
-            archival: HashSet::new(),
+            archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
             gc_num_epochs_to_keep: None,
@@ -87,8 +87,8 @@ impl TestLoopBuilder {
 
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
-    pub fn archival(mut self, clients: HashSet<AccountId>) -> Self {
-        self.archival = clients;
+    pub fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
+        self.archival_clients = clients;
         self
     }
 
@@ -115,7 +115,7 @@ impl TestLoopBuilder {
     fn ensure_clients(self) -> Self {
         assert!(!self.clients.is_empty(), "Clients must be provided to the test loop");
         assert!(
-            self.archival.is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
+            self.archival_clients.is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
             "Archival accounts must be subset of the clients"
         );
         self
@@ -128,7 +128,7 @@ impl TestLoopBuilder {
         let tempdir = tempfile::tempdir().unwrap();
         for idx in 0..self.clients.len() {
             let account = &self.clients[idx];
-            let is_archival = self.archival.contains(account);
+            let is_archival = self.archival_clients.contains(account);
             let (data, network_adapter, epoch_manager_adapter) =
                 self.setup_client(idx, &tempdir, is_archival);
             datas.push(data);

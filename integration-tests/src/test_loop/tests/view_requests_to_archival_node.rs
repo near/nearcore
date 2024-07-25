@@ -40,7 +40,8 @@ fn test_view_requests_to_archival_node() {
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
     // Validators take all the roles: block+chunk producer and chunk validator.
-    let validators = (0..NUM_VALIDATORS).map(|idx| accounts[idx].as_str()).collect_vec();
+    let validators =
+        accounts.iter().take(NUM_VALIDATORS).map(|account| account.as_str()).collect_vec();
 
     // Contains the accounts of the validators and the non-validator archival node.
     let all_clients: Vec<AccountId> =
@@ -65,7 +66,7 @@ fn test_view_requests_to_archival_node() {
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .clients(all_clients)
-        .archival(archival_clients)
+        .archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
