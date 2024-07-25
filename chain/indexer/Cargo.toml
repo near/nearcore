@@ -15,13 +15,11 @@ workspace = true
 actix.workspace = true
 anyhow.workspace = true
 futures.workspace = true
-once_cell.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-lazy_static.workspace = true
 
 nearcore.workspace = true
 near-client.workspace = true

@@ -17,11 +17,12 @@ use near_jsonrpc_primitives::{
 use near_network::tcp;
 use near_primitives::types::NumBlocks;
 use near_time::Clock;
-use once_cell::sync::Lazy;
 use serde_json::json;
 
-pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> =
-    Lazy::new(|| GenesisConfig::from_json(include_str!("../res/genesis_config.json")));
+pub static TEST_GENESIS_CONFIG: std::sync::LazyLock<GenesisConfig> =
+    std::sync::LazyLock::new(|| {
+        GenesisConfig::from_json(include_str!("../res/genesis_config.json"))
+    });
 
 pub enum NodeType {
     Validator,

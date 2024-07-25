@@ -4,9 +4,9 @@ use near_o11y::metrics::{
     try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
     IntGaugeVec,
 };
-use once_cell::sync::Lazy;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing::warn;
 
@@ -29,8 +29,8 @@ pub fn get_int_gauges() -> HashMap<String, IntGauge> {
 }
 
 /// Wrapper for re-exporting RocksDB stats into Prometheus metrics.
-static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
-    Lazy::new(|| Mutex::new(RocksDBMetrics::default()));
+static ROCKSDB_METRICS: LazyLock<Mutex<RocksDBMetrics>> =
+    LazyLock::new(|| Mutex::new(RocksDBMetrics::default()));
 
 #[derive(Default, Debug)]
 /// Creates prometheus metrics on-demand for exporting RocksDB statistics.

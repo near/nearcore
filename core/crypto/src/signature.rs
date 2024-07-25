@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
-use once_cell::sync::Lazy;
 use primitive_types::U256;
 use secp256k1::Message;
 use std::convert::AsRef;
@@ -8,9 +7,10 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::str::FromStr;
+use std::sync::LazyLock;
 
-pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
-    Lazy::new(secp256k1::Secp256k1::new);
+pub static SECP256K1: LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
+    LazyLock::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]

@@ -24,7 +24,6 @@ finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
-once_cell.workspace = true
 parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
 ripemd.workspace = true

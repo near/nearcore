@@ -7,7 +7,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::client::{
     BlockApproval, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest, ProcessTxResponse,
@@ -261,8 +261,8 @@ fn network_message_to_shards_manager_handler(
 ) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
     // Static initialization for ROUTE_LOOKUP. This is fine across tests as we generate a unique route_id
     // for each message under a lock.
-    static ROUTE_LOOKUP: Lazy<PartialEncodedChunkRequestRouteLookup> =
-        Lazy::new(PartialEncodedChunkRequestRouteLookup::new);
+    static ROUTE_LOOKUP: LazyLock<PartialEncodedChunkRequestRouteLookup> =
+        LazyLock::new(PartialEncodedChunkRequestRouteLookup::new);
     let my_account_id = my_account_id.clone();
     Arc::new(move |request| match request {
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {

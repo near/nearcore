@@ -5,9 +5,9 @@ use anyhow::Context;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
-use once_cell::sync::Lazy;
 use std::env;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
@@ -15,7 +15,7 @@ static NEARD_BUILD: &str = env!("NEARD_BUILD");
 static RUSTC_VERSION: &str = env!("NEARD_RUSTC_VERSION");
 static NEARD_FEATURES: &str = env!("NEARD_FEATURES");
 
-static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
+static NEARD_VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
     format!(
         "(release {}) (build {}) (rustc {}) (protocol {}) (db {})\nfeatures: [{}]",
         NEARD_VERSION, NEARD_BUILD, RUSTC_VERSION, PROTOCOL_VERSION, DB_VERSION, NEARD_FEATURES
@@ -30,7 +30,7 @@ fn neard_version() -> Version {
     }
 }
 
-static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
+static DEFAULT_HOME: LazyLock<PathBuf> = LazyLock::new(get_default_home);
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

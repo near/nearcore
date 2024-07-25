@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 actix-rt.workspace = true
-once_cell.workspace = true
 
 near-store.workspace = true
 

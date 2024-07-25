@@ -77,12 +77,11 @@ struct DoomslugApprovalsTracker {
 mod trackable {
     use near_o11y::metrics::IntGauge;
     use near_primitives::types::BlockHeight;
-    use once_cell::sync::Lazy;
 
-    pub struct TrackableBlockHeightValue(BlockHeight, &'static Lazy<IntGauge>);
+    pub struct TrackableBlockHeightValue(BlockHeight, &'static std::sync::LazyLock<IntGauge>);
 
     impl TrackableBlockHeightValue {
-        pub fn new(value: BlockHeight, gauge: &'static Lazy<IntGauge>) -> Self {
+        pub fn new(value: BlockHeight, gauge: &'static std::sync::LazyLock<IntGauge>) -> Self {
             gauge.set(value as i64);
             Self(value, gauge)
         }

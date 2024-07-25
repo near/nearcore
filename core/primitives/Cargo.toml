@@ -24,7 +24,6 @@ easy-ext.workspace = true
 hex.workspace = true
 itertools = { workspace = true, optional = true }
 num-rational.workspace = true
-once_cell.workspace = true
 ordered-float.workspace = true
 primitive-types.workspace = true
 rand = { workspace = true, optional = true }
