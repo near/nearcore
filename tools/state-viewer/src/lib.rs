@@ -16,6 +16,6 @@ mod state_dump;
 mod state_parts;
 mod trie_iteration_benchmark;
 mod tx_dump;
-mod util;
+pub mod util;
 
 pub use cli::StateViewerSubCommand;
