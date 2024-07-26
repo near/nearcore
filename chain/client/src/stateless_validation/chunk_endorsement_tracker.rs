@@ -1,5 +1,7 @@
 use lru::LruCache;
 use near_chain::ChainStoreAccess;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::validator_assignment::EndorsementStats;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -9,7 +11,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::{ChunkEndorsement, EndorsementStats};
 use near_primitives::types::AccountId;
 
 use crate::Client;

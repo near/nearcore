@@ -4,7 +4,7 @@ use std::sync::Arc;
 use near_primitives::reed_solomon::{
     reed_solomon_decode, reed_solomon_encode, reed_solomon_part_length,
 };
-use near_primitives::stateless_validation::EncodedChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::EncodedChunkStateWitness;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Ratio of the number of data parts to total parts in the Reed Solomon encoding.
