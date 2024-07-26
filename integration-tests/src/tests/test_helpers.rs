@@ -1,9 +1,9 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-static HEAVY_TESTS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static HEAVY_TESTS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub fn heavy_test<F>(f: F)
 where
