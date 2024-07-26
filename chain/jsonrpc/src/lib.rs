@@ -32,7 +32,7 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_jsonrpc_traits::handler::JsonRpcHandlerExt;
 #[cfg(feature = "test_features")]
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 use near_network::debug::GetDebugStatus;
 use near_network::tcp;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
