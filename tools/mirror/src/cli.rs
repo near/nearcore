@@ -198,7 +198,7 @@ impl ShowKeysCmd {
                 probably_extra_key = keys.iter().all(|key| {
                     key.permission
                         .as_ref()
-                        .map_or(false, |p| *p != AccessKeyPermissionView::FullAccess)
+                        .map_or(true, |p| *p != AccessKeyPermissionView::FullAccess)
                 });
                 keys
             }
@@ -215,7 +215,7 @@ impl ShowKeysCmd {
                 probably_extra_key = keys.iter().all(|key| {
                     key.permission
                         .as_ref()
-                        .map_or(false, |p| *p != AccessKeyPermissionView::FullAccess)
+                        .map_or(true, |p| *p != AccessKeyPermissionView::FullAccess)
                 });
                 keys
             }
