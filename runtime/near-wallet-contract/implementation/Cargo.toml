@@ -14,7 +14,6 @@ ethabi = { version = "18", default-features = false }
 hex = "0.4"
 near-contract-standards = "5.1"
 near-sdk = { version = "5.1" }
-once_cell = "1.18"
 serde = { version = "1", features = ["derive"] }
 
 # dev-dependencies

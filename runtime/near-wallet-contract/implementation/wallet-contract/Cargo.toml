@@ -16,7 +16,6 @@ ethabi.workspace = true
 hex.workspace = true
 near-contract-standards.workspace = true
 near-sdk.workspace = true
-once_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
