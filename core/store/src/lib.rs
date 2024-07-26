@@ -44,6 +44,7 @@ use strum;
 pub mod cold_storage;
 mod columns;
 pub mod config;
+pub mod contract;
 pub mod db;
 pub mod flat;
 pub mod genesis;
@@ -55,7 +56,6 @@ mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
 pub mod trie;
-pub mod contract;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{

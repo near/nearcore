@@ -146,7 +146,9 @@ impl TrieViewer {
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
-                let code_len = state_update.contract_storage.get(account.code_hash())
+                let code_len = state_update
+                    .contract_storage
+                    .get(account.code_hash())
                     .map(|c| c.code().len() as u64)
                     .unwrap_or_default();
                 if let Some(limit) = self.state_size_limit {

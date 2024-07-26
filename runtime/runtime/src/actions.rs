@@ -37,8 +37,8 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_vm_runner::{precompile_contract, PreparedContract};
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -670,12 +670,7 @@ pub(crate) fn action_deploy_contract(
     // cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
     // logic in estimator (see get_runtime_config() function).
-    precompile_contract(
-        &code,
-        config,
-        cache,
-    )
-    .ok();
+    precompile_contract(&code, config, cache).ok();
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)

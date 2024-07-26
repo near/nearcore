@@ -121,6 +121,9 @@ impl ReceiptPreparationPipeline {
         for (action_index, action) in actions.iter().enumerate() {
             match action {
                 Action::DeployContract(_) => {
+                    // FIXME: instead of blocking these accounts, move the handling of
+                    // deploy action into here, so that the necessary data dependencies can be
+                    // established.
                     self.block_accounts.insert(account_id.clone());
                     break;
                 }
@@ -176,6 +179,8 @@ impl ReceiptPreparationPipeline {
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
                 | Action::DeleteAccount(_) => {}
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                Action::NonrefundableStorageTransfer(_) => {}
             }
         }
         return any_function_calls;

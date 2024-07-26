@@ -76,11 +76,11 @@ mod congestion_control;
 mod conversions;
 pub mod ext;
 mod metrics;
+mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
 pub mod state_viewer;
 mod verifier;
-mod pipelining;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
