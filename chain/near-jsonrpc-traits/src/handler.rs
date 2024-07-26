@@ -25,6 +25,17 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::transactions::RpcTransactionError,
         >,
     > + Send;
+    fn tx_status_common(
+        &self,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusRequest,
+        fetch_receipt: bool,
+    ) -> impl Future<
+        Output = Result<
+            near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError,
+        >,
+    > + Send;
+
     fn health(
         &self,
     ) -> impl Future<
@@ -41,15 +52,15 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::status::RpcStatusError,
         >,
     > + Send;
-    fn protocol_config(
+    fn network_info(
         &self,
-        request_data: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
     ) -> impl Future<
         Output = Result<
-            near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse,
-            near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
+            near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
+            near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
         >,
     > + Send;
+
     fn query(
         &self,
         request_data: near_jsonrpc_primitives::types::query::RpcQueryRequest,
@@ -59,16 +70,7 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::query::RpcQueryError,
         >,
     > + Send;
-    fn tx_status_common(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusRequest,
-        fetch_receipt: bool,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-        >,
-    > + Send;
+
     fn block(
         &self,
         request_data: near_jsonrpc_primitives::types::blocks::RpcBlockRequest,
@@ -76,24 +78,6 @@ pub trait JsonRpcHandlerExt {
         Output = Result<
             near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
             near_jsonrpc_primitives::types::blocks::RpcBlockError,
-        >,
-    > + Send;
-    fn chunk(
-        &self,
-        request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::chunks::RpcChunkResponse,
-            near_jsonrpc_primitives::types::chunks::RpcChunkError,
-        >,
-    > + Send;
-    fn receipt(
-        &self,
-        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
-            near_jsonrpc_primitives::types::receipts::RpcReceiptError,
         >,
     > + Send;
     fn changes_in_block(
@@ -114,23 +98,6 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::changes::RpcStateChangesError,
         >,
     > + Send;
-    fn client_config(
-        &self,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
-            near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
-        >,
-    > + Send;
-    fn congestion_level(
-        &self,
-        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse,
-            near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError,
-        >,
-    > + Send;
     fn next_light_client_block(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest,
@@ -138,15 +105,6 @@ pub trait JsonRpcHandlerExt {
         Output = Result<
             near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockResponse,
             near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockError,
-        >,
-    > + Send;
-    fn light_client_execution_outcome_proof(
-        &self,
-        request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
-    ) -> impl Future<
-        Output = Result<
-            near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse,
-            near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
         >,
     > + Send;
     fn light_client_block_proof(
@@ -158,14 +116,53 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
         >,
     > + Send;
-    fn network_info(
+    fn light_client_execution_outcome_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
+    ) -> impl Future<
+        Output = Result<
+            near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse,
+            near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+        >,
+    > + Send;
+
+    fn chunk(
+        &self,
+        request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
+    ) -> impl Future<
+        Output = Result<
+            near_jsonrpc_primitives::types::chunks::RpcChunkResponse,
+            near_jsonrpc_primitives::types::chunks::RpcChunkError,
+        >,
+    > + Send;
+    fn receipt(
+        &self,
+        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> impl Future<
+        Output = Result<
+            near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
+            near_jsonrpc_primitives::types::receipts::RpcReceiptError,
+        >,
+    > + Send;
+
+    fn client_config(
         &self,
     ) -> impl Future<
         Output = Result<
-            near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
-            near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
+            near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
+            near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
         >,
     > + Send;
+    fn protocol_config(
+        &self,
+        request_data: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
+    ) -> impl Future<
+        Output = Result<
+            near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse,
+            near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
+        >,
+    > + Send;
+
     fn gas_price(
         &self,
         request_data: near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest,
@@ -175,6 +172,7 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::gas_price::RpcGasPriceError,
         >,
     > + Send;
+
     fn validators(
         &self,
         request_data: near_jsonrpc_primitives::types::validator::RpcValidatorRequest,
@@ -196,6 +194,17 @@ pub trait JsonRpcHandlerExt {
             near_jsonrpc_primitives::types::validator::RpcValidatorError,
         >,
     > + Send;
+
+    fn congestion_level(
+        &self,
+        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> impl Future<
+        Output = Result<
+            near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse,
+            near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError,
+        >,
+    > + Send;
+
     /// Returns the future windows for maintenance in current epoch for the specified account
     /// In the maintenance windows, the node will not be block producer or chunk producer
     fn maintenance_windows(
