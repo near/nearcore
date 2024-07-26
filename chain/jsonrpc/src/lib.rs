@@ -1290,20 +1290,20 @@ impl JsonRpcHandler {
     }
 
     async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
-        let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
+        let (num_blocks, only_valid) = Params::parse(params)?;
         self.client_sender
             .send(near_client::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid));
         Ok(Value::String(String::new()))
     }
 
     async fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
-        let mode = crate::api::Params::parse(params)?;
+        let mode = Params::parse(params)?;
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvProduceChunks(mode));
         Ok(Value::String(String::new()))
     }
 
     async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
-        let (height,) = crate::api::Params::parse(params)?;
+        let (height,) = Params::parse(params)?;
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height));
         self.view_client_sender
             .send(near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height));
