@@ -36,6 +36,7 @@ near-async.workspace = true
 
 [features]
 nightly = [
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-epoch-manager/nightly",
@@ -46,6 +47,7 @@ nightly = [
   "nightly_protocol",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
