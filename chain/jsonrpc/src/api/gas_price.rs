@@ -4,9 +4,9 @@ use serde_json::Value;
 use near_client_primitives::types::GetGasPriceError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceError, RpcGasPriceRequest};
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcGasPriceRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

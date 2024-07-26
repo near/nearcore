@@ -527,20 +527,6 @@ impl JsonRpcHandler {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
-    async fn send_tx_async(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> CryptoHash {
-        let tx = request_data.signed_transaction;
-        let hash = tx.get_hash();
-        self.client_sender.send(ProcessTxRequest {
-            transaction: tx,
-            is_forwarded: false,
-            check_only: false, // if we set true here it will not actually send the transaction
-        });
-        hash
-    }
-
     async fn tx_exists(
         &self,
         tx_hash: CryptoHash,
@@ -684,20 +670,6 @@ impl JsonRpcHandler {
         Ok(response)
     }
 
-    async fn send_tx_commit(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        self.send_tx(RpcSendTransactionRequest {
-            signed_transaction: request_data.signed_transaction,
-            wait_until: TxExecutionStatus::ExecutedOptimistic,
-        })
-        .await
-    }
-
     async fn old_debug(
         &self,
     ) -> Result<
@@ -815,102 +787,6 @@ impl JsonRpcHandler {
         }
         None
     }
-
-    /// Returns the future windows for maintenance in current epoch for the specified account
-    /// In the maintenance windows, the node will not be block producer or chunk producer
-    async fn maintenance_windows(
-        &self,
-        request: near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsResponse,
-        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsError,
-    > {
-        let near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest {
-            account_id,
-        } = request;
-        let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
-        Ok(windows.iter().map(|r| (r.start, r.end)).collect())
-    }
-
-    async fn congestion_level(
-        &self,
-        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse,
-        near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError,
-    > {
-        let chunk_view =
-            self.view_client_send(GetChunk::rpc_from(request_data.chunk_reference)).await?;
-        let config_result = self
-            .view_client_send(GetProtocolConfig(BlockReference::BlockId(BlockId::Height(
-                chunk_view.header.height_included,
-            ))))
-            .await;
-        let config = config_result.map_err(|err: RpcProtocolConfigError| match err {
-            RpcProtocolConfigError::UnknownBlock { error_message } => {
-                near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError::UnknownBlock {
-                    error_message,
-                }
-            }
-            RpcProtocolConfigError::InternalError { error_message } => {
-                near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError::InternalError {
-                    error_message,
-                }
-            }
-        })?;
-        let congestion_info = chunk_view.header.congestion_info;
-        let congestion_level = congestion_info
-            .map(|info| info.congestion_level(config.runtime_config.congestion_control_config))
-            .unwrap_or(0.0);
-        Ok(near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse {
-            congestion_level,
-        })
-    }
-
-    async fn changes_in_block_by_type(
-        &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
-        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
-    > {
-        let block: near_primitives::views::BlockView =
-            self.view_client_send(GetBlock(request.block_reference)).await?;
-
-        let block_hash = block.header.hash;
-        let changes = self
-            .view_client_send(GetStateChanges {
-                block_hash,
-                state_changes_request: request.state_changes_request,
-            })
-            .await?;
-
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
-            block_hash: block.header.hash,
-            changes,
-        })
-    }
-
-    async fn client_config(
-        &self,
-    ) -> Result<
-        near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
-        near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
-    > {
-        let client_config = self.client_send(GetClientConfig {}).await?;
-        Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
-    }
-
-    async fn split_storage_info(
-        &self,
-        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
-        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
-    > {
-        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
-        Ok(RpcSplitStorageInfoResponse { result: split_storage })
-    }
 }
 
 impl JsonRpcHandlerExt for JsonRpcHandler {
@@ -945,6 +821,34 @@ impl JsonRpcHandlerExt for JsonRpcHandler {
                 )
             }
         }
+    }
+
+    async fn send_tx_async(
+        &self,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
+    ) -> CryptoHash {
+        let tx = request_data.signed_transaction;
+        let hash = tx.get_hash();
+        self.client_sender.send(ProcessTxRequest {
+            transaction: tx,
+            is_forwarded: false,
+            check_only: false, // if we set true here it will not actually send the transaction
+        });
+        hash
+    }
+
+    async fn send_tx_commit(
+        &self,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
+    > {
+        self.send_tx(RpcSendTransactionRequest {
+            signed_transaction: request_data.signed_transaction,
+            wait_until: TxExecutionStatus::ExecutedOptimistic,
+        })
+        .await
     }
 
     async fn health(
@@ -1070,6 +974,75 @@ impl JsonRpcHandlerExt for JsonRpcHandler {
         })
     }
 
+    async fn changes_in_block_by_type(
+        &self,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
+    > {
+        let block: near_primitives::views::BlockView =
+            self.view_client_send(GetBlock(request.block_reference)).await?;
+
+        let block_hash = block.header.hash;
+        let changes = self
+            .view_client_send(GetStateChanges {
+                block_hash,
+                state_changes_request: request.state_changes_request,
+            })
+            .await?;
+
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
+            block_hash: block.header.hash,
+            changes,
+        })
+    }
+
+    async fn client_config(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
+    > {
+        let client_config = self.client_send(GetClientConfig {}).await?;
+        Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
+    }
+
+    async fn congestion_level(
+        &self,
+        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse,
+        near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError,
+    > {
+        let chunk_view =
+            self.view_client_send(GetChunk::rpc_from(request_data.chunk_reference)).await?;
+        let config_result = self
+            .view_client_send(GetProtocolConfig(BlockReference::BlockId(BlockId::Height(
+                chunk_view.header.height_included,
+            ))))
+            .await;
+        let config = config_result.map_err(|err: RpcProtocolConfigError| match err {
+            RpcProtocolConfigError::UnknownBlock { error_message } => {
+                near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError::UnknownBlock {
+                    error_message,
+                }
+            }
+            RpcProtocolConfigError::InternalError { error_message } => {
+                near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError::InternalError {
+                    error_message,
+                }
+            }
+        })?;
+        let congestion_info = chunk_view.header.congestion_info;
+        let congestion_level = congestion_info
+            .map(|info| info.congestion_level(config.runtime_config.congestion_control_config))
+            .unwrap_or(0.0);
+        Ok(near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse {
+            congestion_level,
+        })
+    }
+
     async fn next_light_client_block(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest,
@@ -1170,9 +1143,6 @@ impl JsonRpcHandlerExt for JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
     }
 
-    /// Returns the current epoch validators ordered in the block producer order with repetition.
-    /// This endpoint is solely used for bridge currently and is not intended for other external use
-    /// cases.
     async fn validators_ordered(
         &self,
         request: near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest,
@@ -1184,6 +1154,31 @@ impl JsonRpcHandlerExt for JsonRpcHandler {
             request;
         let validators = self.view_client_send(GetValidatorOrdered { block_id }).await?;
         Ok(validators)
+    }
+
+    async fn maintenance_windows(
+        &self,
+        request: near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsResponse,
+        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsError,
+    > {
+        let near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest {
+            account_id,
+        } = request;
+        let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
+        Ok(windows.iter().map(|r| (r.start, r.end)).collect())
+    }
+
+    async fn split_storage_info(
+        &self,
+        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
+    > {
+        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
+        Ok(RpcSplitStorageInfoResponse { result: split_storage })
     }
 }
 

@@ -6,11 +6,11 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionError, RpcTransactionStatusRequest, TransactionInfo,
 };
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::transaction::SignedTransaction;
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSendTransactionRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

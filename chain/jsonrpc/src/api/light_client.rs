@@ -12,10 +12,10 @@ use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientNextBlockError, RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
     RpcLightClientProofError,
 };
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 use near_primitives::views::LightClientBlockView;
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcLightClientExecutionProofRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

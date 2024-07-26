@@ -6,9 +6,9 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest,
 };
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcMaintenanceWindowsRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

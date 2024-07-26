@@ -4,11 +4,11 @@ use serde_json::Value;
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;

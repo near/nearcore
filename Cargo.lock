@@ -4529,6 +4529,7 @@ name = "near-jsonrpc-traits"
 version = "0.0.0"
 dependencies = [
  "near-jsonrpc-primitives",
+ "near-primitives",
  "serde",
  "serde_json",
 ]

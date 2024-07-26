@@ -12,6 +12,7 @@ publish = true
 serde.workspace = true
 serde_json.workspace = true
 
+near-primitives.workspace = true
 near-jsonrpc-primitives.workspace = true
 
 [lints]
@@ -20,8 +21,10 @@ workspace = true
 [features]
 nightly = [
   "near-jsonrpc-primitives/nightly",
+  "near-primitives/nightly",
   "nightly_protocol",
 ]
 nightly_protocol = [
   "near-jsonrpc-primitives/nightly_protocol",
+  "near-primitives/nightly_protocol",
 ]

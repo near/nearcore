@@ -2,11 +2,11 @@ use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 
 use serde_json::Value;
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcProtocolConfigRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

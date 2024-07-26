@@ -4,11 +4,11 @@ use near_jsonrpc_primitives::{
     errors::RpcParseError,
     types::split_storage::{RpcSplitStorageInfoError, RpcSplitStorageInfoRequest},
 };
-use near_jsonrpc_traits::params::ParamsExt;
+use near_jsonrpc_traits::params::{Params, ParamsExt};
 
 use serde_json::Value;
 
-use super::{Params, RpcFrom, RpcRequest};
+use super::{RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSplitStorageInfoRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
