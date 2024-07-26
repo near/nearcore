@@ -1,4 +1,5 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
+use crate::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
@@ -21,67 +22,6 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-
-fn timestamp_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
-}
-pub const TGAS: u64 = 1024 * 1024 * 1024 * 1024;
-
-struct ProgressReporter {
-    cnt: AtomicU64,
-    // Timestamp to make relative measurements of block processing speed (in ms)
-    ts: AtomicU64,
-    all: u64,
-    skipped: AtomicU64,
-    // Fields below get cleared after each print.
-    empty_blocks: AtomicU64,
-    non_empty_blocks: AtomicU64,
-    // Total gas burned (in TGas)
-    tgas_burned: AtomicU64,
-}
-
-impl ProgressReporter {
-    pub fn inc_and_report_progress(&self, gas_burnt: u64) {
-        let ProgressReporter { cnt, ts, all, skipped, empty_blocks, non_empty_blocks, tgas_burned } =
-            self;
-        if gas_burnt == 0 {
-            empty_blocks.fetch_add(1, Ordering::Relaxed);
-        } else {
-            non_empty_blocks.fetch_add(1, Ordering::Relaxed);
-            tgas_burned.fetch_add(gas_burnt / TGAS, Ordering::Relaxed);
-        }
-
-        const PRINT_PER: u64 = 100;
-        let prev = cnt.fetch_add(1, Ordering::Relaxed);
-        if (prev + 1) % PRINT_PER == 0 {
-            let prev_ts = ts.load(Ordering::Relaxed);
-            let new_ts = timestamp_ms();
-            let per_second = (PRINT_PER as f64 / (new_ts - prev_ts) as f64) * 1000.0;
-            ts.store(new_ts, Ordering::Relaxed);
-            let secs_remaining = (all - prev) as f64 / per_second;
-            let avg_gas = if non_empty_blocks.load(Ordering::Relaxed) == 0 {
-                0.0
-            } else {
-                tgas_burned.load(Ordering::Relaxed) as f64
-                    / non_empty_blocks.load(Ordering::Relaxed) as f64
-            };
-
-            println!(
-                "Processed {} blocks, {:.4} blocks per second ({} skipped), {:.2} secs remaining {} empty blocks {:.2} avg gas per non-empty block",
-                prev + 1,
-                per_second,
-                skipped.load(Ordering::Relaxed),
-                secs_remaining,
-                empty_blocks.load(Ordering::Relaxed),
-                avg_gas,
-            );
-            empty_blocks.store(0, Ordering::Relaxed);
-            non_empty_blocks.store(0, Ordering::Relaxed);
-            tgas_burned.store(0, Ordering::Relaxed);
-        }
-    }
-}
 
 fn old_outcomes(
     store: Store,
