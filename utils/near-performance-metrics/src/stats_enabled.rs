@@ -303,7 +303,7 @@ where
     let took = ended.saturating_duration_since(start);
 
     if took >= SLOW_CALL_THRESHOLD {
-        let text_field = msg_text.map(|x| format!(" msg: {}", x)).unwrap_or(format!(""));
+        let text_field = msg_text.map_or(String::new(), |x| format!(" msg: {x}"));
         warn!(
             "Function exceeded time limit {}:{:?} {:?} took: {}ms {}",
             class_name,
