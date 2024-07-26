@@ -4556,6 +4556,8 @@ dependencies = [
  "near-epoch-manager",
  "near-indexer",
  "near-indexer-primitives",
+ "near-jsonrpc-client",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
  "near-primitives",

@@ -53,7 +53,6 @@ struct RunCmd {
 impl RunCmd {
     fn run(self) -> anyhow::Result<()> {
         openssl_probe::init_ssl_cert_env_vars();
-        let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
 
         let secret = if let Some(secret_file) = &self.secret_file {
             let secret = crate::secret::load(secret_file)
@@ -71,25 +70,14 @@ impl RunCmd {
             None
         };
 
-        let system = new_actix_system(runtime);
-        system
-            .block_on(async move {
-                let _subscriber_guard = near_o11y::default_subscriber(
-                    near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
-                    &near_o11y::Options::default(),
-                )
-                .global();
-                actix::spawn(crate::run(
-                    self.source_home,
-                    self.target_home,
-                    secret,
-                    self.stop_height,
-                    self.online_source,
-                    self.config_path,
-                ))
-                .await
-            })
-            .unwrap()
+        run_async(crate::run(
+            self.source_home,
+            self.target_home,
+            secret,
+            self.stop_height,
+            self.online_source,
+            self.config_path,
+        ))
     }
 }
 
@@ -204,7 +192,23 @@ impl ShowKeysCmd {
                 });
                 keys
             }
-            ShowKeysSubCommand::FromRPC(c) => todo!(),
+            ShowKeysSubCommand::FromRPC(c) => {
+                let keys = run_async(async move {
+                    crate::key_util::keys_from_rpc(
+                        &c.rpc_url,
+                        &c.account_id,
+                        c.block_height,
+                        secret.as_ref(),
+                    )
+                    .await
+                })?;
+                probably_extra_key = keys.iter().all(|key| {
+                    key.permission
+                        .as_ref()
+                        .map_or(false, |p| *p != AccessKeyPermissionView::FullAccess)
+                });
+                keys
+            }
             ShowKeysSubCommand::FromPubKey(c) => {
                 vec![crate::key_util::map_pub_key(&c.public_key, secret.as_ref())?]
             }
@@ -249,6 +253,21 @@ fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
         runtime_cell.swap(&r);
         r.into_inner().unwrap()
     })
+}
+
+fn run_async<F: std::future::Future + 'static>(f: F) -> F::Output {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let system = new_actix_system(runtime);
+    system
+        .block_on(async move {
+            let _subscriber_guard = near_o11y::default_subscriber(
+                near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
+                &near_o11y::Options::default(),
+            )
+            .global();
+            actix::spawn(f).await
+        })
+        .unwrap()
 }
 
 impl MirrorCommand {

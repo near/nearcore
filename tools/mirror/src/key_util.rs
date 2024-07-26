@@ -6,7 +6,10 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::{PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_jsonrpc_primitives::types::query::{
+    QueryResponseKind as RpcQueryResponseKind, RpcQueryRequest,
+};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, Finality};
 use near_primitives::views::{AccessKeyPermissionView, QueryRequest, QueryResponseKind};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 
@@ -96,6 +99,44 @@ pub(crate) fn keys_from_source_db(
         .kind
     {
         QueryResponseKind::AccessKeyList(l) => Ok(l
+            .keys
+            .into_iter()
+            .map(|k| SecretAccessKey {
+                mapped_key: crate::key_mapping::map_key(&k.public_key, secret),
+                original_key: Some(k.public_key),
+                permission: Some(k.access_key.permission),
+            })
+            .collect()),
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) async fn keys_from_rpc(
+    rpc_url: &str,
+    account_id: &str,
+    block_height: Option<BlockHeight>,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+) -> anyhow::Result<Vec<SecretAccessKey>> {
+    let account_id: AccountId = account_id.parse().context("bad account ID")?;
+
+    let rpc_client = near_jsonrpc_client::new_client(rpc_url);
+
+    let block_reference = match block_height {
+        Some(h) => BlockReference::BlockId(BlockId::Height(h)),
+        None => BlockReference::Finality(Finality::None),
+    };
+    let request = RpcQueryRequest {
+        block_reference,
+        request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+    };
+
+    let response = match rpc_client.query(request).await {
+        Ok(r) => r,
+        Err(e) => anyhow::bail!("failed making RPC request: {:?}", e),
+    };
+
+    match response.kind {
+        RpcQueryResponseKind::AccessKeyList(l) => Ok(l
             .keys
             .into_iter()
             .map(|k| SecretAccessKey {
