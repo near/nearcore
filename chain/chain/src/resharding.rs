@@ -340,20 +340,20 @@ impl Chain {
                 return Err(Error::Other("Resharding interrupted.".to_string()));
             }
             // Prepare the batch.
-            let batch = {
+            let (batch, prepare_time) = {
                 let histogram = RESHARDING_BATCH_PREPARE_TIME.with_label_values(&metrics_labels);
-                let _timer = histogram.start_timer();
+                let timer = histogram.start_timer();
                 let batch = get_trie_update_batch(&config.get(), &mut iter);
                 let batch = batch.map_err(Into::<StorageError>::into)?;
                 let Some(batch) = batch else { break };
-                batch
+                (batch, timer.stop_and_record())
             };
 
             // Apply the batch - add values to the children shards.
             let TrieUpdateBatch { entries, size } = batch;
-            let store_update = {
+            let (store_update, apply_time) = {
                 let histogram = RESHARDING_BATCH_APPLY_TIME.with_label_values(&metrics_labels);
-                let _timer = histogram.start_timer();
+                let timer = histogram.start_timer();
                 // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
                 // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
                 let (store_update, new_state_roots) = tries.add_values_to_children_states(
@@ -362,18 +362,25 @@ impl Chain {
                     &checked_account_id_to_shard_uid,
                 )?;
                 *state_roots = new_state_roots;
-                store_update
+                (store_update, timer.stop_and_record())
             };
 
             // Commit the store update.
-            {
+            let commit_time = {
                 let histogram = RESHARDING_BATCH_COMMIT_TIME.with_label_values(&metrics_labels);
-                let _timer = histogram.start_timer();
+                let timer = histogram.start_timer();
                 store_update.commit()?;
-            }
+                timer.stop_and_record()
+            };
 
-            RESHARDING_BATCH_COUNT.with_label_values(&metrics_labels).inc();
+            let batch_count = {
+                let metric = RESHARDING_BATCH_COUNT.with_label_values(&metrics_labels);
+                metric.inc();
+                metric.get()
+            };
             RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
+
+            debug!(target: "resharding", ?shard_uid, "batch {batch_count} prepared in {prepare_time}s, applied in {apply_time}s and committed in {commit_time}s");
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
