@@ -55,7 +55,7 @@ macro_rules! primitive_impl {
         $(
             impl ProtocolStruct for $t {}
 
-            #[cfg(feature = "protocol_schema")]
+            #[cfg(all(enable_const_type_id, feature = "protocol_schema"))]
             inventory::submit! {
                 ProtocolStructInfo::Struct {
                     name: stringify!($t),
