@@ -128,7 +128,7 @@ fn main() {
     current_hashes.clear();
 }
 
-#[cfg(test)]
+#[cfg(all(test, enable_const_type_id))]
 mod tests {
     use super::*;
     use near_structs_checker_lib::ProtocolStruct;
