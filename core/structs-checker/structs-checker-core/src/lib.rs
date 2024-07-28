@@ -12,6 +12,9 @@ pub type Variant = Option<&'static [(FieldName, FieldTypeInfo)]>;
 /// itself, followed by decompositions of its generic parameters, respectively.
 /// For example, for `Vec<Vec<u8>>` it will be `[TypeId::of::<Vec<Vec<u8>>>(),
 /// TypeId::of::<Vec<u8>>(), TypeId::of::<u8>()]`.
+// TODO (#11755): consider better candidates for decomposition. For example,
+// `Vec<u8>` is not expected to implement `ProtocolStruct`, so its type id
+// won't help to identify changes in the outer struct.
 pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
 #[derive(Copy, Clone)]

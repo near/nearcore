@@ -100,11 +100,18 @@ mod helper {
             syn::Type::Path(type_path) => type_path,
             _ => return result,
         };
+
+        // TODO (#11755): last segment does not necessarily cover all generics.
+        // For example, consider `<Apple as Fruit<Round>>::AssocType`. Here
+        // `AssocType` in `impl Fruit<Round>` for `Apple` can be a `Vec<Round>`
+        // or any other instantiation of a generic type.
+        // Not urgent because protocol structs are expected to be simple.
         let generic_params = &type_path.path.segments.last().unwrap().arguments;
         let params = match generic_params {
             syn::PathArguments::AngleBracketed(params) => params,
             _ => return result,
         };
+
         let inner_type_ids = params
             .args
             .iter()
