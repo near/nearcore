@@ -123,7 +123,7 @@ pub fn deploy_contract(
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
 
     let rpc_node_data = get_node_data(node_datas, rpc_id);
-    let rpc_node_data_sender = &rpc_node_data.client_sender.clone();
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
 
     let future = rpc_node_data_sender.send_async(process_tx_request);
     drop(future);
@@ -172,7 +172,7 @@ pub fn call_contract(
 
     let process_tx_request =
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-    let future = node_datas[0].client_sender.clone().send_async(process_tx_request);
+    let future = node_datas[0].client_sender.send_async(process_tx_request);
     drop(future);
 
     tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
@@ -240,7 +240,7 @@ pub fn execute_tx(
     let process_result = Arc::new(Mutex::new(None));
     let process_result_clone = process_result.clone();
 
-    node_datas[rpc_node_id].client_sender.clone().send(MessageWithCallback {
+    node_datas[rpc_node_id].client_sender.send(MessageWithCallback {
         message: ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false },
         callback: Box::new(move |process_res| {
             *process_result_clone.lock().unwrap() = Some(process_res);
