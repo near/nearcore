@@ -66,7 +66,9 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolStruct)]
+#[derive(
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolStruct,
+)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
@@ -88,7 +90,9 @@ impl std::fmt::Debug for Secp256K1PublicKey {
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolStruct)]
+#[derive(
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolStruct,
+)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);

@@ -6,19 +6,19 @@
 /// macro.
 // TODO (#11755): add to CI.
 
-// Needed because otherwise tool doesn't notice `ProtocolStructInfo`s from
-// other crates.
-use near_primitives::*;
+/// Needed because otherwise tool doesn't notice `ProtocolStructInfo`s from
+/// other crates.
 use near_crypto::*;
+use near_primitives::*;
 
+use near_primitives_core::types::NumBlocks;
 use near_stable_hasher::StableHasher;
-use near_structs_checker_lib::{FieldName, ProtocolStructInfo, FieldTypeInfo};
+use near_structs_checker_lib::{FieldName, FieldTypeInfo, ProtocolStructInfo};
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use near_primitives_core::types::NumBlocks;
 
 fn compute_hash(
     info: &ProtocolStructInfo,
@@ -67,7 +67,7 @@ fn compute_type_hash(
     if let Some(nested_info) = structs.get(&type_id) {
         compute_hash(nested_info, structs).hash(hasher);
     } else {
-        // Unsupported type. Always assume that hash is 0 because we cannot 
+        // Unsupported type. Always assume that hash is 0 because we cannot
         // compute nontrivial deterministic hash in such cases.
         0.hash(hasher);
     }
@@ -334,7 +334,7 @@ mod tests {
     fn test_different_container_two_generics() {
         mod inner {
             use super::*;
-            
+
             #[derive(super::ProtocolStruct)]
             #[allow(unused)]
             pub struct Container {
@@ -383,7 +383,7 @@ mod tests {
         );
     }
 
-    /// Checks that if nested containers differ, this is not caught by hash 
+    /// Checks that if nested containers differ, this is not caught by hash
     /// check.
     /// Added to indicate limitations of implementation.
     #[test]

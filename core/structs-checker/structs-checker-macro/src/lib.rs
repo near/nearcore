@@ -11,7 +11,7 @@ mod helper {
     use proc_macro2::TokenStream as TokenStream2;
     use quote::quote;
     use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, FieldsUnnamed, Variant};
-    
+
     pub fn protocol_struct_impl(input: TokenStream) -> TokenStream {
         let input = parse_macro_input!(input as DeriveInput);
         let name = &input.ident;
@@ -105,7 +105,9 @@ mod helper {
             syn::PathArguments::AngleBracketed(params) => params,
             _ => return result,
         };
-        result.extend(params.args.iter()
+        let inner_type_ids = params
+            .args
+            .iter()
             .map(|arg| {
                 if let syn::GenericArgument::Type(ty) = arg {
                     extract_type_ids_from_type(ty)
@@ -114,24 +116,25 @@ mod helper {
                 }
             })
             .flatten()
-            .collect::<Vec<_>>());
+            .collect::<Vec<_>>();
+        result.extend(inner_type_ids);
         result
     }
-    
+
     fn extract_type_info(ty: &syn::Type) -> TokenStream2 {
         let type_path = match ty {
             syn::Type::Path(type_path) => type_path,
             syn::Type::Array(array) => {
                 let elem = &array.elem;
                 let len = &array.len;
-                return quote! { 
+                return quote! {
                     {
                         const fn create_array() -> [std::any::TypeId; 1] {
                             [std::any::TypeId::of::<#elem>()]
                         }
                         (stringify!([#elem; #len]), &create_array())
                     }
-                }
+                };
             }
             _ => {
                 println!("Unsupported type: {:?}", ty);
@@ -142,7 +145,7 @@ mod helper {
         let type_name = quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
         let type_ids = extract_type_ids_from_type(ty);
         let type_ids_count = type_ids.len();
-        
+
         quote! {
             {
                 const TYPE_IDS_COUNT: usize = #type_ids_count;

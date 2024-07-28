@@ -46,6 +46,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::version::PROTOCOL_VERSION;
+use near_structs_checker_lib::ProtocolStruct;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -54,7 +55,6 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
-use near_structs_checker_lib::ProtocolStruct;
 use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account

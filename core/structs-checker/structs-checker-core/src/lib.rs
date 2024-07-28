@@ -8,7 +8,7 @@ pub type VariantName = &'static str;
 pub type Variant = Option<&'static [(FieldName, FieldTypeInfo)]>;
 
 /// Type name and its decomposition into type ids.
-/// Decomposition is defined recursively, starting from type id of the type 
+/// Decomposition is defined recursively, starting from type id of the type
 /// itself, followed by decompositions of its generic parameters, respectively.
 /// For example, for `Vec<Vec<u8>>` it will be `[TypeId::of::<Vec<Vec<u8>>>(),
 /// TypeId::of::<Vec<u8>>(), TypeId::of::<u8>()]`.
@@ -16,16 +16,8 @@ pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
 #[derive(Copy, Clone)]
 pub enum ProtocolStructInfo {
-    Struct {
-        name: FieldName,
-        type_id: TypeId,
-        fields: &'static [(FieldName, FieldTypeInfo)],
-    },
-    Enum {
-        name: FieldName,
-        type_id: TypeId,
-        variants: &'static [(VariantName, Variant)],
-    },
+    Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, FieldTypeInfo)] },
+    Enum { name: FieldName, type_id: TypeId, variants: &'static [(VariantName, Variant)] },
 }
 
 impl ProtocolStructInfo {
