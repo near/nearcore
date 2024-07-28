@@ -221,7 +221,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
     let uses_stateless_validation =
-        checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION);
+        checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.get().unwrap().validator_id().clone();

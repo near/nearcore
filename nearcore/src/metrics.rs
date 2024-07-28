@@ -10,10 +10,10 @@ use near_o11y::metrics::{
 };
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
-use once_cell::sync::Lazy;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
-pub(crate) static POSTPONED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static POSTPONED_RECEIPTS_COUNT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_postponed_receipts_count",
         "The count of the postponed receipts. Indicator of congestion.",
@@ -22,7 +22,7 @@ pub(crate) static POSTPONED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
+pub(crate) static CONFIG_CORRECT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_config_correct",
         "Are the current dynamically loadable configs correct",
@@ -30,7 +30,7 @@ pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static COLD_STORE_COPY_RESULT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_cold_store_copy_result",
         "The result of a cold store copy iteration in the cold store loop.",
@@ -39,7 +39,7 @@ pub(crate) static COLD_STORE_COPY_RESULT: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_dump_iteration_elapsed_sec",
         "Time needed to obtain and write a part",
@@ -49,7 +49,7 @@ pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: Lazy<HistogramVec> = Lazy::
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_num_parts_total",
         "Total number of parts in the epoch that being dumped",
@@ -58,7 +58,7 @@ pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: Lazy<IntGaugeVec> = Lazy::new
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_num_parts_dumped",
         "Number of parts dumped in the epoch that is being dumped",
@@ -67,7 +67,7 @@ pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::ne
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_state_sync_dump_size_total",
         "Total size of parts written to S3",
@@ -76,7 +76,7 @@ pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_epoch_height",
         "Epoch Height of an epoch being dumped",

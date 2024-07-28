@@ -1,3 +1,5 @@
+eth_implicit_accounts: { old: false, new: true }
+discard_custom_sections: { old: false, new: true }
 wasm_bls12381_p1_sum_base: { old: 300_000_000_000_000, new: 16_500_000_000 }
 wasm_bls12381_p1_sum_element: { old: 300_000_000_000_000, new: 6_000_000_000 }
 wasm_bls12381_p2_sum_base: { old: 300_000_000_000_000, new: 18_600_000_000 }

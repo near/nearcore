@@ -125,10 +125,10 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
 };
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
-use near_primitives::{checked_feature, unwrap_or_return};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -1844,7 +1844,8 @@ impl ShardsManagerActor {
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
-        if checked_feature!("stable", SingleShardTracking, protocol_version) {
+        // SingleShardTracking: If enabled, we only forward the parts to the block producers
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());

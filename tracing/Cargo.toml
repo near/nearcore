@@ -3,7 +3,7 @@ name = "near-tracing"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.79.0"
+rust-version = "1.80.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 

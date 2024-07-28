@@ -20,7 +20,7 @@ def remove_lock_file() -> None:
     if os.path.exists(LOCK_FILE):
         os.remove(LOCK_FILE)
     else:
-        raise RuntimeError("Somebody already removed the lock file!!!")
+        raise PermissionError("Somebody already removed the lock file!!!")
 
 
 def run_benchmark(repo_dir: str, time: str, users: int, shards: int, nodes: int,
@@ -60,10 +60,12 @@ def main() -> None:
         create_lock_file(args.user)
         run_benchmark(REPO_DIR, time_seconds, args.users, args.shards,
                       args.nodes, args.rump_up, args.user, args.context)
+        remove_lock_file()
     except RuntimeError as e:
         print(e)
-    finally:
         remove_lock_file()
+    except PermissionError as e:
+        print(e)
 
 
 if __name__ == "__main__":

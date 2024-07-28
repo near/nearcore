@@ -5,7 +5,7 @@ import json
 import os
 import pathlib
 import rc
-from geventhttpclient import Session
+from geventhttpclient import Session, useragent
 import shutil
 import signal
 import subprocess
@@ -434,17 +434,20 @@ class BaseNode(object):
 
     def check_store(self):
         if self.is_check_store:
-            res = self.json_rpc('adv_check_store', [])
-            if not 'result' in res:
-                # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+            try:
+                res = self.json_rpc('adv_check_store', [])
+                if not 'result' in res:
+                    # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+                    pass
+                else:
+                    if res['result'] == 0:
+                        logger.error(
+                            "Storage for %s:%s in inconsistent state, stopping"
+                            % self.addr())
+                        self.kill()
+                    self.store_tests += res['result']
+            except useragent.BadStatusCode:
                 pass
-            else:
-                if res['result'] == 0:
-                    logger.error(
-                        "Storage for %s:%s in inconsistent state, stopping" %
-                        self.addr())
-                    self.kill()
-                self.store_tests += res['result']
 
 
 class RpcNode(BaseNode):
@@ -837,6 +840,7 @@ def init_cluster(
     genesis_config_changes: GenesisConfigChanges,
     client_config_changes: ClientConfigChanges,
     prefix="test",
+    initialize_cold_storage=True,
 ) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
@@ -900,8 +904,9 @@ def init_cluster(
 
     # apply config changes for nodes marked as archival node.
     # for now, we do this only for local nodes (eg. nayduck tests).
-    for i, node_dir in enumerate(node_dirs):
-        configure_cold_storage_for_archival_node(node_dir)
+    if initialize_cold_storage:
+        for i, node_dir in enumerate(node_dirs):
+            configure_cold_storage_for_archival_node(node_dir)
 
     return near_root, node_dirs
 

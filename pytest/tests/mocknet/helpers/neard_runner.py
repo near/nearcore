@@ -497,6 +497,8 @@ class NeardRunner:
             self.set_state(TestState.AWAITING_NETWORK_INIT)
             self.save_data()
 
+            self.configure_log_config()
+
             return {
                 'validator_account_id': validator_account_id,
                 'validator_public_key': validator_public_key,
@@ -512,6 +514,7 @@ class NeardRunner:
                         boot_nodes,
                         epoch_length=1000,
                         num_seats=100,
+                        new_chain_id=None,
                         protocol_version=None,
                         genesis_time=None):
         if not isinstance(validators, list):
@@ -557,6 +560,7 @@ class NeardRunner:
                         'boot_nodes': boot_nodes,
                         'epoch_length': epoch_length,
                         'num_seats': num_seats,
+                        'new_chain_id': new_chain_id,
                         'protocol_version': protocol_version,
                         'genesis_time': genesis_time,
                     }, f)
@@ -890,63 +894,79 @@ class NeardRunner:
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
     def start_neard(self, batch_interval_millis=None):
-        with open(os.path.join(self.neard_logs_dir, self.neard_logs_file_name),
-                  'ab') as out:
+        out_path = os.path.join(self.neard_logs_dir, self.neard_logs_file_name)
+        with open(out_path, 'ab') as out:
             if self.is_traffic_generator():
-                cmd = [
-                    self.data['current_neard_path'],
-                    'mirror',
-                    'run',
-                    '--source-home',
-                    self.source_near_home_path(),
-                    '--target-home',
-                    self.target_near_home_path(),
-                ]
-                if os.path.exists(self.setup_path('mirror-secret.json')):
-                    cmd.append('--secret-file')
-                    cmd.append(self.setup_path('mirror-secret.json'))
-                else:
-                    cmd.append('--no-secret')
-                if batch_interval_millis is not None:
-                    with open(self.target_near_home_path('mirror-config.json'),
-                              'w') as f:
-                        secs = batch_interval_millis // 1000
-                        nanos = (batch_interval_millis % 1000) * 1000000
-                        json.dump(
-                            {
-                                'tx_batch_interval': {
-                                    'secs': secs,
-                                    'nanos': nanos
-                                }
-                            },
-                            f,
-                            indent=2)
-                    cmd.append('--config-path')
-                    cmd.append(self.target_near_home_path('mirror-config.json'))
+                cmd = self.get_start_traffic_generator_cmd(
+                    batch_interval_millis)
             else:
-                cmd = [
-                    self.data['current_neard_path'], '--log-span-events',
-                    '--home', self.neard_home, '--unsafe-fast-startup', 'run'
-                ]
-
-            # Save logs config file to control the level of rust and opentelemetry logs.
-            # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
-            default_log_filter = 'client=debug,chain=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
-            with open(self.target_near_home_path('log_config.json'),
-                      'w') as log_config_file:
-                json.dump(
-                    {
-                        'opentelemetry': default_log_filter,
-                        'rust_log': default_log_filter,
-                    },
-                    log_config_file,
-                    indent=2)
+                cmd = self.get_start_cmd()
 
             self.run_neard(
                 cmd,
                 out_file=out,
             )
             self.last_start = time.time()
+
+    # Configure the logs config file to control the level of rust and opentelemetry logs.
+    # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
+    def configure_log_config(self):
+        default_log_filter = 'client=debug,chain=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
+        log_config_path = self.target_near_home_path('log_config.json')
+
+        logging.info("Creating log_config.json with default log filter.")
+        with open(log_config_path, 'w') as log_config_file:
+            config_json = {
+                'opentelemetry': default_log_filter,
+                'rust_log': default_log_filter,
+            }
+            json.dump(config_json, log_config_file, indent=2)
+
+    # Get the command to start neard for regular nodes.
+    # For starting the traffic generator see the get_start_traffic_generator_cmd.
+    def get_start_cmd(self):
+        cmd = [
+            self.data['current_neard_path'],
+            '--log-span-events',
+            '--home',
+            self.neard_home,
+            '--unsafe-fast-startup',
+            'run',
+        ]
+
+        return cmd
+
+    # Get the command to start neard for traffic generator node.
+    def get_start_traffic_generator_cmd(self, batch_interval_millis):
+        cmd = [
+            self.data['current_neard_path'],
+            'mirror',
+            'run',
+            '--source-home',
+            self.source_near_home_path(),
+            '--target-home',
+            self.target_near_home_path(),
+        ]
+        if os.path.exists(self.setup_path('mirror-secret.json')):
+            cmd.append('--secret-file')
+            cmd.append(self.setup_path('mirror-secret.json'))
+        else:
+            cmd.append('--no-secret')
+
+        if batch_interval_millis is not None:
+            secs = batch_interval_millis // 1000
+            nanos = (batch_interval_millis % 1000) * 1000000
+            config_json = {'tx_batch_interval': {'secs': secs, 'nanos': nanos}}
+
+            mirror_config_path = self.target_near_home_path(
+                'mirror-config.json')
+            with open(mirror_config_path, 'w') as f:
+                json.dump(config_json, f, indent=2)
+
+            cmd.append('--config-path')
+            cmd.append(self.target_near_home_path('mirror-config.json'))
+
+        return cmd
 
     # returns a bool that tells whether we should attempt a restart
     def on_neard_died(self):
@@ -1024,6 +1044,8 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
+        new_chain_id = n.get('new_chain_id')
+
         if self.legacy_records:
             cmd = [
                 self.data['binaries'][0]['system_path'],
@@ -1039,7 +1061,7 @@ class NeardRunner:
                 '--validators',
                 self.home_path('validators.json'),
                 '--chain-id',
-                'mocknet',
+                new_chain_id if new_chain_id is not None else 'mocknet',
                 '--transaction-validity-period',
                 '10000',
                 '--epoch-length',
@@ -1060,11 +1082,17 @@ class NeardRunner:
                 self.data['binaries'][0]['system_path'], '--home',
                 self.target_near_home_path(), 'fork-network', 'set-validators',
                 '--validators',
-                self.home_path('validators.json'), '--chain-id-suffix',
-                '_mocknet', '--epoch-length',
+                self.home_path('validators.json'), '--epoch-length',
                 str(n['epoch_length']), '--genesis-time',
                 str(n['genesis_time'])
             ]
+            if new_chain_id is not None:
+                cmd.append('--chain-id')
+                cmd.append(new_chain_id)
+            else:
+                cmd.append('--chain-id-suffix')
+                cmd.append('_mocknet')
+
             if n['protocol_version'] is not None:
                 cmd.append('--protocol-version')
                 cmd.append(str(n['protocol_version']))

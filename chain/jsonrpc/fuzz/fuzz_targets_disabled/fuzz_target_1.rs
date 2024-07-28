@@ -92,8 +92,8 @@ impl Serialize for Base64String {
     }
 }
 
-static RUNTIME: once_cell::sync::Lazy<std::sync::Mutex<tokio::runtime::Runtime>> =
-    once_cell::sync::Lazy::new(|| {
+static RUNTIME: std::sync::LazyLock<std::sync::Mutex<tokio::runtime::Runtime>> =
+    std::sync::LazyLock::new(|| {
         std::sync::Mutex::new(
             tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
         )

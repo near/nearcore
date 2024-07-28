@@ -14,8 +14,8 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-blst = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+blst.workspace = true
 bn.workspace = true
 borsh.workspace = true
 ed25519-dalek.workspace = true
@@ -24,7 +24,6 @@ finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
-once_cell.workspace = true
 parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
 ripemd.workspace = true
@@ -135,10 +134,6 @@ protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
-protocol_feature_bls12381 = [
-    "blst",
-]
-
 metrics = ["prometheus", "near-o11y"]
 
 
@@ -147,7 +142,6 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",
-  "protocol_feature_bls12381",
   "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-o11y/sandbox"]

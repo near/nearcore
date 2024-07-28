@@ -1,5 +1,7 @@
 use lru::LruCache;
 use near_chain::ChainStoreAccess;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::validator_assignment::EndorsementStats;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -9,7 +11,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::{ChunkEndorsement, EndorsementStats};
 use near_primitives::types::AccountId;
 
 use crate::Client;
@@ -112,8 +113,7 @@ impl ChunkEndorsementTracker {
         chunk_header: &ShardChunkHeader,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash()).entered();
-
+        let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash(), shard_id=chunk_header.shard_id()).entered();
         // Validate the endorsement before locking the mutex to improve performance.
         if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
             tracing::error!(target: "client", ?endorsement, "Invalid chunk endorsement.");
@@ -229,7 +229,7 @@ impl ChunkEndorsementTrackerInner {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if !checked_feature!("stable", StatelessValidation, protocol_version) {
             // Return an empty array of chunk endorsements for older protocol versions.
             return Ok(ChunkEndorsementsState::Endorsed(None, vec![]));
         }

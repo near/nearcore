@@ -23,7 +23,6 @@ derive_more.workspace = true
 ed25519-dalek = { workspace = true, features = ["hazmat"] }
 hex.workspace = true
 near-account-id.workspace = true
-once_cell.workspace = true
 primitive-types.workspace = true
 secp256k1 = { workspace = true, features = ["recovery", "alloc"] }
 serde.workspace = true

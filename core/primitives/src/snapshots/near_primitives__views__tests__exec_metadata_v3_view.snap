@@ -117,6 +117,96 @@ expression: view
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_G1_MULTIEXP_BASE",
+      "gas_used": "69"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_G1_MULTIEXP_ELEMENT",
+      "gas_used": "70"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_G2_MULTIEXP_BASE",
+      "gas_used": "71"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_G2_MULTIEXP_ELEMENT",
+      "gas_used": "72"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_MAP_FP2_TO_G2_BASE",
+      "gas_used": "75"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_MAP_FP2_TO_G2_ELEMENT",
+      "gas_used": "76"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_MAP_FP_TO_G1_BASE",
+      "gas_used": "73"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_MAP_FP_TO_G1_ELEMENT",
+      "gas_used": "74"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P1_DECOMPRESS_BASE",
+      "gas_used": "79"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P1_DECOMPRESS_ELEMENT",
+      "gas_used": "80"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P1_SUM_BASE",
+      "gas_used": "65"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P1_SUM_ELEMENT",
+      "gas_used": "66"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P2_DECOMPRESS_BASE",
+      "gas_used": "81"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P2_DECOMPRESS_ELEMENT",
+      "gas_used": "82"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P2_SUM_BASE",
+      "gas_used": "67"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_P2_SUM_ELEMENT",
+      "gas_used": "68"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_PAIRING_BASE",
+      "gas_used": "77"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "BLS12381_PAIRING_ELEMENT",
+      "gas_used": "78"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "CONTRACT_LOADING_BASE",
       "gas_used": "1"
     },

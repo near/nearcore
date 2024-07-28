@@ -16,7 +16,6 @@ actix-web.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-once_cell.workspace = true
 prometheus.workspace = true
 tokio.workspace = true
 tracing.workspace = true

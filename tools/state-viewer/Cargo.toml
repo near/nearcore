@@ -20,7 +20,6 @@ chrono.workspace = true
 clap.workspace = true
 cloud-storage.workspace = true
 itertools.workspace = true
-once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
 redis.workspace = true

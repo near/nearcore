@@ -98,6 +98,9 @@ pub enum StateViewerSubCommand {
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
+    /// View genesis block and chunks built from the config and in the store.
+    #[clap(alias = "view_genesis")]
+    ViewGenesis(ViewGenesisCmd),
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
@@ -173,6 +176,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
@@ -734,6 +738,31 @@ pub struct ViewChainCmd {
 impl ViewChainCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         view_chain(self.height, self.block, self.chunk, near_config, store);
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ViewGenesisCmd {
+    /// If true, displays the genesis block built from nearcore code that combines the
+    /// contents of the genesis config (JSON) file with some hard-coded logic to set some
+    /// fields of the genesis block. At any given time, the block built this way should match
+    /// the genesis block recorded in the store (to be displayed with the --store option).
+    #[clap(long)]
+    config: bool,
+    /// If true, displays the genesis block saved in the store, when the genesis block is built
+    /// for the first time. At any given time, this saved block should match the genesis block
+    /// built by the code (to be displayed with the --config option).
+    #[clap(long)]
+    store: bool,
+    /// If true, compares the contents of the genesis block saved in the store with
+    /// the genesis block built from the genesis config (JSON) file.
+    #[clap(long, default_value = "false")]
+    compare: bool,
+}
+
+impl ViewGenesisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_genesis(home_dir, near_config, store, self.config, self.store, self.compare);
     }
 }
 

@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 actix.workspace = true
 awc.workspace = true
-once_cell.workspace = true
 futures.workspace = true
 borsh.workspace = true
 serde.workspace = true

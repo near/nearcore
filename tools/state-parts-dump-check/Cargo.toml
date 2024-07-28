@@ -25,7 +25,6 @@ near-client.workspace = true
 near-jsonrpc.workspace = true
 near-primitives-core.workspace = true
 near-o11y.workspace = true
-once_cell.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 tracing.workspace = true

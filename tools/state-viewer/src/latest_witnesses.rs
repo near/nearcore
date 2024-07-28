@@ -6,7 +6,7 @@ use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::Store;
 use near_time::Clock;

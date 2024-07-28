@@ -4,7 +4,7 @@ use bytesize::ByteSize;
 use lru::LruCache;
 use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::stateless_validation::ChunkStateWitnessAck;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use s3::creds::time::ext::InstantExt as _;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -117,7 +117,7 @@ impl ChunkStateWitnessTracker {
     #[cfg(test)]
     fn get_record_for_witness(
         &mut self,
-        witness: &near_primitives::stateless_validation::ChunkStateWitness,
+        witness: &near_primitives::stateless_validation::state_witness::ChunkStateWitness,
     ) -> Option<&ChunkStateWitnessRecord> {
         let key = ChunkStateWitnessKey::new(witness.chunk_header.chunk_hash());
         self.witnesses.get(&key)
@@ -153,7 +153,7 @@ mod state_witness_tracker_tests {
     use super::*;
     use near_async::time::{Duration, FakeClock, Utc};
     use near_primitives::hash::hash;
-    use near_primitives::stateless_validation::ChunkStateWitness;
+    use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
     use near_primitives::types::ShardId;
 
     const NUM_VALIDATORS: usize = 3;

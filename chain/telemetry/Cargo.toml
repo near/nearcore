@@ -15,7 +15,6 @@ workspace = true
 actix.workspace = true
 awc.workspace = true
 futures.workspace = true
-once_cell.workspace = true
 openssl.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -19,12 +19,13 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature::{self, SimpleNightshade, StatelessValidationV0};
+use near_primitives::version::ProtocolFeature::{self, SimpleNightshade, StatelessValidation};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -1527,7 +1528,7 @@ fn test_chunk_producer_kickout() {
 /// validator is not kicked out.
 #[test]
 fn test_chunk_validator_kickout() {
-    if !StatelessValidationV0.enabled(PROTOCOL_VERSION) {
+    if !StatelessValidation.enabled(PROTOCOL_VERSION) {
         return;
     }
     let stake_amount = 1_000_000;
@@ -2788,11 +2789,10 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
 fn test_verify_chunk_endorsements() {
     use near_chain_primitives::Error;
     use near_crypto::Signature;
-    use near_primitives::stateless_validation::ChunkEndorsement;
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without ChunkValidation enabled");
         return;
     }
@@ -2859,7 +2859,7 @@ fn test_verify_partial_witness_signature() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without ChunkValidation enabled");
         return;
     }

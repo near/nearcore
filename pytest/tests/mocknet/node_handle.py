@@ -65,6 +65,9 @@ class NodeHandle:
             except (ConnectionRefusedError,
                     requests.exceptions.ConnectionError) as e:
                 pass
+            logger.info(
+                f'Node {self.node.name()} is not ready yet, will check again in 10 seconds'
+            )
             time.sleep(10)
 
     # Same as neard_runner_jsonrpc() without checking the error
@@ -107,6 +110,7 @@ class NodeHandle:
                                   boot_nodes,
                                   epoch_length,
                                   num_seats,
+                                  new_chain_id,
                                   protocol_version,
                                   genesis_time=None):
         params = {
@@ -114,6 +118,7 @@ class NodeHandle:
             'boot_nodes': boot_nodes,
             'epoch_length': epoch_length,
             'num_seats': num_seats,
+            'new_chain_id': new_chain_id,
             'protocol_version': protocol_version,
         }
         if genesis_time is not None:

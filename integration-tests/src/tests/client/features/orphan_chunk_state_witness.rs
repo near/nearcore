@@ -14,8 +14,9 @@ use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
-use near_primitives::stateless_validation::ChunkStateWitness;
-use near_primitives::stateless_validation::ChunkStateWitnessSize;
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessSize,
+};
 use near_primitives::types::AccountId;
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -206,7 +207,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 fn test_orphan_witness_valid() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -245,7 +246,7 @@ fn test_orphan_witness_valid() {
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -269,7 +270,7 @@ fn test_orphan_witness_too_large() {
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -302,7 +303,7 @@ fn test_orphan_witness_far_from_head() {
 fn test_orphan_witness_not_fully_validated() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
