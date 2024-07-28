@@ -32,6 +32,7 @@ stdx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 near-config-utils.workspace = true
+near-structs-checker-lib.workspace = true
 
 [dev-dependencies]
 bolero.workspace = true
@@ -43,3 +44,7 @@ curve25519-dalek = { workspace = true, features = ["rand_core"] }
 [features]
 default = ["rand"]
 rand = ["secp256k1/rand", "ed25519-dalek/rand_core"]
+
+protocol_schema = [
+    "near-structs-checker-lib/protocol_schema",
+]

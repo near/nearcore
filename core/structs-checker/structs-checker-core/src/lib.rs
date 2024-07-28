@@ -4,21 +4,27 @@ use std::any::TypeId;
 
 pub type TypeName = &'static str;
 pub type FieldName = &'static str;
-pub type EnumVariant = Option<&'static [(FieldName, TypeId)]>;
+pub type VariantName = &'static str;
+pub type Variant = Option<&'static [(FieldName, FieldTypeInfo)]>;
 
-pub type TypeInfo = (&'static str, [Option<TypeId>; 4]);
+/// Type name and its decomposition into type ids.
+/// Decomposition is defined recursively, starting from type id of the type 
+/// itself, followed by decompositions of its generic parameters, respectively.
+/// For example, for `Vec<Vec<u8>>` it will be `[TypeId::of::<Vec<Vec<u8>>>(),
+/// TypeId::of::<Vec<u8>>(), TypeId::of::<u8>()]`.
+pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
 #[derive(Copy, Clone)]
 pub enum ProtocolStructInfo {
     Struct {
         name: FieldName,
         type_id: TypeId,
-        fields: &'static [(FieldName, TypeInfo)],
+        fields: &'static [(FieldName, FieldTypeInfo)],
     },
     Enum {
         name: FieldName,
         type_id: TypeId,
-        variants: &'static [(FieldName, Option<&'static [(FieldName, TypeInfo)]>)],
+        variants: &'static [(VariantName, Variant)],
     },
 }
 
@@ -44,7 +50,7 @@ inventory::collect!(ProtocolStructInfo);
 pub trait ProtocolStruct {}
 
 /// Implementation for primitive types.
-macro_rules! impl_for_int {
+macro_rules! primitive_impl {
     ($($t:ty),*) => {
         $(
             impl ProtocolStruct for $t {}
@@ -61,4 +67,4 @@ macro_rules! impl_for_int {
     }
 }
 
-impl_for_int!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
+primitive_impl!(bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);

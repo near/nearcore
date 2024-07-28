@@ -54,6 +54,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
+use near_structs_checker_lib::ProtocolStruct;
 use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
@@ -2072,7 +2073,7 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolStruct)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
@@ -2101,13 +2102,14 @@ pub struct EpochValidatorInfo {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolStruct,
 )]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
     pub reason: ValidatorKickoutReason,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolStruct)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,

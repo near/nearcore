@@ -11,6 +11,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
+use near_structs_checker_lib::ProtocolStruct;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
@@ -618,8 +619,6 @@ impl BlockInfoV1 {
     Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize,
 )]
 pub struct ValidatorWeight(ValidatorId, u64);
-
-use near_structs_checker_lib::ProtocolStruct;
 
 // V3 -> V4: Add structures and methods for stateless validator assignment.
 #[derive(

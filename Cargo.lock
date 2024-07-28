@@ -4230,6 +4230,7 @@ dependencies = [
  "near-account-id",
  "near-config-utils",
  "near-stdx",
+ "near-structs-checker-lib",
  "once_cell",
  "primitive-types 0.10.1",
  "secp256k1",
@@ -6357,6 +6358,7 @@ name = "protocol-schema-check"
 version = "0.0.0"
 dependencies = [
  "inventory",
+ "near-crypto",
  "near-primitives",
  "near-primitives-core",
  "near-stable-hasher",

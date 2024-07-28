@@ -11,7 +11,7 @@ mod helper {
     use proc_macro2::TokenStream as TokenStream2;
     use quote::quote;
     use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, FieldsUnnamed, Variant};
-
+    
     pub fn protocol_struct_impl(input: TokenStream) -> TokenStream {
         let input = parse_macro_input!(input as DeriveInput);
         let name = &input.ident;
@@ -91,44 +91,66 @@ mod helper {
         quote! { &[#(#variants),*] }
     }
 
+    /// Extracts type ids from the type and **all** its underlying generic
+    /// parameters, recursively.
+    /// For example, for `Vec<Vec<u32>>` it will return `[Vec, Vec, u32]`.
+    fn extract_type_ids_from_type(ty: &syn::Type) -> Vec<TokenStream2> {
+        let mut result = vec![quote! { std::any::TypeId::of::<#ty>() }];
+        let type_path = match ty {
+            syn::Type::Path(type_path) => type_path,
+            _ => return result,
+        };
+        let generic_params = &type_path.path.segments.last().unwrap().arguments;
+        let params = match generic_params {
+            syn::PathArguments::AngleBracketed(params) => params,
+            _ => return result,
+        };
+        result.extend(params.args.iter()
+            .map(|arg| {
+                if let syn::GenericArgument::Type(ty) = arg {
+                    extract_type_ids_from_type(ty)
+                } else {
+                    vec![]
+                }
+            })
+            .flatten()
+            .collect::<Vec<_>>());
+        result
+    }
+    
     fn extract_type_info(ty: &syn::Type) -> TokenStream2 {
-        match ty {
-            syn::Type::Path(type_path) => {
-                let type_name =
-                    quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
-                let generic_params = &type_path.path.segments.last().unwrap().arguments;
-                match generic_params {
-                    syn::PathArguments::AngleBracketed(params) => {
-                        let inner_types: Vec<_> = params
-                            .args
-                            .iter()
-                            .take(4)
-                            .map(|arg| {
-                                if let syn::GenericArgument::Type(ty) = arg {
-                                    quote! { Some(std::any::TypeId::of::<#ty>()) }
-                                } else {
-                                    quote! { None }
-                                }
-                            })
-                            .collect();
-
-                        let assignments = inner_types.iter().enumerate().map(|(i, ty)| {
-                            quote! { inner_types[#i] = #ty; }
-                        });
-
-                        quote! {
-                            {
-                                const ARRAY_REPEAT_VALUE: Option<std::any::TypeId> = None;
-                                let mut inner_types = [ARRAY_REPEAT_VALUE; 4];
-                                #(#assignments)*
-                                (stringify!(#type_name), inner_types)
-                            }
+        let type_path = match ty {
+            syn::Type::Path(type_path) => type_path,
+            syn::Type::Array(array) => {
+                let elem = &array.elem;
+                let len = &array.len;
+                return quote! { 
+                    {
+                        const fn create_array() -> [std::any::TypeId; 1] {
+                            [std::any::TypeId::of::<#elem>()]
                         }
+                        (stringify!([#elem; #len]), &create_array())
                     }
-                    _ => quote! { (stringify!(#type_name), [None; 4]) },
                 }
             }
-            _ => quote! { (stringify!(#ty), [None; 4]) },
+            _ => {
+                println!("Unsupported type: {:?}", ty);
+                return quote! { (stringify!(#ty), &[std::any::TypeId::of::<#ty>()]) };
+            }
+        };
+
+        let type_name = quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
+        let type_ids = extract_type_ids_from_type(ty);
+        let type_ids_count = type_ids.len();
+        
+        quote! {
+            {
+                const TYPE_IDS_COUNT: usize = #type_ids_count;
+                const fn create_array() -> [std::any::TypeId; TYPE_IDS_COUNT] {
+                    [#(#type_ids),*]
+                }
+                (stringify!(#type_name), &create_array())
+            }
         }
     }
 
