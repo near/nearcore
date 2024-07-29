@@ -2,8 +2,13 @@ use anyhow::Error;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::{data::TestLoopDataHandle, TestLoopV2};
-use near_client::{GetBlock, GetChunk, GetValidatorInfo, ViewClientActorInner};
-use near_primitives::views::{BlockView, ChunkView, EpochValidatorInfo};
+use near_client::{
+    GetBlock, GetChunk, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
+    GetValidatorOrdered, ViewClientActorInner,
+};
+use near_primitives::sharding::ShardChunk;
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
+use near_primitives::views::{BlockView, ChunkView, EpochValidatorInfo, StateChangesKindsView};
 
 use crate::test_loop::env::TestData;
 
@@ -47,6 +52,17 @@ impl ViewRequestSender {
         view_client.handle(request).map_err(|e| e.into())
     }
 
+    /// Gets a chunk using a [`GetShardChunk`] request from the view client at index `idx`.
+    pub(crate) fn get_shard_chunk(
+        &self,
+        request: GetShardChunk,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<ShardChunk, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
     /// Gets validator information using a [`GetValidatorInfo`] request from the view client at index `idx`.
     /// The validator info is extracted from epoch info, so if the request contains a block identifier, it
     /// should be the last block of the epoch.
@@ -56,6 +72,28 @@ impl ViewRequestSender {
         test_loop: &mut TestLoopV2,
         idx: usize,
     ) -> Result<EpochValidatorInfo, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
+    /// Gets ordered validators using a [`GetValidatorOrdered`] request from the view client at index `idx`.
+    pub(crate) fn get_validators_ordered(
+        &self,
+        request: GetValidatorOrdered,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<Vec<ValidatorStakeView>, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
+    /// Gets state changes in a block using a [`GetStateChangesInBlock`] request from the view client at index `idx`.
+    pub(crate) fn get_state_changes_in_block(
+        &self,
+        request: GetStateChangesInBlock,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<StateChangesKindsView, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request).map_err(|e| e.into())
     }

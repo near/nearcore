@@ -4,12 +4,16 @@ use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_client::{GetBlock, GetChunk, GetValidatorInfo};
+use near_client::{
+    GetBlock, GetChunk, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
+    GetValidatorOrdered,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockId, EpochId, EpochReference, Finality, SyncCheckpoint,
+    AccountId, BlockId, BlockReference, EpochId, EpochReference, Finality, SyncCheckpoint,
 };
+use near_primitives::views::StateChangeKindView;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
@@ -87,8 +91,7 @@ fn test_view_requests_to_archival_node() {
     let view = ViewRequestSender::new(&node_datas);
 
     // Sanity check: Validators cannot return old blocks after GC (eg. genesis block) but archival node can.
-    let genesis_block =
-        GetBlock(near_primitives::types::BlockReference::BlockId(BlockId::Height(GENESIS_HEIGHT)));
+    let genesis_block = GetBlock(BlockReference::BlockId(BlockId::Height(GENESIS_HEIGHT)));
     assert!(view.get_block(genesis_block.clone(), &mut test_loop, 0).is_err());
     assert!(view.get_block(genesis_block.clone(), &mut test_loop, 1).is_err());
     assert!(view.get_block(genesis_block, &mut test_loop, ARCHIVAL_CLIENT).is_ok());
@@ -104,7 +107,10 @@ fn test_view_requests_to_archival_node() {
 fn check_view_methods(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
     check_get_block(view, test_loop);
     check_get_chunk(view, test_loop);
+    check_get_shard_chunk(view, test_loop);
     check_get_validator_info(view, test_loop);
+    check_get_ordered_validators(view, test_loop);
+    check_get_state_changes_in_block(view, test_loop);
 }
 
 /// Generates variations of the [`GetBlock`] request and issues them to the view client of the archival node.
@@ -115,41 +121,32 @@ fn check_get_block(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
         block
     };
 
-    let block_by_height =
-        GetBlock(near_primitives::types::BlockReference::BlockId(BlockId::Height(5)));
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
     let block = get_and_check_block(block_by_height);
 
-    let block_by_hash = GetBlock(near_primitives::types::BlockReference::BlockId(BlockId::Hash(
-        block.header.prev_hash,
-    )));
+    let block_by_hash = GetBlock(BlockReference::BlockId(BlockId::Hash(block.header.prev_hash)));
     get_and_check_block(block_by_hash);
 
-    let block_by_finality_optimistic =
-        GetBlock(near_primitives::types::BlockReference::Finality(Finality::None));
+    let block_by_finality_optimistic = GetBlock(BlockReference::Finality(Finality::None));
     get_and_check_block(block_by_finality_optimistic);
 
-    let block_by_finality_doomslug =
-        GetBlock(near_primitives::types::BlockReference::Finality(Finality::DoomSlug));
+    let block_by_finality_doomslug = GetBlock(BlockReference::Finality(Finality::DoomSlug));
     get_and_check_block(block_by_finality_doomslug);
 
-    let block_by_finality_final =
-        GetBlock(near_primitives::types::BlockReference::Finality(Finality::Final));
+    let block_by_finality_final = GetBlock(BlockReference::Finality(Finality::Final));
     get_and_check_block(block_by_finality_final);
 
-    let block_by_sync_genesis =
-        GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis));
+    let block_by_sync_genesis = GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis));
     get_and_check_block(block_by_sync_genesis);
 
-    let block_by_sync_earliest = GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
-        SyncCheckpoint::EarliestAvailable,
-    ));
+    let block_by_sync_earliest =
+        GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable));
     get_and_check_block(block_by_sync_earliest);
 }
 
 /// Generates variations of the [`GetChunk`] request and issues them to the view client of the archival node.
 fn check_get_chunk(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
-    let block_by_height =
-        GetBlock(near_primitives::types::BlockReference::BlockId(BlockId::Height(5)));
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
     let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
 
     let mut get_and_check_chunk = |request| {
@@ -168,12 +165,30 @@ fn check_get_chunk(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
     get_and_check_chunk(chunk_by_chunk_hash);
 }
 
+/// Generates variations of the [`GetShardChunk`] request and issues them to the view client of the archival node.
+fn check_get_shard_chunk(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let mut get_and_check_shard_chunk = |request| {
+        let shard_chunk = view.get_shard_chunk(request, test_loop, ARCHIVAL_CLIENT).unwrap();
+        assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
+    };
+
+    let chunk_by_height = GetShardChunk::Height(5, 0);
+    get_and_check_shard_chunk(chunk_by_height);
+
+    let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, 0);
+    get_and_check_shard_chunk(chunk_by_block_hash);
+
+    let chunk_by_chunk_hash = GetShardChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
+    get_and_check_shard_chunk(chunk_by_chunk_hash);
+}
+
 /// Generates variations of the [`GetValidatorInfo`] request and issues them to the view client of the archival node.
 fn check_get_validator_info(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
     // For getting validator info by block height/hash, use the last block of an epoch.
-    let block_by_height = GetBlock(near_primitives::types::BlockReference::BlockId(
-        BlockId::Height(EPOCH_LENGTH * 2),
-    ));
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(EPOCH_LENGTH * 2)));
     let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
 
     let mut get_and_check_validator_info = |request| {
@@ -199,4 +214,56 @@ fn check_get_validator_info(view: &ViewRequestSender, test_loop: &mut TestLoopV2
 
     let validator_info_latest = GetValidatorInfo { epoch_reference: EpochReference::Latest };
     get_and_check_validator_info(validator_info_latest);
+}
+
+/// Generates variations of the [`GetValidatorInfo`] request and issues them to the view client of the archival node.
+fn check_get_ordered_validators(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    // For getting validator info by block height/hash, use the last block of an epoch.
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(EPOCH_LENGTH * 2)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let mut get_and_check_ordered_validators = |request| {
+        let validator_info =
+            view.get_validators_ordered(request, test_loop, ARCHIVAL_CLIENT).unwrap();
+        assert_eq!(validator_info.len(), 2);
+        validator_info
+    };
+
+    let ordered_validators_by_height = GetValidatorOrdered { block_id: Some(BlockId::Height(5)) };
+    get_and_check_ordered_validators(ordered_validators_by_height);
+
+    let ordered_validators_by_block_hash =
+        GetValidatorOrdered { block_id: Some(BlockId::Hash(block.header.hash)) };
+    get_and_check_ordered_validators(ordered_validators_by_block_hash);
+
+    let ordered_validators_latest = GetValidatorOrdered { block_id: None };
+    get_and_check_ordered_validators(ordered_validators_latest);
+}
+
+/// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.    
+fn check_get_state_changes_in_block(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let state_changes_in_block = GetStateChangesInBlock { block_hash: block.header.hash };
+    let state_changes = view
+        .get_state_changes_in_block(state_changes_in_block, test_loop, ARCHIVAL_CLIENT)
+        .unwrap();
+    assert_eq!(state_changes.len(), 4);
+    assert_eq!(
+        state_changes[0],
+        StateChangeKindView::AccountTouched { account_id: "account2".parse().unwrap() }
+    );
+    assert_eq!(
+        state_changes[1],
+        StateChangeKindView::AccountTouched { account_id: "account3".parse().unwrap() }
+    );
+    assert_eq!(
+        state_changes[2],
+        StateChangeKindView::AccessKeyTouched { account_id: "account2".parse().unwrap() }
+    );
+    assert_eq!(
+        state_changes[3],
+        StateChangeKindView::AccessKeyTouched { account_id: "account3".parse().unwrap() }
+    );
 }
