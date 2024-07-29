@@ -4,23 +4,23 @@ use near_chain::chain::{
     collect_receipts_from_response, NewChunkData, OldChunkData, ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
-use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{collect_receipts, Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
+use near_chain::validate::{
+    validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
+};
+use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, ShardProof};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
 use near_store::{Mode, NodeStorage, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -168,23 +168,14 @@ impl ReplayController {
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
 
-        let incoming_receipts = self.collect_incoming_receipts_from_block(&block)?;
-
         let chunks = block.chunks();
         // Parallelize this loop.
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];
             let prev_chunk_header = &prev_chunk_headers[shard_id];
             let shard_id: ShardId = shard_id.try_into()?;
-            self.replay_chunk(
-                &block,
-                &prev_block,
-                shard_id,
-                chunk_header,
-                prev_chunk_header,
-                &incoming_receipts,
-            )
-            .context("Failed to replay the chunk")?;
+            self.replay_chunk(&block, &prev_block, shard_id, chunk_header, prev_chunk_header)
+                .context("Failed to replay the chunk")?;
         }
 
         Ok(())
@@ -197,7 +188,6 @@ impl ReplayController {
         shard_id: ShardId,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
-        incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
     ) -> Result<()> {
         let span = tracing::debug_span!(target: "replay_archive", "replay_chunk").entered();
 
@@ -216,15 +206,6 @@ impl ReplayController {
         let prev_chunk_height_included = prev_chunk_header.height_included();
 
         let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
-        validate_chunk_with_chunk_extra(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            prev_block_hash,
-            prev_chunk_extra.as_ref(),
-            prev_chunk_height_included,
-            chunk_header,
-        )
-        .context("Failed to validate chunk with chunk extra")?;
 
         // TODO: validate_chunk_transactions
 
@@ -235,14 +216,14 @@ impl ReplayController {
             .get_chunk(&chunk_hash)
             .context("Failed to get chunk from chunk hash")?;
 
-        let is_new_chunk: bool = chunk_header.is_new_chunk(height);
-
-        let block_context = Chain::get_apply_chunk_block_context(
-            self.epoch_manager.as_ref(),
-            block,
-            prev_block.header(),
-            is_new_chunk,
-        )?;
+        if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())
+            .context("Failed to validate the chunk proofs")?
+        {
+            bail!("Failed to validate chunk proofs");
+        }
+        if !validate_transactions_order(chunk.transactions()) {
+            bail!("Failed to validate transactions order in the chunk");
+        }
 
         let shard_context = self.get_shard_context(block_header, shard_uid)?;
         let resharding_state_roots = if shard_context.need_to_reshard {
@@ -261,13 +242,28 @@ impl ReplayController {
             state_patch: Default::default(),
         };
 
+        let is_new_chunk: bool = chunk_header.is_new_chunk(height);
+
+        let block_context = Chain::get_apply_chunk_block_context(
+            self.epoch_manager.as_ref(),
+            block,
+            prev_block.header(),
+            is_new_chunk,
+        )?;
+
         let update_reason = if is_new_chunk {
-            let receipts = self.collect_receipts(
-                block_header,
-                shard_id,
-                incoming_receipts,
+            validate_chunk_with_chunk_extra(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                prev_block_hash,
+                prev_chunk_extra.as_ref(),
                 prev_chunk_height_included,
-            )?;
+                chunk_header,
+            )
+            .context("Failed to validate chunk with chunk extra")?;
+
+            let receipts =
+                self.collect_incoming_receipts(block_header, shard_id, prev_chunk_height_included)?;
 
             let is_first_block_with_chunk_of_version =
                 check_if_block_is_first_with_chunk_of_version(
@@ -322,55 +318,20 @@ impl ReplayController {
         Ok(())
     }
 
-    fn collect_receipts(
+    fn collect_incoming_receipts(
         &self,
         block_header: &BlockHeader,
         shard_id: ShardId,
-        incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         prev_chunk_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>> {
-        let receipt_proofs = incoming_receipts
-            .get(&shard_id)
-            .ok_or_else(|| anyhow!("Failed to find incoming receipts for shard {}", shard_id))?;
-        let new_receipts = collect_receipts(receipt_proofs);
-        let old_receipts = &self.chain_store.get_incoming_receipts_for_shard(
+        let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
-            *block_header.prev_hash(),
+            *block_header.hash(),
             prev_chunk_height_included,
         )?;
-        let old_receipts = collect_receipts_from_response(old_receipts);
-        let receipts = [new_receipts, old_receipts].concat();
+        let receipts = collect_receipts_from_response(receipt_response);
         Ok(receipts)
-    }
-
-    pub fn collect_incoming_receipts_from_block(
-        &self,
-        block: &Block,
-    ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>> {
-        let block_height = block.header().height();
-        let mut receipt_proofs_by_shard_id = HashMap::new();
-
-        for chunk_header in block.chunks().iter() {
-            if !chunk_header.is_new_chunk(block_height) {
-                continue;
-            }
-            let partial_encoded_chunk =
-                self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
-                let ReceiptProof(_, shard_proof) = receipt;
-                let ShardProof { to_shard_id, .. } = shard_proof;
-                receipt_proofs_by_shard_id
-                    .entry(*to_shard_id)
-                    .or_insert_with(Vec::new)
-                    .push(receipt.clone());
-            }
-        }
-        // sort the receipts deterministically so the order that they will be processed is deterministic
-        for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
-            shuffle_receipt_proofs(receipt_proofs, block.hash());
-        }
-        Ok(receipt_proofs_by_shard_id)
     }
 
     fn get_shard_context(
