@@ -403,7 +403,7 @@ class BaseNode(object):
 
     # Get the transaction status.
     #
-    # The default timeout is quite high - 15s - so that is is longer than the
+    # The default timeout is quite high - 15s - so that is longer than the
     # node's default polling_timeout. It's done this way to differentiate
     # between the case when the transaction is not found on the node and when
     # the node is dead or not responding.

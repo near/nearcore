@@ -441,7 +441,7 @@ impl PartialWitnessActor {
                     target: "client",
                     ?partial_witness,
                     ?possible_epochs,
-                    "Skipping partial witness because its EpochId is is not in the possible list of epochs",
+                    "Skipping partial witness because its EpochId is not in the possible list of epochs",
                 );
                 return Ok(false);
             }
