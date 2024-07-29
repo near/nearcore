@@ -12,6 +12,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
@@ -2199,7 +2200,7 @@ impl Chain {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            self.validate_chunk_endorsements_in_block(&block)?;
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
         self.ping_missing_chunks(me, prev_hash, block)?;

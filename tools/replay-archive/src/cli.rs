@@ -4,6 +4,7 @@ use near_chain::chain::{
     collect_receipts_from_response, NewChunkData, OldChunkData, ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use near_chain::validate::{
@@ -14,7 +15,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
@@ -152,6 +153,8 @@ impl ReplayController {
 
         let block = self.chain_store.get_block(&block_hash)?;
 
+        self.validate_block(&block)?;
+
         let is_genesis_block = block.header().is_genesis();
         if is_genesis_block {
             tracing::debug!("Skipping genesis block at height {}", height);
@@ -191,6 +194,15 @@ impl ReplayController {
     ) -> Result<()> {
         let span = tracing::debug_span!(target: "replay_archive", "replay_chunk").entered();
 
+        // Collect receipts and transactions.
+        let chunk_hash = chunk_header.chunk_hash();
+        let chunk = self
+            .chain_store
+            .get_chunk(&chunk_hash)
+            .context("Failed to get chunk from chunk hash")?;
+
+        self.validate_chunk(chunk.as_ref())?;
+
         let block_header = block.header();
         let height = block_header.height();
         let epoch_id = block_header.epoch_id();
@@ -203,28 +215,6 @@ impl ReplayController {
             .shard_id_to_uid(shard_id, epoch_id)
             .context("Failed to get shard UID from shard id")?;
 
-        let prev_chunk_height_included = prev_chunk_header.height_included();
-
-        let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
-
-        // TODO: validate_chunk_transactions
-
-        // Collect receipts and transactions.
-        let chunk_hash = chunk_header.chunk_hash();
-        let chunk = self
-            .chain_store
-            .get_chunk(&chunk_hash)
-            .context("Failed to get chunk from chunk hash")?;
-
-        if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())
-            .context("Failed to validate the chunk proofs")?
-        {
-            bail!("Failed to validate chunk proofs");
-        }
-        if !validate_transactions_order(chunk.transactions()) {
-            bail!("Failed to validate transactions order in the chunk");
-        }
-
         let shard_context = self.get_shard_context(block_header, shard_uid)?;
         let resharding_state_roots = if shard_context.need_to_reshard {
             Some(Chain::get_resharding_state_roots(
@@ -236,6 +226,10 @@ impl ReplayController {
         } else {
             None
         };
+
+        let prev_chunk_height_included = prev_chunk_header.height_included();
+
+        let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -332,6 +326,23 @@ impl ReplayController {
         )?;
         let receipts = collect_receipts_from_response(receipt_response);
         Ok(receipts)
+    }
+
+    fn validate_block(&self, block: &Block) -> Result<()> {
+        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), block)?;
+        Ok(())
+    }
+
+    fn validate_chunk(&self, chunk: &ShardChunk) -> Result<()> {
+        if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())
+            .context("Failed to validate the chunk proofs")?
+        {
+            bail!("Failed to validate chunk proofs");
+        }
+        if !validate_transactions_order(chunk.transactions()) {
+            bail!("Failed to validate transactions order in the chunk");
+        }
+        Ok(())
     }
 
     fn get_shard_context(
