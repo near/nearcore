@@ -5,7 +5,7 @@ use near_chain::chain::{
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
-use near_chain::types::StorageDataSource;
+use near_chain::types::{ApplyChunkResult, StorageDataSource};
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
@@ -179,19 +179,23 @@ impl ReplayController {
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
 
         let chunks = block.chunks();
+        let mut total_gas_burnt: u64 = 0;
         // TODO: Parallelize this loop.
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];
             let prev_chunk_header = &prev_chunk_headers[shard_id];
-            self.replay_chunk(
-                &block,
-                &prev_block,
-                shard_id.try_into()?,
-                chunk_header,
-                prev_chunk_header,
-            )
-            .context("Failed to replay the chunk")?;
+            let apply_result = self
+                .replay_chunk(
+                    &block,
+                    &prev_block,
+                    shard_id.try_into()?,
+                    chunk_header,
+                    prev_chunk_header,
+                )
+                .context("Failed to replay the chunk")?;
+            total_gas_burnt += apply_result.total_gas_burnt;
         }
+        self.progress_reporter.inc_and_report_progress(total_gas_burnt);
 
         Ok(())
     }
@@ -203,7 +207,7 @@ impl ReplayController {
         shard_id: ShardId,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
-    ) -> Result<()> {
+    ) -> Result<ApplyChunkResult> {
         let span = tracing::debug_span!(target: "replay_archive", "replay_chunk").entered();
 
         // Collect receipts and transactions.
@@ -321,9 +325,10 @@ impl ReplayController {
             shard_id,
         )?;
 
-        Ok(())
+        Ok(apply_result)
     }
 
+    /// Returns the incoming receipts to the given shard.
     fn collect_incoming_receipts(
         &self,
         block_header: &BlockHeader,
@@ -366,7 +371,7 @@ impl ReplayController {
         Ok(())
     }
 
-    /// Generater a ShardContext specific to replaying the blocks, which indicates that
+    /// Generates a ShardContext specific to replaying the blocks, which indicates that
     /// we care about all the shards and should always apply chunk.
     fn get_shard_context(
         &self,
