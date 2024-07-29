@@ -283,7 +283,7 @@ pub(super) enum NeardSubCommand {
     /// Check completeness of dumped state parts of an epoch
     StatePartsDumpCheck(StatePartsDumpCheckCommand),
 
-    /// Replays the chain from an archival node.
+    /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
 
     #[cfg(feature = "new_epoch_sync")]

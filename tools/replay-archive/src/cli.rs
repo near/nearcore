@@ -18,6 +18,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
 use near_store::{Mode, NodeStorage, ShardUId, Store};
@@ -26,6 +27,9 @@ use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+/// This command assumes that it is run from an archival node
+/// and not all the operations data that is available for a
+/// regular validator may not be available in the archival database.
 #[derive(clap::Parser)]
 pub struct ReplayArchiveCommand {
     #[clap(long)]
@@ -49,6 +53,7 @@ impl ReplayArchiveCommand {
         let mut controller =
             ReplayController::new(home_dir, near_config, self.start_height, self.end_height)?;
 
+        // Replay all the blocks until we reach the end block height.
         while controller.replay_next_block()? {}
         Ok(())
     }
@@ -130,6 +135,8 @@ impl ReplayController {
         }
     }
 
+    /// Replays the enxt block if any. Returns true if there are still blocks to replay
+    /// and false if it reached end block height.
     fn replay_next_block(&mut self) -> Result<bool> {
         if self.next_height > self.end_height {
             bail!("End height is reached");
@@ -172,13 +179,18 @@ impl ReplayController {
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
 
         let chunks = block.chunks();
-        // Parallelize this loop.
+        // TODO: Parallelize this loop.
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];
             let prev_chunk_header = &prev_chunk_headers[shard_id];
-            let shard_id: ShardId = shard_id.try_into()?;
-            self.replay_chunk(&block, &prev_block, shard_id, chunk_header, prev_chunk_header)
-                .context("Failed to replay the chunk")?;
+            self.replay_chunk(
+                &block,
+                &prev_block,
+                shard_id.try_into()?,
+                chunk_header,
+                prev_chunk_header,
+            )
+            .context("Failed to replay the chunk")?;
         }
 
         Ok(())
@@ -299,6 +311,8 @@ impl ReplayController {
             ShardUpdateResult::Resharding(_) => bail!("Unexpected apply result for resharding"),
         };
 
+        // TODO: This uses ChunkExtra to check the result of apply-chunk.
+        // Make this check independent of the existing ChunkExtra (so no need to store it in the DB).
         check_apply_block_result(
             block,
             &apply_result,
@@ -306,8 +320,6 @@ impl ReplayController {
             &self.chain_store,
             shard_id,
         )?;
-
-        // Check block and chunk.
 
         Ok(())
     }
@@ -328,11 +340,20 @@ impl ReplayController {
         Ok(receipts)
     }
 
+    /// Validates a given block. The current set of checks may be extended later.
     fn validate_block(&self, block: &Block) -> Result<()> {
-        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), block)?;
+        // Chunk endorsements will only exist for a non-genesis block generated with stateless validation.
+        if !block.header().is_genesis() {
+            let protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+            if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+                validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), block)?;
+            }
+        }
         Ok(())
     }
 
+    /// Validates a given chunk. The current set of checks may be extended later.
     fn validate_chunk(&self, chunk: &ShardChunk) -> Result<()> {
         if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())
             .context("Failed to validate the chunk proofs")?
@@ -345,6 +366,8 @@ impl ReplayController {
         Ok(())
     }
 
+    /// Generater a ShardContext specific to replaying the blocks, which indicates that
+    /// we care about all the shards and should always apply chunk.
     fn get_shard_context(
         &self,
         block_header: &BlockHeader,

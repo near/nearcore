@@ -19,13 +19,13 @@ clap.workspace = true
 near-chain.workspace = true
 near-chain-primitives.workspace = true
 near-primitives.workspace = true
-nearcore.workspace = true
+near-primitives-core.workspace = true
 near-chain-configs.workspace = true
 near-epoch-manager.workspace = true
+near-o11y.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
-near-primitives-core.workspace = true
-near-o11y.workspace = true
+nearcore.workspace = true
 tracing.workspace = true
 
 [features]
