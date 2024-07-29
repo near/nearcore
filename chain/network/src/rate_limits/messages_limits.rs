@@ -197,7 +197,6 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
             RoutedMessageBody::TxStatusRequest(_, _) => Some((TxStatusRequest, 1)),
             RoutedMessageBody::TxStatusResponse(_) => Some((TxStatusResponse, 1)),
-            RoutedMessageBody::StateResponse(_) => Some((StateResponse, 1)),
             RoutedMessageBody::PartialEncodedChunkRequest(_) => {
                 Some((PartialEncodedChunkRequest, 1))
             }
@@ -228,7 +227,8 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
             | RoutedMessageBody::_UnusedReceiptOutcomeResponse
             | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart => None,
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse => None,
         },
         PeerMessage::SyncSnapshotHosts(_) => Some((SyncSnapshotHosts, 1)),
         PeerMessage::StateRequestHeader(_, _) => Some((StateRequestHeader, 1)),
