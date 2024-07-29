@@ -5,7 +5,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::{
-    GetBlock, GetChunk, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
+    GetBlock, GetChunk, GetProtocolConfig, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
     GetValidatorOrdered,
 };
 use near_o11y::testonly::init_test_logger;
@@ -13,6 +13,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochId, EpochReference, Finality, SyncCheckpoint,
 };
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::StateChangeKindView;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -108,6 +109,7 @@ fn check_view_methods(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
     check_get_block(view, test_loop);
     check_get_chunk(view, test_loop);
     check_get_shard_chunk(view, test_loop);
+    check_get_protocol_config(view, test_loop);
     check_get_validator_info(view, test_loop);
     check_get_ordered_validators(view, test_loop);
     check_get_state_changes_in_block(view, test_loop);
@@ -183,6 +185,45 @@ fn check_get_shard_chunk(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
 
     let chunk_by_chunk_hash = GetShardChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
     get_and_check_shard_chunk(chunk_by_chunk_hash);
+}
+
+/// Generates variations of the [`GetProtocolConfig`] request and issues them to the view client of the archival node.
+fn check_get_protocol_config(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let mut get_and_check_protocol_config = |request| {
+        let config = view.get_protocol_config(request, test_loop, ARCHIVAL_CLIENT).unwrap();
+        assert_eq!(config.protocol_version, PROTOCOL_VERSION);
+        config
+    };
+
+    let protocol_config_by_height = GetProtocolConfig(BlockReference::BlockId(BlockId::Height(5)));
+    get_and_check_protocol_config(protocol_config_by_height);
+
+    let protocol_config_by_hash =
+        GetProtocolConfig(BlockReference::BlockId(BlockId::Hash(block.header.prev_hash)));
+    get_and_check_protocol_config(protocol_config_by_hash);
+
+    let protocol_config_finality_optimistic =
+        GetProtocolConfig(BlockReference::Finality(Finality::None));
+    get_and_check_protocol_config(protocol_config_finality_optimistic);
+
+    let protocol_config_finality_doomslug =
+        GetProtocolConfig(BlockReference::Finality(Finality::DoomSlug));
+    get_and_check_protocol_config(protocol_config_finality_doomslug);
+
+    let protocol_config_finality_final =
+        GetProtocolConfig(BlockReference::Finality(Finality::Final));
+    get_and_check_protocol_config(protocol_config_finality_final);
+
+    let protocol_config_by_sync_genesis =
+        GetProtocolConfig(BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis));
+    get_and_check_protocol_config(protocol_config_by_sync_genesis);
+
+    let protocol_config_by_sync_earliest =
+        GetProtocolConfig(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable));
+    get_and_check_protocol_config(protocol_config_by_sync_earliest);
 }
 
 /// Generates variations of the [`GetValidatorInfo`] request and issues them to the view client of the archival node.

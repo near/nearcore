@@ -2,8 +2,9 @@ use anyhow::Error;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::{data::TestLoopDataHandle, TestLoopV2};
+use near_chain_configs::ProtocolConfigView;
 use near_client::{
-    GetBlock, GetChunk, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
+    GetBlock, GetChunk, GetProtocolConfig, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
     GetValidatorOrdered, ViewClientActorInner,
 };
 use near_primitives::sharding::ShardChunk;
@@ -59,6 +60,17 @@ impl ViewRequestSender {
         test_loop: &mut TestLoopV2,
         idx: usize,
     ) -> Result<ShardChunk, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
+    /// Gets the protocol config using a [`GetProtocolConfig`] request from the view client at index `idx`.
+    pub(crate) fn get_protocol_config(
+        &self,
+        request: GetProtocolConfig,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<ProtocolConfigView, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request).map_err(|e| e.into())
     }
