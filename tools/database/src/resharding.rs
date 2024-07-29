@@ -21,14 +21,22 @@ use nearcore::{open_storage, NearConfig, NightshadeRuntime};
 
 #[derive(clap::Args)]
 pub(crate) struct ReshardingCommand {
+    /// The block height at which resharding is performed.
+    /// This should be, usually, the block before shard layout has changed.
     #[clap(long)]
     height: BlockHeight,
 
+    /// The shard id before resharding.
     #[clap(long)]
     shard_id: ShardId,
 
-    #[clap(long)]
+    /// Path to write the new trie nodes created by the resharding operation. 
+    #[clap(long, group("output"))]
     write_path: PathBuf,
+
+    /// Restore potentially missing trie nodes in cold database. This operation is idempotent. 
+    #[clap(long, group("output"))]
+    restore: bool,
 }
 
 impl ReshardingCommand {
