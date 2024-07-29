@@ -45,7 +45,7 @@ if __name__ == '__main__':
     while True:
         latest_block_hash = get_latest_block_hash(rpc_addr, rpc_port)
 
-        def send_trx(i, receiver):
+        def send_tx(i, receiver):
             # sleeping here to make best-effort ordering of transactions so nonces are valid
             time.sleep(i / 20)
             signed_tx = sign_function_call_tx(
@@ -68,8 +68,10 @@ if __name__ == '__main__':
 
         start = time.time()
         list(
-            executor.map(lambda pr: send_trx(pr[0], pr[1]),
+            executor.map(lambda pr: send_tx(pr[0], pr[1]),
                          enumerate(receivers)))
         elapsed = time.time() - start
         logger.info(f"Sent {num_shards} transactions in {elapsed:.2f} seconds")
+        if elapsed < 0.5:
+            time.sleep(0.5 - elapsed)
         nonce += num_shards
