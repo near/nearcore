@@ -157,6 +157,9 @@ pub enum ProtocolFeature {
     CongestionControl,
     /// Remove account with long storage key.
     RemoveAccountWithLongStorageKey,
+    /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
+    /// instead of chunk_hash
+    ChunkEndorsementV2,
 }
 
 impl ProtocolFeature {
@@ -228,6 +231,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::ChunkEndorsementV2 => 144,
         }
     }
 
