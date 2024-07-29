@@ -21,7 +21,6 @@ clap.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
 hkdf.workspace = true
-once_cell.workspace = true
 openssl-probe.workspace = true
 rand_core = { workspace = true, features = ["getrandom"] }
 rocksdb.workspace = true

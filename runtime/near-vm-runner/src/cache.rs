@@ -88,8 +88,8 @@ pub trait ContractRuntimeCache: Send + Sync {
     fn handle(&self) -> Box<dyn ContractRuntimeCache>;
     fn memory_cache(&self) -> &AnyCache {
         // This method returns a reference, so we need to store an instance somewhere.
-        static ZERO_ANY_CACHE: once_cell::sync::Lazy<AnyCache> =
-            once_cell::sync::Lazy::new(|| AnyCache::new(0));
+        static ZERO_ANY_CACHE: std::sync::LazyLock<AnyCache> =
+            std::sync::LazyLock::new(|| AnyCache::new(0));
         &ZERO_ANY_CACHE
     }
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()>;

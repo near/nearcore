@@ -15,9 +15,11 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::{
-    ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
-    MAX_COMPRESSED_STATE_WITNESS_SIZE,
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, MAX_COMPRESSED_STATE_WITNESS_SIZE,
+};
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;

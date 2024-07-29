@@ -7,7 +7,7 @@ use crate::{
 };
 use ethabi::{Address, ParamType};
 use near_sdk::{AccountId, Gas, NearToken, PublicKey};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::num::NonZeroU128;
 
 pub const FUNCTION_CALL_SELECTOR: &[u8] = &[0x61, 0x79, 0xb7, 0x07];
@@ -26,8 +26,8 @@ pub const TRANSFER_SIGNATURE: [ParamType; 2] = [
 ];
 
 pub const ADD_KEY_SELECTOR: &[u8] = &[0x75, 0x3c, 0xe5, 0xab];
-// This one needs to be `Lazy` because it requires `Box` (non-const) in the `Array`.
-pub static ADD_KEY_SIGNATURE: Lazy<[ParamType; 8]> = Lazy::new(|| {
+// This one needs to be `LazyLock` because it requires `Box` (non-const) in the `Array`.
+pub static ADD_KEY_SIGNATURE: LazyLock<[ParamType; 8]> = LazyLock::new(|| {
     [
         ParamType::Uint(8),                            // public_key_kind
         ParamType::Bytes,                              // public_key

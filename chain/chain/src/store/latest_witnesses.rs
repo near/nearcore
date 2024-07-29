@@ -8,7 +8,7 @@
 use std::io::ErrorKind;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::DBCol;
 

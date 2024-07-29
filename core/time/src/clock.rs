@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
 use time::ext::InstantExt;
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::{Deadline, Duration, Instant, Utc};
 
@@ -11,10 +11,11 @@ use crate::{Deadline, Duration, Instant, Utc};
 // however since Instant is not convertible to an unix timestamp,
 // we can snapshot Instant::now() once and treat it as a constant.
 // All observable effects will be then deterministic.
-static FAKE_CLOCK_MONO_START: Lazy<Instant> = Lazy::new(Instant::now);
+static FAKE_CLOCK_MONO_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 // An arbitrary non-trivial deterministic Utc timestamp.
-const FAKE_CLOCK_UTC_START: Lazy<Utc> = Lazy::new(|| Utc::from_unix_timestamp(89108233).unwrap());
+const FAKE_CLOCK_UTC_START: LazyLock<Utc> =
+    LazyLock::new(|| Utc::from_unix_timestamp(89108233).unwrap());
 
 #[derive(Clone)]
 enum ClockInner {

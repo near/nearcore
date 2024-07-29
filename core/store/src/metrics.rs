@@ -7,9 +7,9 @@ use near_o11y::metrics::{
     try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use near_time::Duration;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
-pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_database_op_latency_by_op_and_column",
         "Database operations latency by operation and column.",
@@ -20,7 +20,7 @@ pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
 });
 
 // TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static CHUNK_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_cache_hits",
         "Chunk cache hits",
@@ -30,7 +30,7 @@ pub static CHUNK_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 // TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static CHUNK_CACHE_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_cache_misses",
         "Chunk cache misses",
@@ -39,7 +39,7 @@ pub static CHUNK_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SHARD_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_hits",
         "Shard cache hits",
@@ -48,7 +48,7 @@ pub static SHARD_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SHARD_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_misses",
         "Shard cache misses",
@@ -57,7 +57,7 @@ pub static SHARD_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SHARD_CACHE_TOO_LARGE: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_TOO_LARGE: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_too_large",
         "Number of values to be inserted into shard cache is too large",
@@ -66,18 +66,18 @@ pub static SHARD_CACHE_TOO_LARGE: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SHARD_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static SHARD_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec("near_shard_cache_size", "Shard cache size", &["shard_id", "is_view"])
         .unwrap()
 });
 
 // TODO(#9054): Rename the metric to be consistent with "accounting cache".
-pub static CHUNK_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static CHUNK_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec("near_chunk_cache_size", "Chunk cache size", &["shard_id", "is_view"])
         .unwrap()
 });
 
-pub static SHARD_CACHE_CURRENT_TOTAL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static SHARD_CACHE_CURRENT_TOTAL_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_shard_cache_current_total_size",
         "Shard cache current total size",
@@ -86,7 +86,7 @@ pub static SHARD_CACHE_CURRENT_TOTAL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SHARD_CACHE_POP_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_POP_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_pop_hits",
         "Shard cache pop hits",
@@ -94,7 +94,7 @@ pub static SHARD_CACHE_POP_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static SHARD_CACHE_POP_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_POP_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_pop_misses",
         "Shard cache pop misses",
@@ -102,7 +102,7 @@ pub static SHARD_CACHE_POP_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static SHARD_CACHE_POP_LRU: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_POP_LRU: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_pop_lru",
         "Shard cache LRU pops",
@@ -110,7 +110,7 @@ pub static SHARD_CACHE_POP_LRU: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static SHARD_CACHE_GC_POP_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_CACHE_GC_POP_MISSES: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_gc_pop_misses",
         "Shard cache gc pop misses",
@@ -118,7 +118,7 @@ pub static SHARD_CACHE_GC_POP_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static SHARD_CACHE_DELETIONS_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static SHARD_CACHE_DELETIONS_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_shard_cache_deletions_size",
         "Shard cache deletions size",
@@ -126,7 +126,7 @@ pub static SHARD_CACHE_DELETIONS_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static APPLIED_TRIE_DELETIONS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static APPLIED_TRIE_DELETIONS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_applied_trie_deletions",
         "Trie deletions applied to store",
@@ -134,7 +134,7 @@ pub static APPLIED_TRIE_DELETIONS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static APPLIED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static APPLIED_TRIE_INSERTIONS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_applied_trie_insertions",
         "Trie insertions applied to store",
@@ -142,7 +142,7 @@ pub static APPLIED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static REVERTED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static REVERTED_TRIE_INSERTIONS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_reverted_trie_insertions",
         "Trie insertions reverted due to GC of forks",
@@ -150,14 +150,14 @@ pub static REVERTED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_SENT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_SENT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec("near_prefetch_sent", "Prefetch requests sent to DB", &["shard_id"])
         .unwrap()
 });
-pub static PREFETCH_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_HITS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec("near_prefetch_hits", "Prefetched trie keys", &["shard_id"]).unwrap()
 });
-pub static PREFETCH_PENDING: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_PENDING: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_pending",
         "Prefetched trie keys that were still pending when main thread needed data",
@@ -165,7 +165,7 @@ pub static PREFETCH_PENDING: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_FAIL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_FAIL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_fail",
         "Prefetching trie key failed with an error",
@@ -173,7 +173,7 @@ pub static PREFETCH_FAIL: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_NOT_REQUESTED: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_NOT_REQUESTED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_not_requested",
         "Number of values that had to be fetched without having been prefetched",
@@ -181,7 +181,7 @@ pub static PREFETCH_NOT_REQUESTED: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_MEMORY_LIMIT_REACHED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_memory_limit_reached",
         "Number of values that could not be prefetched due to prefetch staging area size limitations",
@@ -189,7 +189,7 @@ pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_CONFLICT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_CONFLICT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_conflict",
         "Main thread retrieved value from shard_cache after a conflict with another main thread from a fork.",
@@ -197,7 +197,7 @@ pub static PREFETCH_CONFLICT: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_RETRY: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_RETRY: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_retries",
         "Main thread was waiting for prefetched value but had to retry fetch afterwards.",
@@ -205,7 +205,7 @@ pub static PREFETCH_RETRY: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_STAGED_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static PREFETCH_STAGED_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_prefetch_staged_bytes",
         "Upper bound on memory usage for holding prefetched data.",
@@ -213,7 +213,7 @@ pub static PREFETCH_STAGED_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static PREFETCH_STAGED_SLOTS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_prefetch_staged_slots",
         "Number of slots used in staging area.",
@@ -221,7 +221,7 @@ pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static COLD_MIGRATION_READS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_reads",
         "Number of get calls to hot store made for every column during copying data to cold storage.",
@@ -229,10 +229,10 @@ pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static COLD_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+pub static COLD_HEAD_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_cold_head_height", "Height of the head of cold storage").unwrap()
 });
-pub static COLD_COPY_DURATION: Lazy<Histogram> = Lazy::new(|| {
+pub static COLD_COPY_DURATION: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram(
         "near_cold_copy_duration",
         "Time it takes to copy one height to cold storage",
@@ -240,12 +240,12 @@ pub static COLD_COPY_DURATION: Lazy<Histogram> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static HAS_STATE_SNAPSHOT: Lazy<IntGauge> = Lazy::new(|| {
+pub(crate) static HAS_STATE_SNAPSHOT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_has_state_snapshot", "Whether a node has a state snapshot open")
         .unwrap()
 });
 
-pub(crate) static CREATE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
+pub(crate) static CREATE_STATE_SNAPSHOT_ELAPSED: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "near_make_state_snapshot_elapsed_sec",
         "Latency of making a state snapshot, in seconds",
@@ -254,7 +254,7 @@ pub(crate) static CREATE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| 
     .unwrap()
 });
 
-pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
+pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "near_delete_state_snapshot_elapsed_sec",
         "Latency of deleting a state snapshot, in seconds",
@@ -263,27 +263,29 @@ pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| 
     .unwrap()
 });
 
-pub(crate) static MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_move_state_snapshot_flat_head_elapsed_sec",
-        "Latency of moving flat head of state snapshot, in seconds",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
-    )
-    .unwrap()
-});
+pub(crate) static MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_move_state_snapshot_flat_head_elapsed_sec",
+            "Latency of moving flat head of state snapshot, in seconds",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_NODES_WITH_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_get_state_part_nodes_with_fs_elapsed_sec",
-        "Latency of creating a state part using flat storage given the boundaries, in seconds",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_NODES_WITH_FS_ELAPSED: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_get_state_part_nodes_with_fs_elapsed_sec",
+            "Latency of creating a state part using flat storage given the boundaries, in seconds",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_BOUNDARIES_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static GET_STATE_PART_BOUNDARIES_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_get_state_part_boundaries_elapsed_sec",
         "Latency of finding state part boundaries, in seconds",
@@ -293,7 +295,7 @@ pub(crate) static GET_STATE_PART_BOUNDARIES_ELAPSED: Lazy<HistogramVec> = Lazy::
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_get_state_part_with_fs_read_fs_elapsed_sec",
         "Latency of reading FS columns, in seconds",
@@ -303,27 +305,29 @@ pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_LOOKUP_REF_VALUES_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_get_state_part_with_fs_lookup_value_refs_elapsed_sec",
-        "Latency of looking references values, in seconds",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_LOOKUP_REF_VALUES_ELAPSED: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_get_state_part_with_fs_lookup_value_refs_elapsed_sec",
+            "Latency of looking references values, in seconds",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_CREATE_TRIE_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_get_state_part_with_fs_create_trie_elapsed_sec",
-        "Latency of creation of trie from the data read from FS, in seconds",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_CREATE_TRIE_ELAPSED: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_get_state_part_with_fs_create_trie_elapsed_sec",
+            "Latency of creation of trie from the data read from FS, in seconds",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_COMBINE_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static GET_STATE_PART_COMBINE_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_get_state_part_with_fs_combine_elapsed_sec",
         "Latency of combining part boundaries and in-memory created nodes, in seconds",
@@ -333,43 +337,47 @@ pub(crate) static GET_STATE_PART_COMBINE_ELAPSED: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_VALUES_INLINED: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_get_state_part_with_fs_values_inlined_count",
-        "Number of FS values that were inlined",
-        &["shard_id"],
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_WITH_FS_VALUES_INLINED: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_get_state_part_with_fs_values_inlined_count",
+            "Number of FS values that were inlined",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_WITH_FS_VALUES_REF: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_get_state_part_with_fs_values_ref_count",
-        "Number of FS values that were references",
-        &["shard_id"],
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_WITH_FS_VALUES_REF: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_get_state_part_with_fs_values_ref_count",
+            "Number of FS values that were references",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_WITH_FS_NODES_FROM_DISK: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_get_state_part_with_fs_nodes_from_disk_count",
-        "Number of nodes in state part that are state part boundaries",
-        &["shard_id"],
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_WITH_FS_NODES_FROM_DISK: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_get_state_part_with_fs_nodes_from_disk_count",
+            "Number of nodes in state part that are state part boundaries",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_WITH_FS_NODES_IN_MEMORY: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_get_state_part_with_fs_nodes_in_memory_count",
-        "Number of nodes in state part that created based on FS values",
-        &["shard_id"],
-    )
-    .unwrap()
-});
+pub(crate) static GET_STATE_PART_WITH_FS_NODES_IN_MEMORY: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_get_state_part_with_fs_nodes_in_memory_count",
+            "Number of nodes in state part that created based on FS values",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
 
-pub(crate) static GET_STATE_PART_WITH_FS_NODES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static GET_STATE_PART_WITH_FS_NODES: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_get_state_part_with_fs_nodes_count",
         "Total number of nodes in state parts created",
@@ -381,7 +389,7 @@ pub(crate) static GET_STATE_PART_WITH_FS_NODES: Lazy<IntCounterVec> = Lazy::new(
 pub mod flat_state_metrics {
     use super::*;
 
-    pub static FLAT_STORAGE_CREATION_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_CREATION_STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_creation_status",
             "Integer representing status of flat storage creation",
@@ -389,31 +397,34 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: Lazy<IntGaugeVec> = Lazy::new(|| {
-        try_create_int_gauge_vec(
-            "near_flat_storage_creation_remaining_state_parts",
-            "Number of remaining state parts to fetch to fill flat storage in bytes",
-            &["shard_uid"],
-        )
-        .unwrap()
-    });
-    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS: Lazy<IntCounterVec> = Lazy::new(|| {
-        try_create_int_counter_vec(
-            "near_flat_storage_creation_fetched_state_parts",
-            "Number of fetched state parts to fill flat storage in bytes",
-            &["shard_uid"],
-        )
-        .unwrap()
-    });
-    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS: Lazy<IntCounterVec> = Lazy::new(|| {
-        try_create_int_counter_vec(
-            "near_flat_storage_creation_fetched_state_items",
-            "Number of fetched items to fill flat storage",
-            &["shard_uid"],
-        )
-        .unwrap()
-    });
-    pub static FLAT_STORAGE_CREATION_THREADS_USED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: LazyLock<IntGaugeVec> =
+        LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_creation_remaining_state_parts",
+                "Number of remaining state parts to fetch to fill flat storage in bytes",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS: LazyLock<IntCounterVec> =
+        LazyLock::new(|| {
+            try_create_int_counter_vec(
+                "near_flat_storage_creation_fetched_state_parts",
+                "Number of fetched state parts to fill flat storage in bytes",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS: LazyLock<IntCounterVec> =
+        LazyLock::new(|| {
+            try_create_int_counter_vec(
+                "near_flat_storage_creation_fetched_state_items",
+                "Number of fetched items to fill flat storage",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+    pub static FLAT_STORAGE_CREATION_THREADS_USED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_creation_threads_used",
             "Number of currently used threads to fetch state",
@@ -421,7 +432,7 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_HEAD_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_HEAD_HEIGHT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_head_height",
             "Height of flat storage head",
@@ -429,7 +440,7 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_CACHED_DELTAS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_cached_deltas",
             "Number of cached deltas in flat storage",
@@ -437,7 +448,7 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_cached_changes_num_items",
             "Number of items in all cached changes in flat storage",
@@ -445,7 +456,7 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_CACHED_CHANGES_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_CACHED_CHANGES_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_cached_changes_size",
             "Total size of cached changes in flat storage",
@@ -453,7 +464,7 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_DISTANCE_TO_HEAD: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_distance_to_head",
             "Height distance between processed block and flat storage head",
@@ -461,7 +472,7 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
-    pub static FLAT_STORAGE_HOPS_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
+    pub static FLAT_STORAGE_HOPS_TO_HEAD: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_hops_to_head",
             "Number of blocks visited to flat storage head",
@@ -474,44 +485,44 @@ pub mod flat_state_metrics {
         use near_o11y::metrics::{
             try_create_histogram, try_create_int_counter, Histogram, IntCounter,
         };
-        use once_cell::sync::Lazy;
+        use std::sync::LazyLock;
 
-        pub static PROCESSED_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+        pub static PROCESSED_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
             try_create_int_counter(
                 "near_flat_state_inlining_migration_processed_count",
                 "Total number of processed FlatState rows since the migration start.",
             )
             .unwrap()
         });
-        pub static PROCESSED_TOTAL_VALUES_SIZE: Lazy<IntCounter> = Lazy::new(|| {
+        pub static PROCESSED_TOTAL_VALUES_SIZE: LazyLock<IntCounter> = LazyLock::new(|| {
             try_create_int_counter(
                 "near_flat_state_inlining_migration_processed_total_values_size",
                 "Total size processed FlatState values since the migration start.",
             )
             .unwrap()
         });
-        pub static INLINED_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+        pub static INLINED_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
             try_create_int_counter(
                 "near_flat_state_inlining_migration_inlined_count",
                 "Total number of inlined FlatState values since the migration start.",
             )
             .unwrap()
         });
-        pub static INLINED_TOTAL_VALUES_SIZE: Lazy<IntCounter> = Lazy::new(|| {
+        pub static INLINED_TOTAL_VALUES_SIZE: LazyLock<IntCounter> = LazyLock::new(|| {
             try_create_int_counter(
                 "near_flat_state_inlining_migration_inlined_total_values_size",
                 "Total size of inlined FlatState values since the migration start.",
             )
             .unwrap()
         });
-        pub static SKIPPED_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+        pub static SKIPPED_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
             try_create_int_counter(
                 "near_flat_state_inlining_migration_skipped_count",
                 "Total number of FlatState values skipped since the migration start due to some kind of an issue while trying to read the value.",
             )
             .unwrap()
         });
-        pub static FLAT_STATE_PAUSED_DURATION: Lazy<Histogram> = Lazy::new(|| {
+        pub static FLAT_STATE_PAUSED_DURATION: LazyLock<Histogram> = LazyLock::new(|| {
             try_create_histogram(
                 "near_flat_state_inlining_migration_flat_state_paused_duration",
                 "FlatState inlining paused duration.",
@@ -520,7 +531,7 @@ pub mod flat_state_metrics {
         });
     }
 }
-pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_initial_writes",
         "Number of write calls to cold store made for every column during initial population of cold storage.",
@@ -528,7 +539,7 @@ pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: Lazy<IntCounterVec> = Lazy::n
     )
     .unwrap()
 });
-pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_cold_migration_initial_writes_time",
         "Time spent on writing initial migration batches by column.",

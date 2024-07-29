@@ -20,7 +20,6 @@ actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
-once_cell.workspace = true
 openssl-probe.workspace = true
 opentelemetry.workspace = true
 rayon.workspace = true

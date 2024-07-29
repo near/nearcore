@@ -1,4 +1,4 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 
 pub struct ShutdownableThread {
@@ -43,7 +43,8 @@ pub fn spawn_interruptible<F: std::future::Future + 'static>(
 }
 
 // Number of actix instances that are currently running.
-pub(crate) static ACTIX_INSTANCES_COUNTER: Lazy<Mutex<usize>> = Lazy::new(|| (Mutex::new(0)));
+pub(crate) static ACTIX_INSTANCES_COUNTER: LazyLock<Mutex<usize>> =
+    LazyLock::new(|| (Mutex::new(0)));
 
 pub fn setup_actix() -> actix_rt::SystemRunner {
     static SET_PANIC_HOOK: std::sync::Once = std::sync::Once::new();

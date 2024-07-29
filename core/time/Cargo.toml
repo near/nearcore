@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 time = { workspace = true, features = ["formatting", "parsing"] }
-once_cell = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["time", "sync"], optional = true }
 serde = { workspace = true, optional = true }
 
@@ -21,5 +20,5 @@ serde = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-clock = ["tokio", "once_cell"]
+clock = ["tokio"]
 serde = ["dep:serde", "time/serde"]

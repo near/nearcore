@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter};
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
@@ -7,146 +7,20 @@ use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeade
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
 use crate::utils::io::{CountingRead, CountingWrite};
-use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use crate::validator_signer::EmptyValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut};
 use bytesize::ByteSize;
-use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
+use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
 use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 
-/// Represents max allowed size of the compressed state witness,
-/// corresponds to EncodedChunkStateWitness struct size.
-/// The value is set to max network message size when `test_features`
-/// is enabled to make it possible to test blockchain behaviour with
-/// arbitrary large witness (see #11703).
-pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize =
-    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 48 });
+use super::{ChunkProductionKey, SignatureDifferentiator};
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
 pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 });
-
-/// An arbitrary static string to make sure that this struct cannot be
-/// serialized to look identical to another serialized struct. For chunk
-/// production we are signing a chunk hash, so we need to make sure that
-/// this signature means something different.
-///
-/// This is a messy workaround until we know what to do with NEP 483.
-type SignatureDifferentiator = String;
-
-/// Represents the Reed Solomon erasure encoded parts of the `EncodedChunkStateWitness`.
-/// These are created and signed by the chunk producer and sent to the chunk validators.
-/// Note that the chunk validators do not require all the parts of the state witness to
-/// reconstruct the full state witness due to the Reed Solomon erasure encoding.
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct PartialEncodedStateWitness {
-    inner: PartialEncodedStateWitnessInner,
-    pub signature: Signature,
-}
-
-impl Debug for PartialEncodedStateWitness {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PartialEncodedStateWitness")
-            .field("epoch_id", &self.inner.epoch_id)
-            .field("shard_id", &self.inner.shard_id)
-            .field("height_created", &self.inner.height_created)
-            .field("part_ord", &self.inner.part_ord)
-            .finish()
-    }
-}
-
-impl PartialEncodedStateWitness {
-    pub fn new(
-        epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
-        part_ord: usize,
-        part: Vec<u8>,
-        encoded_length: usize,
-        signer: &ValidatorSigner,
-    ) -> Self {
-        let inner = PartialEncodedStateWitnessInner::new(
-            epoch_id,
-            chunk_header,
-            part_ord,
-            part,
-            encoded_length,
-        );
-        let signature = signer.sign_partial_encoded_state_witness(&inner);
-        Self { inner, signature }
-    }
-
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            shard_id: self.shard_id(),
-            epoch_id: *self.epoch_id(),
-            height_created: self.height_created(),
-        }
-    }
-
-    pub fn verify(&self, public_key: &PublicKey) -> bool {
-        let data = borsh::to_vec(&self.inner).unwrap();
-        self.signature.verify(&data, public_key)
-    }
-
-    pub fn epoch_id(&self) -> &EpochId {
-        &self.inner.epoch_id
-    }
-
-    pub fn shard_id(&self) -> ShardId {
-        self.inner.shard_id
-    }
-
-    pub fn height_created(&self) -> BlockHeight {
-        self.inner.height_created
-    }
-
-    pub fn part_ord(&self) -> usize {
-        self.inner.part_ord
-    }
-
-    pub fn part_size(&self) -> usize {
-        self.inner.part.len()
-    }
-
-    /// Decomposes the partial witness to return (part_ord, part, encoded_length)
-    pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
-        (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct PartialEncodedStateWitnessInner {
-    epoch_id: EpochId,
-    shard_id: ShardId,
-    height_created: BlockHeight,
-    part_ord: usize,
-    part: Box<[u8]>,
-    encoded_length: usize,
-    signature_differentiator: SignatureDifferentiator,
-}
-
-impl PartialEncodedStateWitnessInner {
-    fn new(
-        epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
-        part_ord: usize,
-        part: Vec<u8>,
-        encoded_length: usize,
-    ) -> Self {
-        Self {
-            epoch_id,
-            shard_id: chunk_header.shard_id(),
-            height_created: chunk_header.height_created(),
-            part_ord,
-            part: part.into_boxed_slice(),
-            encoded_length,
-            signature_differentiator: "PartialEncodedStateWitness".to_owned(),
-        }
-    }
-}
 
 /// Represents bytes of encoded ChunkStateWitness.
 /// This is the compressed version of borsh-serialized state witness.
@@ -418,155 +292,13 @@ pub struct ChunkStateTransition {
     pub post_state_root: CryptoHash,
 }
 
-/// The endorsement of a chunk by a chunk validator. By providing this, a
-/// chunk validator has verified that the chunk state witness is correct.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsement {
-    inner: ChunkEndorsementInner,
-    pub account_id: AccountId,
-    pub signature: Signature,
-}
-
-impl ChunkEndorsement {
-    pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsement {
-        let inner = ChunkEndorsementInner::new(chunk_hash);
-        let account_id = signer.validator_id().clone();
-        let signature = signer.sign_chunk_endorsement(&inner);
-        Self { inner, account_id, signature }
-    }
-
-    pub fn verify(&self, public_key: &PublicKey) -> bool {
-        let data = borsh::to_vec(&self.inner).unwrap();
-        self.signature.verify(&data, public_key)
-    }
-
-    pub fn chunk_hash(&self) -> &ChunkHash {
-        &self.inner.chunk_hash
-    }
-
-    pub fn validate_signature(
-        chunk_hash: ChunkHash,
-        signature: &Signature,
-        public_key: &PublicKey,
-    ) -> bool {
-        let inner = ChunkEndorsementInner::new(chunk_hash);
-        let data = borsh::to_vec(&inner).unwrap();
-        signature.verify(&data, public_key)
-    }
-}
-
-/// This is the part of the chunk endorsement that is actually being signed.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsementInner {
-    chunk_hash: ChunkHash,
-    signature_differentiator: SignatureDifferentiator,
-}
-
-impl ChunkEndorsementInner {
-    fn new(chunk_hash: ChunkHash) -> Self {
-        Self { chunk_hash, signature_differentiator: "ChunkEndorsement".to_owned() }
-    }
-}
-
-/// Stored on disk for each chunk, including missing chunks, in order to
-/// produce a chunk state witness when needed.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct StoredChunkStateTransitionData {
-    /// The partial state that is needed to apply the state transition,
-    /// whether it is a new chunk state transition or a implicit missing chunk
-    /// state transition.
-    pub base_state: PartialState,
-    /// If this is a new chunk state transition, the hash of the receipts that
-    /// were used to apply the state transition. This is redundant information,
-    /// but is used to validate against `StateChunkWitness::exact_receipts_hash`
-    /// to ease debugging of why a state witness may be incorrect.
-    pub receipts_hash: CryptoHash,
-}
-
-#[derive(Debug)]
-pub struct EndorsementStats {
-    pub total_stake: Balance,
-    pub endorsed_stake: Balance,
-    pub total_validators_count: usize,
-    pub endorsed_validators_count: usize,
-}
-
-impl EndorsementStats {
-    pub fn has_enough_stake(&self) -> bool {
-        self.endorsed_stake >= self.required_stake()
-    }
-
-    pub fn required_stake(&self) -> Balance {
-        self.total_stake * 2 / 3 + 1
-    }
-}
-
-/// This struct contains combination of fields that uniquely identify chunk production.
-/// It means that for a given instance only one chunk could be produced.
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct ChunkProductionKey {
-    pub shard_id: ShardId,
-    pub epoch_id: EpochId,
-    pub height_created: BlockHeight,
-}
-
-#[derive(Debug, Default)]
-pub struct ChunkValidatorAssignments {
-    assignments: Vec<(AccountId, Balance)>,
-    chunk_validators: HashSet<AccountId>,
-}
-
-impl ChunkValidatorAssignments {
-    pub fn new(assignments: Vec<(AccountId, Balance)>) -> Self {
-        let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
-        Self { assignments, chunk_validators }
-    }
-
-    pub fn len(&self) -> usize {
-        self.assignments.len()
-    }
-
-    pub fn contains(&self, account_id: &AccountId) -> bool {
-        self.chunk_validators.contains(account_id)
-    }
-
-    pub fn ordered_chunk_validators(&self) -> Vec<AccountId> {
-        self.assignments.iter().map(|(id, _)| id.clone()).collect()
-    }
-
-    pub fn assignments(&self) -> &Vec<(AccountId, Balance)> {
-        &self.assignments
-    }
-
-    pub fn compute_endorsement_stats(
-        &self,
-        endorsed_chunk_validators: &HashSet<&AccountId>,
-    ) -> EndorsementStats {
-        let mut total_stake = 0;
-        let mut endorsed_stake = 0;
-        let mut endorsed_validators_count = 0;
-        for (account_id, stake) in &self.assignments {
-            total_stake += stake;
-            if endorsed_chunk_validators.contains(account_id) {
-                endorsed_stake += stake;
-                endorsed_validators_count += 1;
-            }
-        }
-        EndorsementStats {
-            total_stake,
-            endorsed_stake,
-            endorsed_validators_count,
-            total_validators_count: self.assignments.len(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
     use bytesize::ByteSize;
     use near_primitives_core::hash::CryptoHash;
     use std::io::ErrorKind;
+
+    use crate::stateless_validation::state_witness::{ChunkStateWitness, EncodedChunkStateWitness};
 
     #[test]
     fn encode_decode_state_dummy_witness_default_limit() {
