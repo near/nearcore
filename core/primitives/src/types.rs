@@ -10,10 +10,10 @@ use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 use near_structs_checker_lib::ProtocolStruct;
-use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 mod chunk_validator_stats;
 
@@ -470,7 +470,7 @@ pub struct StateRootNode {
 
 impl StateRootNode {
     pub fn empty() -> Self {
-        static EMPTY: Lazy<Arc<[u8]>> = Lazy::new(|| Arc::new([]));
+        static EMPTY: LazyLock<Arc<[u8]>> = LazyLock::new(|| Arc::new([]));
         StateRootNode { data: EMPTY.clone(), memory_usage: 0 }
     }
 }

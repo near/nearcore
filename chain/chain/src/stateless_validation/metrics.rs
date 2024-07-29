@@ -2,10 +2,10 @@ use near_o11y::metrics::{
     exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter,
     try_create_int_gauge, HistogramVec, IntCounter, IntGauge,
 };
-use near_primitives::stateless_validation::ChunkStateWitness;
-use once_cell::sync::Lazy;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use std::sync::LazyLock;
 
-pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_save_latest_witness_generate_update_time",
         "Time taken to generate an update of latest witnesses",
@@ -14,7 +14,7 @@ pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: Lazy<HistogramVec> = Lazy::
     )
     .unwrap()
 });
-pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_save_latest_witness_commit_update_time",
         "Time taken to commit the update of latest witnesses",
@@ -23,14 +23,14 @@ pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: Lazy<HistogramVec> = Lazy::ne
     )
     .unwrap()
 });
-pub static SAVED_LATEST_WITNESSES_COUNT: Lazy<IntGauge> = Lazy::new(|| {
+pub static SAVED_LATEST_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_saved_latest_witnesses_count",
         "Total number of saved latest witnesses",
     )
     .unwrap()
 });
-pub static SAVED_LATEST_WITNESSES_SIZE: Lazy<IntGauge> = Lazy::new(|| {
+pub static SAVED_LATEST_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_saved_latest_witnesses_size",
         "Total size of saved latest witnesses (in bytes)",
@@ -38,7 +38,7 @@ pub static SAVED_LATEST_WITNESSES_SIZE: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static CHUNK_STATE_WITNESS_ENCODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub static CHUNK_STATE_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_encode_time",
         "State witness encoding (serialization + compression) latency in seconds",
@@ -48,7 +48,7 @@ pub static CHUNK_STATE_WITNESS_ENCODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+pub static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_shadow_chunk_validation_failed_total",
         "Shadow chunk validation failures count",
@@ -56,17 +56,18 @@ pub static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_validation_time",
-        "State witness validation latency in seconds",
-        &["shard_id"],
-        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
-    )
-    .unwrap()
-});
+pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_chunk_state_witness_validation_time",
+            "State witness validation latency in seconds",
+            &["shard_id"],
+            Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+        )
+        .unwrap()
+    });
 
-pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",
         "Stateless validation compressed state witness size in bytes",
@@ -76,7 +77,7 @@ pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_RAW_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static CHUNK_STATE_WITNESS_RAW_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_raw_size",
         "Stateless validation uncompressed (raw) state witness size in bytes",
@@ -86,7 +87,7 @@ pub(crate) static CHUNK_STATE_WITNESS_RAW_SIZE: Lazy<HistogramVec> = Lazy::new(|
     .unwrap()
 });
 
-pub static CHUNK_STATE_WITNESS_DECODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub static CHUNK_STATE_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_decode_time",
         "State witness decoding (decompression + deserialization) latency in seconds",
@@ -96,8 +97,8 @@ pub static CHUNK_STATE_WITNESS_DECODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE: Lazy<HistogramVec> = Lazy::new(
-    || {
+pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
         try_create_histogram_vec(
             "near_chunk_state_witness_main_state_transition_size",
             "Size of ChunkStateWitness::main_state_transition (storage proof needed to execute receipts)",
@@ -105,21 +106,21 @@ pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE: Lazy<Histogra
             Some(buckets_for_witness_field_size()),
         )
             .unwrap()
-    },
-);
+    });
 
-pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_new_transactions_size",
-        "Size of ChunkStateWitness::new_transactions (new proposed transactions)",
-        &["shard_id"],
-        Some(buckets_for_witness_field_size()),
-    )
-    .unwrap()
-});
+pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_chunk_state_witness_new_transactions_size",
+            "Size of ChunkStateWitness::new_transactions (new proposed transactions)",
+            &["shard_id"],
+            Some(buckets_for_witness_field_size()),
+        )
+        .unwrap()
+    });
 
-pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE: Lazy<HistogramVec> = Lazy::new(
-    || {
+pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
         try_create_histogram_vec(
             "near_chunk_state_witness_new_transactions_state_size",
             "Size of ChunkStateWitness::new_transactions_validation_state (storage proof to validate new proposed transactions)",
@@ -127,11 +128,10 @@ pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE: Lazy<Histogra
             Some(buckets_for_witness_field_size()),
         )
             .unwrap()
-    },
-);
+    });
 
-pub(crate) static CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE: Lazy<HistogramVec> =
-    Lazy::new(|| {
+pub(crate) static CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
         try_create_histogram_vec(
             "near_chunk_state_witness_source_receipt_proofs_size",
             "Size of ChunkStateWitness::source_receipt_proofs (incoming receipts proofs)",

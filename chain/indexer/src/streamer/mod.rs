@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::Addr;
-use lazy_static::lazy_static;
 use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -33,10 +32,9 @@ mod fetchers;
 mod metrics;
 mod utils;
 
-lazy_static! {
-    static ref DELAYED_LOCAL_RECEIPTS_CACHE: Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>> =
-        Arc::new(RwLock::new(HashMap::new()));
-}
+static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
+    Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>>,
+> = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 const INTERVAL: Duration = Duration::from_millis(500);
 

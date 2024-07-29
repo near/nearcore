@@ -20,7 +20,7 @@ use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::state_sync::get_num_state_parts;
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,

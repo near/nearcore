@@ -10,9 +10,10 @@ use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
-use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, StoredChunkStateTransitionData,
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateTransition, ChunkStateWitness,
 };
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 

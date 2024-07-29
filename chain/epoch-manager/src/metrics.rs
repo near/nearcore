@@ -1,7 +1,7 @@
 use near_o11y::metrics::{try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
-pub(crate) static PROTOCOL_VERSION_VOTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static PROTOCOL_VERSION_VOTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_protocol_version_votes",
         "The percentage of stake voting for each protocol version",
@@ -10,7 +10,7 @@ pub(crate) static PROTOCOL_VERSION_VOTES: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static PROTOCOL_VERSION_NEXT: Lazy<IntGauge> = Lazy::new(|| {
+pub(crate) static PROTOCOL_VERSION_NEXT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_protocol_version_next", "The protocol version for the next epoch.")
         .unwrap()
 });

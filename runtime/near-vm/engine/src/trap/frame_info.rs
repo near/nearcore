@@ -17,14 +17,13 @@ use near_vm_types::{LocalFunctionIndex, ModuleInfo};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-lazy_static::lazy_static! {
-    /// This is a global cache of backtrace frame information for all active
-    ///
-    /// This global cache is used during `Trap` creation to symbolicate frames.
-    /// This is populated on module compilation, and it is cleared out whenever
-    /// all references to a module are dropped.
-    pub static ref FRAME_INFO: RwLock<GlobalFrameInfo> = Default::default();
-}
+/// This is a global cache of backtrace frame information for all active
+///
+/// This global cache is used during `Trap` creation to symbolicate frames.
+/// This is populated on module compilation, and it is cleared out whenever
+/// all references to a module are dropped.
+pub static FRAME_INFO: std::sync::LazyLock<RwLock<GlobalFrameInfo>> =
+    std::sync::LazyLock::new(|| Default::default());
 
 #[derive(Default)]
 pub struct GlobalFrameInfo {

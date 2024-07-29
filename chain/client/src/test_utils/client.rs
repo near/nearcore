@@ -21,7 +21,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
