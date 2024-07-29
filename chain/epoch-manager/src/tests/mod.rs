@@ -19,7 +19,7 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
@@ -2826,7 +2826,7 @@ fn test_verify_chunk_endorsements() {
     let chunk_header = test_chunk_header(&h, signer.as_ref());
 
     // check chunk endorsement validity
-    let mut chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer.as_ref());
+    let mut chunk_endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), signer.as_ref());
     assert!(epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
 
     // check invalid chunk endorsement signature
@@ -2834,7 +2834,7 @@ fn test_verify_chunk_endorsements() {
     assert!(!epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
 
     // check chunk endorsement invalidity when chunk header and chunk endorsement don't match
-    let chunk_endorsement = ChunkEndorsement::new(h[3].into(), signer.as_ref());
+    let chunk_endorsement = ChunkEndorsementV1::new(h[3].into(), signer.as_ref());
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
@@ -2844,7 +2844,7 @@ fn test_verify_chunk_endorsements() {
 
     // check chunk endorsement invalidity when signer is not chunk validator
     let bad_signer = Arc::new(create_test_signer("test2"));
-    let chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), bad_signer.as_ref());
+    let chunk_endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), bad_signer.as_ref());
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {

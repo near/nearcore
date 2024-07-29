@@ -18,7 +18,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::types::AccountId;
-use near_primitives_core::checked_feature;
+use near_primitives::version::ProtocolFeature;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
@@ -207,8 +207,8 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 fn test_orphan_witness_valid() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
+    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
+        println!("Test not applicable with ChunkEndorsementV2 enabled");
         return;
     }
 
@@ -246,8 +246,8 @@ fn test_orphan_witness_valid() {
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
+    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
+        println!("Test not applicable with ChunkEndorsementV2 enabled");
         return;
     }
 
@@ -270,8 +270,8 @@ fn test_orphan_witness_too_large() {
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
+    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
+        println!("Test not applicable with ChunkEndorsementV2 enabled");
         return;
     }
 
@@ -303,8 +303,8 @@ fn test_orphan_witness_far_from_head() {
 fn test_orphan_witness_not_fully_validated() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
+    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
+        println!("Test not applicable with ChunkEndorsementV2 enabled");
         return;
     }
 

@@ -1,6 +1,8 @@
 use lru::LruCache;
 use near_chain::ChainStoreAccess;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::{
+    ChunkEndorsement, ChunkEndorsementV1,
+};
 use near_primitives::stateless_validation::validator_assignment::EndorsementStats;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -45,17 +47,26 @@ struct ChunkEndorsementTrackerInner {
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
     /// Chunk endorsements would later be used as a part of block production.
     chunk_endorsements:
-        LruCache<ChunkHash, (ShardChunkHeader, HashMap<AccountId, ChunkEndorsement>)>,
+        LruCache<ChunkHash, (ShardChunkHeader, HashMap<AccountId, ChunkEndorsementV1>)>,
     /// We store chunk endorsements to be processed later because we did not have
     /// chunks ready at the time we received that endorsements from validators.
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
-    pending_chunk_endorsements: LruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
+    pending_chunk_endorsements: LruCache<ChunkHash, HashMap<AccountId, ChunkEndorsementV1>>,
 }
 
 impl Client {
     pub fn process_chunk_endorsement(
         &mut self,
         endorsement: ChunkEndorsement,
+    ) -> Result<(), Error> {
+        match endorsement {
+            ChunkEndorsement::V1(endorsement) => self.process_chunk_endorsement_v1(endorsement),
+        }
+    }
+
+    fn process_chunk_endorsement_v1(
+        &mut self,
+        endorsement: ChunkEndorsementV1,
     ) -> Result<(), Error> {
         // We need the chunk header in order to process the chunk endorsement.
         // If we don't have the header, then queue it up for when we do have the header.
@@ -100,7 +111,7 @@ impl ChunkEndorsementTracker {
     /// Add the chunk endorsement to a cache of pending chunk endorsements (if not yet there).
     pub(crate) fn add_chunk_endorsement_to_pending_cache(
         &self,
-        endorsement: ChunkEndorsement,
+        endorsement: ChunkEndorsementV1,
     ) -> Result<(), Error> {
         self.inner.lock().unwrap().process_chunk_endorsement_impl(endorsement, None, false)
     }
@@ -111,7 +122,7 @@ impl ChunkEndorsementTracker {
     pub(crate) fn process_chunk_endorsement(
         &self,
         chunk_header: &ShardChunkHeader,
-        endorsement: ChunkEndorsement,
+        endorsement: ChunkEndorsementV1,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash(), shard_id=chunk_header.shard_id()).entered();
         // Validate the endorsement before locking the mutex to improve performance.
@@ -164,7 +175,7 @@ impl ChunkEndorsementTrackerInner {
     /// Otherwise, we store the endorsement in a separate cache of endorsements to be processed when the chunk is ready.
     fn process_chunk_endorsement_impl(
         &mut self,
-        endorsement: ChunkEndorsement,
+        endorsement: ChunkEndorsementV1,
         chunk_header: Option<&ShardChunkHeader>,
         already_validated: bool,
     ) -> Result<(), Error> {

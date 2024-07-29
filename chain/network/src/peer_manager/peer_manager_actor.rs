@@ -985,7 +985,6 @@ impl PeerManagerActor {
                     ChunkEndorsement::V1(endorsement) => {
                         RoutedMessageBody::ChunkEndorsement(endorsement)
                     }
-                    _ => RoutedMessageBody::VersionedChunkEndorsement(endorsement),
                 };
                 self.state.send_message_to_account(&self.clock, &target, msg);
                 NetworkResponses::NoResponse

@@ -11,15 +11,42 @@ use super::SignatureDifferentiator;
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsement {
-    inner: ChunkEndorsementInner,
-    pub account_id: AccountId,
-    pub signature: Signature,
+pub enum ChunkEndorsement {
+    V1(ChunkEndorsementV1),
 }
 
 impl ChunkEndorsement {
     pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsement {
-        let inner = ChunkEndorsementInner::new(chunk_hash);
+        ChunkEndorsement::V1(ChunkEndorsementV1::new(chunk_hash, signer))
+    }
+
+    pub fn signature(&self) -> Signature {
+        match self {
+            ChunkEndorsement::V1(endorsement) => endorsement.signature.clone(),
+        }
+    }
+
+    pub fn validate_signature(
+        chunk_hash: ChunkHash,
+        signature: &Signature,
+        public_key: &PublicKey,
+    ) -> bool {
+        let inner = ChunkEndorsementV1Inner::new(chunk_hash);
+        let data = borsh::to_vec(&inner).unwrap();
+        signature.verify(&data, public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkEndorsementV1 {
+    inner: ChunkEndorsementV1Inner,
+    pub account_id: AccountId,
+    pub signature: Signature,
+}
+
+impl ChunkEndorsementV1 {
+    pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsementV1 {
+        let inner = ChunkEndorsementV1Inner::new(chunk_hash);
         let account_id = signer.validator_id().clone();
         let signature = signer.sign_chunk_endorsement(&inner);
         Self { inner, account_id, signature }
@@ -33,26 +60,16 @@ impl ChunkEndorsement {
     pub fn chunk_hash(&self) -> &ChunkHash {
         &self.inner.chunk_hash
     }
-
-    pub fn validate_signature(
-        chunk_hash: ChunkHash,
-        signature: &Signature,
-        public_key: &PublicKey,
-    ) -> bool {
-        let inner = ChunkEndorsementInner::new(chunk_hash);
-        let data = borsh::to_vec(&inner).unwrap();
-        signature.verify(&data, public_key)
-    }
 }
 
 /// This is the part of the chunk endorsement that is actually being signed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsementInner {
+pub struct ChunkEndorsementV1Inner {
     chunk_hash: ChunkHash,
     signature_differentiator: SignatureDifferentiator,
 }
 
-impl ChunkEndorsementInner {
+impl ChunkEndorsementV1Inner {
     fn new(chunk_hash: ChunkHash) -> Self {
         Self { chunk_hash, signature_differentiator: "ChunkEndorsement".to_owned() }
     }

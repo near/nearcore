@@ -258,7 +258,7 @@ pub fn create_chunk(
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature))]],
+        vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
         None,

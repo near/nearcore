@@ -13,7 +13,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -418,7 +418,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_chunk_endorsement(
         &self,
         chunk_header: &ShardChunkHeader,
-        endorsement: &ChunkEndorsement,
+        endorsement: &ChunkEndorsementV1,
     ) -> Result<bool, Error>;
 
     fn verify_partial_witness_signature(
@@ -1049,7 +1049,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn verify_chunk_endorsement(
         &self,
         chunk_header: &ShardChunkHeader,
-        endorsement: &ChunkEndorsement,
+        endorsement: &ChunkEndorsementV1,
     ) -> Result<bool, Error> {
         if &chunk_header.chunk_hash() != endorsement.chunk_hash() {
             return Err(Error::InvalidChunkEndorsement);

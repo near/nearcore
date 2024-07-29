@@ -424,7 +424,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature))]],
+        vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
         None,
