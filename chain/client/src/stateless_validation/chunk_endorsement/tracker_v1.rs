@@ -1,39 +1,23 @@
 use lru::LruCache;
 use near_chain::ChainStoreAccess;
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, ChunkEndorsementV1,
-};
-use near_primitives::stateless_validation::validator_assignment::EndorsementStats;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::AccountId;
 
 use crate::Client;
 
+use super::ChunkEndorsementsState;
+
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
 const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
-
-pub enum ChunkEndorsementsState {
-    Endorsed(Option<EndorsementStats>, ChunkEndorsementSignatures),
-    NotEnoughStake(Option<EndorsementStats>),
-}
-
-impl ChunkEndorsementsState {
-    pub fn stats(&self) -> Option<&EndorsementStats> {
-        match self {
-            Self::Endorsed(stats, _) => stats.as_ref(),
-            Self::NotEnoughStake(stats) => stats.as_ref(),
-        }
-    }
-}
 
 /// Module to track chunk endorsements received from chunk validators.
 pub struct ChunkEndorsementTracker {
@@ -55,16 +39,7 @@ struct ChunkEndorsementTrackerInner {
 }
 
 impl Client {
-    pub fn process_chunk_endorsement(
-        &mut self,
-        endorsement: ChunkEndorsement,
-    ) -> Result<(), Error> {
-        match endorsement {
-            ChunkEndorsement::V1(endorsement) => self.process_chunk_endorsement_v1(endorsement),
-        }
-    }
-
-    fn process_chunk_endorsement_v1(
+    pub(crate) fn process_chunk_endorsement_v1(
         &mut self,
         endorsement: ChunkEndorsementV1,
     ) -> Result<(), Error> {
@@ -75,10 +50,13 @@ impl Client {
         match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
             Ok(chunk) => self
                 .chunk_endorsement_tracker
+                .tracker_v1
                 .process_chunk_endorsement(&chunk.cloned_header(), endorsement),
             Err(Error::ChunkMissing(_)) => {
                 tracing::debug!(target: "client", ?endorsement, "Endorsement arrived before chunk.");
-                self.chunk_endorsement_tracker.add_chunk_endorsement_to_pending_cache(endorsement)
+                self.chunk_endorsement_tracker
+                    .tracker_v1
+                    .add_chunk_endorsement_to_pending_cache(endorsement)
             }
             Err(error) => return Err(error),
         }

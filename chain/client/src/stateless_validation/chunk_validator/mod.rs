@@ -1,7 +1,7 @@
 pub mod orphan_witness_handling;
 pub mod orphan_witness_pool;
 
-use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::Client;
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
@@ -227,11 +227,13 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
     );
 
+    // TODO: Change this
     let endorsement = ChunkEndorsement::new_v1(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
             // Our own endorsements are not always valid (see issue #11750).
             if let Err(err) = chunk_endorsement_tracker
+                .tracker_v1
                 .process_chunk_endorsement(chunk_header, endorsement.clone())
             {
                 tracing::warn!(
