@@ -1,14 +1,16 @@
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::DBCol;
 
-use super::ColdDB;
+use super::{ColdDB, StatsValue};
 
 /// A database built on top of the cold storage, designed specifically for data recovery.
 /// DO NOT USE IN PRODUCTION 🔥🐉.
 pub struct RecoveryDB {
     cold: Arc<ColdDB>,
+    ops_written: AtomicI64,
 }
 
 impl Database for RecoveryDB {
@@ -51,6 +53,7 @@ impl Database for RecoveryDB {
     fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
         self.filter_db_ops(&mut transaction);
         if !transaction.ops.is_empty() {
+            self.ops_written.fetch_add(transaction.ops.len() as i64, Ordering::Relaxed);
             self.cold.write(transaction)
         } else {
             Ok(())
@@ -66,7 +69,12 @@ impl Database for RecoveryDB {
     }
 
     fn get_store_statistics(&self) -> Option<crate::StoreStatistics> {
-        self.cold.get_store_statistics()
+        let ops_written = (
+            "ops_written".to_string(),
+            vec![StatsValue::Count(self.ops_written.load(Ordering::Relaxed))],
+        );
+        let stats = crate::StoreStatistics { data: vec![ops_written] };
+        Some(stats)
     }
 
     fn create_checkpoint(
@@ -80,7 +88,8 @@ impl Database for RecoveryDB {
 
 impl RecoveryDB {
     pub fn new(cold: Arc<ColdDB>) -> Self {
-        Self { cold }
+        let ops_written = AtomicI64::new(0);
+        Self { cold, ops_written }
     }
 
     /// Filters out deletes and other operation which aren't adding new data to the DB.

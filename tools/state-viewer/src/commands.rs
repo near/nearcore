@@ -178,13 +178,15 @@ pub(crate) fn apply_block_at_height(
         &mut read_chain_store,
         shard_id,
     )?;
-    maybe_save_trie_changes(
-        write_store,
+    let result = maybe_save_trie_changes(
+        write_store.clone(),
         near_config.genesis.config.genesis_height,
         apply_result,
         height,
         shard_id,
-    )
+    );
+    maybe_print_db_stats(write_store);
+    result
 }
 
 pub(crate) fn apply_chunk(
@@ -262,7 +264,7 @@ pub(crate) fn apply_range(
     apply_chain_range(
         mode,
         read_store,
-        write_store,
+        write_store.clone(),
         &near_config.genesis,
         start_index,
         end_index,
@@ -274,6 +276,7 @@ pub(crate) fn apply_range(
         only_contracts,
         storage,
     );
+    maybe_print_db_stats(write_store);
 }
 
 pub(crate) fn apply_receipt(
@@ -1333,9 +1336,19 @@ pub(crate) fn maybe_save_trie_changes(
         let mut chain_store_update = chain_store.store_update();
         chain_store_update.save_trie_changes(apply_result.trie_changes);
         chain_store_update.commit()?;
-        println!("Trie changes persisted for block {block_height}, shard {shard_id}");
+        tracing::debug!("Trie changes persisted for block {block_height}, shard {shard_id}");
     }
     Ok(())
+}
+
+pub(crate) fn maybe_print_db_stats(store: Option<Store>) {
+    store.map(|store| {
+        store.get_store_statistics().map(|stats| {
+            stats.data.iter().for_each(|(metric, values)| {
+                tracing::info!(%metric, ?values);
+            })
+        })
+    });
 }
 
 /// Prints the state statistics for a single shard.
