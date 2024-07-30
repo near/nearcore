@@ -56,6 +56,7 @@ class SimpleTransferBetweenAccounts:
 
     def random_workload_until(self, target_height):
         """Generates traffic to make transfers between accounts."""
+        logger.info(f"Running random workload until height={target_height}")
         last_height = -1
         while True:
             last_block = self.rpc_node.get_latest_block()
