@@ -6,11 +6,11 @@
 # 3. Restarts the remaining 2 nodes with memtries disabled.
 # Sends random transactions between shards at each step.
 
-import unittest
 import pathlib
 import random
 import sys
 import time
+import unittest
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
