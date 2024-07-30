@@ -16,9 +16,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, ChunkEndorsementV1,
-};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
@@ -229,7 +227,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
     );
 
-    let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), signer);
+    let endorsement = ChunkEndorsement::new_v1(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
             // Our own endorsements are not always valid (see issue #11750).

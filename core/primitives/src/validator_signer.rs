@@ -9,7 +9,7 @@ use crate::challenge::ChallengeBody;
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementV1Inner;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
 use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
 use crate::telemetry::TelemetryInfo;
@@ -84,10 +84,10 @@ impl ValidatorSigner {
     }
 
     /// Signs chunk endorsement to be sent to block producer.
-    pub fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementV1Inner) -> Signature {
+    pub fn sign_chunk_endorsement(&self, endorsement: &ChunkEndorsement) -> Signature {
         match self {
-            ValidatorSigner::Empty(signer) => signer.sign_chunk_endorsement(inner),
-            ValidatorSigner::InMemory(signer) => signer.sign_chunk_endorsement(inner),
+            ValidatorSigner::Empty(signer) => signer.sign_chunk_endorsement(endorsement),
+            ValidatorSigner::InMemory(signer) => signer.sign_chunk_endorsement(endorsement),
         }
     }
 
@@ -227,7 +227,7 @@ impl EmptyValidatorSigner {
         Signature::default()
     }
 
-    fn sign_chunk_endorsement(&self, _inner: &ChunkEndorsementV1Inner) -> Signature {
+    fn sign_chunk_endorsement(&self, _endorsement: &ChunkEndorsement) -> Signature {
         Signature::default()
     }
 
@@ -324,8 +324,8 @@ impl InMemoryValidatorSigner {
         self.signer.sign(&Approval::get_data_for_sig(inner, target_height))
     }
 
-    fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementV1Inner) -> Signature {
-        self.signer.sign(&borsh::to_vec(inner).unwrap())
+    fn sign_chunk_endorsement(&self, endorsement: &ChunkEndorsement) -> Signature {
+        self.signer.sign(&endorsement.serialized_inner())
     }
 
     fn sign_chunk_state_witness(&self, witness_bytes: &EncodedChunkStateWitness) -> Signature {
