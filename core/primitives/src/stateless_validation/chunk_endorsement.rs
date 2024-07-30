@@ -35,7 +35,6 @@ impl ChunkEndorsement {
     pub fn serialized_inner(&self) -> Vec<u8> {
         match self {
             ChunkEndorsement::V1(endorsement) => borsh::to_vec(&endorsement.inner).unwrap(),
-            ChunkEndorsement::V2(endorsement) => borsh::to_vec(&endorsement.inner).unwrap(),
         }
     }
 
