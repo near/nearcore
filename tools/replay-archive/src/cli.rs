@@ -149,11 +149,11 @@ impl ReplayController {
     fn replay_block(&mut self, height: BlockHeight) -> Result<()> {
         tracing::info!("Replaying block at height {}", self.next_height);
 
-        let Ok(block_hash) = match self.chain_store.get_block_hash_by_height(height) else {
-                tracing::debug!("Skipping non-available block at height {}", height);
-                self.progress_reporter.inc_and_report_progress(0);
-                return Ok(());
-            };
+        let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
+            tracing::debug!("Skipping non-available block at height {}", height);
+            self.progress_reporter.inc_and_report_progress(0);
+            return Ok(());
+        };
 
         let block = self.chain_store.get_block(&block_hash)?;
 
