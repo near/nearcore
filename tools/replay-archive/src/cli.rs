@@ -135,7 +135,7 @@ impl ReplayController {
         }
     }
 
-    /// Replays the enxt block if any. Returns true if there are still blocks to replay
+    /// Replays the next block if any. Returns true if there are still blocks to replay
     /// and false if it reached end block height.
     fn replay_next_block(&mut self) -> Result<bool> {
         if self.next_height > self.end_height {
@@ -149,14 +149,11 @@ impl ReplayController {
     fn replay_block(&mut self, height: BlockHeight) -> Result<()> {
         tracing::info!("Replaying block at height {}", self.next_height);
 
-        let block_hash = match self.chain_store.get_block_hash_by_height(height) {
-            Ok(block_hash) => block_hash,
-            Err(_) => {
+        let Ok(block_hash) = match self.chain_store.get_block_hash_by_height(height) else {
                 tracing::debug!("Skipping non-available block at height {}", height);
                 self.progress_reporter.inc_and_report_progress(0);
                 return Ok(());
-            }
-        };
+            };
 
         let block = self.chain_store.get_block(&block_hash)?;
 
