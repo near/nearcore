@@ -4,6 +4,7 @@ use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
+use crate::epoch_sync_test::EpochSyncTestCommand;
 use crate::latest_witnesses::StateWitnessCmd;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
@@ -71,6 +72,8 @@ pub enum StateViewerSubCommand {
     /// Regenerates epoch info based on previous epoch.
     #[clap(alias = "epoch_analysis")]
     EpochAnalysis(EpochAnalysisCmd),
+    #[clap(alias = "epoch_sync_test")]
+    EpochSyncTest(EpochSyncTestCommand),
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
@@ -166,6 +169,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::EpochAnalysis(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::EpochSyncTest(cmd) => cmd.run(near_config, store).unwrap(),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(near_config, store),

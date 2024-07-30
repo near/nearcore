@@ -7,6 +7,7 @@ mod commands;
 mod congestion_control;
 mod contract_accounts;
 mod epoch_info;
+mod epoch_sync_test;
 mod latest_witnesses;
 mod rocksdb_stats;
 mod scan_db;

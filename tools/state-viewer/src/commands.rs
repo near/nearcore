@@ -1030,6 +1030,10 @@ pub(crate) fn print_epoch_analysis(
     let epoch_heights_to_ids = BTreeMap::from_iter(
         epoch_infos.iter().map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), *epoch_id)),
     );
+    println!("Available epochs:");
+    for (epoch_height, epoch_id) in epoch_heights_to_ids.iter() {
+        println!("{}: {:?}", epoch_height, epoch_id);
+    }
     let min_epoch_height = epoch_height;
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();
     // We can analyze only epochs without last two because these are not
