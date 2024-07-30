@@ -21,21 +21,10 @@ impl ChunkEndorsement {
     }
 
     pub fn new_v1(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsementV1 {
-        let mut endorsement = ChunkEndorsementV1 {
-            inner: ChunkEndorsementV1Inner::new(chunk_hash),
-            account_id: signer.validator_id().clone(),
-            signature: Signature::default(),
-        };
-        let signature = signer.sign_chunk_endorsement(&ChunkEndorsement::V1(endorsement.clone()));
-        endorsement.signature = signature;
-        endorsement
-    }
-
-    // This function is used in validator_signer to get the correct serialized inner struct to sign.
-    pub fn serialized_inner(&self) -> Vec<u8> {
-        match self {
-            ChunkEndorsement::V1(endorsement) => borsh::to_vec(&endorsement.inner).unwrap(),
-        }
+        let inner = ChunkEndorsementInner::new(chunk_hash);
+        let account_id = signer.validator_id().clone();
+        let signature = signer.sign_chunk_endorsement(&inner);
+        ChunkEndorsementV1 { inner, account_id, signature }
     }
 
     pub fn signature(&self) -> Signature {
@@ -49,7 +38,7 @@ impl ChunkEndorsement {
         signature: &Signature,
         public_key: &PublicKey,
     ) -> bool {
-        let inner = ChunkEndorsementV1Inner::new(chunk_hash);
+        let inner = ChunkEndorsementInner::new(chunk_hash);
         let data = borsh::to_vec(&inner).unwrap();
         signature.verify(&data, public_key)
     }
@@ -57,7 +46,7 @@ impl ChunkEndorsement {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkEndorsementV1 {
-    inner: ChunkEndorsementV1Inner,
+    inner: ChunkEndorsementInner,
     pub account_id: AccountId,
     pub signature: Signature,
 }
@@ -75,12 +64,12 @@ impl ChunkEndorsementV1 {
 
 /// This is the part of the chunk endorsement that is actually being signed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsementV1Inner {
+pub struct ChunkEndorsementInner {
     chunk_hash: ChunkHash,
     signature_differentiator: SignatureDifferentiator,
 }
 
-impl ChunkEndorsementV1Inner {
+impl ChunkEndorsementInner {
     fn new(chunk_hash: ChunkHash) -> Self {
         Self { chunk_hash, signature_differentiator: "ChunkEndorsement".to_owned() }
     }
