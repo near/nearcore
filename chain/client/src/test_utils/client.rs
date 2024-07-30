@@ -249,7 +249,12 @@ pub fn create_chunk(
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
-    let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
+    let endorsement = ChunkEndorsement::new(
+        *last_block.header().epoch_id(),
+        chunk.cloned_header(),
+        signer.as_ref(),
+        PROTOCOL_VERSION,
+    );
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,

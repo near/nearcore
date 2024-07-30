@@ -61,6 +61,7 @@ impl Client {
     ) -> Result<(), Error> {
         match endorsement {
             ChunkEndorsement::V1(endorsement) => self.process_chunk_endorsement_v1(endorsement),
+            ChunkEndorsement::V2(_) => unimplemented!(),
         }
     }
 

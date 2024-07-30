@@ -227,6 +227,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
     );
 
+    // TODO(ChunkEndorsementV2): Create ChunkEndorsementV2
     let endorsement = ChunkEndorsement::new_v1(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
