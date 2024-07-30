@@ -8,6 +8,11 @@ use super::{ColdDB, StatsValue};
 
 /// A database built on top of the cold storage, designed specifically for data recovery.
 /// DO NOT USE IN PRODUCTION 🔥🐉.
+///
+/// `RecoveryDB` is a special kind of database that holds internally a `ColdDB`.
+/// All real read/write operations are proxied to the cold database. `RecoveryDB` has two main purposes:
+/// - Prevent writes to columns other than `State`.
+/// - Avoid overwriting data with an exact copy of itself. Only 'real' changes are written to the cold store.
 pub struct RecoveryDB {
     cold: Arc<ColdDB>,
     ops_written: AtomicI64,
@@ -49,7 +54,8 @@ impl Database for RecoveryDB {
         self.cold.iter_range(col, lower_bound, upper_bound)
     }
 
-    /// Atomically applies operations in given transaction.
+    /// Atomically applies operations in given transaction. Also filters out `DBOp`s which are
+    /// either modifying a column different from `State` or overwriting the same data.
     fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
         self.filter_db_ops(&mut transaction);
         if !transaction.ops.is_empty() {
@@ -105,38 +111,36 @@ impl RecoveryDB {
     }
 
     /// Returns whether the operation should be kept or dropped.
-    fn keep_db_op(&self, op: &mut DBOp) -> bool {
-        let overwrites_same_data = |col: &mut DBCol, key: &mut Vec<u8>, value: &mut Vec<u8>| {
-            if col.is_rc() {
-                if let Ok(Some(old_value)) = self.get_with_rc_stripped(*col, &key) {
-                    let value = DBSlice::from_vec(value.clone()).strip_refcount();
-                    if let Some(value) = value {
-                        if value == old_value {
-                            return true;
-                        }
-                    }
-                }
-            } else {
-                if let Ok(Some(old_value)) = self.get_raw_bytes(*col, &key) {
-                    if *old_value == *value {
-                        return true;
-                    }
-                }
-            }
-            false
-        };
-
+    fn keep_db_op(&self, op: &DBOp) -> bool {
+        if !matches!(op.col(), DBCol::State) {
+            return false;
+        }
         match op {
             DBOp::Set { col, key, value }
             | DBOp::Insert { col, key, value }
             | DBOp::UpdateRefcount { col, key, value } => {
-                if !matches!(col, DBCol::State) {
-                    return false;
-                }
-                !overwrites_same_data(col, key, value)
+                !self.overwrites_same_data(col, key, value)
             }
             DBOp::Delete { .. } | DBOp::DeleteAll { .. } | DBOp::DeleteRange { .. } => false,
         }
+    }
+
+    /// Returns `true` if `value` is equal to the value stored at the location identified by `col` and `key`.
+    /// The reference count is ignored, when applicable.
+    fn overwrites_same_data(&self, col: &DBCol, key: &Vec<u8>, value: &Vec<u8>) -> bool {
+        if col.is_rc() {
+            if self.get_raw_bytes(*col, &key).is_ok_and(|inner| inner.is_some()) {
+                // If the key exists we know the value is present, because the key is a hash of the value.
+                return true;
+            }
+        } else {
+            if let Ok(Some(old_value)) = self.get_raw_bytes(*col, &key) {
+                if *old_value == *value {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
