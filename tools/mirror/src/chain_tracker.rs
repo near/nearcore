@@ -660,20 +660,24 @@ impl TxTracker {
                     }
                     for r in c.receipts.iter() {
                         match &r.receipt {
-                            ReceiptEnumView::Action { signer_id,
-                                actions, .. } => {
-                                    let mut deleg = false;
-                                    for a in actions.iter() {
-                                        if matches!(a, ActionView::Delegate{..}) {
-                                            deleg = true;
-                                        }
-                                    }
-                                    if deleg {
-                                        tracing::info!("zzzzzzzzzz receipt {} signer {} pred {} receiver {}", r.receipt_id,
-                                    signer_id, r.predecessor_id, r.receiver_id);
+                            ReceiptEnumView::Action { signer_id, actions, .. } => {
+                                let mut deleg = false;
+                                for a in actions.iter() {
+                                    if matches!(a, ActionView::Delegate { .. }) {
+                                        deleg = true;
                                     }
                                 }
-                                _ => {}
+                                if deleg {
+                                    tracing::info!(
+                                        "zzzzzzzzzz receipt {} signer {} pred {} receiver {}",
+                                        r.receipt_id,
+                                        signer_id,
+                                        r.predecessor_id,
+                                        r.receiver_id
+                                    );
+                                }
+                            }
+                            _ => {}
                         };
                     }
                 } else {
@@ -1183,7 +1187,7 @@ impl TxTracker {
         db: &DB,
         sent_batch: SentBatch,
         target_height: BlockHeight,
-        start_time: Option<tokio::time::Instant>
+        start_time: Option<tokio::time::Instant>,
     ) -> anyhow::Result<()> {
         let mut total_sent = 0;
         let now = Instant::now();

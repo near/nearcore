@@ -919,7 +919,7 @@ fn map_delegate_action(
 }
 
 impl<T: ChainAccess> TxMirror<T> {
-    fn new<P: AsRef<Path>>(
+    async fn new<P: AsRef<Path>>(
         source_chain_access: T,
         target_home: P,
         mirror_db_path: Option<P>,
@@ -954,15 +954,32 @@ impl<T: ChainAccess> TxMirror<T> {
             }
         };
         let db = db.context("failed to open mirror DB")?;
-        let target_indexer = Indexer::new(near_indexer::IndexerConfig {
-            home_dir: target_home.as_ref().to_path_buf(),
-            sync_mode: near_indexer::SyncModeEnum::FromInterruption,
-            await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
-            validate_genesis: false,
-        })
-        .context("failed to start target chain indexer")?;
-        let (target_view_client, target_client) = target_indexer.client_actors();
-        let target_stream = target_indexer.streamer();
+        let arbiter = actix::Arbiter::new();
+
+        let home_dir = target_home.as_ref().to_path_buf();
+        let (tx, target_stream) = tokio::sync::mpsc::channel(100);
+        let (tvc, rvc) = tokio::sync::oneshot::channel::<Addr<ViewClientActor>>();
+        let (tc, rc) = tokio::sync::oneshot::channel();
+        arbiter.spawn(async move {
+            let target_indexer = Indexer::new(near_indexer::IndexerConfig {
+                home_dir,
+                sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+                await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
+                validate_genesis: false,
+            })
+            .context("failed to start target chain indexer")
+            .unwrap();
+            let (target_view_client, target_client) = target_indexer.client_actors();
+            tvc.send(target_view_client).unwrap();
+            tc.send(target_client).unwrap();
+            let mut ts = target_indexer.streamer();
+            loop {
+                let m = ts.recv().await;
+                tx.send(m.unwrap()).await.unwrap();
+            }
+        });
+        let target_view_client = rvc.await.unwrap();
+        let target_client = rc.await.unwrap();
         let default_extra_key = crate::key_mapping::default_extra_key(secret.as_ref());
 
         Ok(Self {
@@ -1114,15 +1131,11 @@ impl<T: ChainAccess> TxMirror<T> {
             })));
         }
         if delegate_action {
-            tracing::info!("zzzzzzzzzz delegate {} {} -> {}", tx.get_hash(),
-            crate::key_mapping::map_account(
-                tx.transaction.signer_id(),
-                self.secret.as_ref(),
-            ),
-            crate::key_mapping::map_account(
-                tx.transaction.receiver_id(),
-                self.secret.as_ref(),
-            )
+            tracing::info!(
+                "zzzzzzzzzz delegate {} {} -> {}",
+                tx.get_hash(),
+                crate::key_mapping::map_account(tx.transaction.signer_id(), self.secret.as_ref(),),
+                crate::key_mapping::map_account(tx.transaction.receiver_id(), self.secret.as_ref(),)
             );
         }
         Ok((actions, nonce_updates))
@@ -1942,7 +1955,8 @@ async fn run<P: AsRef<Path>>(
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, mirror_db_path, secret, config)?
+        TxMirror::new(source_chain_access, target_home, mirror_db_path, secret, config)
+            .await?
             .run(Some(stop_height))
             .await
     } else {
@@ -1952,7 +1966,8 @@ async fn run<P: AsRef<Path>>(
             mirror_db_path,
             secret,
             config,
-        )?
+        )
+        .await?
         .run(stop_height)
         .await
     }
