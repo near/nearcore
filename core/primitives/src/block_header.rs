@@ -8,11 +8,20 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
+use near_structs_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use std::sync::Arc;
 
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
 )]
 pub struct BlockHeaderInnerLite {
     /// Height of this block.
@@ -33,7 +42,9 @@ pub struct BlockHeaderInnerLite {
     pub block_merkle_root: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 pub struct BlockHeaderInnerRest {
     /// Root hash of the previous chunks' outgoing receipts in the given block.
     pub prev_chunk_outgoing_receipts_root: MerkleHash,
@@ -71,7 +82,9 @@ pub struct BlockHeaderInnerRest {
 }
 
 /// Remove `chunks_included` from V1
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 pub struct BlockHeaderInnerRestV2 {
     /// Root hash of the previous chunks' outgoing receipts in the given block.
     pub prev_chunk_outgoing_receipts_root: MerkleHash,
@@ -110,7 +123,9 @@ pub struct BlockHeaderInnerRestV2 {
 /// Add `block_ordinal`
 /// Add `epoch_sync_data_hash`
 /// Use new `ValidatorStake` struct
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 pub struct BlockHeaderInnerRestV3 {
     /// Root hash of the previous chunks' outgoing receipts in the given block.
     pub prev_chunk_outgoing_receipts_root: MerkleHash,
@@ -154,7 +169,15 @@ pub struct BlockHeaderInnerRestV3 {
 
 /// Add `block_body_hash`
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
 )]
 pub struct BlockHeaderInnerRestV4 {
     /// Hash of block body
@@ -200,14 +223,26 @@ pub struct BlockHeaderInnerRestV4 {
 }
 
 /// The part of the block approval that is different for endorsements and skips
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    ProtocolSchema,
+)]
 pub enum ApprovalInner {
     Endorsement(CryptoHash),
     Skip(BlockHeight),
 }
 
 /// Block approval by other block producers with a signature
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
 pub struct Approval {
     pub inner: ApprovalInner,
     pub target_height: BlockHeight,
@@ -223,7 +258,9 @@ pub enum ApprovalType {
 }
 
 /// Block approval by other block producers.
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
 pub struct ApprovalMessage {
     pub approval: Approval,
     pub target: AccountId,
@@ -266,7 +303,9 @@ impl ApprovalMessage {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 #[borsh(init=init)]
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
@@ -295,7 +334,9 @@ impl BlockHeaderV1 {
 }
 
 /// V1 -> V2: Remove `chunks_included` from `inner_reset`
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 #[borsh(init=init)]
 pub struct BlockHeaderV2 {
     pub prev_hash: CryptoHash,
@@ -315,7 +356,9 @@ pub struct BlockHeaderV2 {
 
 /// V2 -> V3: Add `prev_height` to `inner_rest` and use new `ValidatorStake`
 // Add `block_ordinal` to `inner_rest`
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 #[borsh(init=init)]
 pub struct BlockHeaderV3 {
     pub prev_hash: CryptoHash,
@@ -335,7 +378,15 @@ pub struct BlockHeaderV3 {
 
 /// V3 -> V4: Add hash of block body to inner_rest
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
 )]
 #[borsh(init=init)]
 pub struct BlockHeaderV4 {
@@ -386,7 +437,9 @@ impl BlockHeaderV4 {
 
 /// Versioned BlockHeader data structure.
 /// For each next version, document what are the changes between versions.
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
+)]
 pub enum BlockHeader {
     BlockHeaderV1(Arc<BlockHeaderV1>),
     BlockHeaderV2(Arc<BlockHeaderV2>),

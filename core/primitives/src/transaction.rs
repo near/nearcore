@@ -1,3 +1,9 @@
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub use crate::action::NonrefundableStorageTransferAction;
+pub use crate::action::{
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
@@ -8,6 +14,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::Compute;
+use near_structs_checker_lib::ProtocolSchema;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
@@ -15,16 +22,11 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub use crate::action::NonrefundableStorageTransferAction;
-pub use crate::action::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
-};
-
 pub type LogEntry = String;
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
+)]
 pub struct TransactionV0 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
@@ -42,7 +44,7 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
@@ -211,7 +213,7 @@ impl BorshDeserialize for Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone, ProtocolSchema)]
 #[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
@@ -292,7 +294,7 @@ impl<'de> serde::Deserialize<'de> for SignedTransaction {
 }
 
 /// The status of execution for a transaction or a receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default, ProtocolSchema)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     #[default]
@@ -364,7 +366,15 @@ impl From<ExecutionStatus> for PartialExecutionStatus {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, smart_default::SmartDefault, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Clone,
+    smart_default::SmartDefault,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ExecutionOutcome {
     /// Logs from this transaction or receipt.
     pub logs: Vec<LogEntry>,
@@ -395,7 +405,9 @@ pub struct ExecutionOutcome {
     pub metadata: ExecutionMetadata,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default, ProtocolSchema,
+)]
 pub enum ExecutionMetadata {
     /// V1: Empty Metadata
     #[default]
@@ -423,7 +435,9 @@ impl fmt::Debug for ExecutionOutcome {
 /// Execution outcome with the identifier.
 /// For a signed transaction, the ID is the hash of the transaction.
 /// For a receipt, the ID is the receipt ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+#[derive(
+    PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq, ProtocolSchema,
+)]
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
@@ -442,7 +456,9 @@ impl ExecutionOutcomeWithId {
 }
 
 /// Execution outcome with path from it to the outcome root and ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+#[derive(
+    PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq, ProtocolSchema,
+)]
 pub struct ExecutionOutcomeWithIdAndProof {
     pub proof: MerklePath,
     pub block_hash: CryptoHash,
@@ -466,7 +482,7 @@ pub fn verify_transaction_signature(
 }
 
 /// A more compact struct, just for storage.
-#[derive(Clone, BorshSerialize, BorshDeserialize, Debug)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, ProtocolSchema)]
 pub struct ExecutionOutcomeWithProof {
     pub proof: MerklePath,
     pub outcome: ExecutionOutcome,

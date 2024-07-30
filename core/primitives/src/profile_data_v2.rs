@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::types::Gas;
+use near_structs_checker_lib::ProtocolSchema;
 use std::fmt;
 use std::ops::Index;
 use strum::IntoEnumIterator;
@@ -16,7 +17,7 @@ use strum::IntoEnumIterator;
 /// It used to store an array that manually mapped `enum Cost` to gas
 /// numbers. Now `ProfileDataV2` and `Cost` are deprecated. But to lookup
 /// old gas profiles from the DB, we need to keep the code around.
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ProfileDataV2 {
     data: DataArray,
 }

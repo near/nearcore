@@ -4664,6 +4664,7 @@ dependencies = [
  "insta",
  "near-account-id",
  "near-primitives-core",
+ "near-structs-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_repr",
@@ -6328,6 +6329,7 @@ version = "0.0.0"
 dependencies = [
  "inventory",
  "near-crypto",
+ "near-parameters",
  "near-primitives",
  "near-primitives-core",
  "near-stable-hasher",

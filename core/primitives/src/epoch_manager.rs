@@ -12,7 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
-use near_structs_checker_lib::ProtocolStruct;
+use near_structs_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
@@ -617,7 +617,15 @@ impl BlockInfoV1 {
 }
 
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct ValidatorWeight(ValidatorId, u64);
 
@@ -631,7 +639,7 @@ pub struct ValidatorWeight(ValidatorId, u64);
     PartialEq,
     Eq,
     serde::Serialize,
-    ProtocolStruct,
+    ProtocolSchema,
 )]
 pub struct EpochInfoV4 {
     pub epoch_height: EpochHeight,
@@ -1321,7 +1329,15 @@ pub mod epoch_info {
 
 /// Information per epoch.
 #[derive(
-    SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize,
+    SmartDefault,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
@@ -1357,7 +1373,9 @@ pub struct EpochInfoV1 {
 }
 
 /// State that a slashed validator can be in.
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
 pub enum SlashState {
     /// Double Sign, will be partially slashed.
     DoubleSign,

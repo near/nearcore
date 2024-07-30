@@ -159,6 +159,15 @@ check-lychee:
     @echo {{ if env("GITHUB_TOKEN", "") != "" { "" } \
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
+# check tools/protocol-schema-check/res/protocol_schema.toml
+check-protocol-schema:
+    rustup toolchain install nightly
+    rustup target add wasm32-unknown-unknown --toolchain nightly
+    # Test that checker is not broken
+    RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
+    # Run the checker
+    RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check
+
 # build target/rpc_errors_schema.json
 build-rpc-errors-schema:
     rm -f target/rpc_errors_schema.json

@@ -2,6 +2,7 @@ use crate::parameter::Parameter;
 use enum_map::{enum_map, EnumMap};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
+use near_structs_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -180,6 +181,7 @@ impl ExtCostsConfig {
     strum::Display,
     strum::EnumIter,
     enum_map::Enum,
+    ProtocolSchema,
 )]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
@@ -281,6 +283,7 @@ pub enum ExtCosts {
     strum::Display,
     strum::EnumIter,
     enum_map::Enum,
+    ProtocolSchema,
 )]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {

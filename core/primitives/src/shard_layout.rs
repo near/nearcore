@@ -2,6 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
+use near_structs_checker_lib::ProtocolSchema;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -307,7 +308,18 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    ProtocolSchema,
+)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,

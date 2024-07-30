@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
 
-#[proc_macro_derive(ProtocolStruct)]
-pub fn protocol_struct(input: TokenStream) -> TokenStream {
-    helper::protocol_struct_impl(input)
+#[proc_macro_derive(ProtocolSchema)]
+pub fn protocol_schema(input: TokenStream) -> TokenStream {
+    helper::protocol_schema_impl(input)
 }
 
 #[cfg(all(enable_const_type_id, feature = "protocol_schema"))]
@@ -12,7 +12,7 @@ mod helper {
     use quote::quote;
     use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, FieldsUnnamed, Variant};
 
-    pub fn protocol_struct_impl(input: TokenStream) -> TokenStream {
+    pub fn protocol_schema_impl(input: TokenStream) -> TokenStream {
         let input = parse_macro_input!(input as DeriveInput);
         let name = &input.ident;
         let info_name = quote::format_ident!("{}_INFO", name);
@@ -22,7 +22,7 @@ mod helper {
             Data::Struct(data_struct) => {
                 let fields = extract_struct_fields(&data_struct.fields);
                 quote! {
-                    near_structs_checker_lib::ProtocolStructInfo::Struct {
+                    near_structs_checker_lib::ProtocolSchemaInfo::Struct {
                         name: stringify!(#name),
                         type_id: #type_id,
                         fields: #fields,
@@ -32,7 +32,7 @@ mod helper {
             Data::Enum(data_enum) => {
                 let variants = extract_enum_variants(&data_enum.variants);
                 quote! {
-                    near_structs_checker_lib::ProtocolStructInfo::Enum {
+                    near_structs_checker_lib::ProtocolSchemaInfo::Enum {
                         name: stringify!(#name),
                         type_id: #type_id,
                         variants: #variants,
@@ -44,13 +44,13 @@ mod helper {
 
         let expanded = quote! {
             #[allow(non_upper_case_globals)]
-            pub static #info_name: near_structs_checker_lib::ProtocolStructInfo = #info;
+            pub static #info_name: near_structs_checker_lib::ProtocolSchemaInfo = #info;
 
             near_structs_checker_lib::inventory::submit! {
                 #info_name
             }
 
-            impl near_structs_checker_lib::ProtocolStruct for #name {}
+            impl near_structs_checker_lib::ProtocolSchema for #name {}
         };
 
         TokenStream::from(expanded)
@@ -191,7 +191,7 @@ mod helper {
 mod helper {
     use proc_macro::TokenStream;
 
-    pub fn protocol_struct_impl(_input: TokenStream) -> TokenStream {
+    pub fn protocol_schema_impl(_input: TokenStream) -> TokenStream {
         TokenStream::new()
     }
 }

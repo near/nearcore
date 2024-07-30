@@ -1,6 +1,7 @@
 use crate::hash::CryptoHash;
 use crate::types::MerkleHash;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_structs_checker_lib::ProtocolSchema;
 
 #[derive(
     Debug,
@@ -11,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
@@ -28,6 +30,7 @@ pub type MerklePath = Vec<MerklePathItem>;
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum Direction {
     Left,

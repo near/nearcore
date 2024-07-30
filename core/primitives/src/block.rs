@@ -14,6 +14,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_structs_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
 use std::collections::BTreeMap;
@@ -38,7 +39,7 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
@@ -49,7 +50,7 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
@@ -61,14 +62,14 @@ pub struct BlockV2 {
 }
 
 /// V2 -> V3: added BlockBodyV1
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV3 {
     pub header: BlockHeader,
     pub body: BlockBodyV1,
 }
 
 /// V3 -> V4: use versioned BlockBody
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV4 {
     pub header: BlockHeader,
     pub body: BlockBody,
@@ -76,7 +77,7 @@ pub struct BlockV4 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub enum Block {
     BlockV1(Arc<BlockV1>),
     BlockV2(Arc<BlockV2>),
