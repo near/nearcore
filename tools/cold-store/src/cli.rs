@@ -43,7 +43,7 @@ enum SubCommand {
     /// the db and perform some sanity checks to make sure this db is suitable
     /// for migration to split storage.
     /// This command expects the following preconditions:
-    /// - config.store.path points to an existing database with kind Archive
+    /// - config.store.path points to an existing database with kind Hot or Archive
     /// - config.cold_store.path points to an existing database with kind Cold
     /// - store_relative_path points to an existing database with kind Rpc
     PrepareHot(PrepareHotCmd),
@@ -376,10 +376,9 @@ impl PrepareHotCmd {
         rpc_store: &Store,
     ) -> anyhow::Result<()> {
         let hot_db_kind = hot_store.get_db_kind()?;
-        if hot_db_kind != Some(DbKind::Archive) {
+        if hot_db_kind != Some(DbKind::Hot) && hot_db_kind != Some(DbKind::Archive) {
             return Err(anyhow::anyhow!(
-                "Unexpected hot_store DbKind, expected: {:?}, got: {:?}",
-                DbKind::Archive,
+                "Unexpected hot_store DbKind, expected: DbKind::Hot or DbKind::Archive, got: {:?}",
                 hot_db_kind,
             ));
         }
@@ -387,8 +386,7 @@ impl PrepareHotCmd {
         let cold_db_kind = cold_store.get_db_kind()?;
         if cold_db_kind != Some(DbKind::Cold) {
             return Err(anyhow::anyhow!(
-                "Unexpected cold_store DbKind, expected: {:?}, got: {:?}",
-                DbKind::Cold,
+                "Unexpected cold_store DbKind, expected: DbKind::Cold, got: {:?}",
                 cold_db_kind,
             ));
         }
@@ -396,8 +394,7 @@ impl PrepareHotCmd {
         let rpc_db_kind = rpc_store.get_db_kind()?;
         if rpc_db_kind != Some(DbKind::RPC) {
             return Err(anyhow::anyhow!(
-                "Unexpected rpc_store DbKind, expected: {:?}, got: {:?}",
-                DbKind::RPC,
+                "Unexpected rpc_store DbKind, expected: DbKind::RPC, got: {:?}",
                 rpc_db_kind,
             ));
         }

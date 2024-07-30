@@ -75,7 +75,7 @@ pub struct OldChunkData {
     pub storage_context: StorageContext,
 }
 
-pub(crate) struct ReshardingData {
+pub struct ReshardingData {
     pub resharding_state_roots: ReshardingStateRoots,
     pub state_changes: StateChangesForResharding,
     pub block_height: BlockHeight,
@@ -85,7 +85,7 @@ pub(crate) struct ReshardingData {
 /// Reason to update a shard when new block appears on chain.
 /// All types include state roots for children shards in case of resharding.
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum ShardUpdateReason {
+pub enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.
     NewChunk(NewChunkData),
@@ -120,7 +120,7 @@ pub struct StorageContext {
 
 /// Processes shard update with given block and shard.
 /// Doesn't modify chain, only produces result to be applied later.
-pub(crate) fn process_shard_update(
+pub fn process_shard_update(
     parent_span: &tracing::Span,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -178,7 +178,8 @@ pub fn apply_new_chunk(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
-        shard_id)
+        shard_id,
+        ?apply_reason)
     .entered();
     let gas_limit = chunk_header.gas_limit();
 
@@ -243,7 +244,8 @@ pub fn apply_old_chunk(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
-        shard_id)
+        shard_id,
+        ?apply_reason)
     .entered();
 
     let storage_config = RuntimeStorageConfig {

@@ -10,9 +10,10 @@ use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
-use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, StoredChunkStateTransitionData,
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateTransition, ChunkStateWitness,
 };
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 
@@ -62,7 +63,7 @@ impl Client {
             .contains(my_signer.validator_id())
         {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), "send_chunk_endorsement_from_chunk_producer");
+            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
             send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),

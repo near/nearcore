@@ -64,7 +64,7 @@ use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
@@ -434,10 +434,22 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
+                let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
+                let contract = prepare_function_call(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    function_call,
+                    &apply_state.config,
+                    epoch_info_provider,
+                    None,
+                );
+                let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
                     apply_state,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    account,
                     receipt,
                     action_receipt,
                     promise_results,
@@ -446,8 +458,9 @@ impl Runtime {
                     function_call,
                     action_hash,
                     &apply_state.config,
-                    action_index + 1 == actions.len(),
+                    is_last_action,
                     epoch_info_provider,
+                    contract,
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
@@ -1448,11 +1461,11 @@ impl Runtime {
         receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
 
         // Step 3: process transactions.
-        let local_receipts = self.process_transactions(&mut processing_state, &mut receipt_sink)?;
+        self.process_transactions(&mut processing_state, &mut receipt_sink)?;
 
         // Step 4: process receipts.
         let process_receipts_result =
-            self.process_receipts(&mut processing_state, &mut receipt_sink, &local_receipts)?;
+            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
@@ -1501,17 +1514,18 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Processes a collection of transactions. Returns the receipts generated during processing.
+    /// Processes a collection of transactions.
+    ///
+    /// Fills the `processing_state` with local receipts generated during processing of the
+    /// transactions.
     fn process_transactions<'a>(
         &self,
         processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
-    ) -> Result<Vec<Receipt>, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
-        let mut local_receipts = Vec::new();
-
         for signed_transaction in processing_state.transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
                 state_update,
@@ -1520,7 +1534,7 @@ impl Runtime {
                 &mut processing_state.stats,
             )?;
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
-                local_receipts.push(receipt);
+                processing_state.local_receipts.push_back(receipt);
             } else {
                 receipt_sink.forward_or_buffer_receipt(
                     receipt,
@@ -1538,7 +1552,7 @@ impl Runtime {
             processing_state.outcomes.push(outcome_with_id);
         }
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
-        Ok(local_receipts)
+        Ok(())
     }
 
     /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
@@ -1629,14 +1643,16 @@ impl Runtime {
         compute_limit: u64,
         proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
-        local_receipts: &'a [Receipt],
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
+        let local_receipt_count = processing_state.local_receipts.len();
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&local_receipts);
+            let (front, back) = processing_state.local_receipts.as_slices();
+            _ = prefetcher.prefetch_receipts_data(front);
+            _ = prefetcher.prefetch_receipts_data(back);
         }
-        for receipt in local_receipts.iter() {
+        while let Some(receipt) = processing_state.next_local_receipt() {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1644,14 +1660,14 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    receipt,
+                    &receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 self.process_receipt_with_metrics(
-                    receipt,
+                    &receipt,
                     &mut processing_state,
                     receipt_sink,
                     validator_proposals,
@@ -1659,7 +1675,7 @@ impl Runtime {
             }
         }
         processing_state.metrics.local_receipts_done(
-            local_receipts.len() as u64,
+            local_receipt_count as u64,
             local_processing_start.elapsed(),
             processing_state.total.gas,
             processing_state.total.compute,
@@ -1786,7 +1802,6 @@ impl Runtime {
         &self,
         processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
-        local_receipts: &'a [Receipt],
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
         let mut validator_proposals = vec![];
         let protocol_version = processing_state.protocol_version;
@@ -1808,7 +1823,6 @@ impl Runtime {
             compute_limit,
             proof_size_limit,
             &mut validator_proposals,
-            local_receipts,
         )?;
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
@@ -2285,6 +2299,7 @@ impl<'a> ApplyProcessingState<'a> {
             stats: self.stats,
             outcomes: Vec::new(),
             metrics: metrics::ApplyMetrics::default(),
+            local_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
         }
@@ -2304,8 +2319,16 @@ struct ApplyProcessingReceiptState<'a> {
     stats: ApplyStats,
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
+    local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
+}
+
+impl<'a> ApplyProcessingReceiptState<'a> {
+    /// Obtain the next receipt that should be executed.
+    fn next_local_receipt(&mut self) -> Option<Receipt> {
+        self.local_receipts.pop_front()
+    }
 }
 
 #[cfg(test)]

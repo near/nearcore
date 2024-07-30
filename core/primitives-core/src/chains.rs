@@ -11,3 +11,6 @@ pub const STATELESSNET: &str = "statelessnet";
 
 /// Pre-release testing environment.
 pub const MOCKNET: &str = "mocknet";
+
+/// Used by ft-benchmark.  http://go/crt-benchmark
+pub const BENCHMARKNET: &str = "benchmarknet";

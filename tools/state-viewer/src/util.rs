@@ -1,8 +1,13 @@
 use std::{path::Path, sync::Arc};
 
-use near_chain::{types::Tip, Block, BlockHeader, ChainStore, ChainStoreAccess};
+use near_chain::{
+    types::{ApplyChunkResult, Tip},
+    Block, BlockHeader, ChainStore, ChainStoreAccess,
+};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::types::{BlockHeight, StateRoot};
+use near_primitives::types::{
+    chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot,
+};
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 
@@ -86,5 +91,101 @@ fn get_last_final_from_height(height: u64, head: &Tip, chain_store: &ChainStore)
             cur_height += 1;
             continue;
         }
+    }
+}
+
+fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+    // explicitly enumerate the versions in a match here first so that if a new version is
+    // added, we'll get a compile error here and be reminded to update it correctly.
+    //
+    // edit with v3: To avoid too many explicit combinations, use wildcards for
+    // versions >= 3. The compiler will still notice the missing `(v1, new_v)`
+    // combinations.
+    match (&l, &r) {
+        (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
+        (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
+        (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
+        (ChunkExtra::V1(_), ChunkExtra::V2(_))
+        | (ChunkExtra::V2(_), ChunkExtra::V1(_))
+        | (_, ChunkExtra::V3(_))
+        | (ChunkExtra::V3(_), _) => {}
+    };
+    if l.state_root() != r.state_root() {
+        return false;
+    }
+    if l.outcome_root() != r.outcome_root() {
+        return false;
+    }
+    if l.gas_used() != r.gas_used() {
+        return false;
+    }
+    if l.gas_limit() != r.gas_limit() {
+        return false;
+    }
+    if l.balance_burnt() != r.balance_burnt() {
+        return false;
+    }
+    if l.congestion_info() != r.congestion_info() {
+        return false;
+    }
+    l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
+}
+
+pub fn resulting_chunk_extra(
+    result: &ApplyChunkResult,
+    gas_limit: Gas,
+    protocol_version: ProtocolVersion,
+) -> ChunkExtra {
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
+    ChunkExtra::new(
+        protocol_version,
+        &result.new_root,
+        outcome_root,
+        result.validator_proposals.clone(),
+        result.total_gas_burnt,
+        gas_limit,
+        result.total_balance_burnt,
+        result.congestion_info,
+    )
+}
+
+pub fn check_apply_block_result(
+    block: &Block,
+    apply_result: &ApplyChunkResult,
+    epoch_manager: &EpochManagerHandle,
+    chain_store: &ChainStore,
+    shard_id: ShardId,
+) -> anyhow::Result<()> {
+    let height = block.header().height();
+    let block_hash = block.header().hash();
+    let protocol_version = block.header().latest_protocol_version();
+    let new_chunk_extra = resulting_chunk_extra(
+        apply_result,
+        block.chunks()[shard_id as usize].gas_limit(),
+        protocol_version,
+    );
+    println!(
+        "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
+        shard_id, height, &new_chunk_extra,
+    );
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    if block.chunks()[shard_id as usize].height_included() == height {
+        if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
+            if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
+                println!("new chunk extra matches old chunk extra");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "mismatch in resulting chunk extra.\nold: {:?}\nnew: {:?}",
+                    &old_chunk_extra,
+                    &new_chunk_extra
+                ))
+            }
+        } else {
+            Err(anyhow::anyhow!("No existing chunk extra available"))
+        }
+    } else {
+        println!("No existing chunk extra available");
+        Ok(())
     }
 }

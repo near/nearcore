@@ -3,9 +3,9 @@ use near_o11y::metrics::{
     try_create_int_gauge_vec, HistogramVec, IntGaugeVec,
 };
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
-pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static APPLY_CHUNK_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_apply_chunk_delay_seconds",
         "Time to process a chunk. Gas used by the chunk is a metric label, rounded up to 100 teragas.",
@@ -15,7 +15,7 @@ pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static DELAYED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static DELAYED_RECEIPTS_COUNT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_delayed_receipts_count",
         "The count of the delayed receipts. Indicator of congestion.",
@@ -24,7 +24,7 @@ pub(crate) static DELAYED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static PREPARE_TX_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static PREPARE_TX_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_size",
         "Sum of transaction sizes per produced chunk, as a histogram",
@@ -36,7 +36,7 @@ pub(crate) static PREPARE_TX_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static PREPARE_TX_GAS: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static PREPARE_TX_GAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_gas",
         "How much gas was spent for processing new transactions when producing a chunk.",
@@ -51,7 +51,7 @@ pub(crate) static PREPARE_TX_GAS: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static PREPARE_TX_REJECTED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static PREPARE_TX_REJECTED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_rejected",
         "The number of transactions rejected when producing a chunk.",
@@ -69,7 +69,7 @@ pub(crate) static PREPARE_TX_REJECTED: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static CONGESTION_PREPARE_TX_GAS_LIMIT: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub(crate) static CONGESTION_PREPARE_TX_GAS_LIMIT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_congestion_prepare_tx_gas_limit",
         "How much gas the shard spends at most per chunk to convert new transactions to receipts.",
@@ -78,7 +78,7 @@ pub(crate) static CONGESTION_PREPARE_TX_GAS_LIMIT: Lazy<IntGaugeVec> = Lazy::new
     .unwrap()
 });
 
-pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub static APPLYING_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_applying_chunks_time",
         "Time taken to apply chunks per shard",
@@ -88,7 +88,7 @@ pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_obtain_part_delay_sec",
         "Latency of applying a state part",
@@ -98,7 +98,7 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<HistogramVec> = Lazy::new(|
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_APPLY_PART_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static STATE_SYNC_APPLY_PART_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_apply_part_delay_sec",
         "Latency of applying a state part",

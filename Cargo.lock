@@ -3324,7 +3324,6 @@ dependencies = [
  "near-wallet-contract",
  "nearcore",
  "node-runtime",
- "once_cell",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand",
@@ -3935,7 +3934,6 @@ version = "0.0.0"
 dependencies = [
  "actix-rt",
  "near-store",
- "once_cell",
 ]
 
 [[package]]
@@ -4061,7 +4059,6 @@ dependencies = [
  "near-primitives",
  "near-time",
  "num-rational 0.3.2",
- "once_cell",
  "serde",
  "serde_json",
  "sha2 0.10.6",
@@ -4108,7 +4105,6 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
- "once_cell",
  "rand",
  "reed-solomon-erasure",
  "strum",
@@ -4230,7 +4226,7 @@ dependencies = [
  "near-account-id",
  "near-config-utils",
  "near-stdx",
- "once_cell",
+ "near-structs-checker-lib",
  "primitive-types 0.10.1",
  "secp256k1",
  "serde",
@@ -4275,7 +4271,6 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-time",
- "once_cell",
  "prometheus",
  "serde",
  "serde_json",
@@ -4299,7 +4294,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "num-rational 0.3.2",
- "once_cell",
  "primitive-types 0.10.1",
  "rand",
  "rand_hc",
@@ -4381,7 +4375,6 @@ dependencies = [
  "actix",
  "anyhow",
  "futures",
- "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-crypto",
@@ -4393,7 +4386,6 @@ dependencies = [
  "near-store",
  "nearcore",
  "node-runtime",
- "once_cell",
  "rocksdb",
  "serde",
  "serde_json",
@@ -4433,7 +4425,6 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-rpc-error-macro",
- "once_cell",
  "serde",
  "serde_json",
  "serde_with",
@@ -4476,7 +4467,6 @@ dependencies = [
  "near-jsonrpc-tests",
  "near-primitives",
  "near-time",
- "once_cell",
  "serde",
  "serde_json",
  "tokio",
@@ -4518,7 +4508,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-time",
- "once_cell",
  "serde",
  "serde_json",
 ]
@@ -4562,7 +4551,6 @@ dependencies = [
  "near-primitives-core",
  "near-store",
  "nearcore",
- "once_cell",
  "openssl-probe",
  "rand_core 0.5.1",
  "rocksdb",
@@ -4608,7 +4596,6 @@ dependencies = [
  "near-performance-metrics-macros",
  "near-primitives",
  "near-store",
- "once_cell",
  "opentelemetry",
  "parking_lot 0.12.1",
  "pin-project",
@@ -4649,7 +4636,6 @@ dependencies = [
  "near-crypto",
  "near-fmt",
  "near-primitives-core",
- "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
@@ -4696,7 +4682,6 @@ dependencies = [
  "bytesize",
  "futures",
  "libc",
- "once_cell",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4723,7 +4708,6 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-time",
- "once_cell",
  "prometheus",
  "tokio",
  "tracing",
@@ -4737,7 +4721,6 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
- "once_cell",
  "rand",
 ]
 
@@ -4772,7 +4755,6 @@ dependencies = [
  "near-structs-checker-lib",
  "near-time",
  "num-rational 0.3.2",
- "once_cell",
  "ordered-float",
  "primitive-types 0.10.1",
  "rand",
@@ -4810,6 +4792,26 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.6",
  "thiserror",
+]
+
+[[package]]
+name = "near-replay-archive-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh 1.2.0",
+ "clap",
+ "near-chain",
+ "near-chain-configs",
+ "near-chain-primitives",
+ "near-epoch-manager",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "state-viewer",
+ "tracing",
 ]
 
 [[package]]
@@ -4883,7 +4885,6 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-time",
- "once_cell",
  "sha2 0.10.6",
  "time",
  "tokio",
@@ -4907,7 +4908,6 @@ dependencies = [
  "near-primitives-core",
  "near-store",
  "nearcore",
- "once_cell",
  "reqwest",
  "tokio",
  "tracing",
@@ -4949,7 +4949,6 @@ dependencies = [
  "near-time",
  "near-vm-runner",
  "num_cpus",
- "once_cell",
  "rand",
  "rayon",
  "reed-solomon-erasure",
@@ -5001,7 +5000,6 @@ dependencies = [
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
- "once_cell",
  "openssl",
  "serde",
  "serde_json",
@@ -5013,7 +5011,6 @@ name = "near-test-contracts"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
- "once_cell",
  "rand",
  "wasm-encoder 0.27.0",
  "wasm-smith",
@@ -5024,7 +5021,6 @@ dependencies = [
 name = "near-time"
 version = "0.0.0"
 dependencies = [
- "once_cell",
  "serde",
  "serde_json",
  "time",
@@ -5072,7 +5068,6 @@ dependencies = [
  "enumset",
  "finite-wasm",
  "hashbrown 0.14.2",
- "lazy_static",
  "memoffset 0.8.0",
  "more-asserts",
  "near-vm-compiler",
@@ -5104,7 +5099,6 @@ dependencies = [
  "cfg-if 1.0.0",
  "enumset",
  "finite-wasm",
- "lazy_static",
  "more-asserts",
  "near-vm-compiler",
  "near-vm-types",
@@ -5156,7 +5150,6 @@ dependencies = [
  "near-vm-types",
  "near-vm-vm",
  "num-rational 0.3.2",
- "once_cell",
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",
  "prefix-sum-vec",
@@ -5338,7 +5331,6 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
- "once_cell",
  "primitive-types 0.10.1",
  "rand",
  "rayon",
@@ -5385,12 +5377,12 @@ dependencies = [
  "near-performance-metrics",
  "near-ping",
  "near-primitives",
+ "near-replay-archive-tool",
  "near-state-parts",
  "near-state-parts-dump-check",
  "near-store",
  "near-undo-block",
  "nearcore",
- "once_cell",
  "openssl-probe",
  "opentelemetry",
  "rayon",
@@ -5451,7 +5443,6 @@ dependencies = [
  "near-wallet-contract",
  "num-bigint 0.3.3",
  "num-traits",
- "once_cell",
  "rand",
  "rayon",
  "serde_json",
@@ -5665,9 +5656,9 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "openssl"
-version = "0.10.60"
+version = "0.10.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79a4c6c3a2b158f7f8f2a2fc5a969fa3a068df6fc9dbb4a43845436e3af7c800"
+checksum = "9529f4786b70a3e8c61e11179af17ab6188ad8d0ded78c5529441ed39d4bd9c1"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if 1.0.0",
@@ -5697,18 +5688,18 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "300.1.6+3.1.4"
+version = "300.3.1+3.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439fac53e092cd7442a3660c85dde4643ab3b5bd39040912388dcdabf6b88085"
+checksum = "7259953d42a81bf137fbbd73bd30a8e1914d6dce43c2b90ed575783a22608b91"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.96"
+version = "0.9.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3812c071ba60da8b5677cc12bcb1d42989a65553772897a7e0355545a819838f"
+checksum = "7f9e8deee91df40a943c71b917e5874b951d32a802526c85721ce3b776c929d6"
 dependencies = [
  "cc",
  "libc",
@@ -6357,6 +6348,7 @@ name = "protocol-schema-check"
 version = "0.0.0"
 dependencies = [
  "inventory",
+ "near-crypto",
  "near-primitives",
  "near-primitives-core",
  "near-stable-hasher",
@@ -7534,7 +7526,6 @@ dependencies = [
  "near-time",
  "nearcore",
  "node-runtime",
- "once_cell",
  "rand",
  "rayon",
  "redis",
@@ -7760,7 +7751,6 @@ dependencies = [
  "near-primitives",
  "near-test-contracts",
  "node-runtime",
- "once_cell",
 ]
 
 [[package]]

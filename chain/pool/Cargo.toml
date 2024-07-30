@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 borsh.workspace = true
-once_cell.workspace = true
 rand.workspace = true
 
 near-crypto.workspace = true

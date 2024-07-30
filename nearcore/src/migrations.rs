@@ -62,12 +62,9 @@ impl<'a> Migrator<'a> {
 
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
     fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
-        // TODO(mina86): Once open ranges in match are stabilised, get rid of
-        // this constant and change the match to be 27..DB_VERSION.
-        const LAST_SUPPORTED: DbVersion = DB_VERSION - 1;
         match version {
             0..=26 => Err("1.26"),
-            27..=LAST_SUPPORTED => Ok(()),
+            27..DB_VERSION => Ok(()),
             _ => unreachable!(),
         }
     }

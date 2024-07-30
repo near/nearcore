@@ -12,9 +12,6 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
 use tracing::{debug, warn};
 
-/// Maximum number of block requested at once in BlockSync
-const MAX_BLOCK_REQUESTS: usize = 5;
-
 /// Expect to receive the requested block in this time.
 const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
 
@@ -71,6 +68,7 @@ impl BlockSync {
         chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
+        max_block_requests: usize,
     ) -> Result<bool, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
@@ -83,7 +81,7 @@ impl BlockSync {
                 return Ok(true);
             }
             BlockSyncDue::RequestBlock => {
-                self.block_sync(chain, highest_height_peers)?;
+                self.block_sync(chain, highest_height_peers, max_block_requests)?;
             }
             BlockSyncDue::WaitForBlock => {
                 // Do nothing.
@@ -176,6 +174,7 @@ impl BlockSync {
         &mut self,
         chain: &Chain,
         highest_height_peers: &[HighestHeightPeerInfo],
+        max_block_requests: usize,
     ) -> Result<(), near_chain::Error> {
         // Update last request now because we want to update it whether or not
         // the rest of the logic succeeds.
@@ -187,11 +186,11 @@ impl BlockSync {
         // The last block on the canonical chain that is processed (is in store).
         let reference_hash = self.get_last_processed_block(chain)?;
 
-        // Look ahead for MAX_BLOCK_REQUESTS block headers and add requests for
+        // Look ahead for max_block_requests block headers and add requests for
         // blocks that we don't have yet.
         let mut requests = vec![];
         let mut next_hash = reference_hash;
-        for _ in 0..MAX_BLOCK_REQUESTS {
+        for _ in 0..max_block_requests {
             match chain.chain_store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = hash,
                 Err(e) => match e {
@@ -275,7 +274,7 @@ impl BlockSync {
             }
             Some(request) => {
                 // Head got updated, no need to continue waiting for the requested block.
-                // TODO: This doesn't work nicely with a node requesting MAX_BLOCK_REQUESTS blocks at a time.
+                // TODO: This doesn't work nicely with a node requesting config.max_blocks_requests blocks at a time.
                 // TODO: Does receiving a response to one of those requests cancel and restart the other requests?
                 let head_got_updated = head.last_block_hash != request.head;
                 // Timeout elapsed
@@ -371,6 +370,7 @@ mod test {
         let mut capture = TracingCapture::enable();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
+        let max_block_requests = 10;
         let mut block_sync = BlockSync::new(
             Clock::real(),
             network_adapter.as_multi_sender(),
@@ -383,7 +383,7 @@ mod test {
         let mut env =
             TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
-        for i in 1..5 * MAX_BLOCK_REQUESTS + 1 {
+        for i in 1..5 * max_block_requests + 1 {
             let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
             blocks.push(block.clone());
             env.process_block(0, block, Provenance::PRODUCED);
@@ -396,10 +396,10 @@ mod test {
 
         // fetch three blocks at a time
         for i in 0..3 {
-            block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+            block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
 
             let expected_blocks: Vec<_> =
-                blocks[i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS].to_vec();
+                blocks[i * max_block_requests..(i + 1) * max_block_requests].to_vec();
             check_hashes_from_network_adapter(
                 &network_adapter,
                 expected_blocks.iter().map(|b| *b.hash()).collect(),
@@ -412,41 +412,41 @@ mod test {
 
         // Now test when the node receives the block out of order
         // fetch the next three blocks
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
         check_hashes_from_network_adapter(
             &network_adapter,
-            (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
+            (3 * max_block_requests..4 * max_block_requests).map(|h| *blocks[h].hash()).collect(),
         );
-        // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
+        // assumes that we only get block[4*max_block_requests-1]
         let _ = env.clients[1].process_block_test(
-            MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
+            MaybeValidated::from(blocks[4 * max_block_requests - 1].clone()),
             Provenance::NONE,
         );
 
-        // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        // the next block sync should not request block[4*max_block_requests-1] again
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
         check_hashes_from_network_adapter(
             &network_adapter,
-            (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS - 1)
+            (3 * max_block_requests..4 * max_block_requests - 1)
                 .map(|h| *blocks[h].hash())
                 .collect(),
         );
 
         // Receive all blocks. Should not request more. As an extra
         // complication, pause the processing of one block.
-        env.pause_block_processing(&mut capture, blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
-        for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
+        env.pause_block_processing(&mut capture, blocks[4 * max_block_requests - 1].hash());
+        for i in 3 * max_block_requests..5 * max_block_requests {
             let _ = env.clients[1]
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
 
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
         // Now finish paused processing and sanity check that we
         // still are fully synced.
-        env.resume_block_processing(blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
+        env.resume_block_processing(blocks[4 * max_block_requests - 1].hash());
         wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
@@ -456,6 +456,7 @@ mod test {
     fn test_block_sync_archival() {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
+        let max_block_requests = 10;
         let mut block_sync = BlockSync::new(
             Clock::real(),
             network_adapter.as_multi_sender(),
@@ -479,7 +480,7 @@ mod test {
         env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
         assert!(challenges.is_empty());
 
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         // We don't have archival peers, and thus cannot request any blocks
         assert_eq!(requested_block_hashes, HashSet::new());
@@ -489,11 +490,11 @@ mod test {
             peer.archival = true;
         }
 
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert_eq!(
             requested_block_hashes,
-            blocks.iter().take(MAX_BLOCK_REQUESTS).map(|b| *b.hash()).collect::<HashSet<_>>()
+            blocks.iter().take(max_block_requests).map(|b| *b.hash()).collect::<HashSet<_>>()
         );
     }
 }

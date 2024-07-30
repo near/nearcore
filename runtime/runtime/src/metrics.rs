@@ -11,10 +11,10 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::ShardId;
 use near_store::trie::SubtreeSize;
 use near_store::Trie;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::time::Duration;
 
-pub static ACTION_CALLED_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static ACTION_CALLED_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_action_called_count",
         "Number of times given action has been called since starting this node",
@@ -23,7 +23,7 @@ pub static ACTION_CALLED_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static TRANSACTION_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+pub static TRANSACTION_PROCESSED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_processed_total",
         "The number of transactions processed since starting this node",
@@ -31,7 +31,7 @@ pub static TRANSACTION_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static INCOMING_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static INCOMING_RECEIPT_PROCESSED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_incoming_receipt_processed_total",
         "The number of incoming receipts processed since starting this node",
@@ -40,7 +40,7 @@ pub static INCOMING_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| 
     .unwrap()
 });
 
-pub static INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+pub static INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     try_create_counter_vec(
         "near_incoming_receipt_processing_seconds_total",
         "The time spent on processing incoming receipts since starting this node",
@@ -49,7 +49,7 @@ pub static INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::n
     .unwrap()
 });
 
-pub static DELAYED_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static DELAYED_RECEIPT_PROCESSED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_delayed_receipt_processed_total",
         "The number of delayed receipts processed since starting this node",
@@ -58,7 +58,7 @@ pub static DELAYED_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+pub static DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     try_create_counter_vec(
         "near_delayed_receipt_processing_seconds_total",
         "The time spent on processing delayed receipts since starting this node",
@@ -67,7 +67,7 @@ pub static DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::ne
     .unwrap()
 });
 
-pub static LOCAL_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static LOCAL_RECEIPT_PROCESSED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_local_receipt_processed_total",
         "The number of local receipts processed since starting this node",
@@ -76,7 +76,7 @@ pub static LOCAL_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+pub static LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     try_create_counter_vec(
         "near_local_receipt_processing_seconds_total",
         "The time spent on processing local receipts since starting this node",
@@ -85,7 +85,7 @@ pub static LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(
     .unwrap()
 });
 
-pub static YIELD_TIMEOUTS_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static YIELD_TIMEOUTS_PROCESSED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_yield_timeouts_processed_total",
         "The number of yield timeouts processed since starting this node",
@@ -94,7 +94,7 @@ pub static YIELD_TIMEOUTS_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+pub static YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL: LazyLock<CounterVec> = LazyLock::new(|| {
     try_create_counter_vec(
         "near_yield_timeouts_processing_seconds_total",
         "The time spent on processing yield timeouts since starting this node",
@@ -103,7 +103,7 @@ pub static YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new
     .unwrap()
 });
 
-pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_processed_successfully_total",
         "The number of transactions processed successfully since starting this node",
@@ -111,14 +111,14 @@ pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::ne
     .unwrap()
 });
 
-pub static TRANSACTION_PROCESSED_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+pub static TRANSACTION_PROCESSED_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_processed_failed_total",
         "The number of transactions processed and failed since starting this node",
     )
     .unwrap()
 });
-pub static PREFETCH_ENQUEUED: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_ENQUEUED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_enqueued",
         "Prefetch requests queued up",
@@ -126,7 +126,7 @@ pub static PREFETCH_ENQUEUED: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PREFETCH_QUEUE_FULL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static PREFETCH_QUEUE_FULL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_queue_full",
         "Prefetch requests failed to queue up",
@@ -134,7 +134,7 @@ pub static PREFETCH_QUEUE_FULL: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static FUNCTION_CALL_PROCESSED: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static FUNCTION_CALL_PROCESSED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed",
         "The number of function calls processed since starting this node",
@@ -142,39 +142,43 @@ pub static FUNCTION_CALL_PROCESSED: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
+pub static FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
         "near_function_call_processed_function_call_errors",
         "The number of function calls resulting in function call errors, since starting this node",
         &["error_type"],
     )
     .unwrap()
-});
-pub static FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
+    });
+pub static FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
         "near_function_call_processed_compilation_errors",
         "The number of function calls resulting in compilation errors, since starting this node",
         &["error_type"],
     )
     .unwrap()
-});
-pub static FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
+    });
+pub static FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
         "near_function_call_processed_method_resolve_errors",
         "The number of function calls resulting in method resolve errors, since starting this node",
         &["error_type"],
     )
     .unwrap()
-});
-pub static FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_function_call_processed_wasm_trap_errors",
-        "The number of function calls resulting in wasm trap errors, since starting this node",
-        &["error_type"],
-    )
-    .unwrap()
-});
-pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    });
+pub static FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_function_call_processed_wasm_trap_errors",
+            "The number of function calls resulting in wasm trap errors, since starting this node",
+            &["error_type"],
+        )
+        .unwrap()
+    });
+pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed_host_errors",
         "The number of function calls resulting in host errors, since starting this node",
@@ -182,7 +186,7 @@ pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: Lazy<IntCounterVec> = Lazy::new(
     )
     .unwrap()
 });
-pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed_cache_errors",
         "The number of function calls resulting in VM cache errors, since starting this node",
@@ -190,7 +194,7 @@ pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: Lazy<IntCounterVec> = Lazy::new
     )
     .unwrap()
 });
-static CHUNK_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_compute",
         "Compute time by chunk, as a histogram in ms. Reported for all applied chunks, even when not included in a block.",
@@ -199,7 +203,7 @@ static CHUNK_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_tgas",
         "Tgas burnt by chunk, as a histogram in ms. Reported for all applied chunks, even when not included in a block.",
@@ -208,7 +212,7 @@ static CHUNK_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_LOCAL_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_LOCAL_RECEIPTS_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_local_receipt_compute",
         "Compute time for applying local receipts by chunk, as a histogram in ms",
@@ -217,7 +221,7 @@ static CHUNK_LOCAL_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_LOCAL_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_LOCAL_RECEIPTS_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_local_receipt_tgas",
         "Tgas burnt for applying local receipts by chunk, as a histogram in ms",
@@ -226,7 +230,7 @@ static CHUNK_LOCAL_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_DELAYED_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_DELAYED_RECEIPTS_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_delayed_receipt_compute",
         "Compute time for applying delayed receipts by chunk, as a histogram in ms",
@@ -235,7 +239,7 @@ static CHUNK_DELAYED_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_DELAYED_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_DELAYED_RECEIPTS_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_delayed_receipt_tgas",
         "Tgas burnt for applying delayed receipts by chunk, as a histogram in ms",
@@ -244,7 +248,7 @@ static CHUNK_DELAYED_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_INC_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_INC_RECEIPTS_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_inc_receipt_compute",
         "Compute time for applying incoming receipts by chunk, as a histogram in ms",
@@ -253,7 +257,7 @@ static CHUNK_INC_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_INC_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_INC_RECEIPTS_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_inc_receipt_tgas",
         "Tgas burnt for applying incoming receipts by chunk, as a histogram in ms",
@@ -262,7 +266,7 @@ static CHUNK_INC_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_YIELD_TIMEOUTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_YIELD_TIMEOUTS_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_yield_timeouts_compute",
         "Compute time for triggering timed-out yields by chunk, as a histogram in ms",
@@ -271,7 +275,7 @@ static CHUNK_YIELD_TIMEOUTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_YIELD_TIMEOUTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_YIELD_TIMEOUTS_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_yield_timeouts_tgas",
         "Tgas burnt for triggering timed-out yields by chunk, as a histogram in ms",
@@ -280,7 +284,7 @@ static CHUNK_YIELD_TIMEOUTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_TX_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_TX_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_tx_compute",
         "Compute time for transaction validation by chunk, as a histogram in ms",
@@ -289,7 +293,7 @@ static CHUNK_TX_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_TX_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_tx_tgas",
         "Tgas burnt for transaction validation by chunk, as a histogram",
@@ -298,7 +302,7 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static RECEIPT_RECORDED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+pub static RECEIPT_RECORDED_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_receipt_recorded_size",
         "Size of storage proof recorded when executing a receipt",
@@ -307,7 +311,7 @@ pub static RECEIPT_RECORDED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<HistogramVec> = Lazy::new(|| {
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_receipt_recorded_size_upper_bound",
         "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
@@ -316,7 +320,7 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<HistogramVec> = Lazy::new(|| 
     )
     .unwrap()
 });
-pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_receipt_recorded_size_upper_bound_ratio",
         "Ratio of upper bound to true recorded size, calculated only for sizes larger than 100KB, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
@@ -325,7 +329,7 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<HistogramVec> = Lazy::n
     )
     .unwrap()
 });
-pub static CHUNK_RECORDED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+pub static CHUNK_RECORDED_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size",
         "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
@@ -334,7 +338,7 @@ pub static CHUNK_RECORDED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<HistogramVec> = Lazy::new(|| {
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size_upper_bound",
         "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
@@ -343,7 +347,7 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size_upper_bound_ratio",
         "Ratio of upper bound to true storage proof size, equal to (near_chunk_recorded_size_upper_bound / near_chunk_recorded_size)",
@@ -353,16 +357,18 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
-static CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
+static CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS: LazyLock<IntGaugeVec> = LazyLock::new(
+    || {
+        try_create_int_gauge_vec(
         "near_congestion_receipt_forwarding_unused_capacity_gas",
         "How much additional gas could have been forwarded in the same chunk from one shard to another. An indicator for congestion backpressure.",
         &["sender_shard_id", "receiver_shard_id"],
     )
     .unwrap()
-});
+    },
+);
 
-static CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN: Lazy<IntGaugeVec> = Lazy::new(|| {
+static CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_congestion_outgoing_receipt_buffer_len",
         "Number of receipts currently stored in the outgoing receipt buffer which were held back because the receiver is congested.",
@@ -371,7 +377,7 @@ static CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN: Lazy<IntGaugeVec> = Lazy::new(|| 
     .unwrap()
 });
 
-static CONGESTION_LEVEL: Lazy<GaugeVec> = Lazy::new(|| {
+static CONGESTION_LEVEL: LazyLock<GaugeVec> = LazyLock::new(|| {
     try_create_gauge_vec(
         "near_congestion_level",
         "Summary of congestion per shard, between 0.0 and 1.0.",
@@ -380,7 +386,7 @@ static CONGESTION_LEVEL: Lazy<GaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static CONGESTION_RECEIPT_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+static CONGESTION_RECEIPT_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_congestion_receipt_bytes",
         "Size of all receipts currently delayed or buffered due to congestion.",
@@ -389,7 +395,7 @@ static CONGESTION_RECEIPT_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static CONGESTION_INCOMING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+static CONGESTION_INCOMING_GAS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_congestion_incoming_gas",
         "Gas of all receipts currently delayed due to congestion.",
@@ -398,7 +404,7 @@ static CONGESTION_INCOMING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+static CONGESTION_OUTGOING_GAS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_congestion_outgoing_gas",
         "Gas of all receipts in the outgoing receipts buffer due to congestion on other shards.",
@@ -407,7 +413,7 @@ static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static CHUNK_RECORDED_TRIE_COLUMN_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_RECORDED_TRIE_COLUMN_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_trie_column_size",
         "Size of data belonging to a specific trie column inside chunk's recorded storage proof",
@@ -417,7 +423,7 @@ static CHUNK_RECORDED_TRIE_COLUMN_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_trie_nodes_values_size",
         "Measures size of values and non-value nodes in the recorded trie. Allows to measure how much overhead there is from non-value nodes.",
@@ -427,7 +433,7 @@ static CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE: Lazy<HistogramVec> = Lazy::new(|| 
     .unwrap()
 });
 
-pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_receipts_limited_by",
         "Number of chunks where the number of processed receipts was limited by a certain factor.",

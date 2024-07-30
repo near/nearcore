@@ -12,6 +12,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
@@ -78,7 +79,9 @@ use near_primitives::state_sync::{
     get_num_state_parts, BitArray, CachedParts, ReceiptProofResponse, RootProof,
     ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessSize};
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessSize,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -1463,7 +1466,7 @@ impl Chain {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
-            match self.postprocess_block(
+            match self.postprocess_ready_block(
                 me,
                 block_hash,
                 apply_result,
@@ -1845,7 +1848,7 @@ impl Chain {
     /// Run postprocessing on this block, which stores the block on chain.
     /// Check that if accepting the block unlocks any orphans in the orphan pool and start
     /// the processing of those blocks.
-    fn postprocess_block(
+    fn postprocess_ready_block(
         &mut self,
         me: &Option<AccountId>,
         block_hash: CryptoHash,
@@ -1865,7 +1868,7 @@ impl Chain {
         // function.
         let _span = tracing::debug_span!(
             target: "chain",
-            "postprocess_block",
+            "postprocess_ready_block",
             height = block.header().height())
         .entered();
 
@@ -2197,7 +2200,7 @@ impl Chain {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            self.validate_chunk_endorsements_in_block(&block)?;
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
@@ -3452,13 +3455,13 @@ impl Chain {
         })
     }
 
-    fn get_resharding_state_roots(
-        &self,
+    pub fn get_resharding_state_roots(
+        chain_store: &dyn ChainStoreAccess,
+        epoch_manager: &dyn EpochManagerAdapter,
         block: &Block,
         shard_id: ShardId,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let next_shard_layout =
-            self.epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
+        let next_shard_layout = epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
         let new_shards =
             next_shard_layout.get_children_shards_uids(shard_id).unwrap_or_else(|| {
                 panic!(
@@ -3469,7 +3472,8 @@ impl Chain {
         new_shards
             .iter()
             .map(|shard_uid| {
-                self.get_chunk_extra(block.header().prev_hash(), shard_uid)
+                chain_store
+                    .get_chunk_extra(block.header().prev_hash(), shard_uid)
                     .map(|chunk_extra| (*shard_uid, *chunk_extra.state_root()))
             })
             .collect()
@@ -3664,7 +3668,12 @@ impl Chain {
         //    states
         let resharding_state_roots =
             if shard_context.need_to_reshard && mode != ApplyChunksMode::NotCaughtUp {
-                Some(self.get_resharding_state_roots(block, shard_id)?)
+                Some(Self::get_resharding_state_roots(
+                    self.chain_store(),
+                    self.epoch_manager.as_ref(),
+                    block,
+                    shard_id,
+                )?)
             } else {
                 None
             };

@@ -2,12 +2,12 @@
 //! Useful for querying from RPC.
 
 use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
-use near_async::messaging::{CanSend, Handler};
+use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
@@ -114,6 +114,8 @@ impl ViewClientRequestManager {
     }
 }
 
+impl Actor for ViewClientActorInner {}
+
 impl ViewClientActorInner {
     /// Maximum number of state requests allowed per `view_client_throttle_period`.
     const MAX_NUM_STATE_REQUESTS: usize = 30;
@@ -129,34 +131,56 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
     ) -> Addr<ViewClientActor> {
-        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         SyncArbiter::start(config.view_client_threads, move || {
-            // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-            let chain = Chain::new_for_view_client(
+            let view_client_actor = ViewClientActorInner::new(
                 clock.clone(),
+                validator.clone(),
+                chain_genesis.clone(),
                 epoch_manager.clone(),
                 shard_tracker.clone(),
                 runtime.clone(),
-                &chain_genesis,
-                DoomslugThresholdMode::TwoThirds,
-                config.save_trie_changes,
+                network_adapter.clone(),
+                config.clone(),
+                adv.clone(),
             )
             .unwrap();
-
-            let view_client_actor = ViewClientActorInner {
-                clock: clock.clone(),
-                adv: adv.clone(),
-                validator: validator.clone(),
-                chain,
-                epoch_manager: epoch_manager.clone(),
-                shard_tracker: shard_tracker.clone(),
-                runtime: runtime.clone(),
-                network_adapter: network_adapter.clone(),
-                config: config.clone(),
-                request_manager: request_manager.clone(),
-                state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
-            };
             SyncActixWrapper::new(view_client_actor)
+        })
+    }
+
+    pub fn new(
+        clock: Clock,
+        validator: MutableValidatorSigner,
+        chain_genesis: ChainGenesis,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime: Arc<dyn RuntimeAdapter>,
+        network_adapter: PeerManagerAdapter,
+        config: ClientConfig,
+        adv: crate::adversarial::Controls,
+    ) -> Result<Self, Error> {
+        // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
+        let chain = Chain::new_for_view_client(
+            clock.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            runtime.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+            config.save_trie_changes,
+        )?;
+        Ok(Self {
+            clock,
+            adv,
+            validator,
+            chain,
+            epoch_manager,
+            shard_tracker,
+            runtime,
+            network_adapter,
+            config,
+            request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
         })
     }
 
@@ -722,31 +746,57 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActorInner {
     }
 }
 
+fn get_chunk_from_block(
+    block: Block,
+    shard_id: ShardId,
+    chain: &Chain,
+) -> Result<ShardChunk, near_chain::Error> {
+    let chunk_header = block
+        .chunks()
+        .get(shard_id as usize)
+        .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
+        .clone();
+    let chunk_hash = chunk_header.chunk_hash();
+    let chunk = chain.get_chunk(&chunk_hash)?;
+    let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
+        near_chain::Error::Other(format!(
+            "Mismatched versions for chunk with hash {}",
+            chunk_hash.0
+        )),
+    )?;
+    Ok(res)
+}
+
+impl Handler<GetShardChunk> for ViewClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: GetShardChunk) -> Result<ShardChunk, GetChunkError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetShardChunk"]).start_timer();
+
+        match msg {
+            GetShardChunk::ChunkHash(chunk_hash) => {
+                let chunk = self.chain.get_chunk(&chunk_hash)?;
+                Ok(ShardChunk::clone(&chunk))
+            }
+            GetShardChunk::BlockHash(block_hash, shard_id) => {
+                let block = self.chain.get_block(&block_hash)?;
+                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+            }
+            GetShardChunk::Height(height, shard_id) => {
+                let block = self.chain.get_block_by_height(height)?;
+                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+            }
+        }
+    }
+}
+
 impl Handler<GetChunk> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: GetChunk) -> Result<ChunkView, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
-        let get_chunk_from_block = |block: Block,
-                                    shard_id: ShardId,
-                                    chain: &Chain|
-         -> Result<ShardChunk, near_chain::Error> {
-            let chunk_header = block
-                .chunks()
-                .get(shard_id as usize)
-                .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
-                .clone();
-            let chunk_hash = chunk_header.chunk_hash();
-            let chunk = chain.get_chunk(&chunk_hash)?;
-            let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
-                near_chain::Error::Other(format!(
-                    "Mismatched versions for chunk with hash {}",
-                    chunk_hash.0
-                )),
-            )?;
-            Ok(res)
-        };
 
         let chunk = match msg {
             GetChunk::ChunkHash(chunk_hash) => {

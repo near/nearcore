@@ -23,7 +23,6 @@ macro_rules! bls12381_impl {
         $impl_fn_name:ident
     ) => {
         #[doc = $doc]
-        #[cfg(feature = "protocol_feature_bls12381")]
         pub fn $fn_name(
             &mut self,
             value_len: u64,

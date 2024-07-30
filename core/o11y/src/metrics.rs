@@ -1,8 +1,8 @@
 //! A fork of the lighthouse_metrics crate used to implement prometheus
 //!
-//! A wrapper around the `prometheus` crate that provides a global, `lazy_static` metrics registry
-//! and functions to add and use the following components (more info at
-//! [Prometheus docs](https://prometheus.io/docs/concepts/metric_types/)):
+//! A wrapper around the `prometheus` crate that provides a global registry and
+//! functions to add and use the following components (more info at [Prometheus
+//! docs](https://prometheus.io/docs/concepts/metric_types/)):
 //!
 //! - `Histogram`: used with `start_timer()` and `observe_duration()` or
 //!     `observe()` method to record durations (e.g., block processing time).
@@ -22,26 +22,26 @@
 //! ## Example
 //!
 //! ```rust
-//! use once_cell::sync::Lazy;
+//! use std::sync::LazyLock;
 //!
 //! use near_o11y::metrics::*;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
-//! pub static RUN_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+//! pub static RUN_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
 //!     try_create_int_counter(
 //!         "near_runs_total",
 //!         "Total number of runs",
 //!     )
 //!     .unwrap()
 //! });
-//! pub static CURRENT_VALUE: Lazy<IntGauge> = Lazy::new(|| {
+//! pub static CURRENT_VALUE: LazyLock<IntGauge> = LazyLock::new(|| {
 //!     try_create_int_gauge(
 //!         "near_current_value",
 //!         "The current value",
 //!     )
 //!     .unwrap()
 //! });
-//! pub static RUN_TIME: Lazy<Histogram> = Lazy::new(|| {
+//! pub static RUN_TIME: LazyLock<Histogram> = LazyLock::new(|| {
 //!     try_create_histogram(
 //!         "near_run_seconds",
 //!         "Time taken (measured to high precision)",
@@ -67,13 +67,13 @@
 //! }
 //! ```
 
-use once_cell::sync::Lazy;
 pub use prometheus::{
     self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
     CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -212,7 +212,7 @@ pub fn processing_time_buckets() -> Vec<f64> {
     buckets
 }
 
-static EXCEPTIONS: Lazy<HashSet<&str>> = Lazy::new(|| {
+static EXCEPTIONS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     HashSet::from([
         "flat_storage_cached_changes_num_items",
         "flat_storage_cached_changes_size",

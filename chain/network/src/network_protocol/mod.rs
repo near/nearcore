@@ -7,9 +7,9 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 pub use edge::*;
-use near_primitives::stateless_validation::ChunkEndorsement;
-use near_primitives::stateless_validation::ChunkStateWitnessAck;
-use near_primitives::stateless_validation::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -520,11 +520,7 @@ pub enum RoutedMessageBody {
     _UnusedReceiptOutcomeResponse,
     _UnusedStateRequestHeader,
     _UnusedStateRequestPart,
-    /// StateResponse in not produced since protocol version 58.
-    /// We can remove the support for it in protocol version 60.
-    /// It has been obsoleted by VersionedStateResponse which
-    /// is a superset of StateResponse values.
-    StateResponse(StateResponseInfoV1),
+    _UnusedStateResponse,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     _UnusedPartialEncodedChunk,
@@ -577,9 +573,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
             RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
-            RoutedMessageBody::StateResponse(response) => {
-                write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
-            }
+            RoutedMessageBody::_UnusedStateResponse => write!(f, "StateResponse"),
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
             }

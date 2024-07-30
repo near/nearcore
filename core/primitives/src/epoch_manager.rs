@@ -12,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
+use near_structs_checker_lib::ProtocolStruct;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
@@ -620,6 +621,45 @@ impl BlockInfoV1 {
 )]
 pub struct ValidatorWeight(ValidatorId, u64);
 
+// V3 -> V4: Add structures and methods for stateless validator assignment.
+#[derive(
+    SmartDefault,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolStruct,
+)]
+pub struct EpochInfoV4 {
+    pub epoch_height: EpochHeight,
+    pub validators: Vec<crate::types::validator_stake::ValidatorStake>,
+    pub validator_to_index: HashMap<AccountId, ValidatorId>,
+    pub block_producers_settlement: Vec<ValidatorId>,
+    pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    /// Deprecated.
+    pub _hidden_validators_settlement: Vec<ValidatorWeight>,
+    /// Deprecated.
+    pub _fishermen: Vec<crate::types::validator_stake::ValidatorStake>,
+    /// Deprecated.
+    pub _fishermen_to_index: HashMap<AccountId, ValidatorId>,
+    pub stake_change: BTreeMap<AccountId, Balance>,
+    pub validator_reward: HashMap<AccountId, Balance>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    pub minted_amount: Balance,
+    pub seat_price: Balance,
+    #[default(PROTOCOL_VERSION)]
+    pub protocol_version: ProtocolVersion,
+    // stuff for selecting validators at each height
+    rng_seed: RngSeed,
+    block_producers_sampler: crate::rand::WeightedIndex,
+    chunk_producers_sampler: Vec<crate::rand::WeightedIndex>,
+    /// Contains the epoch's validator mandates. Used to sample chunk validators.
+    validator_mandates: crate::validator_mandates::ValidatorMandates,
+}
+
 pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -636,6 +676,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
+    pub use super::EpochInfoV1;
     use crate::types::validator_stake::ValidatorStakeV1;
     use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
@@ -644,15 +685,13 @@ pub mod epoch_info {
         types::{BlockHeight, ShardId},
     };
 
-    pub use super::EpochInfoV1;
-
     /// Information per epoch.
     #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize)]
     pub enum EpochInfo {
         V1(EpochInfoV1),
         V2(EpochInfoV2),
         V3(EpochInfoV3),
-        V4(EpochInfoV4),
+        V4(super::EpochInfoV4),
     }
 
     impl Default for EpochInfo {
@@ -739,44 +778,6 @@ pub mod epoch_info {
         chunk_producers_sampler: Vec<WeightedIndex>,
     }
 
-    // V3 -> V4: Add structures and methods for stateless validator assignment.
-    #[derive(
-        SmartDefault,
-        BorshSerialize,
-        BorshDeserialize,
-        Clone,
-        Debug,
-        PartialEq,
-        Eq,
-        serde::Serialize,
-    )]
-    pub struct EpochInfoV4 {
-        pub epoch_height: EpochHeight,
-        pub validators: Vec<ValidatorStake>,
-        pub validator_to_index: HashMap<AccountId, ValidatorId>,
-        pub block_producers_settlement: Vec<ValidatorId>,
-        pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-        /// Deprecated.
-        pub _hidden_validators_settlement: Vec<ValidatorWeight>,
-        /// Deprecated.
-        pub _fishermen: Vec<ValidatorStake>,
-        /// Deprecated.
-        pub _fishermen_to_index: HashMap<AccountId, ValidatorId>,
-        pub stake_change: BTreeMap<AccountId, Balance>,
-        pub validator_reward: HashMap<AccountId, Balance>,
-        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-        pub minted_amount: Balance,
-        pub seat_price: Balance,
-        #[default(PROTOCOL_VERSION)]
-        pub protocol_version: ProtocolVersion,
-        // stuff for selecting validators at each height
-        rng_seed: RngSeed,
-        block_producers_sampler: WeightedIndex,
-        chunk_producers_sampler: Vec<WeightedIndex>,
-        /// Contains the epoch's validator mandates. Used to sample chunk validators.
-        validator_mandates: ValidatorMandates,
-    }
-
     impl EpochInfo {
         pub fn new(
             epoch_height: EpochHeight,
@@ -806,7 +807,7 @@ pub mod epoch_info {
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
                 if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-                    Self::V4(EpochInfoV4 {
+                    Self::V4(super::EpochInfoV4 {
                         epoch_height,
                         validators,
                         _fishermen: Default::default(),

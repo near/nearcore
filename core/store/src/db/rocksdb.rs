@@ -6,10 +6,10 @@ use ::rocksdb::{
 };
 use anyhow::Context;
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
+use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tracing::warn;
 
@@ -19,7 +19,7 @@ pub(crate) mod snapshot;
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
+static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
     use ::rocksdb::properties;
     let mut ret = Vec::new();
     ret.extend_from_slice(

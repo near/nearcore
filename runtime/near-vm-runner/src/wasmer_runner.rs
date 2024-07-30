@@ -3,11 +3,13 @@ use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
-use crate::logic::{ExecutionResultState, External, VMContext, VMLogic, VMLogicError, VMOutcome};
+use crate::logic::{
+    ExecutionResultState, External, GasCounter, VMContext, VMLogic, VMLogicError, VMOutcome,
+};
 use crate::logic::{MemSlice, MemoryLike};
-use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
+use crate::{prepare, Contract};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;
@@ -429,12 +431,13 @@ impl crate::runner::VM for Wasmer0VM {
 
     fn prepare(
         self: Box<Self>,
-        ext: &dyn External,
-        context: &VMContext,
+        contract: &dyn Contract,
         cache: Option<&dyn ContractRuntimeCache>,
+        mut gas_counter: GasCounter,
+        method: &str,
     ) -> Box<dyn crate::PreparedContract> {
         type Result = VMResult<PreparedContract>;
-        let Some(code) = ext.get_contract() else {
+        let Some(code) = contract.get_code() else {
             return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
         };
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
@@ -449,11 +452,13 @@ impl crate::runner::VM for Wasmer0VM {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
 
-        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        // let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let config = Arc::clone(&self.config);
         let result =
-            result_state.before_loading_executable(&context.method, code.code().len() as u64);
+            gas_counter.before_loading_executable(&config, method, code.code().len() as u64);
         if let Err(e) = result {
-            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+            let result = PreparationResult::OutcomeAbort(e);
+            return Box::new(Ok(PreparedContract { config, gas_counter, result }));
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
@@ -467,47 +472,54 @@ impl crate::runner::VM for Wasmer0VM {
             // see `test_old_fn_loading_behavior_preserved` for a test that
             // verifies future changes do not counteract this assumption.)
             Ok(Err(err)) => {
-                return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(
-                    result_state,
-                    FunctionCallError::CompilationError(err),
-                ))))
+                let result =
+                    PreparationResult::OutcomeAbort(FunctionCallError::CompilationError(err));
+                return Box::new(Ok(PreparedContract { config, gas_counter, result }));
             }
             Err(err) => return Box::new(Result::Err(err)),
         };
 
-        let result = result_state.after_loading_executable(code.code().len() as u64);
+        let result = gas_counter.after_loading_executable(&config, code.code().len() as u64);
         if let Err(e) = result {
-            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+            let result = PreparationResult::OutcomeAbort(e);
+            return Box::new(Ok(PreparedContract { config, gas_counter, result }));
         }
-        if let Err(e) = check_method(&module, &context.method) {
-            return Box::new(Ok(PreparedContract::Outcome(
-                VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
-            )));
+        if let Err(e) = check_method(&module, &method) {
+            let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+            return Box::new(Ok(PreparedContract { config, gas_counter, result }));
         }
 
         let memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         );
-        Box::new(Ok(PreparedContract::Ready(ReadyContract {
+        let result = PreparationResult::Ready(ReadyContract {
             vm: self,
             memory,
-            result_state,
             module,
-        })))
+            method: method.into(),
+        });
+        Box::new(Ok(PreparedContract { config, gas_counter, result }))
     }
 }
 
 struct ReadyContract {
     vm: Box<Wasmer0VM>,
     memory: WasmerMemory,
-    result_state: ExecutionResultState,
     module: Module,
+    method: String,
+}
+
+struct PreparedContract {
+    config: Arc<Config>,
+    gas_counter: GasCounter,
+    result: PreparationResult,
 }
 
 #[allow(clippy::large_enum_variant)]
-enum PreparedContract {
-    Outcome(VMOutcome),
+enum PreparationResult {
+    OutcomeAbortButNopInOldProtocol(FunctionCallError),
+    OutcomeAbort(FunctionCallError),
     Ready(ReadyContract),
 }
 
@@ -518,15 +530,22 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let ReadyContract { vm, memory, result_state, module } = match (*self)? {
-            PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready(r) => r,
+        let PreparedContract { config, gas_counter, result } = (*self)?;
+        let result_state = ExecutionResultState::new(&context, gas_counter, config);
+        let ReadyContract { vm, memory, module, method } = match result {
+            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+            }
+            PreparationResult::OutcomeAbort(e) => {
+                return Ok(VMOutcome::abort(result_state, e));
+            }
+            PreparationResult::Ready(r) => r,
         };
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
         let import_object = build_imports(memory_copy, &vm.config, &mut logic);
-        match run_method(&module, &import_object, &context.method)? {
+        match run_method(&module, &import_object, &method)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         }

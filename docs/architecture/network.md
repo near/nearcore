@@ -440,7 +440,7 @@ This section describes different protocols of sending messages currently used in
 
 ## 10.1 Messages between Actors.
 
-`Near` is build on `Actix`'s `actor`
+`Near` is built on `Actix`'s `actor`
 [framework](https://actix.rs/docs/actix/actor). Usually each actor
 runs on its own dedicated thread. Some, like `PeerActor` have one thread per
 each instance. Only messages implementing `actix::Message`, can be sent
@@ -484,7 +484,7 @@ Then it will use the `routing_table`, to find the route to the target peer (add
 
 When Peer receives this message (as `PeerMessage::Routed`), it will pass it to
 PeerManager (as `RoutedMessageFrom`), which would then check if the message is
-for the current `PeerActor`. (if yes, it would pass it for the client) and if
+for the current `PeerActor`. (if yes, it would pass it to the client) and if
 not - it would pass it along the network.
 
 All these messages are handled by `receive_client_message` in Peer.
