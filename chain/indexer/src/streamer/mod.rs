@@ -430,7 +430,6 @@ pub(crate) async fn start(
             }
         };
 
-
         tracing::info!(
             target: INDEXER,
             "xxxxxxxx Streaming is about to start from block #{} and the latest block is #{}",

@@ -48,6 +48,8 @@ struct RunCmd {
     stop_height: Option<BlockHeight>,
     #[clap(long)]
     config_path: Option<PathBuf>,
+    #[clap(long)]
+    new_streamer_thread: bool,
 }
 
 impl RunCmd {
@@ -87,6 +89,7 @@ impl RunCmd {
                     self.stop_height,
                     self.online_source,
                     self.config_path,
+                    self.new_streamer_thread,
                 ))
                 .await
             })

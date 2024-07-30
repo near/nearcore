@@ -919,12 +919,13 @@ fn map_delegate_action(
 }
 
 impl<T: ChainAccess> TxMirror<T> {
-    fn new<P: AsRef<Path>>(
+    async fn new<P: AsRef<Path>>(
         source_chain_access: T,
         target_home: P,
         mirror_db_path: Option<P>,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
         config: MirrorConfig,
+        new_streamer_thread: bool,
     ) -> anyhow::Result<Self> {
         let target_config =
             nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
@@ -954,15 +955,48 @@ impl<T: ChainAccess> TxMirror<T> {
             }
         };
         let db = db.context("failed to open mirror DB")?;
-        let target_indexer = Indexer::new(near_indexer::IndexerConfig {
-            home_dir: target_home.as_ref().to_path_buf(),
-            sync_mode: near_indexer::SyncModeEnum::FromInterruption,
-            await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
-            validate_genesis: false,
-        })
-        .context("failed to start target chain indexer")?;
-        let (target_view_client, target_client) = target_indexer.client_actors();
-        let target_stream = target_indexer.streamer();
+        let arbiter = actix::Arbiter::new();
+
+        let home_dir = target_home.as_ref().to_path_buf();
+
+        let (target_client, target_view_client, target_stream) = if new_streamer_thread {
+            let (tx, target_stream) = tokio::sync::mpsc::channel(100);
+            let (tvc, rvc) = tokio::sync::oneshot::channel::<Addr<ViewClientActor>>();
+            let (tc, rc) = tokio::sync::oneshot::channel();
+            arbiter.spawn(async move {
+                let target_indexer = Indexer::new(near_indexer::IndexerConfig {
+                    home_dir,
+                    sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+                    await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
+                    validate_genesis: false,
+                })
+                .context("failed to start target chain indexer")
+                .unwrap();
+                let (target_view_client, target_client) = target_indexer.client_actors();
+                tvc.send(target_view_client).unwrap();
+                tc.send(target_client).unwrap();
+                let mut ts = target_indexer.streamer();
+                loop {
+                    let m = ts.recv().await;
+                    tx.send(m.unwrap()).await.unwrap();
+                }
+            });
+            let target_view_client = rvc.await.unwrap();
+            let target_client = rc.await.unwrap();
+            (target_client, target_view_client, target_stream)
+        } else {
+            let target_indexer = Indexer::new(near_indexer::IndexerConfig {
+                home_dir,
+                sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+                await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
+                validate_genesis: false,
+            })
+            .context("failed to start target chain indexer")
+            .unwrap();
+            let (target_view_client, target_client) = target_indexer.client_actors();
+            let target_stream = target_indexer.streamer();
+            (target_client, target_view_client, target_stream)
+        };
         let default_extra_key = crate::key_mapping::default_extra_key(secret.as_ref());
 
         Ok(Self {
@@ -1914,6 +1948,7 @@ async fn run<P: AsRef<Path>>(
     stop_height: Option<BlockHeight>,
     online_source: bool,
     config_path: Option<P>,
+    new_streamer_thread: bool,
 ) -> anyhow::Result<()> {
     let config: MirrorConfig = match config_path {
         Some(p) => {
@@ -1929,9 +1964,17 @@ async fn run<P: AsRef<Path>>(
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, mirror_db_path, secret, config)?
-            .run(Some(stop_height))
-            .await
+        TxMirror::new(
+            source_chain_access,
+            target_home,
+            mirror_db_path,
+            secret,
+            config,
+            new_streamer_thread,
+        )
+        .await?
+        .run(Some(stop_height))
+        .await
     } else {
         TxMirror::new(
             crate::online::ChainAccess::new(source_home)?,
@@ -1939,7 +1982,9 @@ async fn run<P: AsRef<Path>>(
             mirror_db_path,
             secret,
             config,
-        )?
+            new_streamer_thread,
+        )
+        .await?
         .run(stop_height)
         .await
     }

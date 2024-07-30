@@ -1187,7 +1187,7 @@ impl TxTracker {
         db: &DB,
         sent_batch: SentBatch,
         target_height: BlockHeight,
-        start_time: Option<tokio::time::Instant>
+        start_time: Option<tokio::time::Instant>,
     ) -> anyhow::Result<()> {
         let mut total_sent = 0;
         let now = Instant::now();
