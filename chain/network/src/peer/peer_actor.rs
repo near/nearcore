@@ -11,8 +11,7 @@ use crate::network_protocol::SnapshotHostInfoVerificationError;
 use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
-    SyncSnapshotHosts,
+    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -976,14 +975,6 @@ impl PeerActor {
                 .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {
                 network_state.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
-                None
-            }
-            RoutedMessageBody::StateResponse(info) => {
-                network_state
-                    .client
-                    .send_async(StateResponse(StateResponseInfo::V1(info).into()))
-                    .await
-                    .ok();
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
