@@ -81,29 +81,29 @@ last_balances = [x for x in ctx.expected_balances]
 step = 0
 sent_height = -1
 
-height, hash_ = utils.wait_for_blocks(nodes[4], target=1, check_storage=False)
+height, hash = utils.wait_for_blocks(nodes[4], target=5, check_storage=False)
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
-                     base58.b58decode(hash_.encode('utf8')))
+                     base58.b58decode(hash.encode('utf8')))
 nodes[4].send_tx(tx)
 ctx.expected_balances[0] -= 100
 ctx.expected_balances[1] += 100
 logger.info('Sent tx at height %s' % height)
 sent_height = height
 
-height, hash_ = utils.wait_for_blocks(nodes[4],
-                                      target=sent_height + 6,
-                                      check_storage=False)
+height, hash = utils.wait_for_blocks(nodes[4],
+                                     target=sent_height + 6,
+                                     check_storage=False)
 cur_balances = ctx.get_balances()
 assert cur_balances == ctx.expected_balances, "%s != %s" % (
     cur_balances, ctx.expected_balances)
 
 # we are done with the sanity test, now let's stress it
-for height, _ in utils.poll_blocks(nodes[4], timeout=TIMEOUT):
+for height, hash in utils.poll_blocks(nodes[4], timeout=TIMEOUT):
     if ctx.get_balances() == ctx.expected_balances:
         count = height - sent_height
         logger.info(f'Balances caught up, took {count} blocks, moving on')
         last_balances = [x for x in ctx.expected_balances]
-        ctx.send_moar_txs(hash_, 10, use_routing=True)
+        ctx.send_moar_txs(hash, 10, use_routing=True)
         sent_height = height
     else:
         assert height <= sent_height + 10, ('Balances before: {before}\n'

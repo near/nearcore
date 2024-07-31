@@ -33,11 +33,11 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
-use once_cell::sync::Lazy;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
 
@@ -147,7 +147,7 @@ impl NodeStorage {
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
+        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
         let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
         (dir, opener)
@@ -195,6 +195,19 @@ impl NodeStorage {
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            None => None,
+        }
+    }
+
+    /// Returns an instance of recovery store. The recovery store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// Recovery store should be use only to perform data recovery on archival nodes.
+    pub fn get_recovery_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => {
+                Some(Store { storage: Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())) })
+            }
             None => None,
         }
     }

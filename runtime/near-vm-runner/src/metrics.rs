@@ -1,7 +1,7 @@
 use near_o11y::metrics::{
     try_create_histogram_vec, try_create_int_counter_vec, HistogramVec, IntCounterVec,
 };
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::{cell::RefCell, time::Duration};
 
 thread_local! {
@@ -13,7 +13,7 @@ thread_local! {
     }) };
 }
 
-static COMPILATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_vm_runner_compilation_seconds",
         "Histogram of how long it takes to compile things",
@@ -23,7 +23,7 @@ static COMPILATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_vm_compiled_contract_cache_lookups_total",
         "The number of times the runtime looks up for an entry in the compiled-contract cache for the given caller context and shard_id",
@@ -32,7 +32,7 @@ static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: Lazy<IntCounterVec> = Lazy::new(||
     .unwrap()
 });
 
-static COMPILED_CONTRACT_CACHE_HITS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+static COMPILED_CONTRACT_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_vm_compiled_contract_cache_hits_total",
         "The number of times the runtime finds an entry in the compiled-contract cache for the given caller context and shard_id",

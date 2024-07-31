@@ -38,7 +38,7 @@ pub mod rayon_spawner;
 pub mod sharding;
 #[cfg(test)]
 mod tests;
-mod update_shard;
+pub mod update_shard;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]

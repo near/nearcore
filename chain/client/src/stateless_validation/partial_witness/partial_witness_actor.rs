@@ -15,9 +15,11 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::{
-    ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
-    MAX_COMPRESSED_STATE_WITNESS_SIZE,
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, MAX_COMPRESSED_STATE_WITNESS_SIZE,
+};
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -439,7 +441,7 @@ impl PartialWitnessActor {
                     target: "client",
                     ?partial_witness,
                     ?possible_epochs,
-                    "Skipping partial witness because its EpochId is is not in the possible list of epochs",
+                    "Skipping partial witness because its EpochId is not in the possible list of epochs",
                 );
                 return Ok(false);
             }

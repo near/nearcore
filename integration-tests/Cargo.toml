@@ -23,7 +23,6 @@ derive_more.workspace = true
 futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
-once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true

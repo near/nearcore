@@ -91,29 +91,98 @@ mod helper {
         quote! { &[#(#variants),*] }
     }
 
+    /// Extracts type ids from the type and **all** its underlying generic
+    /// parameters, recursively.
+    /// For example, for `Vec<Vec<u32>>` it will return `[Vec, Vec, u32]`.
+    fn extract_type_ids_from_type(ty: &syn::Type) -> Vec<TokenStream2> {
+        let mut result = vec![quote! { std::any::TypeId::of::<#ty>() }];
+        let type_path = match ty {
+            syn::Type::Path(type_path) => type_path,
+            _ => return result,
+        };
+
+        // TODO (#11755): last segment does not necessarily cover all generics.
+        // For example, consider `<Apple as Fruit<Round>>::AssocType`. Here
+        // `AssocType` in `impl Fruit<Round>` for `Apple` can be a `Vec<Round>`
+        // or any other instantiation of a generic type.
+        // Not urgent because protocol structs are expected to be simple.
+        let generic_params = &type_path.path.segments.last().unwrap().arguments;
+        let params = match generic_params {
+            syn::PathArguments::AngleBracketed(params) => params,
+            _ => return result,
+        };
+
+        let inner_type_ids = params
+            .args
+            .iter()
+            .map(|arg| {
+                if let syn::GenericArgument::Type(ty) = arg {
+                    extract_type_ids_from_type(ty)
+                } else {
+                    vec![]
+                }
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        result.extend(inner_type_ids);
+        result
+    }
+
+    fn extract_type_info(ty: &syn::Type) -> TokenStream2 {
+        let type_path = match ty {
+            syn::Type::Path(type_path) => type_path,
+            syn::Type::Array(array) => {
+                let elem = &array.elem;
+                let len = &array.len;
+                return quote! {
+                    {
+                        const fn create_array() -> [std::any::TypeId; 1] {
+                            [std::any::TypeId::of::<#elem>()]
+                        }
+                        (stringify!([#elem; #len]), &create_array())
+                    }
+                };
+            }
+            _ => {
+                println!("Unsupported type: {:?}", ty);
+                return quote! { (stringify!(#ty), &[std::any::TypeId::of::<#ty>()]) };
+            }
+        };
+
+        let type_name = quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
+        let type_ids = extract_type_ids_from_type(ty);
+        let type_ids_count = type_ids.len();
+
+        quote! {
+            {
+                const TYPE_IDS_COUNT: usize = #type_ids_count;
+                const fn create_array() -> [std::any::TypeId; TYPE_IDS_COUNT] {
+                    [#(#type_ids),*]
+                }
+                (stringify!(#type_name), &create_array())
+            }
+        }
+    }
+
     fn extract_from_named_fields(
         named: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
-    ) -> std::iter::Map<
-        syn::punctuated::Iter<syn::Field>,
-        fn(&syn::Field) -> proc_macro2::TokenStream,
-    > {
+    ) -> impl Iterator<Item = TokenStream2> + '_ {
         named.iter().map(|f| {
             let name = &f.ident;
             let ty = &f.ty;
-            quote! { (stringify!(#name), std::any::TypeId::of::<#ty>()) }
+            let type_info = extract_type_info(ty);
+            quote! { (stringify!(#name), #type_info) }
         })
     }
 
     fn extract_from_unnamed_fields(
         unnamed: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
-    ) -> std::iter::Map<
-        std::iter::Enumerate<syn::punctuated::Iter<syn::Field>>,
-        fn((usize, &syn::Field)) -> proc_macro2::TokenStream,
-    > {
+    ) -> impl Iterator<Item = TokenStream2> + '_ {
         unnamed.iter().enumerate().map(|(i, f)| {
             let index = syn::Index::from(i);
             let ty = &f.ty;
-            quote! { (stringify!(#index), std::any::TypeId::of::<#ty>()) }
+            let type_info = extract_type_info(ty);
+            quote! { (stringify!(#index), #type_info) }
         })
     }
 }

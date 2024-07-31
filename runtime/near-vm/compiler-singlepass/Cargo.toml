@@ -23,7 +23,6 @@ dynasm.workspace = true
 dynasmrt.workspace = true
 enumset.workspace = true
 hashbrown = { workspace = true, optional = true }
-lazy_static.workspace = true
 memoffset.workspace = true
 more-asserts.workspace = true
 rayon.workspace = true

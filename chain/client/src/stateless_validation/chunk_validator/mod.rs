@@ -16,8 +16,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use orphan_witness_pool::OrphanStateWitnessPool;

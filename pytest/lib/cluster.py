@@ -232,12 +232,9 @@ class BaseNode(object):
         cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
         return cmd + make_boot_nodes_arg(boot_node)
 
-    def get_command_for_subprogram(self,
-                                   cmd: tuple,
-                                   near_root,
-                                   node_dir,
-                                   binary_name='neard'):
-        return (os.path.join(near_root, binary_name), '--home', node_dir) + cmd
+    def get_command_for_subprogram(self, cmd: tuple):
+        return (os.path.join(self.near_root,
+                             self.binary_name), '--home', self.node_dir) + cmd
 
     def addr_with_pk(self) -> str:
         pk_hash = self.node_key.pk.split(':')[1]
@@ -403,7 +400,7 @@ class BaseNode(object):
 
     # Get the transaction status.
     #
-    # The default timeout is quite high - 15s - so that is is longer than the
+    # The default timeout is quite high - 15s - so that is longer than the
     # node's default polling_timeout. It's done this way to differentiate
     # between the case when the transaction is not found on the node and when
     # the node is dead or not responding.

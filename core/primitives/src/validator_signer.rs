@@ -9,9 +9,9 @@ use crate::challenge::ChallengeBody;
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
-use crate::stateless_validation::{
-    ChunkEndorsementInner, EncodedChunkStateWitness, PartialEncodedStateWitnessInner,
-};
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementInner;
+use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
+use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 

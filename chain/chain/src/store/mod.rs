@@ -25,6 +25,7 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
@@ -50,7 +51,6 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
-use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
@@ -447,7 +447,7 @@ pub struct ChainStore {
     /// Processed block heights.
     pub(crate) processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,

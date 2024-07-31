@@ -46,6 +46,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::version::PROTOCOL_VERSION;
+use near_structs_checker_lib::ProtocolStruct;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -2072,7 +2073,7 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolStruct)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
@@ -2101,13 +2102,14 @@ pub struct EpochValidatorInfo {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolStruct,
 )]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
     pub reason: ValidatorKickoutReason,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolStruct)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,

@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.79.0"
+rust-version = "1.80.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -209,7 +209,6 @@ inventory = "0.3.15"
 itertools = "0.10.0"
 itoa = "1.0"
 json_comments = "0.2.1"
-lazy_static = "1.4"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
@@ -264,6 +263,7 @@ near-ping = { path = "tools/ping" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
+near-replay-archive-tool = { path = "tools/replay-archive" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }

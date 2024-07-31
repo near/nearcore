@@ -14,8 +14,9 @@ use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
-use near_primitives::stateless_validation::ChunkStateWitness;
-use near_primitives::stateless_validation::ChunkStateWitnessSize;
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessSize,
+};
 use near_primitives::types::AccountId;
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;

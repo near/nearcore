@@ -9,7 +9,7 @@ use crate::Client;
 use near_chain::Block;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::ops::Range;

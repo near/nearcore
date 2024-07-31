@@ -12,8 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-once_cell.workspace = true
-
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-crypto.workspace = true

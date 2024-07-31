@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 use arbitrary::Arbitrary;
-use once_cell::sync::OnceCell;
 use rand::{Fill, SeedableRng};
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Parse a WASM contract from WAT representation.
 pub fn wat_contract(wat: &str) -> Vec<u8> {
@@ -12,7 +12,7 @@ pub fn wat_contract(wat: &str) -> Vec<u8> {
 
 /// Trivial contract with a do-nothing main function.
 pub fn trivial_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT.get_or_init(|| wat_contract(r#"(module (func (export "main")))"#)).as_slice()
 }
 
@@ -66,24 +66,24 @@ pub fn rs_contract() -> &'static [u8] {
 /// contracts content, we can build it manually with an older compiler and check
 /// in the new WASM.
 pub fn backwards_compatible_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT.get_or_init(|| read_contract("backwards_compatible_rs_contract.wasm")).as_slice()
 }
 
 /// Standard test contract which additionally includes all host functions from
 /// the nightly protocol.
 pub fn nightly_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT.get_or_init(|| read_contract("nightly_test_contract_rs.wasm")).as_slice()
 }
 
 pub fn ts_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT.get_or_init(|| read_contract("test_contract_ts.wasm")).as_slice()
 }
 
 pub fn fuzzing_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
 }
 
@@ -97,7 +97,7 @@ pub fn fuzzing_contract() -> &'static [u8] {
 /// defined by NEP-141 is sufficient. But for future reference, the WASM was
 /// compiled with SDK version 4.1.1.
 pub fn ft_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT.get_or_init(|| read_contract("fungible_token.wasm")).as_slice()
 }
 
@@ -105,7 +105,7 @@ pub fn ft_contract() -> &'static [u8] {
 ///
 /// This contract is guaranteed to have a "sum" function
 pub fn smallest_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     CONTRACT
         .get_or_init(|| {
             wat_contract(
@@ -128,7 +128,7 @@ pub fn smallest_rs_contract() -> &'static [u8] {
 
 /// Contract that has all methods required by the gas parameter estimator.
 pub fn estimator_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
     let file_name = if cfg!(feature = "nightly") {
         "nightly_estimator_contract.wasm"
     } else {

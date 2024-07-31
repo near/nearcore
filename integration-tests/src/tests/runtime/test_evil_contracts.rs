@@ -89,7 +89,7 @@ fn test_evil_deep_trie() {
 ///
 /// I hear that the protocol-level limit on the depth here is 64, so given the current fee
 /// structure this limit cannot be reached by this contract, but once they decrease it might very
-/// well be necessary to adjust the `expected_max_depth` to at most that limit.
+/// well be necessary to adjust the `expected_depth` to at most that limit.
 #[test]
 fn test_self_delay() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
@@ -104,12 +104,22 @@ fn test_self_delay() {
             0,
         )
         .unwrap();
-    let expected_max_depth = 60u32;
-    assert_eq!(
-        res.status,
-        FinalExecutionStatus::SuccessValue(expected_max_depth.to_be_bytes().to_vec()),
-        "{res:?} has not recursed the expected number of times",
-    );
+
+    // The exact expected depth varies depending on the set of enabled features.
+    // When test_features are enabled, the test contract becomes larger and the calls to it are more expensive.
+    // When nightly is enabled, the gas costs change a bit.
+    // The test makes sure that the depth is within the expected range, but it doesn't check an exact value
+    // to avoid having separate cases for every possible combination of features.
+    let min_expected_depth = 56;
+    let max_expected_depth = 62;
+    match res.status {
+        FinalExecutionStatus::SuccessValue(depth_bytes) => {
+            let depth = u32::from_be_bytes(depth_bytes.try_into().unwrap());
+            assert!(depth >= min_expected_depth, "The function has recursed fewer times than expected: {depth} < {min_expected_depth}",);
+            assert!(depth <= max_expected_depth, "The function has recursed more times than expected: {depth} > {max_expected_depth}",);
+        }
+        _ => panic!("Expected success, got: {:?}", res),
+    }
 }
 
 #[test]
