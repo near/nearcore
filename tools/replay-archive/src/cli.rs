@@ -73,7 +73,7 @@ impl ReplayController {
         home_dir: &Path,
         near_config: NearConfig,
         start_height: Option<BlockHeight>,
-        end_heigth: Option<BlockHeight>,
+        end_height: Option<BlockHeight>,
     ) -> Result<Self> {
         let store = Self::open_split_store_read_only(home_dir, &near_config)?;
 
@@ -83,7 +83,7 @@ impl ReplayController {
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
         
         let start_height = start_height.unwrap_or(genesis_height);
-        let end_height = end_heigth.unwrap_or(head_height);
+        let end_height = end_height.unwrap_or(head_height);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);

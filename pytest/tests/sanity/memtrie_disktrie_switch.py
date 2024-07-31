@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Spins up 4 validating nodes and 1 non-validating node. There are four shards in this test.
+# Spins up 2 validating nodes and 1 non-validating node. There are four shards in this test.
 # Tests the following scenario and checks if the network can progress over a few epochs.
 # 1. Starts with memtries enabled.
-# 2. Restarts 2 of the validator nodes with memtries disabled.
-# 3. Restarts the remaining 2 nodes with memtries disabled.
+# 2. Restarts the validator nodes with memtries disabled.
+# 3. Restarts the validator nodes with memtries enabled again.
 # Sends random transactions between shards at each step.
 
 import pathlib
@@ -19,6 +19,7 @@ import cluster
 import state_sync_lib
 import simple_test
 
+NUM_VALIDATORS = 2
 EPOCH_LENGTH = 10
 
 # Shard layout with 5 roughly equal size shards for convenience.
@@ -56,15 +57,15 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         # Validator node configs: Enable single-shard tracking with memtries enabled.
         node_config_sync["tracked_shards"] = []
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
-        configs = {x: node_config_sync for x in range(4)}
+        configs = {x: node_config_sync for x in range(NUM_VALIDATORS)}
 
         # Dumper node config: Enable tracking all shards with memtries enabled.
         node_config_dump["tracked_shards"] = [0]
         node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
-        configs[4] = node_config_dump
+        configs[NUM_VALIDATORS] = node_config_dump
 
         self.nodes = cluster.start_cluster(
-            num_nodes=4,
+            num_nodes=NUM_VALIDATORS,
             num_observers=1,
             num_shards=NUM_SHARDS,
             config=None,
@@ -75,9 +76,9 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 ["chunk_producer_kickout_threshold", 0]
             ],
             client_config_changes=configs)
-        self.assertEqual(5, len(self.nodes))
+        self.assertEqual(NUM_VALIDATORS + 1, len(self.nodes))
 
-        self.rpc_node = self.nodes[4]
+        self.rpc_node = self.nodes[NUM_VALIDATORS]
 
     def test(self):
         self.testcase = simple_test.SimpleTransferBetweenAccounts(
@@ -126,7 +127,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         
         It restarts only the validator nodes and does NOT restart the RPC node."""
         boot_node = self.rpc_node
-        for i in range(0, 4):
+        for i in range(0, NUM_VALIDATORS):
             self.nodes[i].kill()
             time.sleep(2)
             self.nodes[i].change_config(

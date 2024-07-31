@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Spins up 4 validating nodes, 1 non-validating RPC node, and 1 non-validating archival node.
+# Spins up 2 validating nodes, 1 non-validating RPC node, and 1 non-validating archival node.
 # There are four shards in this test.
 # Issues a number of transactions on the chain, and then replays the chain from the archival node.
 
@@ -16,6 +16,7 @@ import cluster
 import simple_test
 import state_sync_lib
 
+NUM_VALIDATORS = 2
 EPOCH_LENGTH = 10
 GC_NUM_EPOCHS_TO_KEEP = 3
 GC_BLOCKS_LIMIT = 5
@@ -54,16 +55,16 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
 
         # Validator node configs: Enable single-shard tracking with memtries enabled.
         node_config_sync["tracked_shards"] = []
-        configs = {x: node_config_sync for x in range(4)}
+        configs = {x: node_config_sync for x in range(NUM_VALIDATORS)}
 
         # Dump+RPC node config: Enable tracking all shards with memtries enabled.
         node_config_dump["tracked_shards"] = [0]
-        configs[4] = node_config_dump
+        configs[NUM_VALIDATORS] = node_config_dump
 
         # Archival node config: Enable tracking all shards with memtries enabled.
         node_config_archival = copy.deepcopy(node_config_dump)
         node_config_archival["archive"] = True
-        configs[5] = node_config_archival
+        configs[NUM_VALIDATORS + 1] = node_config_archival
 
         # Configure GC to make sure it runs before the random workload finishes.
         for i in configs.keys():
@@ -72,7 +73,7 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
             configs[i]["gc_step_period"] = {"secs": 0, "nanos": 100000000}
 
         self.nodes = cluster.start_cluster(
-            num_nodes=4,
+            num_nodes=NUM_VALIDATORS,
             num_observers=2,
             num_shards=NUM_SHARDS,
             config=None,
@@ -82,10 +83,10 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
                                     ["block_producer_kickout_threshold", 0],
                                     ["chunk_producer_kickout_threshold", 0]],
             client_config_changes=configs)
-        self.assertEqual(6, len(self.nodes))
+        self.assertEqual(NUM_VALIDATORS + 2, len(self.nodes))
 
-        self.rpc_node = self.nodes[4]
-        self.archival_node = self.nodes[5]
+        self.rpc_node = self.nodes[NUM_VALIDATORS]
+        self.archival_node = self.nodes[NUM_VALIDATORS + 1]
 
     def test(self):
         self.testcase = simple_test.SimpleTransferBetweenAccounts(
@@ -102,7 +103,8 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
 
         # Run the test until there are enough number of epochs to trigger garbage collection.
         self.testcase.random_workload_until(EPOCH_LENGTH *
-                                            (GC_NUM_EPOCHS_TO_KEEP + 2) + 5)
+                                            (GC_NUM_EPOCHS_TO_KEEP + 2) +
+                                            GC_BLOCKS_LIMIT)
 
         # Sanity check: Validators cannot return old blocks after GC (eg. genesis block) but archival node can.
         logger.info("Running sanity check for archival node")
@@ -114,7 +116,7 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
             else:
                 assert 'error' in result, result
 
-        # Capture the last heigth to replay before killing the nodes.
+        # Capture the last height to replay before killing the nodes.
         end_height = self.testcase.wait_for_blocks(1)
 
         logger.info("Killing all nodes before replaying the chain")
