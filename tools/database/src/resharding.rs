@@ -32,7 +32,7 @@ pub(crate) struct ReshardingCommand {
 
     /// Path to write the new trie nodes created by the resharding operation.
     #[clap(long, group("output"))]
-    write_path: PathBuf,
+    write_path: Option<PathBuf>,
 
     /// Restore potentially missing trie nodes in cold database. This operation is idempotent.
     #[clap(long, group("output"))]
@@ -87,6 +87,9 @@ impl ReshardingCommand {
             // In 'restore' mode all changes are written directly into the recovery DB built upon the cold DB.
             storage.get_recovery_store().expect("recovery db must be present on archival nodes")
         } else {
+            let write_path =
+                self.write_path.as_ref().expect("write path must be set when not in recovery mode");
+
             let cold_db = storage
                 .cold_db()
                 .expect("resharding tool can be used only on archival nodes")
@@ -98,10 +101,10 @@ impl ReshardingCommand {
             let split_db = SplitDB::new(hot_db, cold_db);
 
             // Open write db.
-            let write_path = if self.write_path.is_absolute() {
-                PathBuf::from(&self.write_path)
+            let write_path = if write_path.is_absolute() {
+                PathBuf::from(&write_path)
             } else {
-                home_dir.join(&self.write_path)
+                home_dir.join(&write_path)
             };
             let write_path = write_path.as_path();
             let write_config = &config.config.store;
