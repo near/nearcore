@@ -232,12 +232,9 @@ class BaseNode(object):
         cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
         return cmd + make_boot_nodes_arg(boot_node)
 
-    def get_command_for_subprogram(self,
-                                   cmd: tuple,
-                                   near_root,
-                                   node_dir,
-                                   binary_name='neard'):
-        return (os.path.join(near_root, binary_name), '--home', node_dir) + cmd
+    def get_command_for_subprogram(self, cmd: tuple):
+        return (os.path.join(self.near_root,
+                             self.binary_name), '--home', self.node_dir) + cmd
 
     def addr_with_pk(self) -> str:
         pk_hash = self.node_key.pk.split(':')[1]
