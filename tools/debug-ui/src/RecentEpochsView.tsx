@@ -68,7 +68,7 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                         // It looks like this:
                         //      2024,180,0,15,28,88423066,0,0,0
                         //      year,days,hours,minutes,seconds,nanoseconds,timezone offsets
-                        // The solution below parses the first part of the date object, up the the seconds, in UTC.
+                        // The solution below parses the first part of the date object, up the seconds, in UTC.
                         epochStartColumn = `${formatDurationInMillis(
                             Date.now() -
                               parse(
