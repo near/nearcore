@@ -179,6 +179,7 @@ pub fn create_chunk(
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
+    let epoch_id = last_block.header().epoch_id();
     let signer = client.validator_signer.get();
     let ProduceChunkResult {
         mut chunk,
@@ -188,7 +189,7 @@ pub fn create_chunk(
     } = client
         .try_produce_chunk(
             &last_block,
-            last_block.header().epoch_id(),
+            epoch_id,
             last_block.chunks()[0].clone(),
             next_height,
             0,
@@ -249,7 +250,9 @@ pub fn create_chunk(
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
-    let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
+    let protocol_version = client.chain.epoch_manager.get_epoch_protocol_version(epoch_id).unwrap();
+    let endorsement =
+        ChunkEndorsement::new(*epoch_id, &chunk.cloned_header(), signer.as_ref(), protocol_version);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
@@ -259,7 +262,7 @@ pub fn create_chunk(
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
         vec![vec![Some(Box::new(endorsement.signature()))]],
-        *last_block.header().epoch_id(),
+        *epoch_id,
         *last_block.header().next_epoch_id(),
         None,
         vec![],

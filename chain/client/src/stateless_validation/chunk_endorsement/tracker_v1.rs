@@ -1,5 +1,4 @@
 use lru::LruCache;
-use near_chain::ChainStoreAccess;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -10,8 +9,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::AccountId;
-
-use crate::Client;
 
 use super::ChunkEndorsementsState;
 
@@ -38,32 +35,24 @@ struct ChunkEndorsementTrackerInner {
     pending_chunk_endorsements: LruCache<ChunkHash, HashMap<AccountId, ChunkEndorsementV1>>,
 }
 
-impl Client {
-    pub(crate) fn process_chunk_endorsement_v1(
-        &mut self,
+impl ChunkEndorsementTracker {
+    pub(crate) fn process_chunk_endorsement(
+        &self,
         endorsement: ChunkEndorsementV1,
+        chunk_header: Option<ShardChunkHeader>,
     ) -> Result<(), Error> {
         // We need the chunk header in order to process the chunk endorsement.
         // If we don't have the header, then queue it up for when we do have the header.
         // We must use the partial chunk (as opposed to the full chunk) in order to get
         // the chunk header, because we may not be tracking that shard.
-        match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
-            Ok(chunk) => self
-                .chunk_endorsement_tracker
-                .tracker_v1
-                .process_chunk_endorsement(&chunk.cloned_header(), endorsement),
-            Err(Error::ChunkMissing(_)) => {
-                tracing::debug!(target: "client", ?endorsement, "Endorsement arrived before chunk.");
-                self.chunk_endorsement_tracker
-                    .tracker_v1
-                    .add_chunk_endorsement_to_pending_cache(endorsement)
+        match chunk_header {
+            Some(chunk_header) => {
+                self.process_chunk_endorsement_with_chunk_header(&chunk_header, endorsement)
             }
-            Err(error) => return Err(error),
+            None => self.add_chunk_endorsement_to_pending_cache(endorsement),
         }
     }
-}
 
-impl ChunkEndorsementTracker {
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
             epoch_manager: epoch_manager.clone(),
@@ -87,7 +76,7 @@ impl ChunkEndorsementTracker {
     }
 
     /// Add the chunk endorsement to a cache of pending chunk endorsements (if not yet there).
-    pub(crate) fn add_chunk_endorsement_to_pending_cache(
+    fn add_chunk_endorsement_to_pending_cache(
         &self,
         endorsement: ChunkEndorsementV1,
     ) -> Result<(), Error> {
@@ -97,7 +86,7 @@ impl ChunkEndorsementTracker {
     /// Function to process an incoming chunk endorsement from chunk validators.
     /// We first verify the chunk endorsement and then store it in a cache.
     /// We would later include the endorsements in the block production.
-    pub(crate) fn process_chunk_endorsement(
+    fn process_chunk_endorsement_with_chunk_header(
         &self,
         chunk_header: &ShardChunkHeader,
         endorsement: ChunkEndorsementV1,

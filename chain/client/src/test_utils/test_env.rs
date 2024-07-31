@@ -452,6 +452,7 @@ impl TestEnv {
                     ) => {
                         let endorsement = match endorsement {
                             ChunkEndorsement::V1(endorsement) => endorsement,
+                            _ => panic!("Expected ChunkEndorsementV1"),
                         };
                         if endorsement.chunk_hash() == chunk_hash {
                             endorsement_opt = Some(endorsement.clone());

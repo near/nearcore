@@ -2274,7 +2274,12 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().get_mut().inner_lite.prev_outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
-        let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), &validator_signer);
+        let endorsement = ChunkEndorsement::new(
+            *block.header().epoch_id(),
+            &chunk_header,
+            &validator_signer,
+            PROTOCOL_VERSION,
+        );
         block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]]);
         block.mut_header().get_mut().inner_rest.block_body_hash =
             block.compute_block_body_hash().unwrap();

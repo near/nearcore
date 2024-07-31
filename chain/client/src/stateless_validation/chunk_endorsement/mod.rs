@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use near_chain::ChainStoreAccess;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_body::ChunkEndorsementSignatures;
@@ -35,15 +36,37 @@ impl Client {
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        match endorsement {
-            ChunkEndorsement::V1(endorsement) => self.process_chunk_endorsement_v1(endorsement),
-        }
+        // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
+        let chunk_header =
+            match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
+                Ok(chunk) => Some(chunk.cloned_header()),
+                Err(Error::ChunkMissing(_)) => None,
+                Err(error) => return Err(error),
+            };
+        self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, chunk_header)
     }
 }
 
 impl ChunkEndorsementTracker {
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self { tracker_v1: tracker_v1::ChunkEndorsementTracker::new(epoch_manager) }
+    }
+
+    // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
+    pub fn process_chunk_endorsement(
+        &self,
+        endorsement: ChunkEndorsement,
+        chunk_header: Option<ShardChunkHeader>,
+    ) -> Result<(), Error> {
+        match endorsement {
+            ChunkEndorsement::V1(endorsement) => {
+                self.tracker_v1.process_chunk_endorsement(endorsement, chunk_header)
+            }
+            ChunkEndorsement::V2(endorsement) => {
+                // TODO(ChunkEndorsementV2): Remove this once we implement tracker_v2
+                self.tracker_v1.process_chunk_endorsement(endorsement.into_v1(), chunk_header)
+            }
+        }
     }
 
     /// Called by block producer.

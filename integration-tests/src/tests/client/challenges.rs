@@ -415,8 +415,12 @@ fn test_verify_chunk_invalid_state_challenge() {
     block_merkle_tree.insert(*last_block.hash());
 
     let signer = client.validator_signer.get().unwrap();
-    let endorsement =
-        ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
+    let endorsement = ChunkEndorsement::new(
+        *last_block.header().epoch_id(),
+        &invalid_chunk.cloned_header(),
+        signer.as_ref(),
+        PROTOCOL_VERSION,
+    );
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
