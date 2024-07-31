@@ -3703,6 +3703,10 @@ impl Chain {
                     prev_chunk_extra.as_ref(),
                     prev_chunk_height_included,
                     &chunk_header,
+                    self.runtime_adapter
+                        .get_runtime_config(PROTOCOL_VERSION)?
+                        .gas_limit_adjustment_config
+                        .as_ref(),
                 )
                 .map_err(|err| {
                     warn!(

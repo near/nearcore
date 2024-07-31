@@ -5,6 +5,7 @@ use near_chain::chain::{
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
+use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ApplyChunkResult, StorageDataSource};
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use near_chain::validate::{
@@ -18,7 +19,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
 use near_store::{Mode, NodeStorage, ShardUId, Store};
@@ -259,6 +260,8 @@ impl ReplayController {
         )?;
 
         let update_reason = if is_new_chunk {
+            let gas_limit_adjustment_config =
+                self.runtime.get_runtime_config(PROTOCOL_VERSION)?.gas_limit_adjustment_config;
             validate_chunk_with_chunk_extra(
                 &self.chain_store,
                 self.epoch_manager.as_ref(),
@@ -266,6 +269,7 @@ impl ReplayController {
                 prev_chunk_extra.as_ref(),
                 prev_chunk_height_included,
                 chunk_header,
+                gas_limit_adjustment_config.as_ref(),
             )
             .context("Failed to validate chunk with chunk extra")?;
 
