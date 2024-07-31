@@ -217,6 +217,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
                 Some((PartialEncodedStateWitnessForward, 1))
             }
+            RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
             | RoutedMessageBody::_UnusedChunkStateWitness
