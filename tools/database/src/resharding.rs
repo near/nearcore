@@ -30,11 +30,11 @@ pub(crate) struct ReshardingCommand {
     #[clap(long)]
     shard_id: ShardId,
 
-    /// Path to write the new trie nodes created by the resharding operation. 
+    /// Path to write the new trie nodes created by the resharding operation.
     #[clap(long, group("output"))]
     write_path: PathBuf,
 
-    /// Restore potentially missing trie nodes in cold database. This operation is idempotent. 
+    /// Restore potentially missing trie nodes in cold database. This operation is idempotent.
     #[clap(long, group("output"))]
     restore: bool,
 }
@@ -61,7 +61,11 @@ impl ReshardingCommand {
         let state_roots = state_roots?;
         tracing::info!(target: "resharding", ?state_roots, "state roots");
 
-        chain.build_state_for_split_shards_postprocessing(shard_uid, &sync_hash, state_roots)?;
+        chain.custom_build_state_for_split_shards_postprocessing(
+            shard_uid,
+            &sync_hash,
+            state_roots,
+        )?;
 
         Ok(())
     }
@@ -69,32 +73,42 @@ impl ReshardingCommand {
     fn get_store(&self, home_dir: &Path, config: &mut NearConfig) -> Result<Store, anyhow::Error> {
         // Open hot and cold as usual.
         let storage = open_storage(home_dir, config)?;
-        let cold_db = storage.cold_db().unwrap().to_owned();
-        let hot_db = storage.into_inner(Temperature::Hot);
 
-        // We need real split db so that it correctly handles reads of missing
-        // values in the columns that are not in the cold db.
-        let split_db = SplitDB::new(hot_db, cold_db);
-
-        // Open write db.
-        let write_path = if self.write_path.is_absolute() {
-            PathBuf::from(&self.write_path)
+        let store = if self.restore {
+            // In 'restore' mode all changes are written directly into the recovery DB built upon the cold DB.
+            storage.get_recovery_store().expect("recovery db must be present on archival nodes")
         } else {
-            home_dir.join(&self.write_path)
+            let cold_db = storage
+                .cold_db()
+                .expect("resharding tool can be used only on archival nodes")
+                .to_owned();
+            let hot_db = storage.into_inner(Temperature::Hot);
+
+            // We need real split db so that it correctly handles reads of missing
+            // values in the columns that are not in the cold db.
+            let split_db = SplitDB::new(hot_db, cold_db);
+
+            // Open write db.
+            let write_path = if self.write_path.is_absolute() {
+                PathBuf::from(&self.write_path)
+            } else {
+                home_dir.join(&self.write_path)
+            };
+            let write_path = write_path.as_path();
+            let write_config = &config.config.store;
+            let write_db =
+                RocksDB::open(write_path, write_config, Mode::ReadWrite, Temperature::Hot)?;
+            let write_db = Arc::new(write_db);
+
+            // Prepare the full mixed db.
+            // It will read, in order, from write, hot and cold.
+            // It will write only to the write db.
+            let mixed_db = MixedDB::new(split_db, write_db, ReadOrder::WriteDBFirst);
+
+            // The only way to create a Store is to go through NodeStorage.
+            let storage = NodeStorage::new(mixed_db);
+            storage.get_hot_store()
         };
-        let write_path = write_path.as_path();
-        let write_config = &config.config.store;
-        let write_db = RocksDB::open(write_path, write_config, Mode::ReadWrite, Temperature::Hot)?;
-        let write_db = Arc::new(write_db);
-
-        // Prepare the full mixed db.
-        // It will read, in order, from write, hot and cold.
-        // It will write only to the write db.
-        let mixed_db = MixedDB::new(split_db, write_db, ReadOrder::WriteDBFirst);
-
-        // The only way to create a Store is to go through NodeStorage.
-        let storage = NodeStorage::new(mixed_db);
-        let store = storage.get_hot_store();
         Ok(store)
     }
 

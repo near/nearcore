@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// ReshardingRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
@@ -575,6 +575,7 @@ impl Chain {
         Ok(())
     }
 
+    /// Preprocessing stage for on demand resharding. This method should be called only by the resharding tool.
     pub fn custom_build_state_for_resharding_preprocessing(
         &self,
         // The resharding will execute on the post state of the target_hash block.
@@ -615,5 +616,34 @@ impl Chain {
             .set(ReshardingStatus::Scheduled.into());
 
         Ok(resharding_request)
+    }
+
+    /// Postprocessing stage for on demand resharding. This method should be called only by the resharding tool.
+    pub fn custom_build_state_for_split_shards_postprocessing(
+        &mut self,
+        shard_uid: ShardUId,
+        sync_hash: &CryptoHash,
+        state_roots: HashMap<ShardUId, StateRoot>,
+    ) -> Result<(), Error> {
+        let block_header = self.get_block_header(sync_hash)?;
+        let prev_hash = block_header.prev_hash();
+
+        for (shard_uid, state_root) in state_roots {
+            debug!(target:"resharding", "Finish building resharding for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
+            // Chunk extra should match the ones committed into the chain.
+            let new_chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
+            let chunk_extra = self
+                .get_chunk_extra(sync_hash, &shard_uid)
+                .expect("chunk extra for {sync_hash} must exist on chain");
+            if *chunk_extra != new_chunk_extra {
+                error!(target:"resharding", ?chunk_extra, ?new_chunk_extra, "Chunk extra mismatch!");
+            }
+        }
+
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::Finished.into());
+
+        Ok(())
     }
 }
