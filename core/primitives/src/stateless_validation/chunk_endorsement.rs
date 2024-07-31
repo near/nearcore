@@ -17,14 +17,13 @@ pub enum ChunkEndorsement {
 
 impl ChunkEndorsement {
     pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsement {
-        ChunkEndorsement::V1(Self::new_v1(chunk_hash, signer))
+        ChunkEndorsement::V1(ChunkEndorsementV1::new(chunk_hash, signer))
     }
 
-    pub fn new_v1(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsementV1 {
-        let inner = ChunkEndorsementInner::new(chunk_hash);
-        let account_id = signer.validator_id().clone();
-        let signature = signer.sign_chunk_endorsement(&inner);
-        ChunkEndorsementV1 { inner, account_id, signature }
+    pub fn chunk_hash(&self) -> &ChunkHash {
+        match self {
+            ChunkEndorsement::V1(endorsement) => endorsement.chunk_hash(),
+        }
     }
 
     pub fn signature(&self) -> Signature {
@@ -52,6 +51,13 @@ pub struct ChunkEndorsementV1 {
 }
 
 impl ChunkEndorsementV1 {
+    pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsementV1 {
+        let inner = ChunkEndorsementInner::new(chunk_hash);
+        let account_id = signer.validator_id().clone();
+        let signature = signer.sign_chunk_endorsement(&inner);
+        ChunkEndorsementV1 { inner, account_id, signature }
+    }
+
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let data = borsh::to_vec(&self.inner).unwrap();
         self.signature.verify(&data, public_key)

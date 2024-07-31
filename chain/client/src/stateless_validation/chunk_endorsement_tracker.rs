@@ -59,33 +59,39 @@ impl Client {
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
+        // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
+        let chunk_header =
+            match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
+                Ok(chunk) => Some(chunk.cloned_header()),
+                Err(Error::ChunkMissing(_)) => None,
+                Err(error) => return Err(error),
+            };
         match endorsement {
-            ChunkEndorsement::V1(endorsement) => self.process_chunk_endorsement_v1(endorsement),
-        }
-    }
-
-    fn process_chunk_endorsement_v1(
-        &mut self,
-        endorsement: ChunkEndorsementV1,
-    ) -> Result<(), Error> {
-        // We need the chunk header in order to process the chunk endorsement.
-        // If we don't have the header, then queue it up for when we do have the header.
-        // We must use the partial chunk (as opposed to the full chunk) in order to get
-        // the chunk header, because we may not be tracking that shard.
-        match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
-            Ok(chunk) => self
-                .chunk_endorsement_tracker
-                .process_chunk_endorsement(&chunk.cloned_header(), endorsement),
-            Err(Error::ChunkMissing(_)) => {
-                tracing::debug!(target: "client", ?endorsement, "Endorsement arrived before chunk.");
-                self.chunk_endorsement_tracker.add_chunk_endorsement_to_pending_cache(endorsement)
+            ChunkEndorsement::V1(endorsement) => {
+                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, chunk_header)
             }
-            Err(error) => return Err(error),
         }
     }
 }
 
 impl ChunkEndorsementTracker {
+    pub fn process_chunk_endorsement(
+        &self,
+        endorsement: ChunkEndorsementV1,
+        chunk_header: Option<ShardChunkHeader>,
+    ) -> Result<(), Error> {
+        // We need the chunk header in order to process the chunk endorsement.
+        // If we don't have the header, then queue it up for when we do have the header.
+        // We must use the partial chunk (as opposed to the full chunk) in order to get
+        // the chunk header, because we may not be tracking that shard.
+        match chunk_header {
+            Some(chunk_header) => {
+                self.process_chunk_endorsement_with_chunk_header(&chunk_header, endorsement)
+            }
+            None => self.add_chunk_endorsement_to_pending_cache(endorsement),
+        }
+    }
+
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
             epoch_manager: epoch_manager.clone(),
@@ -119,7 +125,7 @@ impl ChunkEndorsementTracker {
     /// Function to process an incoming chunk endorsement from chunk validators.
     /// We first verify the chunk endorsement and then store it in a cache.
     /// We would later include the endorsements in the block production.
-    pub(crate) fn process_chunk_endorsement(
+    fn process_chunk_endorsement_with_chunk_header(
         &self,
         chunk_header: &ShardChunkHeader,
         endorsement: ChunkEndorsementV1,
