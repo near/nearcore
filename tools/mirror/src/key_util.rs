@@ -145,6 +145,8 @@ pub(crate) async fn keys_from_rpc(
                 permission: Some(k.access_key.permission),
             })
             .collect()),
-        _ => unreachable!(),
+        k => {
+            anyhow::bail!("received unexpected RPC response for access key query: {:?}", k);
+        }
     }
 }
