@@ -81,7 +81,6 @@ impl ReplayController {
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
-        
         let start_height = start_height.unwrap_or(genesis_height);
         let end_height = end_height.unwrap_or(head_height);
 
