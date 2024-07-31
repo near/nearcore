@@ -66,8 +66,7 @@ def main():
         ('state-parts-dump-check', '--chain-id', chain_id, '--root-dir',
          dump_folder, 'loop-check', '--rpc-server-addr',
          f"http://{rpc_address}:{rpc_port}", '--prometheus-addr',
-         f"{local_rpc_address}:{local_rpc_port}", '--interval', '2'),
-        dump_check.near_root, dump_check.node_dir, dump_check.binary_name)
+         f"{local_rpc_address}:{local_rpc_port}", '--interval', '2'))
     dump_check.run_cmd(cmd=cmd)
 
     logger.info('Started nodes')

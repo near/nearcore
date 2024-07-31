@@ -25,7 +25,7 @@ use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature::{self, SimpleNightshade, StatelessValidation};
+use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -1528,9 +1528,6 @@ fn test_chunk_producer_kickout() {
 /// validator is not kicked out.
 #[test]
 fn test_chunk_validator_kickout() {
-    if !StatelessValidation.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let stake_amount = 1_000_000;
     let validators: Vec<(AccountId, Balance)> =
         (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
@@ -2792,11 +2789,6 @@ fn test_verify_chunk_endorsements() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
-        return;
-    }
-
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];
@@ -2858,11 +2850,6 @@ fn test_verify_partial_witness_signature() {
     use near_crypto::Signature;
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
-
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
-        return;
-    }
 
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();

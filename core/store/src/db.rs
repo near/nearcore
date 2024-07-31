@@ -6,6 +6,7 @@ pub(crate) mod rocksdb;
 
 mod colddb;
 mod mixeddb;
+mod recoverydb;
 mod splitdb;
 
 pub mod refcount;
@@ -16,6 +17,7 @@ mod database_tests;
 
 pub use self::colddb::ColdDB;
 pub use self::mixeddb::{MixedDB, ReadOrder};
+pub use self::recoverydb::RecoveryDB;
 pub use self::rocksdb::RocksDB;
 pub use self::splitdb::SplitDB;
 

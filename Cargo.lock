@@ -4545,6 +4545,8 @@ dependencies = [
  "near-epoch-manager",
  "near-indexer",
  "near-indexer-primitives",
+ "near-jsonrpc-client",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
  "near-primitives",
@@ -4792,6 +4794,26 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.6",
  "thiserror",
+]
+
+[[package]]
+name = "near-replay-archive-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh 1.2.0",
+ "clap",
+ "near-chain",
+ "near-chain-configs",
+ "near-chain-primitives",
+ "near-epoch-manager",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "state-viewer",
+ "tracing",
 ]
 
 [[package]]
@@ -5357,6 +5379,7 @@ dependencies = [
  "near-performance-metrics",
  "near-ping",
  "near-primitives",
+ "near-replay-archive-tool",
  "near-state-parts",
  "near-state-parts-dump-check",
  "near-store",

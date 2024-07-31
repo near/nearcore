@@ -18,8 +18,6 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::types::AccountId;
-use near_primitives::version::ProtocolFeature;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 struct OrphanWitnessTestEnv {
@@ -207,11 +205,6 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 fn test_orphan_witness_valid() {
     init_integration_logger();
 
-    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
-        println!("Test not applicable with ChunkEndorsementV2 enabled");
-        return;
-    }
-
     let OrphanWitnessTestEnv {
         mut env,
         block1,
@@ -246,11 +239,6 @@ fn test_orphan_witness_valid() {
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 
-    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
-        println!("Test not applicable with ChunkEndorsementV2 enabled");
-        return;
-    }
-
     let OrphanWitnessTestEnv { mut env, witness, excluded_validator, .. } =
         setup_orphan_witness_test();
 
@@ -269,11 +257,6 @@ fn test_orphan_witness_too_large() {
 #[test]
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
-
-    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
-        println!("Test not applicable with ChunkEndorsementV2 enabled");
-        return;
-    }
 
     let OrphanWitnessTestEnv { mut env, mut witness, block1, excluded_validator, .. } =
         setup_orphan_witness_test();
@@ -302,11 +285,6 @@ fn test_orphan_witness_far_from_head() {
 #[test]
 fn test_orphan_witness_not_fully_validated() {
     init_integration_logger();
-
-    if ProtocolFeature::ChunkEndorsementV2.enabled(PROTOCOL_VERSION) {
-        println!("Test not applicable with ChunkEndorsementV2 enabled");
-        return;
-    }
 
     let OrphanWitnessTestEnv { mut env, mut witness, excluded_validator, .. } =
         setup_orphan_witness_test();

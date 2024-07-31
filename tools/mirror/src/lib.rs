@@ -41,6 +41,7 @@ mod chain_tracker;
 pub mod cli;
 pub mod genesis;
 pub mod key_mapping;
+mod key_util;
 mod metrics;
 mod offline;
 mod online;
