@@ -13,7 +13,7 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::types::EpochId;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::db::{MixedDB, ReadOrder, RocksDB, SplitDB};
+use near_store::db::{MixedDB, ReadOrder, RecoveryDB, RocksDB, SplitDB};
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NightshadeRuntimeExt;
@@ -83,22 +83,31 @@ impl ReshardingCommand {
         // Open hot and cold as usual.
         let storage = open_storage(home_dir, config)?;
 
+        let cold_db = storage
+            .cold_db()
+            .expect("resharding tool can be used only on archival nodes")
+            .to_owned();
+        let hot_db = storage.into_inner(Temperature::Hot);
+
+        // We need real split db so that it correctly handles reads of missing
+        // values in the columns that are not in the cold db.
+        let split_db = SplitDB::new(hot_db, cold_db.clone());
+
         let store = if self.restore {
             // In 'restore' mode all changes are written directly into the recovery DB built upon the cold DB.
-            storage.get_recovery_store().expect("recovery db must be present on archival nodes")
+            let recovery_db = Arc::new(RecoveryDB::new(cold_db));
+
+            // Prepare the full mixed db.
+            // It will read, in order, from hot, cold and recovery.
+            // It will write only to the recovery db.
+            let mixed_db = MixedDB::new(split_db, recovery_db, ReadOrder::ReadDBFirst);
+
+            // The only way to create a Store is to go through NodeStorage.
+            let storage = NodeStorage::new(mixed_db);
+            storage.get_hot_store()
         } else {
             let write_path =
                 self.write_path.as_ref().expect("write path must be set when not in recovery mode");
-
-            let cold_db = storage
-                .cold_db()
-                .expect("resharding tool can be used only on archival nodes")
-                .to_owned();
-            let hot_db = storage.into_inner(Temperature::Hot);
-
-            // We need real split db so that it correctly handles reads of missing
-            // values in the columns that are not in the cold db.
-            let split_db = SplitDB::new(hot_db, cold_db);
 
             // Open write db.
             let write_path = if write_path.is_absolute() {
