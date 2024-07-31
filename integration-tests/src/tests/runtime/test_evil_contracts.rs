@@ -21,7 +21,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let transaction_result = node_user
         .create_account(
             account_id,
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             node.signer().public_key(),
             TESTING_INIT_BALANCE / 2,
         )
@@ -29,8 +29,9 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
-    let transaction_result =
-        node_user.deploy_contract("test_contract".parse().unwrap(), wasm_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract("test_contract.alice.near".parse().unwrap(), wasm_binary.to_vec())
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
@@ -51,7 +52,7 @@ fn test_evil_deep_trie() {
             .user()
             .function_call(
                 "alice.near".parse().unwrap(),
-                "test_contract".parse().unwrap(),
+                "test_contract.alice.near".parse().unwrap(),
                 "insert_strings",
                 input_data.to_vec(),
                 MAX_GAS,
@@ -72,7 +73,7 @@ fn test_evil_deep_trie() {
             .user()
             .function_call(
                 "alice.near".parse().unwrap(),
-                "test_contract".parse().unwrap(),
+                "test_contract.alice.near".parse().unwrap(),
                 "delete_strings",
                 input_data.to_vec(),
                 MAX_GAS,
@@ -97,7 +98,7 @@ fn test_self_delay() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "max_self_recursion_delay",
             vec![0; 4],
             MAX_GAS,
@@ -132,7 +133,7 @@ fn test_evil_deep_recursion() {
             .user()
             .function_call(
                 "alice.near".parse().unwrap(),
-                "test_contract".parse().unwrap(),
+                "test_contract.alice.near".parse().unwrap(),
                 "recurse",
                 n_bytes.clone(),
                 MAX_GAS,
@@ -154,7 +155,7 @@ fn test_evil_abort() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "abort_with_zero",
             vec![],
             MAX_GAS,
