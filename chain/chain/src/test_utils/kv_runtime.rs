@@ -1126,13 +1126,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        let storage_proof = if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let storage_proof = Some(Default::default());
         Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
     }
 
@@ -1282,13 +1276,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-        let storage_proof = if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let storage_proof = Some(Default::default());
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
