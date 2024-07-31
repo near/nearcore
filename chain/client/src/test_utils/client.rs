@@ -179,7 +179,6 @@ pub fn create_chunk(
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
-    let epoch_id = last_block.header().epoch_id();
     let signer = client.validator_signer.get();
     let ProduceChunkResult {
         mut chunk,
@@ -189,7 +188,7 @@ pub fn create_chunk(
     } = client
         .try_produce_chunk(
             &last_block,
-            epoch_id,
+            last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
             0,
