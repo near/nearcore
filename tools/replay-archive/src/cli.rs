@@ -74,7 +74,7 @@ impl ReplayController {
         home_dir: &Path,
         near_config: NearConfig,
         start_height: Option<BlockHeight>,
-        end_heigth: Option<BlockHeight>,
+        end_height: Option<BlockHeight>,
     ) -> Result<Self> {
         let store = Self::open_split_store_read_only(home_dir, &near_config)?;
 
@@ -82,18 +82,9 @@ impl ReplayController {
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
-        let tail_height = chain_store.tail().context("Failed to get tail of the chain")?;
-        assert_eq!(
-            tail_height, genesis_height,
-            "Tail height of archival node must be equal to the genesis height."
-        );
-        assert!(
-            tail_height <= head_height,
-            "Head height must be greater or equal to the tail heigth."
-        );
 
-        let start_height = start_height.unwrap_or(tail_height);
-        let end_height = end_heigth.unwrap_or(head_height);
+        let start_height = start_height.unwrap_or(genesis_height);
+        let end_height = end_height.unwrap_or(head_height);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
