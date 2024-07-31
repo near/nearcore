@@ -31,6 +31,12 @@ pub struct RuntimeConfig {
     pub congestion_control_config: CongestionControlConfig,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfig,
+    /// Configures gas limit adjustments at runtime.
+    ///
+    /// It is optional as this is supposed to be enabled only on `BENCHMARKNET`. Therefore
+    /// `GasLimitAdjustmentConfig` is not read from config files but instead set when building the
+    /// `RuntimeConfig` for `BENCHMARKNET`.
+    pub gas_limit_adjustment_config: Option<GasLimitAdjustmentConfig>,
 }
 
 impl RuntimeConfig {
@@ -59,6 +65,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            gas_limit_adjustment_config: None,
         }
     }
 
@@ -75,6 +82,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            gas_limit_adjustment_config: None,
         }
     }
 
@@ -240,4 +248,22 @@ pub struct WitnessConfig {
     pub combined_transactions_size_limit: usize,
     /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: usize,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct GasLimitAdjustmentConfig {
+    /// Override for `GAS_LIMIT_ADJUSTMENT_FACTOR`.
+    pub adjustment_factor_override: u64,
+    /// The maximum chunk apply time considered sustainable, in milliseconds.
+    pub max_chunk_apply_time: u64,
+    /// Increasing the gas limit when chunk apply times are close to the targeted maximum can lead
+    /// to overshooting the target in subsequent blocks.
+    ///
+    /// Measured in milliseconds.
+    pub backoff_time: u64,
+    /// When there is no load it is hard to predict if the node could handle more load. Hence we
+    /// need some notion of measuring load.
+    ///
+    /// Measured in milliseconds.
+    pub load_indication_apply_time: u64,
 }

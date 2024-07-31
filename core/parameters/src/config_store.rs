@@ -1,4 +1,4 @@
-use crate::config::{CongestionControlConfig, RuntimeConfig};
+use crate::config::{CongestionControlConfig, GasLimitAdjustmentConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
@@ -117,6 +117,7 @@ impl RuntimeConfigStore {
                     account_creation_config: runtime_config.account_creation_config.clone(),
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
+                    gas_limit_adjustment_config: None,
                 }),
             );
             store.insert(0, Arc::new(runtime_config.clone()));
@@ -150,6 +151,12 @@ impl RuntimeConfigStore {
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
                 config.wasm_config = Arc::new(wasm_config);
+                config.gas_limit_adjustment_config = Some(GasLimitAdjustmentConfig {
+                    adjustment_factor_override: 0,
+                    max_chunk_apply_time: 0,
+                    backoff_time: 0,
+                    load_indication_apply_time: 0,
+                });
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
             }
