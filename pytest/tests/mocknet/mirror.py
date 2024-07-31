@@ -196,7 +196,7 @@ def new_genesis_timestamp(node):
     result = version.get('result')
     if result is not None:
         if result.get('node_setup_version') == '1':
-            genesis_time = str(datetime.datetime.now(tz=datetime.UTC))
+            genesis_time = str(datetime.datetime.now(tz=datetime.timezone.utc))
     return genesis_time
 
 
