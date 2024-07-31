@@ -67,6 +67,15 @@ impl ReshardingCommand {
             state_roots,
         )?;
 
+        if self.restore {
+            // In restore mode print database write statistics.
+            chain.runtime_adapter.store().get_store_statistics().map(|stats| {
+                stats.data.iter().for_each(|(metric, values)| {
+                    tracing::info!(%metric, ?values);
+                })
+            });
+        }
+
         Ok(())
     }
 
