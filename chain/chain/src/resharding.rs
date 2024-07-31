@@ -633,10 +633,10 @@ impl Chain {
             // Chunk extra should match the ones committed into the chain.
             let new_chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             let chunk_extra = self
-                .get_chunk_extra(sync_hash, &shard_uid)
-                .expect("chunk extra for {sync_hash} must exist on chain");
-            if *chunk_extra != new_chunk_extra {
-                error!(target:"resharding", ?chunk_extra, ?new_chunk_extra, "Chunk extra mismatch!");
+                .get_chunk_extra(prev_hash, &shard_uid)
+                .expect("chunk extra must exist on chain");
+            if chunk_extra.state_root() != new_chunk_extra.state_root() {
+                error!(target:"resharding", ?chunk_extra, ?new_chunk_extra, "Chunk extra state_root mismatch!");
             }
         }
 
