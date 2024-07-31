@@ -1,4 +1,5 @@
 pub mod network;
+pub mod setups;
 pub mod transactions;
 pub mod view_client;
 
