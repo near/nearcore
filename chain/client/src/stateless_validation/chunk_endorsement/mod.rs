@@ -58,24 +58,13 @@ impl ChunkEndorsementTracker {
         endorsement: ChunkEndorsement,
         chunk_header: Option<ShardChunkHeader>,
     ) -> Result<(), Error> {
-        match endorsement {
-            ChunkEndorsement::V1(endorsement) => {
-                self.tracker_v1.process_chunk_endorsement(endorsement, chunk_header)
-            }
-            ChunkEndorsement::V2(endorsement) => {
-                // TODO(ChunkEndorsementV2): Remove this once we implement tracker_v2
-                self.tracker_v1.process_chunk_endorsement(endorsement.into_v1(), chunk_header)
-            }
-        }
+        let endorsement = match endorsement {
+            ChunkEndorsement::V1(endorsement) => endorsement,
+            ChunkEndorsement::V2(endorsement) => endorsement.into_v1(),
+        };
+        self.tracker_v1.process_chunk_endorsement(endorsement, chunk_header)
     }
 
-    /// Called by block producer.
-    /// Returns ChunkEndorsementsState::Endorsed if node has enough signed stake for the chunk
-    /// represented by chunk_header.
-    /// Signatures have the same order as ordered_chunk_validators, thus ready to be included in a block as is.
-    /// Returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
-    /// For older protocol version, we return ChunkEndorsementsState::Endorsed with an empty array of
-    /// chunk endorsements.
     pub fn compute_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,

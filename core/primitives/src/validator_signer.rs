@@ -93,7 +93,7 @@ impl ValidatorSigner {
         }
     }
 
-    /// Signs chunk endorsement to be sent to block producer.
+    /// Signs chunk endorsement metadata.
     pub fn sign_chunk_endorsement_metadata(&self, inner: &ChunkEndorsementMetadata) -> Signature {
         match self {
             ValidatorSigner::Empty(signer) => signer.sign_chunk_endorsement_metadata(inner),
