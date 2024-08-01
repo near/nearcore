@@ -14,7 +14,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::Compute;
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;

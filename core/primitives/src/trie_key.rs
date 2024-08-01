@@ -3,7 +3,7 @@ use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ShardId;
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';

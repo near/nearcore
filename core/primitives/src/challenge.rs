@@ -5,7 +5,7 @@ use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Formatter};
 
 /// Serialized TrieNodeWithSize or state value.

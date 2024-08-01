@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives_core::hash::{hash, CryptoHash};
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Hash, ProtocolSchema)]

@@ -6,7 +6,7 @@ use near_crypto::Signature;
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockBodyV1 {

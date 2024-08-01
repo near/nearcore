@@ -1,5 +1,5 @@
 [package]
-name = "near-structs-checker-macro"
+name = "near-schema-checker-macro"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -13,7 +13,7 @@ use near_primitives::*;
 
 use near_primitives_core::types::NumBlocks;
 use near_stable_hasher::StableHasher;
-use near_structs_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
+use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -146,7 +146,7 @@ fn main() {
 #[cfg(all(test, enable_const_type_id))]
 mod tests {
     use super::*;
-    use near_structs_checker_lib::ProtocolSchema;
+    use near_schema_checker_lib::ProtocolSchema;
     use std::collections::HashMap;
 
     fn do_compute_type_hash(

@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::{enum_map, Enum, EnumMap};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::{Compute, Gas};
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt;
 use strum::IntoEnumIterator;
 

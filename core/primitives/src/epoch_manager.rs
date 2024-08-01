@@ -12,7 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 

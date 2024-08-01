@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::types::Gas;
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt;
 use std::ops::Index;
 use strum::IntoEnumIterator;

@@ -1,7 +1,7 @@
 use crate::hash::CryptoHash;
 use crate::types::MerkleHash;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(
     Debug,

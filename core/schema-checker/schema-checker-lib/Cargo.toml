@@ -1,5 +1,5 @@
 [package]
-name = "near-structs-checker-lib"
+name = "near-schema-checker-lib"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -12,14 +12,14 @@ publish = true
 workspace = true
 
 [dependencies]
-near-structs-checker-core.workspace = true
-near-structs-checker-macro.workspace = true
+near-schema-checker-core.workspace = true
+near-schema-checker-macro.workspace = true
 inventory = { workspace = true, optional = true }
 
 [features]
 protocol_schema = [
   "inventory",
-  "near-structs-checker-core/protocol_schema",
-  "near-structs-checker-macro/protocol_schema",
+  "near-schema-checker-core/protocol_schema",
+  "near-schema-checker-macro/protocol_schema",
 ]
 

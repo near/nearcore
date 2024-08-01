@@ -8,7 +8,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_structs_checker_lib::ProtocolSchema;
+use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use std::sync::Arc;
 

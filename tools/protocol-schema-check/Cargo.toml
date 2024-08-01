@@ -11,7 +11,7 @@ publish = false
 workspace = true
 
 [dependencies]
-near-structs-checker-lib = { workspace = true, features = ["protocol_schema"] }
+near-schema-checker-lib = { workspace = true, features = ["protocol_schema"] }
 near-primitives-core = { workspace = true, features = ["protocol_schema"] }
 near-primitives = { workspace = true, features = ["protocol_schema"] }
 near-parameters = { workspace = true, features = ["protocol_schema"] }

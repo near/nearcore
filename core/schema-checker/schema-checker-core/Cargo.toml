@@ -1,5 +1,5 @@
 [package]
-name = "near-structs-checker-core"
+name = "near-schema-checker-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
