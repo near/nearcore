@@ -14,6 +14,7 @@ use near_chain::validate::{
 };
 use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::receipt::Receipt;
@@ -97,7 +98,7 @@ impl ReplayController {
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
 
         let start_height = start_height.unwrap_or(genesis_height);
-        let end_height = end_height.unwrap_or(head_height);
+        let end_height = end_height.unwrap_or(head_height).min(head_height);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -184,6 +185,17 @@ impl ReplayController {
                 .context("Failed to replay the chunk")?;
             total_gas_burnt += apply_result.total_gas_burnt;
         }
+
+        // Update epoch manager data.
+        let mut chain_store_update = self.chain_store.store_update();
+        let last_finalized_height =
+            chain_store_update.get_block_height(block.header().last_final_block())?;
+        let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+            BlockHeaderInfo::new(&block.header(), last_finalized_height),
+        )?;
+        chain_store_update.merge(epoch_manager_update);
+        chain_store_update.commit()?;
+
         self.progress_reporter.inc_and_report_progress(total_gas_burnt);
 
         Ok(())

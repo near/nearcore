@@ -60,7 +60,6 @@ impl Database for ReplayDB {
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
         self.columns_read.lock().unwrap().insert(col);
-
         if let Some(result) = self.read_db.get_with_rc_stripped(col, key)? {
             return Ok(Some(result));
         }
