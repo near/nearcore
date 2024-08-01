@@ -164,9 +164,9 @@ check-protocol-schema:
     rustup toolchain install nightly
     rustup target add wasm32-unknown-unknown --toolchain nightly
     # Test that checker is not broken
-    RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
+    env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
     # Run the checker
-    RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check
+    env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check
 
 # build target/rpc_errors_schema.json
 build-rpc-errors-schema:
