@@ -76,10 +76,11 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
-    // Dummy value to ensure that near_primitives::state fields are also included.
+    // Dummy value to ensure that near_primitives fields are also included.
     // TODO (#11755): needed only on macos, remove when fixed.
     #[allow(unused)]
     let _ = near_primitives::state::ValueRef::new(&[]);
+    let _ = near_primitives::epoch_info::EpochInfo::default();
 
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")

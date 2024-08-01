@@ -225,6 +225,7 @@ pub type ChunkValidatorStakeAssignment = Vec<Vec<(ValidatorId, Balance)>>;
 /// When mandates cannot be distributed evenly across shards, some shards will be assigned one
 /// mandata less than others. Shuffling shard ids prevents a bias towards lower shard ids, as it is
 /// no longer predictable which shard(s) will be assigned one mandate less.
+#[cfg(feature = "rand")]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 struct ShuffledShardIds {
     /// Contains the shard ids `[0, num_shards)` in shuffled order.

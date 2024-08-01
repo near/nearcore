@@ -50,7 +50,7 @@ use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMes
 use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, GenesisId};
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
