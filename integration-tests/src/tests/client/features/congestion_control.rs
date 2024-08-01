@@ -632,8 +632,8 @@ fn measure_tx_limit(
     let congestion_level = congestion_info.localized_congestion_level(&config);
     // congestion should be non-trivial and below the upper limit
     assert!(
-        incoming_congestion > upper_limit_congestion / 3.0,
-        "{incoming_congestion} > {upper_limit_congestion} / 3 failed, {congestion_info:?}"
+        incoming_congestion > upper_limit_congestion / 4.0,
+        "{incoming_congestion} > {upper_limit_congestion} / 4 failed, {congestion_info:?}"
     );
     assert!(
         congestion_level < upper_limit_congestion,

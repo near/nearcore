@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
-use near_structs_checker_lib::ProtocolStruct;
+use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
@@ -158,7 +158,7 @@ impl StateChangesKinds {
 }
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, ProtocolSchema)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
@@ -195,14 +195,14 @@ pub enum StateChangeCause {
 }
 
 /// This represents the committed changes in the Trie with a change cause.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct RawStateChange {
     pub cause: StateChangeCause,
     pub data: Option<Vec<u8>>,
 }
 
 /// List of committed changes with a cause for a given TrieKey
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct RawStateChangesWithTrieKey {
     pub trie_key: TrieKey,
     pub changes: Vec<RawStateChange>,
@@ -494,6 +494,7 @@ impl StateRootNode {
     serde::Serialize,
     serde::Deserialize,
     arbitrary::Arbitrary,
+    ProtocolSchema,
 )]
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
@@ -724,7 +725,9 @@ pub mod validator_stake {
 }
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
 pub struct ValidatorStakeV1 {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -735,7 +738,7 @@ pub struct ValidatorStakeV1 {
 }
 
 /// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
 }
@@ -927,7 +930,7 @@ pub mod chunk_extra {
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
 pub struct ChunkExtraV1 {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,
@@ -991,7 +994,9 @@ impl From<Finality> for BlockReference {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema,
+)]
 pub struct ValidatorStats {
     pub produced: NumBlocks,
     pub expected: NumBlocks,
@@ -1005,7 +1010,7 @@ impl ValidatorStats {
     }
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ChunkStats,
@@ -1059,7 +1064,7 @@ pub enum ValidatorInfoIdentifier {
     Debug,
     PartialEq,
     Eq,
-    ProtocolStruct,
+    ProtocolSchema,
 )]
 pub enum ValidatorKickoutReason {
     /// Slashed validators are kicked out.

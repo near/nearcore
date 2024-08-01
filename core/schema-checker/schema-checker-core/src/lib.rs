@@ -13,46 +13,46 @@ pub type Variant = Option<&'static [(FieldName, FieldTypeInfo)]>;
 /// For example, for `Vec<Vec<u8>>` it will be `[TypeId::of::<Vec<Vec<u8>>>(),
 /// TypeId::of::<Vec<u8>>(), TypeId::of::<u8>()]`.
 // TODO (#11755): consider better candidates for decomposition. For example,
-// `Vec<u8>` is not expected to implement `ProtocolStruct`, so its type id
+// `Vec<u8>` is not expected to implement `ProtocolSchema`, so its type id
 // won't help to identify changes in the outer struct.
 pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
 #[derive(Copy, Clone)]
-pub enum ProtocolStructInfo {
+pub enum ProtocolSchemaInfo {
     Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, FieldTypeInfo)] },
     Enum { name: FieldName, type_id: TypeId, variants: &'static [(VariantName, Variant)] },
 }
 
-impl ProtocolStructInfo {
+impl ProtocolSchemaInfo {
     pub fn type_id(&self) -> TypeId {
         match self {
-            ProtocolStructInfo::Struct { type_id, .. } => *type_id,
-            ProtocolStructInfo::Enum { type_id, .. } => *type_id,
+            ProtocolSchemaInfo::Struct { type_id, .. } => *type_id,
+            ProtocolSchemaInfo::Enum { type_id, .. } => *type_id,
         }
     }
 
     pub fn type_name(&self) -> TypeName {
         match self {
-            ProtocolStructInfo::Struct { name, .. } => name,
-            ProtocolStructInfo::Enum { name, .. } => name,
+            ProtocolSchemaInfo::Struct { name, .. } => name,
+            ProtocolSchemaInfo::Enum { name, .. } => name,
         }
     }
 }
 
 #[cfg(feature = "protocol_schema")]
-inventory::collect!(ProtocolStructInfo);
+inventory::collect!(ProtocolSchemaInfo);
 
-pub trait ProtocolStruct {}
+pub trait ProtocolSchema {}
 
 /// Implementation for primitive types.
 macro_rules! primitive_impl {
     ($($t:ty),*) => {
         $(
-            impl ProtocolStruct for $t {}
+            impl ProtocolSchema for $t {}
 
             #[cfg(all(enable_const_type_id, feature = "protocol_schema"))]
             inventory::submit! {
-                ProtocolStructInfo::Struct {
+                ProtocolSchemaInfo::Struct {
                     name: stringify!($t),
                     type_id: TypeId::of::<$t>(),
                     fields: &[],
@@ -62,4 +62,4 @@ macro_rules! primitive_impl {
     }
 }
 
-primitive_impl!(bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
+primitive_impl!(bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, String);

@@ -45,6 +45,7 @@ use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
@@ -1028,6 +1029,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
+                let endorsement = ChunkEndorsement::V1(endorsement);
                 network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
@@ -1041,6 +1043,10 @@ impl PeerActor {
                 network_state
                     .partial_witness_adapter
                     .send(PartialEncodedStateWitnessForwardMessage(witness));
+                None
+            }
+            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
+                network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
             body => {

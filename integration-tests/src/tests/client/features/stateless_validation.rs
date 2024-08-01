@@ -29,7 +29,6 @@ use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -43,11 +42,6 @@ fn run_chunk_validation_test(
     genesis_protocol_version: ProtocolVersion,
 ) {
     init_integration_logger();
-
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
@@ -318,10 +312,6 @@ fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
 fn test_protocol_upgrade_81() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
     for is_statelessnet in [true, false] {
         let validator_stake = 1000000 * ONE_NEAR;
         let num_accounts = 9;
@@ -382,11 +372,6 @@ fn test_protocol_upgrade_81() {
 #[test]
 fn test_chunk_state_witness_bad_shard_id() {
     init_integration_logger();
-
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
 
     let accounts = vec!["test0".parse().unwrap()];
     let genesis = Genesis::test(accounts.clone(), 1);
@@ -554,13 +539,6 @@ fn test_invalid_transactions() {
 /// Tests that eth-implicit accounts still work with stateless validation.
 #[test]
 fn test_eth_implicit_accounts() {
-    if !(checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION)
-        && checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION))
-    {
-        println!("Test not applicable without both StatelessValidation and eth-implicit accounts enabled");
-        return;
-    }
-
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let genesis = Genesis::test(accounts.clone(), 2);
