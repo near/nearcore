@@ -7,8 +7,8 @@ use near_primitives::action::Action;
 use near_primitives::config::ViewConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::types::AccountId;
-use near_vm_runner::logic::GasCounter;
+use near_primitives::types::{AccountId, Gas};
+use near_vm_runner::logic::{GasCounter, ProtocolVersion};
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Condvar, Mutex};
@@ -71,9 +71,10 @@ struct PrepareTask {
 }
 
 enum PrepareTaskStatus {
-    FunctionCallTask { method: String },
+    Pending,
     Working,
-    Done(Box<dyn PreparedContract>),
+    Prepared(Box<dyn PreparedContract>),
+    Finished,
 }
 
 impl ReceiptPreparationPipeline {
@@ -94,6 +95,7 @@ impl ReceiptPreparationPipeline {
             storage,
         }
     }
+
     /// Submit a receipt to the "pipeline" for preparation of likely eventual execution.
     ///
     /// Note that not all receipts submitted here must be actually handled in some way. That said,
@@ -110,7 +112,7 @@ impl ReceiptPreparationPipeline {
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
-        if self.block_accounts.contains(account_id) {
+        if self.block_accounts.contains(account_id) || true {
             return false;
         }
         let actions = match receipt.receipt() {
@@ -119,6 +121,7 @@ impl ReceiptPreparationPipeline {
         };
         let mut any_function_calls = false;
         for (action_index, action) in actions.iter().enumerate() {
+            let account_id = account_id.clone();
             match action {
                 Action::DeployContract(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
@@ -129,45 +132,54 @@ impl ReceiptPreparationPipeline {
                 }
                 Action::FunctionCall(function_call) => {
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
+                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let entry = match self.map.entry(key) {
                         std::collections::btree_map::Entry::Vacant(v) => v,
                         // Already been submitted.
+                        // TODO: Warning?
                         std::collections::btree_map::Entry::Occupied(_) => continue,
                     };
-                    let max_gas_burnt = match view_config {
-                        Some(ViewConfig { max_gas_burnt }) => max_gas_burnt,
-                        None => self.config.wasm_config.limit_config.max_gas_burnt,
-                    };
-                    let gas_counter = GasCounter::new(
-                        self.config.wasm_config.ext_costs.clone(),
-                        max_gas_burnt,
-                        self.config.wasm_config.regular_op_cost,
-                        function_call.gas,
-                        view_config.is_some(),
-                    );
-                    // TODO: This part needs to be executed in a thread eventually.
-                    let code_ext = RuntimeContractExt {
-                        storage: self.storage.clone(),
-                        account_id,
-                        account,
-                        chain_id: &self.chain_id,
-                        current_protocol_version: self.protocol_version,
-                    };
-                    let contract = near_vm_runner::prepare(
-                        &code_ext,
-                        Arc::clone(&self.config.wasm_config),
-                        self.contract_cache.as_deref(),
-                        gas_counter,
-                        &function_call.method_name,
-                    );
-                    let task = Arc::new(PrepareTask {
-                        status: Mutex::new(PrepareTaskStatus::Done(contract)),
-                        condvar: Condvar::new(),
-                    });
-                    // let task = Arc::new(Mutex::new(PrepareTaskStatus::FunctionCallTask {
-                    //     method: function_call.method_name.clone(),
-                    // }));
+                    let config = Arc::clone(&self.config.wasm_config);
+                    let cache = self.contract_cache.as_ref().map(|c| c.handle());
+                    let storage = self.storage.clone();
+                    let chain_id = self.chain_id.clone();
+                    let protocol_version = self.protocol_version;
+                    let code_hash = account.code_hash();
+                    let status = Mutex::new(PrepareTaskStatus::Pending);
+                    let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
+                    let method_name = function_call.method_name.clone();
                     entry.insert(Arc::clone(&task));
+                    // FIXME: don't spawn all tasks at once. We want to keep some capacity for
+                    // other things and also to control (in a way) the concurrency here.
+                    rayon::spawn_fifo(move || {
+                        let task_status = {
+                            let mut status = task.status.lock().expect("mutex lock");
+                            std::mem::replace(&mut *status, PrepareTaskStatus::Working)
+                        };
+                        match &task_status {
+                            PrepareTaskStatus::Pending => {},
+                            PrepareTaskStatus::Working => return,
+                            // TODO: seeing Prepared here may mean there's double spawning for the
+                            // same receipt index. Maybe output a warning?
+                            PrepareTaskStatus::Prepared(..) => return,
+                            PrepareTaskStatus::Finished => return,
+                        };
+                        let contract = prepare_function_call(
+                            &storage,
+                            cache.as_deref(),
+                            &chain_id,
+                            protocol_version,
+                            config,
+                            gas_counter,
+                            code_hash,
+                            &account_id,
+                            &method_name,
+                        );
+
+                        let mut status = task.status.lock().expect("mutex lock");
+                        *status = PrepareTaskStatus::Prepared(contract);
+                        task.condvar.notify_all();
+                    });
                     any_function_calls = true;
                 }
                 // No need to handle this receipt as it only generates other new receipts.
@@ -185,4 +197,123 @@ impl ReceiptPreparationPipeline {
         }
         return any_function_calls;
     }
+
+    /// Obtain the prepared contract for the provided receipt.
+    ///
+    /// If the contract is currently being prepared this function will block waiting for the
+    /// preparation to complete.
+    ///
+    /// If the preparation hasn't been started yet (either because it hasn't been scheduled for any
+    /// reason, or because the pipeline didn't make it in time), this function will prepare the
+    /// contract in the calling thread.
+    pub(crate) fn get_contract(
+        &self,
+        receipt: &Receipt,
+        code_hash: CryptoHash,
+        action_index: usize,
+        view_config: Option<ViewConfig>,
+    ) -> Box<dyn PreparedContract> {
+        let account_id = receipt.receiver_id();
+        let action = match receipt.receipt() {
+            ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => r
+                .actions
+                .get(action_index)
+                .expect("indexing receipt actions by an action_index failed!"),
+            ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                panic!("attempting to get_contract with a non-action receipt!?")
+            }
+        };
+        let Action::FunctionCall(function_call) = action else {
+            panic!("referenced receipt action is not a function call!");
+        };
+        let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
+        let Some(task) = self.map.get(&key) else {
+            let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+            return prepare_function_call(
+                &self.storage,
+                self.contract_cache.as_deref(),
+                &self.chain_id,
+                self.protocol_version,
+                Arc::clone(&self.config.wasm_config),
+                gas_counter,
+                code_hash,
+                &account_id,
+                &function_call.method_name,
+            );
+        };
+        let mut status_guard = task.status.lock().unwrap();
+        loop {
+            let current = std::mem::replace(&mut *status_guard, PrepareTaskStatus::Working);
+            match current {
+                PrepareTaskStatus::Pending => {
+                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let contract = prepare_function_call(
+                        &self.storage,
+                        self.contract_cache.as_deref(),
+                        &self.chain_id,
+                        self.protocol_version,
+                        Arc::clone(&self.config.wasm_config),
+                        gas_counter,
+                        code_hash,
+                        &account_id,
+                        &function_call.method_name,
+                    );
+                    *status_guard = PrepareTaskStatus::Finished;
+                    return contract;
+                }
+                PrepareTaskStatus::Working => {
+                    status_guard = task.condvar.wait(status_guard).unwrap();
+                    continue;
+                }
+                PrepareTaskStatus::Prepared(c) => {
+                    *status_guard = PrepareTaskStatus::Finished;
+                    return c;
+                }
+                PrepareTaskStatus::Finished => {
+                    *status_guard = PrepareTaskStatus::Finished;
+                    // Don't poison the lock.
+                    drop(status_guard);
+                    panic!("attempting to get_contract that has already been taken");
+                }
+            }
+        }
+    }
+
+    fn gas_counter(&self, view_config: Option<&ViewConfig>, gas: Gas) -> GasCounter {
+        let max_gas_burnt = match view_config {
+            Some(ViewConfig { max_gas_burnt }) => *max_gas_burnt,
+            None => self.config.wasm_config.limit_config.max_gas_burnt,
+        };
+        GasCounter::new(
+            self.config.wasm_config.ext_costs.clone(),
+            max_gas_burnt,
+            self.config.wasm_config.regular_op_cost,
+            gas,
+            view_config.is_some(),
+        )
+    }
+}
+
+fn prepare_function_call(
+    contract_storage: &near_store::contract::Storage,
+    cache: Option<&dyn ContractRuntimeCache>,
+
+    chain_id: &str,
+    protocol_version: ProtocolVersion,
+    config: Arc<near_parameters::vm::Config>,
+    gas_counter: GasCounter,
+
+    code_hash: CryptoHash,
+    account_id: &AccountId,
+    method_name: &str,
+) -> Box<dyn PreparedContract> {
+    let code_ext = RuntimeContractExt {
+        storage: contract_storage.clone(),
+        account_id,
+        code_hash,
+        chain_id,
+        current_protocol_version: protocol_version,
+    };
+    let contract = near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name);
+    contract
 }

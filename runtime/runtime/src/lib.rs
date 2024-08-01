@@ -63,6 +63,7 @@ pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -366,6 +367,7 @@ impl Runtime {
         action: &Action,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        preparation_pipeline: &ReceiptPreparationPipeline,
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
         receipt: &Receipt,
@@ -437,14 +439,10 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let contract = prepare_function_call(
-                    state_update,
-                    apply_state,
-                    account,
-                    account_id,
-                    function_call,
-                    &apply_state.config,
-                    epoch_info_provider,
+                let contract = preparation_pipeline.get_contract(
+                    receipt,
+                    account.code_hash(),
+                    action_index,
                     None,
                 );
                 let is_last_action = action_index + 1 == actions.len();
@@ -559,6 +557,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -629,6 +628,7 @@ impl Runtime {
                 action,
                 state_update,
                 apply_state,
+                preparation_pipeline,
                 &mut account,
                 &mut actor_id,
                 receipt,
@@ -1050,6 +1050,7 @@ impl Runtime {
                             .apply_action_receipt(
                                 state_update,
                                 apply_state,
+                                &processing_state.pipeline_manager,
                                 &ready_receipt,
                                 receipt_sink,
                                 validator_proposals,
@@ -1104,6 +1105,7 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
+                            &processing_state.pipeline_manager,
                             receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1155,6 +1157,7 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
+                            &processing_state.pipeline_manager,
                             &yield_receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1656,7 +1659,9 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(front);
             _ = prefetcher.prefetch_receipts_data(back);
         }
-        while let Some(receipt) = processing_state.next_local_receipt() {
+        let mut advance: usize = 0;
+        while let Some(receipt) = processing_state.pop_local_receipt() {
+            advance = advance.saturating_sub(1);
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1668,6 +1673,25 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
+                loop {
+                    let Some(peek) = processing_state.local_receipts.get(advance) else { break };
+                    advance = advance.checked_add(1).unwrap();
+                    let peek_account_id = peek.receiver_id();
+                    let receiver = get_account(&processing_state.state_update, peek_account_id);
+                    let Ok(Some(receiver)) = receiver else {
+                        tracing::error!(
+                            target: "runtime",
+                            message="unable to read receiver of a upcoming local receipt",
+                            ?peek_account_id,
+                            receipt=%receipt.get_hash()
+                        );
+                        continue;
+                    };
+                    if processing_state.pipeline_manager.submit(peek, &receiver, None) {
+                        break;
+                    }
+                }
+
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 self.process_receipt_with_metrics(
@@ -2339,11 +2363,8 @@ struct ApplyProcessingReceiptState<'a> {
 
 impl<'a> ApplyProcessingReceiptState<'a> {
     /// Obtain the next receipt that should be executed.
-    fn next_local_receipt(&mut self) -> Option<Receipt> {
-        let receipt = self.local_receipts.pop_front()?;
-        #[allow(dropping_references)]
-        drop(&self.pipeline_manager);
-        Some(receipt)
+    fn pop_local_receipt(&mut self) -> Option<Receipt> {
+        self.local_receipts.pop_front()
     }
 }
 
@@ -3896,6 +3917,7 @@ mod tests {
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
+    use crate::pipelining::ReceiptPreparationPipeline;
     use crate::{ApplyState, ApplyStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
@@ -3927,9 +3949,17 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });
+        let empty_pipeline = ReceiptPreparationPipeline::new(
+            std::sync::Arc::clone(&apply_state.config),
+            apply_state.cache.as_ref().map(|c| c.handle()),
+            epoch_info_provider.chain_id(),
+            apply_state.current_protocol_version,
+            state_update.contract_storage.clone(),
+        );
         Runtime {}.apply_action_receipt(
             state_update,
             apply_state,
+            &empty_pipeline,
             receipt,
             &mut receipt_sink,
             validator_proposals,

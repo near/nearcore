@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
-use crate::ext::{ExternalError, RuntimeContractExt, RuntimeExt};
+use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -158,44 +158,6 @@ pub(crate) fn execute_function_call(
     }
 
     Ok(outcome)
-}
-
-pub(crate) fn prepare_function_call(
-    state_update: &TrieUpdate,
-    apply_state: &ApplyState,
-    account: &Account,
-    account_id: &AccountId,
-    function_call: &FunctionCallAction,
-    config: &RuntimeConfig,
-    epoch_info_provider: &(dyn EpochInfoProvider),
-    view_config: Option<ViewConfig>,
-) -> Box<dyn PreparedContract> {
-    let max_gas_burnt = match view_config {
-        Some(ViewConfig { max_gas_burnt }) => max_gas_burnt,
-        None => config.wasm_config.limit_config.max_gas_burnt,
-    };
-    let gas_counter = near_vm_runner::logic::GasCounter::new(
-        config.wasm_config.ext_costs.clone(),
-        max_gas_burnt,
-        config.wasm_config.regular_op_cost,
-        function_call.gas,
-        view_config.is_some(),
-    );
-    let code_ext = RuntimeContractExt {
-        storage: state_update.contract_storage.clone(),
-        account_id,
-        account,
-        chain_id: &epoch_info_provider.chain_id(),
-        current_protocol_version: apply_state.current_protocol_version,
-    };
-    let contract = near_vm_runner::prepare(
-        &code_ext,
-        Arc::clone(&config.wasm_config),
-        apply_state.cache.as_deref(),
-        gas_counter,
-        &function_call.method_name,
-    );
-    contract
 }
 
 pub(crate) fn action_function_call(

@@ -364,14 +364,14 @@ impl<'a> External for RuntimeExt<'a> {
 pub(crate) struct RuntimeContractExt<'a> {
     pub(crate) storage: near_store::contract::Storage,
     pub(crate) account_id: &'a AccountId,
-    pub(crate) account: &'a Account,
+    pub(crate) code_hash: CryptoHash,
     pub(crate) chain_id: &'a str,
     pub(crate) current_protocol_version: ProtocolVersion,
 }
 
 impl<'a> Contract for RuntimeContractExt<'a> {
     fn hash(&self) -> CryptoHash {
-        self.account.code_hash()
+        self.code_hash
     }
 
     fn get_code(&self) -> Option<Arc<ContractCode>> {
