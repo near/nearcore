@@ -1,5 +1,6 @@
 use crate::DBCol;
 use near_fmt::{AbbrBytes, StorageKey};
+use std::collections::HashSet;
 use std::io;
 
 pub(crate) mod rocksdb;
@@ -162,6 +163,11 @@ impl DBTransaction {
 
     pub fn merge(&mut self, other: DBTransaction) {
         self.ops.extend(other.ops)
+    }
+
+    /// Returns the (unique) set of columns affected by this transaction.
+    pub fn columns(&self) -> HashSet<DBCol> {
+        self.ops.iter().map(|op| op.col()).collect::<HashSet<_>>()
     }
 }
 

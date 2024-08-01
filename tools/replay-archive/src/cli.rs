@@ -1,5 +1,7 @@
-use anyhow::{anyhow, bail, Context, Result};
+use crate::replaydb::{open_storage_for_replay, ReplayDB};
+use anyhow::{bail, Context, Result};
 use clap;
+use itertools::Itertools;
 use near_chain::chain::{
     collect_receipts_from_response, NewChunkData, OldChunkData, ShardContext, StorageContext,
 };
@@ -21,7 +23,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
-use near_store::{Mode, NodeStorage, ShardUId, Store};
+use near_store::{ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -55,11 +57,22 @@ impl ReplayArchiveCommand {
 
         // Replay all the blocks until we reach the end block height.
         while controller.replay_next_block()? {}
+
+        println!(
+            "Columns read during replay: {}",
+            controller.storage.get_columns_read().iter().join(", ")
+        );
+        println!(
+            "Columns written during replay: {}",
+            controller.storage.get_columns_written().iter().join(", ")
+        );
+
         Ok(())
     }
 }
 
 struct ReplayController {
+    storage: Arc<ReplayDB>,
     chain_store: ChainStore,
     runtime: Arc<NightshadeRuntime>,
     epoch_manager: Arc<EpochManagerHandle>,
@@ -75,7 +88,8 @@ impl ReplayController {
         start_height: Option<BlockHeight>,
         end_height: Option<BlockHeight>,
     ) -> Result<Self> {
-        let store = Self::open_split_store_read_only(home_dir, &near_config)?;
+        let storage = open_storage_for_replay(home_dir, &near_config)?;
+        let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
@@ -103,6 +117,7 @@ impl ReplayController {
         };
 
         Ok(Self {
+            storage,
             chain_store,
             runtime,
             epoch_manager,
@@ -110,20 +125,6 @@ impl ReplayController {
             next_height: start_height,
             end_height,
         })
-    }
-
-    fn open_split_store_read_only(home_dir: &Path, near_config: &NearConfig) -> Result<Store> {
-        let opener = NodeStorage::opener(
-            home_dir,
-            near_config.client_config.archive,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-        );
-        let storage = opener.open_in_mode(Mode::ReadOnly).context("Failed to open storage")?;
-        match storage.get_split_store() {
-            Some(store) => Ok(store),
-            None => Err(anyhow!("Failed to get split store for archival node")),
-        }
     }
 
     /// Replays the next block if any. Returns true if there are still blocks to replay
