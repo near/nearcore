@@ -112,7 +112,7 @@ impl ReceiptPreparationPipeline {
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
-        if self.block_accounts.contains(account_id) || true {
+        if self.block_accounts.contains(account_id) {
             return false;
         }
         let actions = match receipt.receipt() {
