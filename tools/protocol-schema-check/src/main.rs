@@ -12,8 +12,8 @@ use near_parameters::*;
 use near_primitives::*;
 
 use near_primitives_core::types::NumBlocks;
-use near_stable_hasher::StableHasher;
 use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
+use near_stable_hasher::StableHasher;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
