@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.2.4
+
+## 2.2.0
+
+* Starting from this version we decided to use nearcore's version system
 
 ### Breaking changes
 
