@@ -434,8 +434,6 @@ impl TestEnv {
     /// Wait until an endorsement for `chunk_hash` appears in the network messages send by
     /// the Client with index `client_idx`. Times out after CHUNK_ENDORSEMENTS_TIMEOUT.
     /// Doesn't process or consume the message, it just waits until the message appears on the network_adapter.
-    /// TODO(ChunkEndorsementV2): This function is only used by orphan_chunk_state_witnesses test.
-    /// Can remove once we shift to ChunkEndorsementV2.
     pub fn wait_for_chunk_endorsement(
         &mut self,
         client_idx: usize,
@@ -450,12 +448,12 @@ impl TestEnv {
                     PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
                     ) => {
-                        let endorsement = match endorsement {
+                        let endorsement = match endorsement.clone() {
                             ChunkEndorsement::V1(endorsement) => endorsement,
-                            _ => panic!("Expected ChunkEndorsementV1"),
+                            ChunkEndorsement::V2(endorsement) => endorsement.into_v1(),
                         };
                         if endorsement.chunk_hash() == chunk_hash {
-                            endorsement_opt = Some(endorsement.clone());
+                            endorsement_opt = Some(endorsement);
                         }
                     }
                     _ => {}
