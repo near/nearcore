@@ -4,6 +4,8 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
+use near_schema_checker_lib::ProtocolSchema;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -16,13 +18,17 @@ pub struct FlatStateDelta {
     pub changes: FlatStateChanges,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize, ProtocolSchema,
+)]
 pub struct BlockWithChangesInfo {
     pub(crate) hash: CryptoHash,
     pub(crate) height: BlockHeight,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize, ProtocolSchema,
+)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
     /// `None` if the block itself has flat state changes.
@@ -38,7 +44,7 @@ impl FlatStateDeltaMetadata {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, ProtocolSchema)]
 pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
@@ -54,7 +60,7 @@ impl KeyForFlatStateDelta {
 }
 /// Delta of the state for some shard and block, stores mapping from keys to values
 /// or None, if key was removed in this block.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq, ProtocolSchema)]
 pub struct FlatStateChanges(pub HashMap<Vec<u8>, Option<FlatStateValue>>);
 
 impl<T> From<T> for FlatStateChanges

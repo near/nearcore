@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
+use super::{ChunkProductionKey, SignatureDifferentiator};
 use crate::sharding::ShardChunkHeader;
 use crate::types::EpochId;
 use crate::validator_signer::ValidatorSigner;
@@ -7,8 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::types::{BlockHeight, ShardId};
-
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the compressed state witness,
 /// corresponds to EncodedChunkStateWitness struct size.
@@ -22,7 +22,7 @@ pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize =
 /// These are created and signed by the chunk producer and sent to the chunk validators.
 /// Note that the chunk validators do not require all the parts of the state witness to
 /// reconstruct the full state witness due to the Reed Solomon erasure encoding.
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
     pub signature: Signature,
@@ -98,7 +98,7 @@ impl PartialEncodedStateWitness {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct PartialEncodedStateWitnessInner {
     epoch_id: EpochId,
     shard_id: ShardId,

@@ -31,7 +31,7 @@ stdx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 near-config-utils.workspace = true
-near-structs-checker-lib.workspace = true
+near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 bolero.workspace = true
@@ -45,5 +45,5 @@ default = ["rand"]
 rand = ["secp256k1/rand", "ed25519-dalek/rand_core"]
 
 protocol_schema = [
-    "near-structs-checker-lib/protocol_schema",
+    "near-schema-checker-lib/protocol_schema",
 ]

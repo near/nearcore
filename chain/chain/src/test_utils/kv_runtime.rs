@@ -20,8 +20,8 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
@@ -32,7 +32,7 @@ use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
@@ -945,7 +945,7 @@ impl EpochManagerAdapter for MockEpochManager {
     fn verify_chunk_endorsement(
         &self,
         _chunk_header: &ShardChunkHeader,
-        _endorsement: &ChunkEndorsement,
+        _endorsement: &ChunkEndorsementV1,
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -1126,13 +1126,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        let storage_proof = if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let storage_proof = Some(Default::default());
         Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
     }
 
@@ -1282,13 +1276,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-        let storage_proof = if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let storage_proof = Some(Default::default());
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),

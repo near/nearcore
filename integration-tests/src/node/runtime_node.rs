@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::types::AccountId;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
@@ -48,7 +48,9 @@ impl RuntimeNode {
     }
 
     pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
-        Self::new_from_genesis_and_config(account_id, genesis, RuntimeConfig::test())
+        let store = RuntimeConfigStore::new(None);
+        let config = RuntimeConfig::clone(store.get_config(genesis.config.protocol_version));
+        Self::new_from_genesis_and_config(account_id, genesis, config)
     }
 
     /// Same as `RuntimeNode::new`, but allows to modify the RuntimeConfig.
@@ -61,7 +63,9 @@ impl RuntimeNode {
         add_test_contract(&mut genesis, &bob_account());
         add_test_contract(&mut genesis, &carol_account());
 
-        let mut runtime_config = RuntimeConfig::test();
+        let store = RuntimeConfigStore::new(None);
+        let mut runtime_config =
+            RuntimeConfig::clone(store.get_config(genesis.config.protocol_version));
         modify_config(&mut runtime_config);
         Self::new_from_genesis_and_config(account_id, genesis, runtime_config)
     }
