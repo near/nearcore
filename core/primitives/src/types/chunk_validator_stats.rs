@@ -1,3 +1,4 @@
+use near_schema_checker_lib::ProtocolSchema;
 use {
     super::{NumBlocks, ValidatorStats},
     borsh::{self, BorshDeserialize, BorshSerialize},
@@ -5,7 +6,9 @@ use {
 
 /// An extension to `ValidatorStats` which also tracks endorsements
 /// coming from stateless validators.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema,
+)]
 pub struct ChunkStats {
     pub production: ValidatorStats,
     pub endorsement: ValidatorStats,

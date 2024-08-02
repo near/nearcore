@@ -49,6 +49,7 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-vm-runner.workspace = true
+near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

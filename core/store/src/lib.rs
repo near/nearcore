@@ -1,3 +1,5 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 extern crate core;
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};

@@ -116,7 +116,7 @@ pub struct StoreValue(#[serde_as(as = "Base64")] Vec<u8>);
 pub struct FunctionArgs(#[serde_as(as = "Base64")] Vec<u8>);
 
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone)]
 pub enum StateChangeKind {
     AccountTouched { account_id: AccountId },
     AccessKeyTouched { account_id: AccountId },
@@ -209,13 +209,13 @@ pub struct RawStateChangesWithTrieKey {
 }
 
 /// Consolidate state change of trie_key and the final value the trie key will be changed to
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
 pub struct ConsolidatedStateChange {
     pub trie_key: TrieKey,
     pub value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
 pub struct StateChangesForResharding {
     pub changes: Vec<ConsolidatedStateChange>,
     // For DelayedReceipt and for PromiseYieldTimeout, account information is kept in the trie
@@ -511,7 +511,7 @@ impl std::str::FromStr for EpochId {
 /// Stores validator and its stake for two consecutive epochs.
 /// It is necessary because the blocks on the epoch boundary need to contain approvals from both
 /// epochs.
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalStake {
     /// Account that stakes money.
     pub account_id: AccountId,

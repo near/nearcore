@@ -4973,6 +4973,7 @@ dependencies = [
  "near-o11y",
  "near-parameters",
  "near-primitives",
+ "near-schema-checker-lib",
  "near-stdx",
  "near-time",
  "near-vm-runner",
