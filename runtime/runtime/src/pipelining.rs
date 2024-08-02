@@ -127,7 +127,7 @@ impl ReceiptPreparationPipeline {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
-                    self.block_accounts.insert(account_id.clone());
+                    self.block_accounts.insert(account_id);
                     break;
                 }
                 Action::FunctionCall(function_call) => {
@@ -157,7 +157,7 @@ impl ReceiptPreparationPipeline {
                             std::mem::replace(&mut *status, PrepareTaskStatus::Working)
                         };
                         match &task_status {
-                            PrepareTaskStatus::Pending => {},
+                            PrepareTaskStatus::Pending => {}
                             PrepareTaskStatus::Working => return,
                             // TODO: seeing Prepared here may mean there's double spawning for the
                             // same receipt index. Maybe output a warning?
