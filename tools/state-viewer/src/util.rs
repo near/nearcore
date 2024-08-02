@@ -164,7 +164,7 @@ pub fn check_apply_block_result(
         block.chunks()[shard_id as usize].gas_limit(),
         protocol_version,
     );
-    tracing::info!(target: "state_viewer",
+    println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
     );

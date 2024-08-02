@@ -144,14 +144,12 @@ impl ReplayController {
         match self.replay_block(self.next_height)? {
             ReplayBlockStatus::Genesis(block) => {
                 tracing::debug!("Skipping genesis block at height {}", block.header().height());
-                self.on_block_replayed(&block)?;
             }
             ReplayBlockStatus::Missing(height) => {
                 tracing::debug!("Skipping missing block at height {}", height);
             }
             ReplayBlockStatus::Replayed(block, gas_burnt) => {
                 tracing::debug!("Replayed block at height {}", block.header().height());
-                self.on_block_replayed(&block)?;
                 total_gas_burnt = Some(gas_burnt);
             }
         }
@@ -170,6 +168,11 @@ impl ReplayController {
         let block = self.chain_store.get_block(&block_hash)?;
 
         self.validate_block(&block)?;
+
+        // TODO: This should be done after applying the chunks. However, running it before helps to
+        // initialize BlockInfo and EpochInfo, which are needed to collect the receipts from previous
+        // chunks. Revisit the logic for collecting the receipts and call this to after applying the chunks.
+        self.update_epoch_manager(&block)?;
 
         if block.header().is_genesis() {
             return Ok(ReplayBlockStatus::Genesis(block));
@@ -376,7 +379,7 @@ impl ReplayController {
         Ok(())
     }
 
-    fn on_block_replayed(&mut self, block: &Block) -> Result<()> {
+    fn update_epoch_manager(&mut self, block: &Block) -> Result<()> {
         // Update epoch manager data.
         let mut chain_store_update = self.chain_store.store_update();
         let last_finalized_height =
