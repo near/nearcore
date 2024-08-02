@@ -174,7 +174,7 @@ check-protocol-schema:
     env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
     # Run the checker
     env RUSTFLAGS="--cfg enable_const_type_id" \
-        {{ with_macos_excludes }} \
+        {{ with_macos_incremental }} \
         cargo +nightly run -p protocol-schema-check
 
 # build target/rpc_errors_schema.json
