@@ -5,9 +5,9 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::{
-    GetBlock, GetChunk, GetProtocolConfig, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
-    GetValidatorOrdered,
+    GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered
 };
+use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
@@ -28,6 +28,7 @@ const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 0;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 const ARCHIVAL_CLIENT: usize = 2;
+const NUM_SHARDS: usize = 4;
 
 /// Tests view client functionality of an archival node.
 /// For this, it runs a network with 2 validators and a non-validator archival node.
@@ -107,12 +108,15 @@ fn test_view_requests_to_archival_node() {
 /// and issues them to the view client of the archival node.
 fn check_view_methods(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
     check_get_block(view, test_loop);
+    check_get_block_headers(view, test_loop);
     check_get_chunk(view, test_loop);
     check_get_shard_chunk(view, test_loop);
     check_get_protocol_config(view, test_loop);
     check_get_validator_info(view, test_loop);
     check_get_ordered_validators(view, test_loop);
     check_get_state_changes_in_block(view, test_loop);
+    check_get_state_changes(view, test_loop);
+    check_get_execution_outcomes(view, test_loop);
 }
 
 /// Generates variations of the [`GetBlock`] request and issues them to the view client of the archival node.
@@ -144,6 +148,25 @@ fn check_get_block(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
     let block_by_sync_earliest =
         GetBlock(BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable));
     get_and_check_block(block_by_sync_earliest);
+}
+
+/// Generates variations of the [`BlockHeadersRequest`] request and issues them to the view client of the archival node.
+fn check_get_block_headers(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    let block_hashes = vec![];
+    for height in 0..10.iter() {
+        let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(height)));
+        let block = view.get_block(request, test_loop, ARCHIVAL_CLIENT).unwrap();
+        block_hashes.push(block.header.hash);
+    }
+    
+    let headers_request = BlockHeadersRequest(block_hashes);
+    let headers_response = view.get_block_headers(headers_request, test_loop, ARCHIVAL_CLIENT).unwrap().unwrap();
+    assert_eq!(headers_response.len(), 10);
+    for height in 0..10.iter() {
+        let block_header= &headers_response[height];
+        assert_eq!(block_header.header.height, height);
+        assert_eq!(block_header.header.hash, block_hashes[height]);
+    }
 }
 
 /// Generates variations of the [`GetChunk`] request and issues them to the view client of the archival node.
@@ -307,4 +330,25 @@ fn check_get_state_changes_in_block(view: &ViewRequestSender, test_loop: &mut Te
         state_changes[3],
         StateChangeKindView::AccessKeyTouched { account_id: "account3".parse().unwrap() }
     );
+}
+
+/// Generates variations of the [`GetReceipt`] request and issues them to the view client of the archival node.
+fn check_get_execution_outcomes(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let request = GetExecutionOutcomesForBlock(block.header.hash);
+    let outcomes = view.get_execution_outcomes(request, test_loop, ARCHIVAL_CLIENT);
+    assert_eq!(outcomes.len(), NUM_SHARDS);
+    assert_eq!(format!("{:?}", outcomes), "");
+}
+
+/// Generates variations of the [`GetStateChanges`] request and issues them to the view client of the archival node.
+fn check_get_state_changes(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let request = GetStateChanges(block.header.hash);
+    let state_changes = view.get_state_changes(request, test_loop, ARCHIVAL_CLIENT);
+    assert_eq!(format!("{:?}", state_changes), "");
 }

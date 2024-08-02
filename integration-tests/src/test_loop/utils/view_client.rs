@@ -1,15 +1,19 @@
+use std::collections::HashMap;
+
 use anyhow::Error;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::{data::TestLoopDataHandle, TestLoopV2};
+use near_chain::BlockHeader;
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
-    GetBlock, GetChunk, GetProtocolConfig, GetShardChunk, GetStateChangesInBlock, GetValidatorInfo,
-    GetValidatorOrdered, ViewClientActorInner,
+    GetBlock, GetChunk, GetProtocolConfig, GetShardChunk, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ViewClientActorInner
 };
+use near_network::client::BlockHeadersRequest;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::types::ShardId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
-use near_primitives::views::{BlockView, ChunkView, EpochValidatorInfo, StateChangesKindsView};
+use near_primitives::views::{BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, StateChangesKindsView, StateChangesView};
 
 use crate::test_loop::env::TestData;
 
@@ -38,6 +42,17 @@ impl ViewRequestSender {
         test_loop: &mut TestLoopV2,
         idx: usize,
     ) -> Result<BlockView, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
+    /// Gets a block using a [`BlockHeadersRequest`] request from the view client at index `idx`.
+    pub(crate) fn get_block_headers(
+        &self,
+        request: BlockHeadersRequest,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<Option<Vec<BlockHeader>>, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request).map_err(|e| e.into())
     }
@@ -106,6 +121,28 @@ impl ViewRequestSender {
         test_loop: &mut TestLoopV2,
         idx: usize,
     ) -> Result<StateChangesKindsView, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
+    /// Gets a block using a [`GetExecutionOutcomesForBlock`] request from the view client at index `idx`.
+    pub(crate) fn get_execution_outcomes(
+        &self,
+        request: GetExecutionOutcomesForBlock,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, Error> {
+        let view_client = test_loop.data.get_mut(&self.handles[idx]);
+        view_client.handle(request).map_err(|e| e.into())
+    }
+
+    /// Gets a block using a [`GetStateChanges`] request from the view client at index `idx`.
+    pub(crate) fn get_state_changes(
+        &self,
+        request: GetStateChanges,
+        test_loop: &mut TestLoopV2,
+        idx: usize,
+    ) -> Result<StateChangesView, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request).map_err(|e| e.into())
     }
