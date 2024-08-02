@@ -163,7 +163,7 @@ pub(crate) fn open_storage_for_replay(
     home_dir: &Path,
     near_config: &NearConfig,
 ) -> anyhow::Result<Arc<ReplayDB>> {
-    let archival_columns: HashSet<DBCol> = vec![
+    let archival_columns = HashSet::from([
         DBCol::BlockMisc,
         DBCol::BlockInfo,
         DBCol::IncomingReceipts,
@@ -175,9 +175,7 @@ pub(crate) fn open_storage_for_replay(
         DBCol::OutgoingReceipts,
         DBCol::State,
         DBCol::Block,
-    ]
-    .into_iter()
-    .collect();
+    ]);
 
     let opener = NodeStorage::opener(
         home_dir,

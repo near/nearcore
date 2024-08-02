@@ -20,7 +20,7 @@ use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
@@ -70,6 +70,12 @@ impl ReplayArchiveCommand {
 
         Ok(())
     }
+}
+
+enum ReplayBlockStatus {
+    Genesis(Block),
+    Missing(BlockHeight),
+    Replayed(Block, Gas),
 }
 
 struct ReplayController {
@@ -134,29 +140,39 @@ impl ReplayController {
         if self.next_height > self.end_height {
             bail!("End height is reached");
         }
-        self.replay_block(self.next_height)?;
+        let mut total_gas_burnt: Option<Gas> = None;
+        match self.replay_block(self.next_height)? {
+            ReplayBlockStatus::Genesis(block) => {
+                tracing::debug!("Skipping genesis block at height {}", block.header().height());
+                self.on_block_replayed(&block)?;
+            }
+            ReplayBlockStatus::Missing(height) => {
+                tracing::debug!("Skipping missing block at height {}", height);
+            }
+            ReplayBlockStatus::Replayed(block, gas_burnt) => {
+                tracing::debug!("Replayed block at height {}", block.header().height());
+                self.on_block_replayed(&block)?;
+                total_gas_burnt = Some(gas_burnt);
+            }
+        }
+        self.progress_reporter.inc_and_report_progress(total_gas_burnt.unwrap_or(0));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
 
-    fn replay_block(&mut self, height: BlockHeight) -> Result<()> {
+    fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockStatus> {
         tracing::info!("Replaying block at height {}", self.next_height);
 
         let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
-            tracing::debug!("Skipping non-available block at height {}", height);
-            self.progress_reporter.inc_and_report_progress(0);
-            return Ok(());
+            return Ok(ReplayBlockStatus::Missing(height));
         };
 
         let block = self.chain_store.get_block(&block_hash)?;
 
         self.validate_block(&block)?;
 
-        let is_genesis_block = block.header().is_genesis();
-        if is_genesis_block {
-            tracing::debug!("Skipping genesis block at height {}", height);
-            self.progress_reporter.inc_and_report_progress(0);
-            return Ok(());
+        if block.header().is_genesis() {
+            return Ok(ReplayBlockStatus::Genesis(block));
         }
 
         let prev_block_hash = block.header().prev_hash();
@@ -186,19 +202,7 @@ impl ReplayController {
             total_gas_burnt += apply_result.total_gas_burnt;
         }
 
-        // Update epoch manager data.
-        let mut chain_store_update = self.chain_store.store_update();
-        let last_finalized_height =
-            chain_store_update.get_block_height(block.header().last_final_block())?;
-        let epoch_manager_update = self.epoch_manager.add_validator_proposals(
-            BlockHeaderInfo::new(&block.header(), last_finalized_height),
-        )?;
-        chain_store_update.merge(epoch_manager_update);
-        chain_store_update.commit()?;
-
-        self.progress_reporter.inc_and_report_progress(total_gas_burnt);
-
-        Ok(())
+        Ok(ReplayBlockStatus::Replayed(block, total_gas_burnt))
     }
 
     fn replay_chunk(
@@ -369,6 +373,19 @@ impl ReplayController {
         if !validate_transactions_order(chunk.transactions()) {
             bail!("Failed to validate transactions order in the chunk");
         }
+        Ok(())
+    }
+
+    fn on_block_replayed(&mut self, block: &Block) -> Result<()> {
+        // Update epoch manager data.
+        let mut chain_store_update = self.chain_store.store_update();
+        let last_finalized_height =
+            chain_store_update.get_block_height(block.header().last_final_block())?;
+        let epoch_manager_update = self
+            .epoch_manager
+            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
+        chain_store_update.merge(epoch_manager_update);
+        chain_store_update.commit()?;
         Ok(())
     }
 
