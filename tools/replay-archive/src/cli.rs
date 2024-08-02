@@ -385,8 +385,7 @@ impl ReplayController {
         // Update epoch manager data.
         let last_finalized_height =
             self.chain_store.get_block_height(block.header().last_final_block())?;
-        let epoch_manager_update = self
-            .epoch_manager
+        self.epoch_manager
             .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?
             .commit()?;
         Ok(())
