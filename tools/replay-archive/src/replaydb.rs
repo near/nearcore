@@ -12,6 +12,7 @@ use near_store::{DBCol, Mode, NodeStorage};
 use nearcore::NearConfig;
 
 /// Database layer for replaying the chain using the archival storage for reads and a temporary storage for writes.
+/// For archival data we use split db ad the read source and for temporary storage we use an in-memory DB.
 pub struct ReplayDB {
     /// SplitDB used to read archival data that is previously recorded.
     /// Opened in read-only mode.
@@ -21,7 +22,7 @@ pub struct ReplayDB {
     write_db: Arc<TestDB>,
 
     /// Columns that contain archival data.
-    /// Reads from split_db are only allowed for these columns; if the read fails, it will also read from write_db.
+    /// These columns will be read from split_db, while other columns will be read from write_db.
     /// Attempting to write to one of these columns will create an error.
     archival_columns: HashSet<DBCol>,
 

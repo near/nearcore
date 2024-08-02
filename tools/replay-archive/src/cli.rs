@@ -72,6 +72,8 @@ impl ReplayArchiveCommand {
     }
 }
 
+/// Result of replaying a block. It is used to decide on
+/// the right post-processing steps after replaying the block.
 enum ReplayBlockStatus {
     Genesis(Block),
     Missing(BlockHeight),
@@ -381,14 +383,12 @@ impl ReplayController {
 
     fn update_epoch_manager(&mut self, block: &Block) -> Result<()> {
         // Update epoch manager data.
-        let mut chain_store_update = self.chain_store.store_update();
         let last_finalized_height =
-            chain_store_update.get_block_height(block.header().last_final_block())?;
+            self.chain_store.get_block_height(block.header().last_final_block())?;
         let epoch_manager_update = self
             .epoch_manager
-            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
-        chain_store_update.merge(epoch_manager_update);
-        chain_store_update.commit()?;
+            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?
+            .commit()?;
         Ok(())
     }
 
