@@ -1681,7 +1681,7 @@ impl Runtime {
                     let Ok(Some(receiver)) = receiver else {
                         tracing::error!(
                             target: "runtime",
-                            message="unable to read receiver of a upcoming local receipt",
+                            message="unable to read receiver of an upcoming local receipt",
                             ?peek_account_id,
                             receipt=%receipt.get_hash()
                         );
