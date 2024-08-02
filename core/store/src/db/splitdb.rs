@@ -52,7 +52,7 @@ impl SplitDB {
     /// iterator will contain unique and sorted items from both input iterators.
     ///
     /// All errors from both inputs will be returned.
-    pub fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
+    pub(crate) fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
         // Merge the two iterators using the cmp function. The result will be an
         // iter of EitherOrBoth.
         let iter = itertools::merge_join_by(a, b, Self::db_iter_item_cmp);

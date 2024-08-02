@@ -42,6 +42,15 @@ impl ReplayDB {
         })
     }
 
+    /// Returns the database to read from based on whether the column is archival or not.
+    fn read_db(&self, col: DBCol) -> &dyn Database {
+        if self.archival_columns.contains(&col) {
+            self.split_db.as_ref()
+        } else {
+            self.write_db.as_ref()
+        }
+    }
+
     /// Returns the set of columns read from the store since its creation.
     pub fn get_columns_read(&self) -> HashSet<DBCol> {
         self.columns_read.lock().unwrap().clone()
@@ -51,54 +60,28 @@ impl ReplayDB {
     pub fn get_columns_written(&self) -> HashSet<DBCol> {
         self.columns_written.lock().unwrap().clone()
     }
-
-    /// This function is imported from SplitDB, but we may want to refactor them later.
-    fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
-        SplitDB::merge_iter(a, b)
-    }
 }
 
 impl Database for ReplayDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.archival_columns.contains(&col) {
-            if let Some(result) = self.split_db.get_raw_bytes(col, key)? {
-                return Ok(Some(result));
-            }
-        }
-        self.write_db.get_raw_bytes(col, key)
+        self.read_db(col).get_raw_bytes(col, key)
     }
 
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
         self.columns_read.lock().unwrap().insert(col);
-        if self.archival_columns.contains(&col) {
-            if let Some(result) = self.split_db.get_with_rc_stripped(col, key)? {
-                return Ok(Some(result));
-            }
-        }
-        self.write_db.get_with_rc_stripped(col, key)
+        self.read_db(col).get_with_rc_stripped(col, key)
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.archival_columns.contains(&col) {
-            Self::merge_iter(self.split_db.iter(col), self.write_db.iter(col))
-        } else {
-            self.write_db.iter(col)
-        }
+        self.read_db(col).iter(col)
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.archival_columns.contains(&col) {
-            Self::merge_iter(
-                self.split_db.iter_prefix(col, key_prefix),
-                self.write_db.iter_prefix(col, key_prefix),
-            )
-        } else {
-            self.write_db.iter_prefix(col, key_prefix)
-        }
+        self.read_db(col).iter_prefix(col, key_prefix)
     }
 
     fn iter_range<'a>(
@@ -108,23 +91,12 @@ impl Database for ReplayDB {
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.archival_columns.contains(&col) {
-            Self::merge_iter(
-                self.split_db.iter_range(col, lower_bound, upper_bound),
-                self.write_db.iter_range(col, lower_bound, upper_bound),
-            )
-        } else {
-            self.write_db.iter_range(col, lower_bound, upper_bound)
-        }
+        self.read_db(col).iter_range(col, lower_bound, upper_bound)
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.archival_columns.contains(&col) {
-            Self::merge_iter(self.split_db.iter_raw_bytes(col), self.write_db.iter_raw_bytes(col))
-        } else {
-            self.write_db.iter_raw_bytes(col)
-        }
+        self.read_db(col).iter_raw_bytes(col)
     }
 
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
