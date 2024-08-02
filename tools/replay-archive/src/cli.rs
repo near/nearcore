@@ -24,9 +24,8 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
-use near_store::{DBCol, ShardUId, Store};
+use near_store::{ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -90,11 +89,7 @@ impl ReplayController {
         start_height: Option<BlockHeight>,
         end_height: Option<BlockHeight>,
     ) -> Result<Self> {
-        let read_only_columns: HashSet<DBCol> = vec![].into_iter().collect();
-        let write_only_columns: HashSet<DBCol> = vec![].into_iter().collect();
-
-        let storage =
-            open_storage_for_replay(home_dir, &near_config, read_only_columns, write_only_columns)?;
+        let storage = open_storage_for_replay(home_dir, &near_config)?;
         let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;

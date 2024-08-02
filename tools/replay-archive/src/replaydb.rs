@@ -4,46 +4,42 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context};
+use itertools::Itertools;
 use near_store::db::{
     DBIterator, DBSlice, DBTransaction, Database, SplitDB, StoreStatistics, TestDB,
 };
 use near_store::{DBCol, Mode, NodeStorage};
 use nearcore::NearConfig;
 
+/// Database layer for replaying the chain using the archival storage for reads and a temporary storage for writes.
 pub struct ReplayDB {
-    /// Read-only DB.
-    read_db: Arc<dyn Database>,
-    /// DB for writes.
-    write_db: Arc<dyn Database>,
+    /// SplitDB used to read archival data that is previously recorded.
+    /// Opened in read-only mode.
+    split_db: Arc<SplitDB>,
+    /// TestDB used to store data generated during the replay.
+    /// Opened in read/write mode.
+    write_db: Arc<TestDB>,
 
-    /// Columns that should not be written to the write_db.
+    /// Columns that contain archival data.
+    /// Reads from split_db are only allowed for these columns; if the read fails, it will also read from write_db.
     /// Attempting to write to one of these columns will create an error.
-    read_only_columns: Arc<HashSet<DBCol>>,
-    /// Columns that should not be read from the read_db.
-    /// In other words, reads from these columns will only be answered from the write_db.
-    write_only_columns: Arc<HashSet<DBCol>>,
+    archival_columns: HashSet<DBCol>,
 
-    /// Columns that are read from the DB.
+    /// Columns that are read from the DB (either from split_db or write_db).
     columns_read: Arc<Mutex<HashSet<DBCol>>>,
     /// Columns that are written to the DB.
     columns_written: Arc<Mutex<HashSet<DBCol>>>,
 }
 
 impl ReplayDB {
-    pub fn new(
-        read_db: Arc<dyn Database>,
-        write_db: Arc<dyn Database>,
-        read_only_columns: HashSet<DBCol>,
-        write_only_columns: HashSet<DBCol>,
-    ) -> Arc<Self> {
-        return Arc::new(ReplayDB {
-            read_db,
-            write_db,
-            read_only_columns: Arc::new(read_only_columns),
-            write_only_columns: Arc::new(write_only_columns),
+    pub fn new(split_db: Arc<SplitDB>, archival_columns: HashSet<DBCol>) -> Arc<Self> {
+        Arc::new(Self {
+            split_db,
+            write_db: TestDB::new(),
+            archival_columns,
             columns_read: Default::default(),
             columns_written: Default::default(),
-        });
+        })
     }
 
     /// Returns the set of columns read from the store since its creation.
@@ -65,8 +61,8 @@ impl ReplayDB {
 impl Database for ReplayDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         self.columns_read.lock().unwrap().insert(col);
-        if !self.write_only_columns.contains(&col) {
-            if let Some(result) = self.read_db.get_raw_bytes(col, key)? {
+        if self.archival_columns.contains(&col) {
+            if let Some(result) = self.split_db.get_raw_bytes(col, key)? {
                 return Ok(Some(result));
             }
         }
@@ -76,8 +72,8 @@ impl Database for ReplayDB {
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
         self.columns_read.lock().unwrap().insert(col);
-        if !self.write_only_columns.contains(&col) {
-            if let Some(result) = self.read_db.get_with_rc_stripped(col, key)? {
+        if self.archival_columns.contains(&col) {
+            if let Some(result) = self.split_db.get_with_rc_stripped(col, key)? {
                 return Ok(Some(result));
             }
         }
@@ -86,22 +82,22 @@ impl Database for ReplayDB {
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.write_only_columns.contains(&col) {
-            self.write_db.iter(col)
+        if self.archival_columns.contains(&col) {
+            Self::merge_iter(self.split_db.iter(col), self.write_db.iter(col))
         } else {
-            Self::merge_iter(self.read_db.iter(col), self.write_db.iter(col))
+            self.write_db.iter(col)
         }
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.write_only_columns.contains(&col) {
-            self.write_db.iter_prefix(col, key_prefix)
-        } else {
+        if self.archival_columns.contains(&col) {
             Self::merge_iter(
-                self.read_db.iter_prefix(col, key_prefix),
+                self.split_db.iter_prefix(col, key_prefix),
                 self.write_db.iter_prefix(col, key_prefix),
             )
+        } else {
+            self.write_db.iter_prefix(col, key_prefix)
         }
     }
 
@@ -112,33 +108,32 @@ impl Database for ReplayDB {
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.write_only_columns.contains(&col) {
-            self.write_db.iter_range(col, lower_bound, upper_bound)
-        } else {
+        if self.archival_columns.contains(&col) {
             Self::merge_iter(
-                self.read_db.iter_range(col, lower_bound, upper_bound),
+                self.split_db.iter_range(col, lower_bound, upper_bound),
                 self.write_db.iter_range(col, lower_bound, upper_bound),
             )
+        } else {
+            self.write_db.iter_range(col, lower_bound, upper_bound)
         }
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.columns_read.lock().unwrap().insert(col);
-        if self.write_only_columns.contains(&col) {
-            self.write_db.iter_raw_bytes(col)
+        if self.archival_columns.contains(&col) {
+            Self::merge_iter(self.split_db.iter_raw_bytes(col), self.write_db.iter_raw_bytes(col))
         } else {
-            Self::merge_iter(self.read_db.iter_raw_bytes(col), self.write_db.iter_raw_bytes(col))
+            self.write_db.iter_raw_bytes(col)
         }
     }
 
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
         let columns = batch.columns();
-        if !self.read_only_columns.is_disjoint(&columns) {
-            return Err(std::io::Error::new(
-                io::ErrorKind::Other,
-                format!("Attempted to write to a read-only column: {:?}", columns),
-            ));
-        }
+        assert!(
+            columns.is_disjoint(&self.archival_columns),
+            "Attempted to write archival columns: {:?}",
+            columns.intersection(&self.archival_columns).collect_vec()
+        );
         self.columns_written.lock().unwrap().extend(columns);
         self.write_db.write(batch)
     }
@@ -167,9 +162,23 @@ impl Database for ReplayDB {
 pub(crate) fn open_storage_for_replay(
     home_dir: &Path,
     near_config: &NearConfig,
-    read_only_columns: HashSet<DBCol>,
-    write_only_columns: HashSet<DBCol>,
 ) -> anyhow::Result<Arc<ReplayDB>> {
+    let archival_columns: HashSet<DBCol> = vec![
+        DBCol::BlockMisc,
+        DBCol::BlockInfo,
+        DBCol::IncomingReceipts,
+        DBCol::EpochInfo,
+        DBCol::Chunks,
+        DBCol::ChunkExtra,
+        DBCol::BlockHeight,
+        DBCol::BlockHeader,
+        DBCol::OutgoingReceipts,
+        DBCol::State,
+        DBCol::Block,
+    ]
+    .into_iter()
+    .collect();
+
     let opener = NodeStorage::opener(
         home_dir,
         near_config.client_config.archive,
@@ -178,9 +187,7 @@ pub(crate) fn open_storage_for_replay(
     );
     let split_storage = opener.open_in_mode(Mode::ReadOnly).context("Failed to open storage")?;
     match split_storage.get_split_db() {
-        Some(split_db) => {
-            Ok(ReplayDB::new(split_db, TestDB::new(), read_only_columns, write_only_columns))
-        }
+        Some(split_db) => Ok(ReplayDB::new(split_db, archival_columns)),
         None => Err(anyhow!("Failed to get split store for archival node")),
     }
 }
