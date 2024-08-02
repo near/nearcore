@@ -22,6 +22,8 @@ For context on why this tool is necessary, refer to [this pull request](https://
 Run the tool locally using:
 `RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check`
 
+On MacOS, prepend this with `CARGO_INCREMENTAL=0` to avoid a [known issue](https://github.com/dtolnay/inventory/issues/52) with incremental compilation.
+
 ## What To Do If It Fails
 
 If the tool fails, it indicates that you've made changes to the protocol schema. Follow these steps:
