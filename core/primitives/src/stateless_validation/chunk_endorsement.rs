@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 
+use super::SignatureDifferentiator;
 use crate::sharding::ChunkHash;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::types::AccountId;
-
-use super::SignatureDifferentiator;
+use near_schema_checker_lib::ProtocolSchema;
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ChunkEndorsement {
     V1(ChunkEndorsementV1),
 }
@@ -43,7 +43,7 @@ impl ChunkEndorsement {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV1 {
     inner: ChunkEndorsementInner,
     pub account_id: AccountId,
@@ -69,7 +69,7 @@ impl ChunkEndorsementV1 {
 }
 
 /// This is the part of the chunk endorsement that is actually being signed.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementInner {
     chunk_hash: ChunkHash,
     signature_differentiator: SignatureDifferentiator,

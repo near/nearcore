@@ -11,6 +11,11 @@ use near_crypto::*;
 use near_parameters::*;
 use near_primitives::*;
 
+use near_primitives::sharding::ShardChunkHeaderV3;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
+use near_primitives::types::{ChunkStats, EpochId};
+use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives_core::types::NumBlocks;
 use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
@@ -76,12 +81,6 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
-    // Dummy value to ensure that near_primitives fields are also included.
-    // TODO (#11755): needed only on macos, remove when fixed.
-    #[allow(unused)]
-    let _ = near_primitives::state::ValueRef::new(&[]);
-    let _ = near_primitives::epoch_info::EpochInfo::default();
-
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")
         .map(std::path::PathBuf::from)

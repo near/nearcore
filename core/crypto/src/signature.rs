@@ -432,7 +432,7 @@ const SECP256K1_N_HALF_ONE: U256 =
 
 const SECP256K1_SIGNATURE_LENGTH: usize = 65;
 
-#[derive(Clone, Eq, PartialEq, Hash, derive_more::From, derive_more::Into)]
+#[derive(Clone, Eq, PartialEq, Hash, derive_more::From, derive_more::Into, ProtocolSchema)]
 pub struct Secp256K1Signature([u8; SECP256K1_SIGNATURE_LENGTH]);
 
 impl Secp256K1Signature {
@@ -500,7 +500,7 @@ impl Debug for Secp256K1Signature {
 }
 
 /// Signature container supporting different curves.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, ProtocolSchema)]
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),
