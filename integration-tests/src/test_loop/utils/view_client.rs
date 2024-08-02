@@ -1,19 +1,24 @@
 use std::collections::HashMap;
 
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::{data::TestLoopDataHandle, TestLoopV2};
 use near_chain::BlockHeader;
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
-    GetBlock, GetChunk, GetProtocolConfig, GetShardChunk, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ViewClientActorInner
+    GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    ViewClientActorInner,
 };
 use near_network::client::BlockHeadersRequest;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::ShardId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
-use near_primitives::views::{BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, StateChangesKindsView, StateChangesView};
+use near_primitives::views::{
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, StateChangesKindsView,
+    StateChangesView,
+};
 
 use crate::test_loop::env::TestData;
 
@@ -54,7 +59,7 @@ impl ViewRequestSender {
         idx: usize,
     ) -> Result<Option<Vec<BlockHeader>>, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
-        view_client.handle(request).map_err(|e| e.into())
+        Ok(view_client.handle(request))
     }
 
     /// Gets a chunk using a [`GetChunk`] request from the view client at index `idx`.
@@ -133,7 +138,7 @@ impl ViewRequestSender {
         idx: usize,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, Error> {
         let view_client = test_loop.data.get_mut(&self.handles[idx]);
-        view_client.handle(request).map_err(|e| e.into())
+        view_client.handle(request).map_err(|e| anyhow!(e))
     }
 
     /// Gets a block using a [`GetStateChanges`] request from the view client at index `idx`.

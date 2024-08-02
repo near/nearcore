@@ -5,7 +5,8 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::{
-    GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered
+    GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
@@ -14,7 +15,9 @@ use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochId, EpochReference, Finality, SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::StateChangeKindView;
+use near_primitives::views::{
+    StateChangeCauseView, StateChangeKindView, StateChangeValueView, StateChangesRequestView,
+};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
@@ -152,21 +155,13 @@ fn check_get_block(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
 
 /// Generates variations of the [`BlockHeadersRequest`] request and issues them to the view client of the archival node.
 fn check_get_block_headers(view: &ViewRequestSender, test_loop: &mut TestLoopV2) {
-    let block_hashes = vec![];
-    for height in 0..10.iter() {
-        let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(height)));
-        let block = view.get_block(request, test_loop, ARCHIVAL_CLIENT).unwrap();
-        block_hashes.push(block.header.hash);
-    }
-    
-    let headers_request = BlockHeadersRequest(block_hashes);
-    let headers_response = view.get_block_headers(headers_request, test_loop, ARCHIVAL_CLIENT).unwrap().unwrap();
-    assert_eq!(headers_response.len(), 10);
-    for height in 0..10.iter() {
-        let block_header= &headers_response[height];
-        assert_eq!(block_header.header.height, height);
-        assert_eq!(block_header.header.hash, block_hashes[height]);
-    }
+    let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+    let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
+
+    let headers_request = BlockHeadersRequest(vec![block.header.hash]);
+    let headers_response =
+        view.get_block_headers(headers_request, test_loop, ARCHIVAL_CLIENT).unwrap().unwrap();
+    assert_eq!(headers_response.len() as u64, EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2));
 }
 
 /// Generates variations of the [`GetChunk`] request and issues them to the view client of the archival node.
@@ -337,10 +332,13 @@ fn check_get_execution_outcomes(view: &ViewRequestSender, test_loop: &mut TestLo
     let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
     let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
 
-    let request = GetExecutionOutcomesForBlock(block.header.hash);
-    let outcomes = view.get_execution_outcomes(request, test_loop, ARCHIVAL_CLIENT);
+    let request = GetExecutionOutcomesForBlock { block_hash: block.header.hash };
+    let outcomes = view.get_execution_outcomes(request, test_loop, ARCHIVAL_CLIENT).unwrap();
     assert_eq!(outcomes.len(), NUM_SHARDS);
-    assert_eq!(format!("{:?}", outcomes), "");
+    assert_eq!(outcomes[&0].len(), 1);
+    assert_eq!(outcomes[&1].len(), 1);
+    assert_eq!(outcomes[&2].len(), 0);
+    assert_eq!(outcomes[&3].len(), 0);
 }
 
 /// Generates variations of the [`GetStateChanges`] request and issues them to the view client of the archival node.
@@ -348,7 +346,20 @@ fn check_get_state_changes(view: &ViewRequestSender, test_loop: &mut TestLoopV2)
     let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
     let block = view.get_block(block_by_height, test_loop, ARCHIVAL_CLIENT).unwrap();
 
-    let request = GetStateChanges(block.header.hash);
-    let state_changes = view.get_state_changes(request, test_loop, ARCHIVAL_CLIENT);
-    assert_eq!(format!("{:?}", state_changes), "");
+    let accounts = (0..NUM_ACCOUNTS)
+        .map(|i| format!("account{}", i).parse().unwrap())
+        .collect::<Vec<AccountId>>();
+    let request = GetStateChanges {
+        block_hash: block.header.hash,
+        state_changes_request: StateChangesRequestView::AccountChanges { account_ids: accounts },
+    };
+    let state_changes = view.get_state_changes(request, test_loop, ARCHIVAL_CLIENT).unwrap();
+    assert_eq!(state_changes.len(), 2);
+    assert!(matches!(state_changes[0].cause, StateChangeCauseView::TransactionProcessing { .. }));
+    assert!(matches!(state_changes[1].cause, StateChangeCauseView::TransactionProcessing { .. }));
+    assert!(matches!(state_changes[0].value, StateChangeValueView::AccountUpdate { .. }));
+    assert!(matches!(state_changes[1].value, StateChangeValueView::AccountUpdate { .. }));
 }
+
+//  left: "{3: [], 0: [ExecutionOutcomeWithIdView { proof: [], block_hash: FXQ6TQfSbqHp4xpK82vrq8h8ThSqsmLpyZhb6N5HJBiL, id: Aok8EzkCeh6bKFPtQNX85XS3VAFpcKEdWdmLyu88tiQS, outcome: ExecutionOutcomeView { logs: [], receipt_ids: [EhXNPRoHo2viKf9aFhpLddQjHc483v47nywRgTbkuPt8], gas_burnt: 223182562500, tokens_burnt: 0, executor_id: AccountId(\"account2\"), status: SuccessReceiptId(EhXNPRoHo2viKf9aFhpLddQjHc483v47nywRgTbkuPt8), metadata: ExecutionMetadataView { version: 1, gas_profile: None } } }],
+// 1: [ExecutionOutcomeWithIdView { proof: [], block_hash: FXQ6TQfSbqHp4xpK82vrq8h8ThSqsmLpyZhb6N5HJBiL, id: H9Q53gLvXe69mEiMCht2u2gmad89Dy4FjghxD26QQLHr, outcome: ExecutionOutcomeView { logs: [], receipt_ids: [4UJRqAgRBdBMuCG1yDfFnj5K9trsekc6XarwNt1e4qj2], gas_burnt: 223182562500, tokens_burnt: 0, executor_id: AccountId(\"account3\"), status: SuccessReceiptId(4UJRqAgRBdBMuCG1yDfFnj5K9trsekc6XarwNt1e4qj2), metadata: ExecutionMetadataView { version: 1, gas_profile: None } } }], 2: []}"
