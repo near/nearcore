@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// ReshardingRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
@@ -632,11 +632,12 @@ impl Chain {
             debug!(target:"resharding", "Finish building resharding for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
             // Chunk extra should match the ones committed into the chain.
             let new_chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
-            let chunk_extra = self
-                .get_chunk_extra(prev_hash, &shard_uid)
-                .expect("chunk extra must exist on chain");
-            if chunk_extra.state_root() != new_chunk_extra.state_root() {
-                error!(target:"resharding", ?chunk_extra, ?new_chunk_extra, "Chunk extra state_root mismatch!");
+            if let Ok(chunk_extra) = self.get_chunk_extra(sync_hash, &shard_uid) {
+                if chunk_extra.state_root() != new_chunk_extra.state_root() {
+                    error!(target:"resharding", ?chunk_extra, ?new_chunk_extra, "Chunk extra state_root mismatch!");
+                }
+            } else {
+                warn!(target:"resharding", ?sync_hash, "Chunk extra not found in DB");
             }
         }
 
