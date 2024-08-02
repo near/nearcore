@@ -985,6 +985,7 @@ impl Runtime {
             ref mut state_update,
             apply_state,
             epoch_info_provider,
+            ref pipeline_manager,
             ref mut stats,
             ..
         } = *processing_state;
@@ -1050,7 +1051,7 @@ impl Runtime {
                             .apply_action_receipt(
                                 state_update,
                                 apply_state,
-                                &processing_state.pipeline_manager,
+                                pipeline_manager,
                                 &ready_receipt,
                                 receipt_sink,
                                 validator_proposals,
@@ -1105,7 +1106,7 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
-                            &processing_state.pipeline_manager,
+                            pipeline_manager,
                             receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1157,7 +1158,7 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
-                            &processing_state.pipeline_manager,
+                            pipeline_manager,
                             &yield_receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1652,16 +1653,19 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
-        let local_receipt_count = processing_state.local_receipts.len();
+        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
+        let local_receipt_count = local_receipts.len();
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            let (front, back) = processing_state.local_receipts.as_slices();
+            let (front, back) = local_receipts.as_slices();
             _ = prefetcher.prefetch_receipts_data(front);
             _ = prefetcher.prefetch_receipts_data(back);
         }
-        let mut advance: usize = 0;
-        while let Some(receipt) = processing_state.pop_local_receipt() {
-            advance = advance.saturating_sub(1);
+
+        let mut local_receipt_iter = local_receipts.iter();
+        let mut prep_lookahead_iter = local_receipts.iter();
+        let _ = prep_lookahead_iter.next(); // stagger preparation to not prepare the first receipt.
+        while let Some(receipt) = local_receipt_iter.next() {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1673,24 +1677,20 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
-                loop {
-                    let Some(peek) = processing_state.local_receipts.get(advance) else { break };
-                    advance = advance.checked_add(1).unwrap();
-                    let peek_account_id = peek.receiver_id();
-                    let receiver = get_account(&processing_state.state_update, peek_account_id);
+                let _ = prep_lookahead_iter.find(|peek| {
+                    let account_id = peek.receiver_id();
+                    let receiver = get_account(&processing_state.state_update, account_id);
                     let Ok(Some(receiver)) = receiver else {
                         tracing::error!(
                             target: "runtime",
                             message="unable to read receiver of an upcoming local receipt",
-                            ?peek_account_id,
+                            ?account_id,
                             receipt=%receipt.get_hash()
                         );
-                        continue;
+                        return false;
                     };
-                    if processing_state.pipeline_manager.submit(peek, &receiver, None) {
-                        break;
-                    }
-                }
+                    processing_state.pipeline_manager.submit(peek, &receiver, None)
+                });
 
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
@@ -2359,13 +2359,6 @@ struct ApplyProcessingReceiptState<'a> {
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
-}
-
-impl<'a> ApplyProcessingReceiptState<'a> {
-    /// Obtain the next receipt that should be executed.
-    fn pop_local_receipt(&mut self) -> Option<Receipt> {
-        self.local_receipts.pop_front()
-    }
 }
 
 #[cfg(test)]
