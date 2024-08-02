@@ -3,7 +3,6 @@
 //! NEP: <https://github.com/near/NEPs/pull/366>
 //! This is the module containing the types introduced for delegate actions.
 
-pub use self::private_non_delegate_action::NonDelegateAction;
 use super::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -11,13 +10,24 @@ use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::types::{AccountId, Nonce};
+use near_schema_checker_lib::ProtocolSchema;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind, Read};
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
 /// This action allows to execute the inner actions behalf of the defined sender.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
 pub struct DelegateAction {
     /// Signer of the delegated actions
     pub sender_id: AccountId,
@@ -38,7 +48,17 @@ pub struct DelegateAction {
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    ProtocolSchema,
+)]
 pub struct SignedDelegateAction {
     pub delegate_action: DelegateAction,
     pub signature: Signature,
@@ -76,22 +96,22 @@ impl DelegateAction {
     }
 }
 
+/// This is Action which mustn't contain DelegateAction.
+///
+/// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
+///
+/// Important: Don't make the inner Action public, this must only be constructed
+/// through the correct interface that ensures the inner Action is actually not
+/// a delegate action. That would break an assumption of this type, which we use
+/// in several places. For example, borsh de-/serialization relies on it. If the
+/// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
+/// can serialize but deserializing it back causes a parsing error.
+#[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+pub struct NonDelegateAction(Action);
+
 /// A small private module to protect the private fields inside `NonDelegateAction`.
 mod private_non_delegate_action {
     use super::*;
-
-    /// This is Action which mustn't contain DelegateAction.
-    ///
-    /// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
-    ///
-    /// Important: Don't make the inner Action public, this must only be constructed
-    /// through the correct interface that ensures the inner Action is actually not
-    /// a delegate action. That would break an assumption of this type, which we use
-    /// in several places. For example, borsh de-/serialization relies on it. If the
-    /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
-    /// can serialize but deserializing it back causes a parsing error.
-    #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
-    pub struct NonDelegateAction(Action);
 
     impl From<NonDelegateAction> for Action {
         fn from(action: NonDelegateAction) -> Self {

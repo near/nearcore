@@ -29,7 +29,7 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
     InvalidReceiptRoot,
@@ -791,7 +791,9 @@ impl<'a> ChunksCollection<'a> {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, serde::Serialize, ProtocolSchema,
+)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockHeight,
