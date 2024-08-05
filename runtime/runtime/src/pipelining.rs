@@ -246,6 +246,9 @@ impl ReceiptPreparationPipeline {
             let current = std::mem::replace(&mut *status_guard, PrepareTaskStatus::Working);
             match current {
                 PrepareTaskStatus::Pending => {
+                    *status_guard = PrepareTaskStatus::Finished;
+                    drop(status_guard);
+
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let contract = prepare_function_call(
                         &self.storage,
@@ -258,7 +261,6 @@ impl ReceiptPreparationPipeline {
                         &account_id,
                         &function_call.method_name,
                     );
-                    *status_guard = PrepareTaskStatus::Finished;
                     return contract;
                 }
                 PrepareTaskStatus::Working => {

@@ -1689,6 +1689,8 @@ impl Runtime {
                         );
                         return false;
                     };
+                    // This returns `true` if work has been scheduled (thus we currently prepare
+                    // actions in at most 1 receipt in advance.)
                     processing_state.pipeline_manager.submit(peek, &receiver, None)
                 });
 

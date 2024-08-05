@@ -626,7 +626,7 @@ pub(crate) fn action_deploy_contract(
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
-    // on this per se.
+    // that the contracts are written to The State.
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the contract runtime
     // cache.
