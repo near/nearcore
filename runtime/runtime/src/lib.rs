@@ -1662,10 +1662,31 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(back);
         }
 
-        let mut local_receipt_iter = local_receipts.iter();
         let mut prep_lookahead_iter = local_receipts.iter();
-        let _ = prep_lookahead_iter.next(); // stagger preparation to not prepare the first receipt.
-        while let Some(receipt) = local_receipt_iter.next() {
+        let mut schedule_preparation = |pstate: &mut ApplyProcessingReceiptState| {
+            let scheduled_receipt_offset = prep_lookahead_iter.position(|peek| {
+                let account_id = peek.receiver_id();
+                let receiver = get_account(&pstate.state_update, account_id);
+                let Ok(Some(receiver)) = receiver else {
+                    tracing::error!(
+                        target: "runtime",
+                        message="unable to read receiver of an upcoming local receipt",
+                        ?account_id,
+                        receipt=%peek.get_hash()
+                    );
+                    return false;
+                };
+                // This returns `true` if work may have been scheduled (thus we currently prepare
+                // actions in at most 2 "interesting" receipts in parallel due to staggering.)
+                pstate.pipeline_manager.submit(peek, &receiver, None)
+            });
+            scheduled_receipt_offset
+        };
+        // Advance the preparation by one step (stagger it) so that we're preparing one interesting
+        // receipt in advance.
+        let mut next_schedule_index = schedule_preparation(&mut processing_state);
+
+        for (index, receipt) in local_receipts.iter().enumerate() {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1677,23 +1698,15 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
-                let _ = prep_lookahead_iter.find(|peek| {
-                    let account_id = peek.receiver_id();
-                    let receiver = get_account(&processing_state.state_update, account_id);
-                    let Ok(Some(receiver)) = receiver else {
-                        tracing::error!(
-                            target: "runtime",
-                            message="unable to read receiver of an upcoming local receipt",
-                            ?account_id,
-                            receipt=%receipt.get_hash()
-                        );
-                        return false;
-                    };
-                    // This returns `true` if work has been scheduled (thus we currently prepare
-                    // actions in at most 1 receipt in advance.)
-                    processing_state.pipeline_manager.submit(peek, &receiver, None)
-                });
-
+                if let Some(nsi) = next_schedule_index {
+                    if index >= nsi {
+                        // We're about to process a receipt that has been submitted for
+                        // preparation, so lets submit the next one in anticipation that it might
+                        // be processed too (it might also be not if we run out of gas/compute.)
+                        next_schedule_index = schedule_preparation(&mut processing_state)
+                            .and_then(|adv| nsi.checked_add(adv));
+                    }
+                }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 self.process_receipt_with_metrics(

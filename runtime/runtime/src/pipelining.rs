@@ -103,8 +103,10 @@ impl ReceiptPreparationPipeline {
     /// applying a chunk ran out of gas or compute cost,) this work would eventually get lost, so
     /// for the most part it is best to submit work with limited look-ahead.
     ///
-    /// Returns `true` if the receipt is interesting and work has been scheduled for its
-    /// preparation.
+    /// Returns `true` if the receipt is interesting and that pipelining has acted on it in some
+    /// way. Currently `true` is returned for any receipts containing `Action::DeployContract` (in
+    /// which case no further processing for the receiver account will be done), and
+    /// `Action::FunctionCall` (provided the account has not been blocked.)
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
@@ -127,8 +129,7 @@ impl ReceiptPreparationPipeline {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
-                    self.block_accounts.insert(account_id);
-                    break;
+                    return self.block_accounts.insert(account_id);
                 }
                 Action::FunctionCall(function_call) => {
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
