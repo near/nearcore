@@ -9,6 +9,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
+use near_store::contract::ContractStorage;
 use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
@@ -362,7 +363,7 @@ impl<'a> External for RuntimeExt<'a> {
 }
 
 pub(crate) struct RuntimeContractExt<'a> {
-    pub(crate) storage: near_store::contract::Storage,
+    pub(crate) storage: ContractStorage,
     pub(crate) account_id: &'a AccountId,
     pub(crate) code_hash: CryptoHash,
     pub(crate) chain_id: &'a str,

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// Cloning is cheap.
 #[derive(Clone)]
-pub struct Storage {
+pub struct ContractStorage {
     storage: Arc<dyn TrieStorage>,
 
     /// During an apply of a single chunk contracts may be deployed through the
@@ -26,7 +26,7 @@ pub struct Storage {
     uncommitted_deploys: Arc<Mutex<BTreeMap<CryptoHash, ContractCode>>>,
 }
 
-impl Storage {
+impl ContractStorage {
     pub fn new(storage: Arc<dyn TrieStorage>) -> Self {
         Self { storage, uncommitted_deploys: Default::default() }
     }
