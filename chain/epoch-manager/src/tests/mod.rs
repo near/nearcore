@@ -19,13 +19,13 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature::{self, SimpleNightshade, StatelessValidation};
+use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -1528,9 +1528,6 @@ fn test_chunk_producer_kickout() {
 /// validator is not kicked out.
 #[test]
 fn test_chunk_validator_kickout() {
-    if !StatelessValidation.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let stake_amount = 1_000_000;
     let validators: Vec<(AccountId, Balance)> =
         (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
@@ -2792,11 +2789,6 @@ fn test_verify_chunk_endorsements() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
-        return;
-    }
-
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];
@@ -2826,7 +2818,7 @@ fn test_verify_chunk_endorsements() {
     let chunk_header = test_chunk_header(&h, signer.as_ref());
 
     // check chunk endorsement validity
-    let mut chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer.as_ref());
+    let mut chunk_endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), signer.as_ref());
     assert!(epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
 
     // check invalid chunk endorsement signature
@@ -2834,7 +2826,7 @@ fn test_verify_chunk_endorsements() {
     assert!(!epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
 
     // check chunk endorsement invalidity when chunk header and chunk endorsement don't match
-    let chunk_endorsement = ChunkEndorsement::new(h[3].into(), signer.as_ref());
+    let chunk_endorsement = ChunkEndorsementV1::new(h[3].into(), signer.as_ref());
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
@@ -2844,7 +2836,7 @@ fn test_verify_chunk_endorsements() {
 
     // check chunk endorsement invalidity when signer is not chunk validator
     let bad_signer = Arc::new(create_test_signer("test2"));
-    let chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), bad_signer.as_ref());
+    let chunk_endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), bad_signer.as_ref());
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
@@ -2858,11 +2850,6 @@ fn test_verify_partial_witness_signature() {
     use near_crypto::Signature;
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
-
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
-        return;
-    }
 
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();

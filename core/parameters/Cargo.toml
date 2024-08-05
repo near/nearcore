@@ -26,6 +26,7 @@ clap = { workspace = true, optional = true }
 # FIXME: this ideally should not depend on near-primitives-core...
 near-primitives-core.workspace = true
 near-account-id.workspace = true
+near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -43,3 +44,7 @@ statelessnet_protocol = [
   "near-primitives-core/statelessnet_protocol",
 ]
 calimero_zero_storage = []
+
+protocol_schema = [
+  "near-schema-checker-lib/protocol_schema",
+]

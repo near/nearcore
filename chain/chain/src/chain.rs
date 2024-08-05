@@ -12,6 +12,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
@@ -2199,7 +2200,7 @@ impl Chain {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            self.validate_chunk_endorsements_in_block(&block)?;
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
@@ -3454,13 +3455,13 @@ impl Chain {
         })
     }
 
-    fn get_resharding_state_roots(
-        &self,
+    pub fn get_resharding_state_roots(
+        chain_store: &dyn ChainStoreAccess,
+        epoch_manager: &dyn EpochManagerAdapter,
         block: &Block,
         shard_id: ShardId,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let next_shard_layout =
-            self.epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
+        let next_shard_layout = epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
         let new_shards =
             next_shard_layout.get_children_shards_uids(shard_id).unwrap_or_else(|| {
                 panic!(
@@ -3471,7 +3472,8 @@ impl Chain {
         new_shards
             .iter()
             .map(|shard_uid| {
-                self.get_chunk_extra(block.header().prev_hash(), shard_uid)
+                chain_store
+                    .get_chunk_extra(block.header().prev_hash(), shard_uid)
                     .map(|chunk_extra| (*shard_uid, *chunk_extra.state_root()))
             })
             .collect()
@@ -3666,7 +3668,12 @@ impl Chain {
         //    states
         let resharding_state_roots =
             if shard_context.need_to_reshard && mode != ApplyChunksMode::NotCaughtUp {
-                Some(self.get_resharding_state_roots(block, shard_id)?)
+                Some(Self::get_resharding_state_roots(
+                    self.chain_store(),
+                    self.epoch_manager.as_ref(),
+                    block,
+                    shard_id,
+                )?)
             } else {
                 None
             };

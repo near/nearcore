@@ -22,6 +22,7 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
@@ -148,6 +149,9 @@ impl NeardCmd {
             }
             #[cfg(feature = "new_epoch_sync")]
             NeardSubCommand::EpochSync(cmd) => {
+                cmd.run(&home_dir)?;
+            }
+            NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir)?;
             }
         };
@@ -278,6 +282,9 @@ pub(super) enum NeardSubCommand {
 
     /// Check completeness of dumped state parts of an epoch
     StatePartsDumpCheck(StatePartsDumpCheckCommand),
+
+    /// Replays the blocks in the chain from an archival node.
+    ReplayArchive(ReplayArchiveCommand),
 
     #[cfg(feature = "new_epoch_sync")]
     /// Testing tool for epoch sync

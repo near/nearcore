@@ -23,11 +23,13 @@ use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::{
+    ChunkEndorsement, ChunkEndorsementV1,
+};
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -432,11 +434,13 @@ impl TestEnv {
     /// Wait until an endorsement for `chunk_hash` appears in the network messages send by
     /// the Client with index `client_idx`. Times out after CHUNK_ENDORSEMENTS_TIMEOUT.
     /// Doesn't process or consume the message, it just waits until the message appears on the network_adapter.
+    /// TODO(ChunkEndorsementV2): This function is only used by orphan_chunk_state_witnesses test.
+    /// Can remove once we shift to ChunkEndorsementV2.
     pub fn wait_for_chunk_endorsement(
         &mut self,
         client_idx: usize,
         chunk_hash: &ChunkHash,
-    ) -> Result<ChunkEndorsement, TimeoutError> {
+    ) -> Result<ChunkEndorsementV1, TimeoutError> {
         let start_time = Instant::now();
         let network_adapter = self.network_adapters[client_idx].clone();
         loop {
@@ -445,8 +449,13 @@ impl TestEnv {
                 match &request {
                     PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
-                    ) if endorsement.chunk_hash() == chunk_hash => {
-                        endorsement_opt = Some(endorsement.clone());
+                    ) => {
+                        let endorsement = match endorsement {
+                            ChunkEndorsement::V1(endorsement) => endorsement,
+                        };
+                        if endorsement.chunk_hash() == chunk_hash {
+                            endorsement_opt = Some(endorsement.clone());
+                        }
                     }
                     _ => {}
                 };

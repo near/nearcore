@@ -21,3 +21,4 @@ semver
 toml
 tqdm
 urllib3<2
+datetime

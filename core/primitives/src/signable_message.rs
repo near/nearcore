@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::AccountId;
+use near_schema_checker_lib::ProtocolSchema;
 
 // These numbers are picked to be compatible with the current protocol and how
 // transactions are defined in it. Introducing this is no protocol change. This
@@ -44,6 +45,7 @@ const NEP_366_META_TRANSACTIONS: u32 = 366;
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct MessageDiscriminant {
     /// The unique prefix, serialized in little-endian by borsh.

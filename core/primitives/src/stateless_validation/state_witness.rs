@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use super::{ChunkProductionKey, SignatureDifferentiator};
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
@@ -14,8 +15,7 @@ use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
 use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
-
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
@@ -24,7 +24,7 @@ pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize =
 
 /// Represents bytes of encoded ChunkStateWitness.
 /// This is the compressed version of borsh-serialized state witness.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EncodedChunkStateWitness(Box<[u8]>);
 
 pub type ChunkStateWitnessSize = usize;
@@ -108,7 +108,7 @@ impl EncodedChunkStateWitness {
 /// endorsement message. Note that the endorsement message is sent to the next block producer,
 /// while this message is sent back to the originator of the state witness, though this allows
 /// us to approximate the time for transmitting the state witness + transmitting the endorsement.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitnessAck {
     /// Hash of the chunk for which the state witness was generated.
     pub chunk_hash: ChunkHash,
@@ -122,7 +122,7 @@ impl ChunkStateWitnessAck {
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitness {
     /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub chunk_producer: AccountId,
@@ -276,7 +276,9 @@ impl ChunkStateWitness {
 
 /// Represents the base state and the expected post-state-root of a chunk's state
 /// transition. The actual state transition itself is not included here.
-#[derive(Debug, Default, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug, Default, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema,
+)]
 pub struct ChunkStateTransition {
     /// The block that contains the chunk; this identifies which part of the
     /// state transition we're talking about.
