@@ -4,6 +4,7 @@ use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
+use near_parameters::config::GasLimitAdjustmentConfig;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
@@ -20,8 +21,20 @@ use crate::types::RuntimeAdapter;
 use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error};
 
-/// Gas limit cannot be adjusted for more than 0.1% at a time.
-const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
+fn gas_limit_adjustment_factor(
+    gas_limit_adjustment_config: Option<&GasLimitAdjustmentConfig>,
+) -> u64 {
+    match gas_limit_adjustment_config {
+        None => {
+            // Under normal conditions (outside of `BENCHMARKNET`), gas limit cannot be adjusted
+            // for more than 0.1% at a time.
+            1000
+        }
+        Some(&GasLimitAdjustmentConfig { adjustment_factor_override, .. }) => {
+            adjustment_factor_override
+        }
+    }
+}
 
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
@@ -112,6 +125,7 @@ pub fn validate_chunk_with_chunk_extra(
     prev_chunk_extra: &ChunkExtra,
     prev_chunk_height_included: BlockHeight,
     chunk_header: &ShardChunkHeader,
+    gas_limit_adjustment_config: Option<&GasLimitAdjustmentConfig>,
 ) -> Result<(), Error> {
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
         epoch_manager,
@@ -129,6 +143,7 @@ pub fn validate_chunk_with_chunk_extra(
         prev_chunk_extra,
         chunk_header,
         &outgoing_receipts_root,
+        gas_limit_adjustment_config,
     )
 }
 
@@ -137,6 +152,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     prev_chunk_extra: &ChunkExtra,
     chunk_header: &ShardChunkHeader,
     outgoing_receipts_root: &CryptoHash,
+    gas_limit_adjustment_config: Option<&GasLimitAdjustmentConfig>,
 ) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
         return Err(Error::InvalidStateRoot);
@@ -171,8 +187,9 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     }
 
     let gas_limit = prev_chunk_extra.gas_limit();
-    if chunk_header.gas_limit() < gas_limit - gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.gas_limit() > gas_limit + gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    let adjustment_factor = gas_limit_adjustment_factor(gas_limit_adjustment_config);
+    if chunk_header.gas_limit() < gas_limit - gas_limit / adjustment_factor
+        || chunk_header.gas_limit() > gas_limit + gas_limit / adjustment_factor
     {
         return Err(Error::InvalidGasLimit);
     }

@@ -344,6 +344,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
             },
+            gas_limit_adjustment_config: None,
         })
     }
 }

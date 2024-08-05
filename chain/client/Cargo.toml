@@ -61,6 +61,7 @@ near-performance-metrics-macros.workspace = true
 near-performance-metrics.workspace = true
 near-pool.workspace = true
 near-primitives = { workspace = true, features = ["clock"] }
+near-primitives-core.workspace = true
 near-store.workspace = true
 near-telemetry.workspace = true
 near-vm-runner.workspace = true

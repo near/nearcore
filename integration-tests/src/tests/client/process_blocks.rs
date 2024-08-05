@@ -2329,6 +2329,11 @@ fn test_validate_chunk_extra() {
         .unwrap();
     let chunk_extra =
         client.chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
+    let gas_limit_adjustment_config = client
+        .runtime_adapter
+        .get_runtime_config(PROTOCOL_VERSION)
+        .unwrap()
+        .gas_limit_adjustment_config;
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
         client.epoch_manager.as_ref(),
@@ -2336,6 +2341,7 @@ fn test_validate_chunk_extra() {
         &chunk_extra,
         block1.chunks()[0].height_included(),
         &chunk_header,
+        gas_limit_adjustment_config.as_ref(),
     )
     .is_ok());
 }

@@ -493,10 +493,13 @@ pub fn validate_chunk_state_witness(
 
     // Finally, verify that the newly proposed chunk matches everything we have computed.
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+    let gas_limit_adjustment_config =
+        runtime_adapter.get_runtime_config(protocol_version)?.gas_limit_adjustment_config;
     validate_chunk_with_chunk_extra_and_receipts_root(
         &chunk_extra,
         &state_witness.chunk_header,
         &outgoing_receipts_root,
+        gas_limit_adjustment_config.as_ref(),
     )?;
 
     Ok(())
