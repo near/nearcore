@@ -19,7 +19,7 @@ pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
-#[derive(Clone, Eq, Debug, PartialEq)]
+#[derive(Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -304,7 +304,7 @@ impl AllEpochConfig {
 
 /// Additional configuration parameters for the new validator selection
 /// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
-#[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
+#[derive(Debug, Clone, SmartDefault, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ValidatorSelectionConfig {
     #[default(100)]
     pub num_chunk_producer_seats: NumSeats,
