@@ -380,7 +380,7 @@ impl Chain {
             };
             RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
 
-            debug!(target: "resharding", ?shard_uid, "batch {batch_count} prepared in {prepare_time}s, applied in {apply_time}s and committed in {commit_time}s");
+            debug!(target: "resharding", ?shard_uid, ?batch_count, ?prepare_time, ?apply_time, ?commit_time, "batch processed");
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
