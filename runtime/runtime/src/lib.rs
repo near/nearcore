@@ -1704,7 +1704,7 @@ impl Runtime {
                         // preparation, so lets submit the next one in anticipation that it might
                         // be processed too (it might also be not if we run out of gas/compute.)
                         next_schedule_index = schedule_preparation(&mut processing_state)
-                            .and_then(|adv| nsi.checked_add(adv));
+                            .and_then(|adv| nsi.checked_add(1)?.checked_add(adv));
                     }
                 }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
