@@ -504,66 +504,58 @@ impl InfoHelper {
         let shards = shard_ids.unwrap_or(vec![]);
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
-        // Note that the metrics are set to 0 for previous epoch validators who are no longer
+        // Note that the metrics are removed for previous epoch validators who are no longer
         // validators (with the status ValidatorProductionStatus::Kickout).
         for status in validator_status {
             match status {
                 ValidatorProductionStatus::Validator(stats) => {
-                    (metrics::VALIDATORS_BLOCKS_PRODUCED
+                    metrics::VALIDATORS_BLOCKS_PRODUCED
                         .with_label_values(&[stats.account_id.as_str()])
-                        .set(stats.num_produced_blocks as i64));
-                    (metrics::VALIDATORS_BLOCKS_EXPECTED
+                        .set(stats.num_produced_blocks as i64);
+                    metrics::VALIDATORS_BLOCKS_EXPECTED
                         .with_label_values(&[stats.account_id.as_str()])
-                        .set(stats.num_expected_blocks as i64));
-                    (metrics::VALIDATORS_CHUNKS_PRODUCED
+                        .set(stats.num_expected_blocks as i64);
+                    metrics::VALIDATORS_CHUNKS_PRODUCED
                         .with_label_values(&[stats.account_id.as_str()])
-                        .set(stats.num_produced_chunks as i64));
-                    (metrics::VALIDATORS_CHUNKS_EXPECTED
+                        .set(stats.num_produced_chunks as i64);
+                    metrics::VALIDATORS_CHUNKS_EXPECTED
                         .with_label_values(&[stats.account_id.as_str()])
-                        .set(stats.num_expected_chunks as i64));
+                        .set(stats.num_expected_chunks as i64);
                     for i in 0..stats.shards.len() {
                         let shard = stats.shards[i];
-                        (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                        metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                            .set(stats.num_expected_chunks_per_shard[i] as i64));
-                        (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                            .set(stats.num_expected_chunks_per_shard[i] as i64);
+                        metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                            .set(stats.num_produced_chunks_per_shard[i] as i64));
-                        (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                            .set(stats.num_produced_chunks_per_shard[i] as i64);
+                        metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                            .set(stats.num_expected_endorsements_per_shard[i] as i64));
-                        (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                            .set(stats.num_expected_endorsements_per_shard[i] as i64);
+                        metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                            .set(stats.num_produced_endorsements_per_shard[i] as i64));
+                            .set(stats.num_produced_endorsements_per_shard[i] as i64);
                     }
                 }
-                // If the validator is kicked out, zero out all the stats for it and for all shards in the current epoch.
+                // If the validator is kicked out, remove the stats for it and for all shards in the current epoch.
                 ValidatorProductionStatus::Kickout(account_id) => {
-                    (metrics::VALIDATORS_BLOCKS_PRODUCED
-                        .with_label_values(&[account_id.as_str()])
-                        .set(0));
-                    (metrics::VALIDATORS_BLOCKS_EXPECTED
-                        .with_label_values(&[account_id.as_str()])
-                        .set(0));
-                    (metrics::VALIDATORS_CHUNKS_PRODUCED
-                        .with_label_values(&[account_id.as_str()])
-                        .set(0));
-                    (metrics::VALIDATORS_CHUNKS_EXPECTED
-                        .with_label_values(&[account_id.as_str()])
-                        .set(0));
+                    let _ = metrics::VALIDATORS_BLOCKS_PRODUCED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_BLOCKS_EXPECTED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_CHUNKS_PRODUCED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_CHUNKS_EXPECTED
+                        .remove_label_values(&[account_id.as_str()]);
                     for shard in shards.iter() {
-                        (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
-                            .with_label_values(&[account_id.as_str(), &shard.to_string()])
-                            .set(0));
-                        (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
-                            .with_label_values(&[account_id.as_str(), &shard.to_string()])
-                            .set(0));
-                        (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
-                            .with_label_values(&[account_id.as_str(), &shard.to_string()])
-                            .set(0));
-                        (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
-                            .with_label_values(&[account_id.as_str(), &shard.to_string()])
-                            .set(0));
+                        let _ = metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                        let _ = metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                        let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                        let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
                     }
                 }
             }
