@@ -580,8 +580,6 @@ impl Chain {
         &self,
         // The resharding will execute on the post state of the target_hash block.
         target_hash: &CryptoHash,
-        // The block hash of the state snapshot.
-        snapshot_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ReshardingRequest, Error> {
         let sync_hash = target_hash;
@@ -598,8 +596,9 @@ impl Chain {
         let resharding_request = ReshardingRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
             sync_hash: *sync_hash,
+            // `prev_hash` and `prev_prev_hash` aren't used while doing on demand resharding without flat-storage.
             prev_hash: *target_hash,
-            prev_prev_hash: *snapshot_hash,
+            prev_prev_hash: *target_hash,
             shard_uid,
             state_root,
             next_epoch_shard_layout,

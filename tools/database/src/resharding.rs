@@ -23,6 +23,7 @@ use nearcore::{open_storage, NearConfig, NightshadeRuntime};
 pub(crate) struct ReshardingCommand {
     /// The block height at which resharding is performed.
     /// This should be, usually, the block before shard layout has changed.
+    /// Keep in mind that resharding is done on the post state root. 
     #[clap(long)]
     height: BlockHeight,
 
@@ -47,11 +48,8 @@ impl ReshardingCommand {
 
         let block_hash = *chain.get_block_by_height(self.height)?.hash();
 
-        let resharding_request = chain.custom_build_state_for_resharding_preprocessing(
-            &block_hash,
-            &block_hash,
-            self.shard_id,
-        )?;
+        let resharding_request =
+            chain.custom_build_state_for_resharding_preprocessing(&block_hash, self.shard_id)?;
 
         let shard_uid = resharding_request.shard_uid;
 
