@@ -129,8 +129,12 @@ impl AllEpochConfig {
         chain_id: &str,
         test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Self {
-        let config_store =
-            if use_production_config { EpochConfigStore::for_chain_id(chain_id) } else { None };
+        // Use the config store only for production configs and outside of tests.
+        let config_store = if use_production_config && test_overrides.is_none() {
+            EpochConfigStore::for_chain_id(chain_id)
+        } else {
+            None
+        };
         // Validate that the stored genesis config equals to the provided config which is generated from the genesis config.
         if config_store.is_some() {
             debug_assert_eq!(
@@ -150,11 +154,7 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         if self.config_store.is_some() {
-            let mut config =
-                self.config_store.as_ref().unwrap().get_config(protocol_version).as_ref().clone();
-            // The stored config is generated for production, so apply any test overrides on top of it.
-            Self::config_test_overrides(&mut config, &self.test_overrides);
-            config
+            self.config_store.as_ref().unwrap().get_config(protocol_version).as_ref().clone()
         } else {
             self.generate_epoch_config(protocol_version)
         }

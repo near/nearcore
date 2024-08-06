@@ -230,10 +230,10 @@ impl TestReshardingEnv {
         // doesn't support requesting chunks and non-validators wouldn't be able
         // to obtain the chunks at all.
         // Same needs to be set in the genesis.
-        let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+        let epoch_config_test_overrides = AllEpochConfigTestOverrides {
             block_producer_kickout_threshold: Some(0),
             chunk_producer_kickout_threshold: Some(0),
-        });
+        };
         let env = builder
             .clients_count(num_clients)
             .validator_seats(num_validators)
