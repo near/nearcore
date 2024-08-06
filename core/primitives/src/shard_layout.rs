@@ -505,7 +505,7 @@ mod tests {
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
-    use near_primitives_core::version::ProtocolFeature;
+    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -556,7 +556,13 @@ mod tests {
                 validator_selection_config: ValidatorSelectionConfig::default(),
             };
 
-            let all_epoch_config = AllEpochConfig::new(true, genesis_epoch_config, "test-chain");
+            let genesis_protocol_version = PROTOCOL_VERSION;
+            let all_epoch_config = AllEpochConfig::new(
+                true,
+                genesis_protocol_version,
+                genesis_epoch_config,
+                "test-chain",
+            );
             let latest_epoch_config = all_epoch_config.for_protocol_version(protocol_version);
             latest_epoch_config.shard_layout
         }

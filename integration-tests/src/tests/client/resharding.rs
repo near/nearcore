@@ -886,7 +886,8 @@ fn setup_genesis(
     genesis.config.protocol_upgrade_stake_threshold = Rational32::new(7, 10);
 
     let default_epoch_config = EpochConfig::from(&genesis.config);
-    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config, "test-chain");
+    let all_epoch_config =
+        AllEpochConfig::new(true, genesis_protocol_version, default_epoch_config, "test-chain");
     let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
 
     genesis.config.shard_layout = epoch_config.shard_layout;

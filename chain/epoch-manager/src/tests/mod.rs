@@ -2214,7 +2214,7 @@ fn test_protocol_version_switch_with_many_seats() {
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(false, epoch_config, "test-chain");
+    let config = AllEpochConfig::new(false, PROTOCOL_VERSION, epoch_config, "test-chain");
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
