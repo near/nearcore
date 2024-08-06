@@ -135,21 +135,25 @@ impl AllEpochConfig {
         } else {
             None
         };
-        // Validate that the stored genesis config equals to the provided config which is generated from the genesis config.
-        if config_store.is_some() {
-            debug_assert_eq!(
-                config_store.as_ref().unwrap().get_config(genesis_protocol_version).as_ref(),
-                &genesis_epoch_config,
-                "Provided genesis EpochConfig for protocol version {} does not match the stored config", genesis_protocol_version
-            );
-        }
-        Self {
-            config_store,
+        let all_epoch_config = Self {
+            config_store: config_store.clone(),
             use_production_config,
             genesis_epoch_config,
             chain_id: chain_id.to_string(),
             test_overrides: test_overrides.unwrap_or_default(),
+        };
+        // Sanity check: Validate that the stored genesis config equals to the config generated for the genesis protocol version.
+        // Note that we cannot do this in unittests because we do not have direct access to the genesis config for mainnet/testnet.
+        // Thus, by making sure that the generated and store configs match for the genesis, we complement the unittests, which
+        // check that the generated and stored configs match for the versions after the genesis.
+        if config_store.is_some() {
+            debug_assert_eq!(
+                config_store.as_ref().unwrap().get_config(genesis_protocol_version).as_ref(),
+                &all_epoch_config.generate_epoch_config(genesis_protocol_version),
+                "Provided genesis EpochConfig for protocol version {} does not match the stored config", genesis_protocol_version
+            );
         }
+        all_epoch_config
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
