@@ -999,19 +999,19 @@ mod tests {
     }
 
     #[test]
-    //#[ignore]
+    #[ignore]
     fn generate_epoch_configs_mainnet() {
         generate_epoch_configs("mainnet");
     }
 
     #[test]
-    //#[ignore]
+    #[ignore]
     fn generate_epoch_configs_testnet() {
         generate_epoch_configs("testnet");
     }
 
     #[test]
-    //#[ignore]
+    #[ignore]
     fn generate_epoch_configs_mocknet() {
         generate_epoch_configs("mocknet");
     }
