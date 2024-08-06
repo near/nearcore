@@ -473,7 +473,9 @@ impl ShardChunkHeader {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default, ProtocolSchema,
+)]
 pub struct ChunkHashHeight(pub ChunkHash, pub BlockHeight);
 
 impl ShardChunkHeaderV1 {

@@ -6,6 +6,13 @@ with_macos_excludes := if os() == "macos" {
 } else {
     ""
 }
+# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that. 
+# See https://github.com/dtolnay/inventory/issues/52.
+with_macos_incremental := if os() == "macos" {
+    "CARGO_INCREMENTAL=0"
+} else {
+    ""
+}
 nightly_flags := "--features nightly,test_features"
 statelessnet_flags := "--features statelessnet_protocol"
 public_libraries := "-p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core"
@@ -166,7 +173,9 @@ check-protocol-schema:
     # Test that checker is not broken
     env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
     # Run the checker
-    env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check
+    env RUSTFLAGS="--cfg enable_const_type_id" \
+        {{ with_macos_incremental }} \
+        cargo +nightly run -p protocol-schema-check
 
 # build target/rpc_errors_schema.json
 build-rpc-errors-schema:

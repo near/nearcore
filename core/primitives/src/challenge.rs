@@ -140,6 +140,7 @@ pub type Challenges = Vec<Challenge>;
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct SlashedValidator {
     pub account_id: AccountId,

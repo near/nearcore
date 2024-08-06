@@ -7,6 +7,7 @@ use near_primitives_core::{
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
+use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
@@ -25,6 +26,7 @@ fn base64(s: &[u8]) -> String {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
@@ -43,6 +45,7 @@ pub struct AddKeyAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct CreateAccountAction {}
 
@@ -55,6 +58,7 @@ pub struct CreateAccountAction {}
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
@@ -69,6 +73,7 @@ pub struct DeleteAccountAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
@@ -96,7 +101,14 @@ impl fmt::Debug for DeployContractAction {
 
 #[serde_as]
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -128,6 +140,7 @@ impl fmt::Debug for FunctionCallAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct StakeAction {
     /// Amount of tokens to stake.
@@ -146,6 +159,7 @@ pub struct StakeAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct TransferAction {
     #[serde(with = "dec_format")]
@@ -161,6 +175,7 @@ pub struct TransferAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 pub struct NonrefundableStorageTransferAction {
