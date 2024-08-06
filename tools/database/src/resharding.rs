@@ -13,7 +13,7 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::types::EpochId;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::db::{MixedDB, ReadOrder, RecoveryDB, RocksDB, SplitDB};
+use near_store::db::{MixedDB, ReadOrder, RecoveryDB, RocksDB};
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NightshadeRuntimeExt;
@@ -23,7 +23,7 @@ use nearcore::{open_storage, NearConfig, NightshadeRuntime};
 pub(crate) struct ReshardingCommand {
     /// The block height at which resharding is performed.
     /// This should be, usually, the block before shard layout has changed.
-    /// Keep in mind that resharding is done on the post state root. 
+    /// Keep in mind that resharding is done on the post state root.
     #[clap(long)]
     height: BlockHeight,
 
@@ -56,15 +56,6 @@ impl ReshardingCommand {
         let response = Chain::build_state_for_split_shards(resharding_request);
         let ReshardingResponse { sync_hash, new_state_roots: state_roots, .. } = response;
 
-        let state_roots = state_roots?;
-        tracing::info!(target: "resharding", ?state_roots, "state roots");
-
-        chain.custom_build_state_for_split_shards_postprocessing(
-            shard_uid,
-            &sync_hash,
-            state_roots,
-        )?;
-
         if self.restore {
             // In restore mode print database write statistics.
             chain.runtime_adapter.store().get_store_statistics().map(|stats| {
@@ -73,6 +64,15 @@ impl ReshardingCommand {
                 })
             });
         }
+
+        let state_roots = state_roots?;
+        tracing::info!(target: "resharding", ?state_roots, "state roots");
+
+        chain.custom_build_state_for_split_shards_postprocessing(
+            shard_uid,
+            &sync_hash,
+            state_roots,
+        )?;
 
         Ok(())
     }
@@ -87,9 +87,9 @@ impl ReshardingCommand {
             .to_owned();
         let hot_db = storage.into_inner(Temperature::Hot);
 
-        // We need real split db so that it correctly handles reads of missing
-        // values in the columns that are not in the cold db.
-        let split_db = SplitDB::new(hot_db, cold_db.clone());
+        // We need something similar to splitDB so that it correctly handles reads of missing
+        // values in the columns that are not in the cold db. MixedDB let us choose read order.
+        let split_db = MixedDB::new(hot_db, cold_db.clone(), ReadOrder::WriteDBFirst);
 
         let store = if self.restore {
             // In 'restore' mode all changes are written directly into the recovery DB built upon the cold DB.
