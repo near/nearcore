@@ -14,6 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
+use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -991,7 +992,7 @@ fn test_compute_usage_limit() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
-            &vec![
+            &[
                 deploy_contract_receipt.clone(),
                 first_call_receipt.clone(),
                 second_call_receipt.clone(),
@@ -1061,7 +1062,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
-            &vec![deploy_contract_receipt.clone(), first_call_receipt.clone()],
+            &[deploy_contract_receipt.clone(), first_call_receipt.clone()],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1106,7 +1107,7 @@ fn test_main_storage_proof_size_soft_limit() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
             &None,
             &apply_state,
-            &vec![create_acc_fn(alice_account()), create_acc_fn(bob_account())],
+            &[create_acc_fn(alice_account()), create_acc_fn(bob_account())],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1137,7 +1138,7 @@ fn test_main_storage_proof_size_soft_limit() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
             &None,
             &apply_state,
-            &vec![function_call_fn(alice_account()), function_call_fn(bob_account())],
+            &[function_call_fn(alice_account()), function_call_fn(bob_account())],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1458,4 +1459,138 @@ fn test_congestion_info_bootstrapping() {
 
     let is_new_chunk = false;
     check_congestion_info_bootstrapping(is_new_chunk, None);
+}
+
+#[test]
+fn test_deploy_and_call_local_receipt() {
+    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+    let tx = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        alice_account(),
+        &*signer,
+        vec![
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_string(),
+                args: vec![],
+                gas: MAX_ATTACHED_GAS / 2,
+                deposit: 0,
+            })),
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::trivial_contract().to_vec(),
+            }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_string(),
+                args: vec![],
+                gas: MAX_ATTACHED_GAS / 2,
+                deposit: 0,
+            })),
+        ],
+        CryptoHash::default(),
+        0,
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            &[tx],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = assert_matches!(
+        &apply_result.outcomes[..],
+        [_, ExecutionOutcomeWithId { id: _, outcome }] => outcome
+    );
+    assert_eq!(&outcome.logs[..], ["hello"]);
+    let action_error = assert_matches!(
+        &outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
+    );
+    assert_eq!(action_error.index, Some(3));
+    assert_matches!(
+        action_error.kind,
+        ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
+    );
+}
+
+#[test]
+fn test_deploy_and_call_local_receipts() {
+    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+    let tx1 = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        alice_account(),
+        &*signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+        CryptoHash::default(),
+        0,
+    );
+
+    let tx2 = SignedTransaction::from_actions(
+        2,
+        alice_account(),
+        alice_account(),
+        &*signer,
+        vec![
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_string(),
+                args: vec![],
+                gas: MAX_ATTACHED_GAS / 2,
+                deposit: 0,
+            })),
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::trivial_contract().to_vec(),
+            }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_string(),
+                args: vec![],
+                gas: MAX_ATTACHED_GAS / 2,
+                deposit: 0,
+            })),
+        ],
+        CryptoHash::default(),
+        0,
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            &[tx1, tx2],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let (o1, o2) = assert_matches!(
+        &apply_result.outcomes[..],
+        [_, _, ExecutionOutcomeWithId { id: _, outcome: o1 }, ExecutionOutcomeWithId { id: _, outcome: o2 }] => (o1, o2)
+    );
+    assert_eq!(o1.status, ExecutionStatus::SuccessValue(vec![]));
+    assert_eq!(&o2.logs[..], ["hello"]);
+    let action_error = assert_matches!(
+        &o2.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
+    );
+    assert_eq!(action_error.index, Some(2));
+    assert_matches!(
+        action_error.kind,
+        ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
+    );
 }
