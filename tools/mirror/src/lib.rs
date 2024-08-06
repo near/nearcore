@@ -1785,10 +1785,11 @@ impl<T: ChainAccess> TxMirror<T> {
         mut source_hash: CryptoHash,
     ) -> anyhow::Result<()> {
         loop {
+            tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx main loop select");
             tokio::select! {
                 // time to send a batch of transactions
                 tx_batch = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
-                    tracing::info!(target: "mirror", "xxxxxxxx do next batch");
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx do next batch");
                     let mut tx_batch = tx_batch?;
                     source_hash = tx_batch.source_hash;
                     let start = tokio::time::Instant::now();
@@ -1802,13 +1803,13 @@ impl<T: ChainAccess> TxMirror<T> {
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
                 msg = self.target_stream.recv() => {
-                    tracing::info!(target: "mirror", "xxxxxxxx do target block");
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx do target block");
                     let msg = msg.unwrap();
                     target_head = msg.block.header.hash;
                     target_height = msg.block.header.height;
                     let staked_accounts = tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
                     self.unstake(&mut tracker, staked_accounts, &source_hash, &target_head, target_height).await?;
-                    tracing::info!(target: "mirror", "xxxxxxxx did target block");
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx did target block");
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.

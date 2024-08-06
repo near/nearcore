@@ -1201,7 +1201,7 @@ impl TxTracker {
                 });
                 let reset_time_debug = chrono::Utc::now() + block_delay;
                 let reset_time = start_time.unwrap_or_else(tokio::time::Instant::now) + block_delay;
-                tracing::info!(target: "mirror", "xxxxxxxx reset next send time to {:?}", reset_time_debug);
+                tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx reset next send time to {:?}", reset_time_debug);
                 self.send_time.as_mut().reset(reset_time);
                 crate::set_last_source_height(db, b.source_height)?;
                 let txs =

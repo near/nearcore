@@ -432,6 +432,7 @@ pub(crate) async fn start(
 
         tracing::info!(
             target: INDEXER,
+            thread_id=?std::thread::current().id(),
             "xxxxxxxx Streaming is about to start from block #{} and the latest block is #{}",
             start_syncing_block_height,
             latest_block_height
@@ -441,13 +442,13 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                tracing::info!(target: "indexer", "xxxxxxxx do build streamer message");
+                tracing::info!(target: "indexer", thread_id=?std::thread::current().id(), "xxxxxxxx do build streamer message");
                 let response = build_streamer_message(&view_client, block).await;
-                tracing::info!(target: "indexer", "xxxxxxxx did build streamer message");
+                tracing::info!(target: "indexer", thread_id=?std::thread::current().id(), "xxxxxxxx did build streamer message");
 
                 match response {
                     Ok(streamer_message) => {
-                        debug!(target: INDEXER, "Sending streamer message for block #{} to the listener", streamer_message.block.header.height);
+                        tracing::info!(target: INDEXER, "xxxxxxxx Sending streamer message for block #{} to the listener", streamer_message.block.header.height);
                         if blocks_sink.send(streamer_message).await.is_err() {
                             error!(
                                 target: INDEXER,
@@ -457,6 +458,7 @@ pub(crate) async fn start(
                         } else {
                             metrics::NUM_STREAMER_MESSAGES_SENT.inc();
                         }
+                        tracing::info!(target: INDEXER, "xxxxxxxx sent streamer message to the listener");
                     }
                     Err(err) => {
                         debug!(
@@ -470,5 +472,6 @@ pub(crate) async fn start(
             db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
             last_synced_block_height = Some(block_height);
         }
+        tracing::info!(target: "indexer", thread_id=?std::thread::current().id(), "xxxxxxxx streamer loop continue");
     }
 }
