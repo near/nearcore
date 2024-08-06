@@ -190,9 +190,9 @@ use std::collections::hash_map;
 use std::sync::Arc;
 ```
 
-This corresponds to `"rust-analyzer.assist.importGranularity": "module"` setting
+This corresponds to `"rust-analyzer.imports.granularity.group": "module"` setting
 in rust-analyzer
-([docs](https://rust-analyzer.github.io/manual.html#rust-analyzer.assist.importGranularity)).
+([docs](https://rust-analyzer.github.io/manual.html#rust-analyzer.imports.granularity.group)).
 
 **Rationale:** Consistency, matches existing practice.
 
