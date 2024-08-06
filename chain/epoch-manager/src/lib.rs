@@ -40,7 +40,6 @@ pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
 mod adapter;
-mod config_store;
 mod metrics;
 mod proposals;
 mod reward_calculator;

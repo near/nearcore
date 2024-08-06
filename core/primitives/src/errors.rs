@@ -961,8 +961,8 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
-    /// Error loading the epoch configuration.
-    LoadConfigurationError(String),
+    /// Error processing the epoch configuration.
+    ConfigurationError(String),
 }
 
 impl std::error::Error for EpochError {}
@@ -993,8 +993,8 @@ impl Display for EpochError {
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "Error selecting chunk producer: {}", err)
             }
-            EpochError::LoadConfigurationError(err) => {
-                write!(f, "Error loading epoch configuration: {}", err)
+            EpochError::ConfigurationError(err) => {
+                write!(f, "Error processing epoch configuration: {}", err)
             }
         }
     }
@@ -1022,8 +1022,8 @@ impl Debug for EpochError {
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "ChunkProducerSelectionError({})", err)
             }
-            EpochError::LoadConfigurationError(err) => {
-                write!(f, "LoadConfigurationError({})", err)
+            EpochError::ConfigurationError(err) => {
+                write!(f, "ConfigurationError({})", err)
             }
         }
     }
