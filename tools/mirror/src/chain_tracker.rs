@@ -119,8 +119,8 @@ struct NonceInfo {
     queued_txs: BTreeSet<TxRef>,
 }
 
-pub(crate) enum SentBatch {
-    MappedBlock(TxBatch),
+pub(crate) enum SentBatch<'a> {
+    MappedBlock(TxBatch, Pin<&'a mut tokio::time::Sleep>),
     ExtraTxs(Vec<TargetChainTx>),
 }
 
@@ -146,7 +146,6 @@ pub(crate) struct TxTracker {
     nonempty_height_queued: Option<BlockHeight>,
     height_popped: Option<BlockHeight>,
     height_seen: Option<BlockHeight>,
-    send_time: Pin<Box<tokio::time::Sleep>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
     // optional specific tx send delay
@@ -176,10 +175,6 @@ impl TxTracker {
             next_heights,
             stop_height,
             tx_batch_interval,
-            // Wait at least 15 seconds before sending any transactions because for
-            // a few seconds after the node starts, transaction routing requests
-            // will be silently dropped by the peer manager.
-            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
             sent_txs: HashMap::new(),
             txs_by_signer: HashMap::new(),
             queued_blocks: VecDeque::new(),
@@ -461,10 +456,6 @@ impl TxTracker {
         Ok(())
     }
 
-    pub(crate) fn next_batch_time(&self) -> Instant {
-        self.send_time.as_ref().deadline().into_std()
-    }
-
     async fn try_set_batch_nonces(
         &mut self,
         target_view_client: &Addr<ViewClientActor>,
@@ -472,7 +463,7 @@ impl TxTracker {
     ) -> anyhow::Result<()> {
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
-            for tx in c.txs.iter_mut() {
+            for tx in c.txs.iter() {
                 if let TargetChainTx::AwaitingNonce(t) = tx {
                     needed_access_keys.insert((
                         t.target_tx.signer_id().clone(),
@@ -481,11 +472,13 @@ impl TxTracker {
                 }
             }
         }
+        if needed_access_keys.is_empty() {
+            return Ok(());
+        }
         for access_key in needed_access_keys.iter() {
             self.try_set_nonces(target_view_client, db, access_key, None).await?;
         }
         let block = &mut self.queued_blocks[0];
-        self.height_popped = Some(block.source_height);
         for c in block.chunks.iter_mut() {
             for (tx_idx, tx) in c.txs.iter_mut().enumerate() {
                 match tx {
@@ -539,16 +532,9 @@ impl TxTracker {
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
     ) -> anyhow::Result<TxBatch> {
-        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
-        // in the target chain. In the second or so between now and then, we might process another block
-        // that will set the nonces.
-        tokio::time::sleep_until(
-            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
-        )
-        .await;
         self.try_set_batch_nonces(target_view_client, db).await?;
-        (&mut self.send_time).await;
         let block = self.queued_blocks.pop_front().unwrap();
+        self.height_popped = Some(block.source_height);
         let b = TxBatch {
             source_height: block.source_height,
             source_hash: block.source_hash,
@@ -1182,10 +1168,10 @@ impl TxTracker {
     }
 
     // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
-    pub(crate) async fn on_txs_sent(
+    pub(crate) async fn on_txs_sent<'a>(
         &mut self,
         db: &DB,
-        sent_batch: SentBatch,
+        sent_batch: SentBatch<'a>,
         target_height: BlockHeight,
     ) -> anyhow::Result<()> {
         let mut total_sent = 0;
@@ -1193,12 +1179,12 @@ impl TxTracker {
         let mut access_keys_to_remove = HashSet::new();
 
         let (txs_sent, provenance) = match sent_batch {
-            SentBatch::MappedBlock(b) => {
+            SentBatch::MappedBlock(b, send_time) => {
                 let block_delay = self.tx_batch_interval.unwrap_or_else(|| {
                     self.second_longest_recent_block_delay()
                         .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
                 });
-                self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
+                send_time.reset(tokio::time::Instant::now() + block_delay);
                 crate::set_last_source_height(db, b.source_height)?;
                 let txs =
                     b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();

@@ -32,6 +32,7 @@ use near_primitives_core::types::{Nonce, ShardId};
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
@@ -426,6 +427,7 @@ struct TxMirror<T: ChainAccess> {
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     default_extra_key: SecretKey,
     config: MirrorConfig,
+    send_time: Pin<Box<tokio::time::Sleep>>,
 }
 
 fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
@@ -979,6 +981,10 @@ impl<T: ChainAccess> TxMirror<T> {
             secret,
             default_extra_key,
             config,
+            // Wait at least 15 seconds before sending any transactions because for
+            // a few seconds after the node starts, transaction routing requests
+            // will be silently dropped by the peer manager.
+            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
         })
     }
 
@@ -1661,13 +1667,11 @@ impl<T: ChainAccess> TxMirror<T> {
         &mut self,
         tracker: &mut crate::chain_tracker::TxTracker,
         ref_hash: CryptoHash,
-        check_send_time: bool,
+        next_batch_time: Option<Instant>,
     ) -> anyhow::Result<()> {
         if tracker.num_blocks_queued() > 100 {
             return Ok(());
         }
-
-        let next_batch_time = tracker.next_batch_time();
 
         loop {
             let (next_height, create_account_height) =
@@ -1691,11 +1695,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 break;
             }
 
-            if check_send_time
-                && tracker.num_blocks_queued() > 0
-                && Instant::now() + Duration::from_millis(20) > next_batch_time
-            {
-                break;
+            if let Some(next_batch_time) = next_batch_time {
+                if tracker.num_blocks_queued() > 0
+                    && Instant::now() + Duration::from_millis(20) > next_batch_time
+                {
+                    break;
+                }
             }
         }
         Ok(())
@@ -1752,17 +1757,21 @@ impl<T: ChainAccess> TxMirror<T> {
         loop {
             tokio::select! {
                 // time to send a batch of transactions
-                tx_batch = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
-                    let mut tx_batch = tx_batch?;
+                _ = &mut self.send_time, if tracker.num_blocks_queued() > 0 => {
+                    let mut tx_batch = tracker.next_batch(&self.target_view_client, &self.db).await?;
                     source_hash = tx_batch.source_hash;
                     self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                     self.source_chain_access.allow_gc(source_hash).await;
-                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(tx_batch), target_height).await?;
+                    tracker.on_txs_sent(
+                        &self.db,
+                        crate::chain_tracker::SentBatch::MappedBlock(tx_batch, self.send_time.as_mut()),
+                        target_height,
+                    ).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
                     // TODO: continue in best effort fashion on error
-                    self.queue_txs(&mut tracker, target_head, true).await?;
+                    self.queue_txs(&mut tracker, target_head, Some(self.send_time.as_ref().deadline().into_std())).await?;
                 }
                 msg = self.target_stream.recv() => {
                     let msg = msg.unwrap();
@@ -1774,7 +1783,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
                 _ = tokio::time::sleep(std::time::Duration::from_millis(200)), if tracker.num_blocks_queued() == 0 => {
-                    self.queue_txs(&mut tracker, target_head, true).await?;
+                    self.queue_txs(&mut tracker, target_head, Some(self.send_time.as_ref().deadline().into_std())).await?;
                 }
             };
             if tracker.finished() {
@@ -1882,19 +1891,20 @@ impl<T: ChainAccess> TxMirror<T> {
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
                 tracker.queue_block(block, &self.target_view_client, &self.db).await?;
+                (&mut self.send_time).await;
                 let mut b = tracker.next_batch(&self.target_view_client, &self.db).await?;
                 self.send_transactions(b.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                 tracker
                     .on_txs_sent(
                         &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(b),
+                        crate::chain_tracker::SentBatch::MappedBlock(b, self.send_time.as_mut()),
                         target_height,
                     )
                     .await?;
             }
         }
 
-        self.queue_txs(&mut tracker, target_head, false).await?;
+        self.queue_txs(&mut tracker, target_head, None).await?;
 
         self.main_loop(tracker, target_height, target_head, source_hash).await
     }
