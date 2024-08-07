@@ -14,7 +14,7 @@ pub use crate::trie::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
-use db::GENESIS_CONGESTION_INFO_KEY;
+use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -46,6 +46,7 @@ use strum;
 pub mod cold_storage;
 mod columns;
 pub mod config;
+pub mod contract;
 pub mod db;
 pub mod flat;
 pub mod genesis;
@@ -222,12 +223,13 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        match &self.cold_storage {
-            Some(cold_storage) => Some(Store {
-                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
-            }),
-            None => None,
-        }
+        self.get_split_db().map(|split_db| Store { storage: split_db })
+    }
+
+    pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
+        self.cold_storage
+            .as_ref()
+            .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
     }
 
     /// Returns underlying database for given temperature.
@@ -282,6 +284,10 @@ impl NodeStorage {
 }
 
 impl Store {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        Self { storage }
+    }
+
     /// Fetches value from given column.
     ///
     /// If the key does not exist in the column returns `None`.  Otherwise
@@ -963,15 +969,6 @@ pub fn get_access_key_raw(
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
