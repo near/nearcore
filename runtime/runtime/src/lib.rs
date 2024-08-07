@@ -1665,28 +1665,10 @@ impl Runtime {
         }
 
         let mut prep_lookahead_iter = local_receipts.iter();
-        let mut schedule_preparation = |pstate: &mut ApplyProcessingReceiptState| {
-            let scheduled_receipt_offset = prep_lookahead_iter.position(|peek| {
-                let account_id = peek.receiver_id();
-                let receiver = get_account(&pstate.state_update, account_id);
-                let Ok(Some(receiver)) = receiver else {
-                    tracing::error!(
-                        target: "runtime",
-                        message="unable to read receiver of an upcoming local receipt",
-                        ?account_id,
-                        receipt=%peek.get_hash()
-                    );
-                    return false;
-                };
-                // This returns `true` if work may have been scheduled (thus we currently prepare
-                // actions in at most 2 "interesting" receipts in parallel due to staggering.)
-                pstate.pipeline_manager.submit(peek, &receiver, None)
-            });
-            scheduled_receipt_offset
-        };
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
-        let mut next_schedule_index = schedule_preparation(&mut processing_state);
+        let mut next_schedule_index =
+            processing_state.schedule_contract_preparation(&mut prep_lookahead_iter);
 
         for (index, receipt) in local_receipts.iter().enumerate() {
             if processing_state.total.compute >= compute_limit
@@ -1705,7 +1687,8 @@ impl Runtime {
                         // We're about to process a receipt that has been submitted for
                         // preparation, so lets submit the next one in anticipation that it might
                         // be processed too (it might also be not if we run out of gas/compute.)
-                        next_schedule_index = schedule_preparation(&mut processing_state)
+                        next_schedule_index = processing_state
+                            .schedule_contract_preparation(&mut prep_lookahead_iter)
                             .and_then(|adv| nsi.checked_add(1)?.checked_add(adv));
                     }
                 }
@@ -1804,7 +1787,14 @@ impl Runtime {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
         }
-        for receipt in processing_state.incoming_receipts.iter() {
+
+        let mut prep_lookahead_iter = processing_state.incoming_receipts.iter();
+        // Advance the preparation by one step (stagger it) so that we're preparing one interesting
+        // receipt in advance.
+        let mut next_schedule_index =
+            processing_state.schedule_contract_preparation(&mut prep_lookahead_iter);
+
+        for (index, receipt) in processing_state.incoming_receipts.iter().enumerate() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
             validate_receipt(
@@ -1824,6 +1814,17 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
+                if let Some(nsi) = next_schedule_index {
+                    if index >= nsi {
+                        // We're about to process a receipt that has been submitted for
+                        // preparation, so lets submit the next one in anticipation that it might
+                        // be processed too (it might also be not if we run out of gas/compute.)
+                        next_schedule_index = processing_state
+                            .schedule_contract_preparation(&mut prep_lookahead_iter)
+                            .and_then(|adv| nsi.checked_add(1)?.checked_add(adv));
+                    }
+                }
+
                 self.process_receipt_with_metrics(
                     &receipt,
                     &mut processing_state,
@@ -2376,6 +2377,31 @@ struct ApplyProcessingReceiptState<'a> {
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
+}
+
+impl<'a> ApplyProcessingReceiptState<'a> {
+    fn schedule_contract_preparation<'b>(
+        &mut self,
+        mut iterator: impl Iterator<Item = &'b Receipt>,
+    ) -> Option<usize> {
+        let scheduled_receipt_offset = iterator.position(|peek| {
+            let account_id = peek.receiver_id();
+            let receiver = get_account(&self.state_update, account_id);
+            let Ok(Some(receiver)) = receiver else {
+                tracing::error!(
+                    target: "runtime",
+                    message="unable to read receiver of an upcoming local receipt",
+                    ?account_id,
+                    receipt=%peek.get_hash()
+                );
+                return false;
+            };
+            // This returns `true` if work may have been scheduled (thus we currently prepare
+            // actions in at most 2 "interesting" receipts in parallel due to staggering.)
+            self.pipeline_manager.submit(peek, &receiver, None)
+        });
+        scheduled_receipt_offset
+    }
 }
 
 /// Interface provided for gas cost estimations.
