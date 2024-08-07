@@ -34,7 +34,7 @@ node_config = {
     # genesis block, however the old binary does not have this mechanism, thus we need to prevent GC to kick in
     # before the node transitions to the new binary. Note that, after restarting the node with the new binary
     # we can switch back to the usual GC window (see below).
-    # TODO: This change for GC can be removed when the old binary version becomes 2.1 in this test.
+    # TODO(#11902): This change for GC can be removed when the old binary version becomes 2.1 in this test.
     "gc_num_epochs_to_keep": LARGE_GC_NUM_EPOCHS_TO_KEEP,
 }
 
