@@ -6,7 +6,6 @@ use tracing_subscriber::EnvFilter;
 const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
      config=info,\
      near=info,\
-     recompress=info,\
      stats=info,\
      telemetry=info,\
      db=info,\
