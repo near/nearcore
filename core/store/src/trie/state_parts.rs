@@ -493,8 +493,13 @@ impl Trie {
         part_id: PartId,
         part: PartialState,
     ) -> ApplyStatePartResult {
-        Self::apply_state_part_impl(state_root, part_id, part)
-            .expect("apply_state_part is guaranteed to succeed when each part is valid")
+        Self::apply_state_part_impl(state_root, part_id, part).unwrap_or_else(|_| {
+            panic!(
+                "apply_state_part is guaranteed to succeed when each part is valid. \
+                There was a problem processing part_id: idx={}, total={}, state_root: {:?}",
+                part_id.idx, part_id.total, state_root
+            )
+        })
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
