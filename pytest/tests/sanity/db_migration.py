@@ -28,13 +28,13 @@ DEFAULT_GC_NUM_EPOCHS_TO_KEEP = 5
 # Config to track all shards.
 node_config = {
     "tracked_shards": list(range(NUM_SHARDS)),
-    # We should have large enough GC window while the node running with the old binary (1.40), because we need to
+    # We should have large enough GC window while the node running with the old binary (2.0), because we need to
     # bootstrap the congestion info from the genesis block and the genesis block should not be garbage collected.
-    # The new binary (2.0) has a mechanism to save the congestion info on disk to be resilient against GC of
+    # The new binary (2.1) has a mechanism to save the congestion info on disk to be resilient against GC of
     # genesis block, however the old binary does not have this mechanism, thus we need to prevent GC to kick in
     # before the node transitions to the new binary. Note that, after restarting the node with the new binary
     # we can switch back to the usual GC window (see below).
-    # TODO: This change for GC can be removed when the old binary version becomes 2.0 in this test.
+    # TODO: This change for GC can be removed when the old binary version becomes 2.1 in this test.
     "gc_num_epochs_to_keep": LARGE_GC_NUM_EPOCHS_TO_KEEP,
 }
 
