@@ -172,7 +172,7 @@ pub fn check_apply_block_result(
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
             if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
-                println!("new chunk extra matches old chunk extra");
+                tracing::debug!("new chunk extra matches old chunk extra");
                 Ok(())
             } else {
                 Err(anyhow::anyhow!(
@@ -185,7 +185,7 @@ pub fn check_apply_block_result(
             Err(anyhow::anyhow!("No existing chunk extra available"))
         }
     } else {
-        println!("No existing chunk extra available");
+        tracing::warn!("No existing chunk extra available");
         Ok(())
     }
 }
