@@ -8,6 +8,7 @@ mod proto_conv;
 mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -531,10 +532,12 @@ pub enum RoutedMessageBody {
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     _UnusedChunkStateWitness,
-    ChunkEndorsement(ChunkEndorsement),
+    /// TODO(ChunkEndorsementV2): Deprecate once we move to VersionedChunkEndorsement
+    ChunkEndorsement(ChunkEndorsementV1),
     ChunkStateWitnessAck(ChunkStateWitnessAck),
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
+    VersionedChunkEndorsement(ChunkEndorsement),
 }
 
 impl RoutedMessageBody {
@@ -606,6 +609,9 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
                 write!(f, "PartialEncodedStateWitnessForward")
+            }
+            RoutedMessageBody::VersionedChunkEndorsement(_) => {
+                write!(f, "VersionedChunkEndorsement")
             }
         }
     }

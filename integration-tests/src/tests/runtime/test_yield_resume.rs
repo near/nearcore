@@ -17,7 +17,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let transaction_result = node_user
         .create_account(
             account_id,
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             node.signer().public_key(),
             TESTING_INIT_BALANCE / 2,
         )
@@ -25,8 +25,9 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
-    let transaction_result =
-        node_user.deploy_contract("test_contract".parse().unwrap(), wasm_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract("test_contract.alice.near".parse().unwrap(), wasm_binary.to_vec())
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
@@ -48,7 +49,7 @@ fn create_then_resume() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "call_yield_create_return_data_id",
             yield_payload.clone(),
             MAX_GAS,
@@ -68,7 +69,7 @@ fn create_then_resume() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "read_value",
             key.clone(),
             MAX_GAS,
@@ -83,7 +84,7 @@ fn create_then_resume() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "call_yield_resume",
             args,
             MAX_GAS,
@@ -101,7 +102,7 @@ fn create_then_resume() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "read_value",
             key,
             MAX_GAS,
@@ -125,7 +126,7 @@ fn create_and_resume_in_one_call() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "call_yield_create_and_resume",
             yield_payload,
             MAX_GAS,
@@ -153,7 +154,7 @@ fn resume_without_yield() {
         .user()
         .function_call(
             "alice.near".parse().unwrap(),
-            "test_contract".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
             "call_yield_resume",
             args,
             MAX_GAS,

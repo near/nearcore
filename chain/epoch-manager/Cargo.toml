@@ -33,6 +33,7 @@ near-chain-primitives.workspace = true
 near-cache.workspace = true
 
 [features]
+default = ["near-primitives/rand"]
 expensive_tests = []
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",

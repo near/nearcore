@@ -1,4 +1,4 @@
-use near_structs_checker_lib::ProtocolStruct;
+use near_schema_checker_lib::ProtocolSchema;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
@@ -67,7 +67,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 }
 
 #[derive(
-    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolStruct,
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
 )]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
@@ -91,7 +91,7 @@ impl std::fmt::Debug for Secp256K1PublicKey {
 }
 
 #[derive(
-    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolStruct,
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
 )]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
@@ -115,7 +115,7 @@ impl std::fmt::Debug for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, ProtocolStruct)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, ProtocolSchema)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
@@ -432,7 +432,7 @@ const SECP256K1_N_HALF_ONE: U256 =
 
 const SECP256K1_SIGNATURE_LENGTH: usize = 65;
 
-#[derive(Clone, Eq, PartialEq, Hash, derive_more::From, derive_more::Into)]
+#[derive(Clone, Eq, PartialEq, Hash, derive_more::From, derive_more::Into, ProtocolSchema)]
 pub struct Secp256K1Signature([u8; SECP256K1_SIGNATURE_LENGTH]);
 
 impl Secp256K1Signature {
@@ -500,7 +500,7 @@ impl Debug for Secp256K1Signature {
 }
 
 /// Signature container supporting different curves.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, ProtocolSchema)]
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),

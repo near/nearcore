@@ -2,11 +2,12 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::{enum_map, Enum, EnumMap};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::{Compute, Gas};
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt;
 use strum::IntoEnumIterator;
 
 /// Profile of gas consumption.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct ProfileDataV3 {
     /// Gas spent on sending or executing actions.
     pub actions_profile: EnumMap<ActionCosts, Gas>,
