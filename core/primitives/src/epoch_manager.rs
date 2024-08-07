@@ -858,14 +858,15 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
     // Epoch configs for mocknet (forknet) (genesis protool version is 29).
-    include_config!("mocknet", 29, "29.json"),
-    include_config!("mocknet", 48, "48.json"),
-    include_config!("mocknet", 64, "64.json"),
-    include_config!("mocknet", 65, "65.json"),
-    include_config!("mocknet", 69, "69.json"),
-    include_config!("mocknet", 70, "70.json"),
-    include_config!("mocknet", 100, "100.json"),
-    include_config!("mocknet", 101, "101.json"),
+    // TODO(#11900): Check the forknet config and uncomment this.
+    // include_config!("mocknet", 29, "29.json"),
+    // include_config!("mocknet", 48, "48.json"),
+    // include_config!("mocknet", 64, "64.json"),
+    // include_config!("mocknet", 65, "65.json"),
+    // include_config!("mocknet", 69, "69.json"),
+    // include_config!("mocknet", 70, "70.json"),
+    // include_config!("mocknet", 100, "100.json"),
+    // include_config!("mocknet", 101, "101.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
@@ -952,10 +953,11 @@ mod tests {
         test_epoch_config_store("testnet", 29);
     }
 
-    #[test]
-    fn test_epoch_config_store_mocknet() {
-        test_epoch_config_store("mocknet", 29);
-    }
+    // TODO(#11900): Check the forknet config and uncomment this.
+    // #[test]
+    // fn test_epoch_config_store_mocknet() {
+    //     test_epoch_config_store("mocknet", 29);
+    // }
 
     #[allow(unused)]
     fn generate_epoch_configs(chain_id: &str, genesis_protocol_version: ProtocolVersion) {
@@ -991,11 +993,12 @@ mod tests {
         generate_epoch_configs("testnet", 29);
     }
 
-    #[test]
-    #[ignore]
-    fn generate_epoch_configs_mocknet() {
-        generate_epoch_configs("mocknet", 29);
-    }
+    // TODO(#11900): Check the forknet config and uncomment this.
+    // #[test]
+    // #[ignore]
+    // fn generate_epoch_configs_mocknet() {
+    //     generate_epoch_configs("mocknet", 29);
+    // }
 
     #[allow(unused)]
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {
