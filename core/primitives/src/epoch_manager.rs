@@ -170,8 +170,6 @@ impl AllEpochConfig {
 
         Self::config_mocknet(&mut config, &self.chain_id);
 
-        Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
-
         if !self.use_production_config {
             return config;
         }
@@ -206,25 +204,6 @@ impl AllEpochConfig {
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
         config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
-    }
-
-    /// Configures statelessnet-specific features only.
-    /// TODO: Remove this function when statelessnet is no longer used.
-    fn config_stateless_net(
-        config: &mut EpochConfig,
-        chain_id: &str,
-        protocol_version: ProtocolVersion,
-    ) {
-        if chain_id != near_primitives_core::chains::STATELESSNET {
-            return;
-        }
-        // Lower the kickout threshold so the network is more stable while
-        // we figure out issues with block and chunk production.
-        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            config.block_producer_kickout_threshold = 50;
-            config.chunk_producer_kickout_threshold = 50;
-            config.chunk_validator_only_kickout_threshold = 50;
-        }
     }
 
     /// Configures validator-selection related features.
