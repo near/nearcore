@@ -10,6 +10,7 @@ use near_chain_configs::Genesis;
 use near_chain_configs::NEAR_BASE;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
 };
@@ -86,7 +87,11 @@ fn setup_env_with_protocol_version(protocol_version: Option<ProtocolVersion>) ->
     if let Some(protocol_version) = protocol_version {
         genesis.config.protocol_version = protocol_version;
     }
-    TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
+    // Must match the config store used by the `fee_helper()`.
+    let store = RuntimeConfigStore::new(None);
+    TestEnv::builder(&genesis.config)
+        .nightshade_runtimes_with_runtime_config_store(&genesis, vec![store; 2])
+        .build()
 }
 
 /// Creates a test environment using default protocol version.

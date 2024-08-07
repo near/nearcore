@@ -10,8 +10,8 @@ use crate::RngSeed;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -154,7 +154,7 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::v0(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, epoch_config, "test-chain")
+    AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
 }
 
 pub fn epoch_config(

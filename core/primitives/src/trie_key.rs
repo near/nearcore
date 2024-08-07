@@ -3,6 +3,7 @@ use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ShardId;
+use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
@@ -91,7 +92,7 @@ pub mod col {
 }
 
 /// Describes the key of a specific key-value record in a state trie.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
 pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
     Account { account_id: AccountId },

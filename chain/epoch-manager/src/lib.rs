@@ -4,11 +4,11 @@ use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
-    AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, ShardConfig, SlashState,
-    AGGREGATOR_KEY,
+    AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, EpochSummary, ShardConfig,
+    SlashState, AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -220,6 +220,7 @@ impl EpochManager {
         let initial_epoch_config = EpochConfig::from(genesis_config);
         let epoch_config = AllEpochConfig::new_with_test_overrides(
             genesis_config.use_production_config(),
+            genesis_config.protocol_version,
             initial_epoch_config,
             &genesis_config.chain_id,
             test_overrides,

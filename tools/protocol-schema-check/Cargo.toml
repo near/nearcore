@@ -11,9 +11,10 @@ publish = false
 workspace = true
 
 [dependencies]
-near-structs-checker-lib = { workspace = true, features = ["protocol_schema"] }
+near-schema-checker-lib = { workspace = true, features = ["protocol_schema"] }
 near-primitives-core = { workspace = true, features = ["protocol_schema"] }
 near-primitives = { workspace = true, features = ["protocol_schema"] }
+near-parameters = { workspace = true, features = ["protocol_schema"] }
 near-crypto = { workspace = true, features = ["protocol_schema"] }
 near-stable-hasher.workspace = true
 
@@ -25,5 +26,6 @@ toml.workspace = true
 default = [
     "near-primitives-core/protocol_schema",
     "near-primitives/protocol_schema",
+    "near-parameters/protocol_schema",
     "near-crypto/protocol_schema",
 ]

@@ -1,5 +1,7 @@
-use anyhow::{anyhow, bail, Context, Result};
+use crate::replaydb::{open_storage_for_replay, ReplayDB};
+use anyhow::{bail, Context, Result};
 use clap;
+use itertools::Itertools;
 use near_chain::chain::{
     collect_receipts_from_response, NewChunkData, OldChunkData, ShardContext, StorageContext,
 };
@@ -13,16 +15,17 @@ use near_chain::validate::{
 };
 use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::types::{BlockHeight, Gas, ShardId};
+use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::check_apply_block_result;
-use near_store::{Mode, NodeStorage, ShardUId, Store};
+use near_store::{ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -56,11 +59,30 @@ impl ReplayArchiveCommand {
 
         // Replay all the blocks until we reach the end block height.
         while controller.replay_next_block()? {}
+
+        println!(
+            "Columns read during replay: {}",
+            controller.storage.get_columns_read().iter().join(", ")
+        );
+        println!(
+            "Columns written during replay: {}",
+            controller.storage.get_columns_written().iter().join(", ")
+        );
+
         Ok(())
     }
 }
 
+/// Result of replaying a block. It is used to decide on
+/// the right post-processing steps after replaying the block.
+enum ReplayBlockStatus {
+    Genesis(Block),
+    Missing(BlockHeight),
+    Replayed(Block, Gas),
+}
+
 struct ReplayController {
+    storage: Arc<ReplayDB>,
     chain_store: ChainStore,
     runtime: Arc<NightshadeRuntime>,
     epoch_manager: Arc<EpochManagerHandle>,
@@ -76,15 +98,15 @@ impl ReplayController {
         start_height: Option<BlockHeight>,
         end_height: Option<BlockHeight>,
     ) -> Result<Self> {
-        let store = Self::open_split_store_read_only(home_dir, &near_config)?;
+        let storage = open_storage_for_replay(home_dir, &near_config)?;
+        let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
-
         let start_height = start_height.unwrap_or(genesis_height);
-        let end_height = end_height.unwrap_or(head_height);
+        let end_height = end_height.unwrap_or(head_height).min(head_height);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -104,6 +126,7 @@ impl ReplayController {
         };
 
         Ok(Self {
+            storage,
             chain_store,
             runtime,
             epoch_manager,
@@ -113,49 +136,48 @@ impl ReplayController {
         })
     }
 
-    fn open_split_store_read_only(home_dir: &Path, near_config: &NearConfig) -> Result<Store> {
-        let opener = NodeStorage::opener(
-            home_dir,
-            near_config.client_config.archive,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-        );
-        let storage = opener.open_in_mode(Mode::ReadOnly).context("Failed to open storage")?;
-        match storage.get_split_store() {
-            Some(store) => Ok(store),
-            None => Err(anyhow!("Failed to get split store for archival node")),
-        }
-    }
-
     /// Replays the next block if any. Returns true if there are still blocks to replay
     /// and false if it reached end block height.
     fn replay_next_block(&mut self) -> Result<bool> {
         if self.next_height > self.end_height {
             bail!("End height is reached");
         }
-        self.replay_block(self.next_height)?;
+        let mut total_gas_burnt: Option<Gas> = None;
+        match self.replay_block(self.next_height)? {
+            ReplayBlockStatus::Genesis(block) => {
+                tracing::debug!("Skipping genesis block at height {}", block.header().height());
+            }
+            ReplayBlockStatus::Missing(height) => {
+                tracing::debug!("Skipping missing block at height {}", height);
+            }
+            ReplayBlockStatus::Replayed(block, gas_burnt) => {
+                tracing::debug!("Replayed block at height {}", block.header().height());
+                total_gas_burnt = Some(gas_burnt);
+            }
+        }
+        self.progress_reporter.inc_and_report_progress(total_gas_burnt.unwrap_or(0));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
 
-    fn replay_block(&mut self, height: BlockHeight) -> Result<()> {
+    fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockStatus> {
         tracing::info!("Replaying block at height {}", self.next_height);
 
         let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
-            tracing::debug!("Skipping non-available block at height {}", height);
-            self.progress_reporter.inc_and_report_progress(0);
-            return Ok(());
+            return Ok(ReplayBlockStatus::Missing(height));
         };
 
         let block = self.chain_store.get_block(&block_hash)?;
 
         self.validate_block(&block)?;
 
-        let is_genesis_block = block.header().is_genesis();
-        if is_genesis_block {
-            tracing::debug!("Skipping genesis block at height {}", height);
-            self.progress_reporter.inc_and_report_progress(0);
-            return Ok(());
+        // TODO: This should be done after applying the chunks. However, running it before helps to
+        // initialize BlockInfo and EpochInfo, which are needed to collect the receipts from previous
+        // chunks. Revisit the logic for collecting the receipts and call this to after applying the chunks.
+        self.update_epoch_manager(&block)?;
+
+        if block.header().is_genesis() {
+            return Ok(ReplayBlockStatus::Genesis(block));
         }
 
         let prev_block_hash = block.header().prev_hash();
@@ -184,9 +206,8 @@ impl ReplayController {
                 .context("Failed to replay the chunk")?;
             total_gas_burnt += apply_result.total_gas_burnt;
         }
-        self.progress_reporter.inc_and_report_progress(total_gas_burnt);
 
-        Ok(())
+        Ok(ReplayBlockStatus::Replayed(block, total_gas_burnt))
     }
 
     fn replay_chunk(
@@ -360,6 +381,16 @@ impl ReplayController {
         if !validate_transactions_order(chunk.transactions()) {
             bail!("Failed to validate transactions order in the chunk");
         }
+        Ok(())
+    }
+
+    fn update_epoch_manager(&mut self, block: &Block) -> Result<()> {
+        // Update epoch manager data.
+        let last_finalized_height =
+            self.chain_store.get_block_height(block.header().last_final_block())?;
+        self.epoch_manager
+            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?
+            .commit()?;
         Ok(())
     }
 
