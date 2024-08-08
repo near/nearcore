@@ -105,10 +105,10 @@ fn run_chunk_validation_test(
         max_inflation_rate: Rational32::new(1, 1),
         ..Default::default()
     };
-    let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+    let epoch_config_test_overrides = AllEpochConfigTestOverrides {
         block_producer_kickout_threshold: Some(0),
         chunk_producer_kickout_threshold: Some(0),
-    });
+    };
 
     // Set up the records corresponding to the validator accounts.
     let mut records = Vec::new();
