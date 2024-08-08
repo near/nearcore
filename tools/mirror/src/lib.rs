@@ -1748,6 +1748,23 @@ impl<T: ChainAccess> TxMirror<T> {
         Ok(())
     }
 
+    async fn try_set_nonces(
+        &self,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        access_key_updates: Vec<crate::chain_tracker::UpdatedKey>,
+    ) -> anyhow::Result<()> {
+        for k in access_key_updates {
+            let nonce = crate::fetch_access_key_nonce(
+                &self.target_view_client,
+                &k.account_id,
+                &k.public_key,
+            )
+            .await?;
+            tracker.try_set_nonces(&self.db, k, nonce)?;
+        }
+        Ok(())
+    }
+
     async fn main_loop(
         &mut self,
         mut tracker: crate::chain_tracker::TxTracker,
@@ -1761,7 +1778,7 @@ impl<T: ChainAccess> TxMirror<T> {
             tokio::select! {
                 // time to send a batch of transactions
                 _ = &mut self.send_time, if num_blocks_queued > 0 => {
-                    let mut tx_batch = tracker.next_batch(&self.target_view_client, &self.db).await?;
+                    let mut tx_batch = tracker.next_batch().await?;
                     source_hash = tx_batch.source_hash;
                     self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                     self.source_chain_access.allow_gc(source_hash).await;
@@ -1780,8 +1797,10 @@ impl<T: ChainAccess> TxMirror<T> {
                     let msg = msg.unwrap();
                     target_head = msg.block.header.hash;
                     target_height = msg.block.header.height;
-                    let staked_accounts = tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
+                    let crate::chain_tracker::TargetBlockInfo { staked_accounts, access_key_updates } =
+                        tracker.on_target_block(&self.db, msg)?;
                     self.unstake(&mut tracker, staked_accounts, &source_hash, &target_head, target_height).await?;
+                    self.try_set_nonces(&mut tracker, access_key_updates).await?;
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
@@ -1827,7 +1846,9 @@ impl<T: ChainAccess> TxMirror<T> {
             let msg = self.target_stream.recv().await.unwrap();
             let height = msg.block.header.height;
 
-            tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
+            // TODO: handle the return value. it is possible we want to unstake or update nonces
+            // after a restart.
+            tracker.on_target_block(&self.db, msg)?;
 
             match head {
                 Some((head_height, head_hash)) => {
@@ -1895,7 +1916,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
                 tracker.queue_block(block, &self.target_view_client, &self.db).await?;
                 (&mut self.send_time).await;
-                let mut b = tracker.next_batch(&self.target_view_client, &self.db).await?;
+                let mut b = tracker.next_batch().await?;
                 self.send_transactions(b.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                 tracker
                     .on_txs_sent(
