@@ -124,6 +124,21 @@ pub(crate) enum SentBatch<'a> {
     ExtraTxs(Vec<TargetChainTx>),
 }
 
+// an access key's account ID and public key, along with the id of the tx or receipt that might
+// have udpated it
+pub(crate) struct UpdatedKey {
+    pub(crate) account_id: AccountId,
+    pub(crate) public_key: PublicKey,
+    pub(crate) id: CryptoHash,
+}
+
+// return value of on_target_block()
+pub(crate) struct TargetBlockInfo {
+    // these accounts need to be unstaked
+    pub(crate) staked_accounts: HashMap<(AccountId, PublicKey), AccountId>,
+    // these access keys that were previously unavailable may now be available
+    pub(crate) access_key_updates: Vec<UpdatedKey>,
+}
 // Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()
 // Also keeps track of txs we've sent so far and looks for them on chain, for metrics/logging purposes.
 
@@ -456,11 +471,7 @@ impl TxTracker {
         Ok(())
     }
 
-    async fn try_set_batch_nonces(
-        &mut self,
-        target_view_client: &Addr<ViewClientActor>,
-        db: &DB,
-    ) -> anyhow::Result<()> {
+    fn try_set_batch_nonces(&mut self) -> anyhow::Result<()> {
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter() {
@@ -474,9 +485,6 @@ impl TxTracker {
         }
         if needed_access_keys.is_empty() {
             return Ok(());
-        }
-        for access_key in needed_access_keys.iter() {
-            self.try_set_nonces(target_view_client, db, access_key, None).await?;
         }
         let block = &mut self.queued_blocks[0];
         for c in block.chunks.iter_mut() {
@@ -527,12 +535,8 @@ impl TxTracker {
         Ok(())
     }
 
-    pub(crate) async fn next_batch(
-        &mut self,
-        target_view_client: &Addr<ViewClientActor>,
-        db: &DB,
-    ) -> anyhow::Result<TxBatch> {
-        self.try_set_batch_nonces(target_view_client, db).await?;
+    pub(crate) async fn next_batch(&mut self) -> anyhow::Result<TxBatch> {
+        self.try_set_batch_nonces()?;
         let block = self.queued_blocks.pop_front().unwrap();
         self.height_popped = Some(block.source_height);
         let b = TxBatch {
@@ -726,28 +730,24 @@ impl TxTracker {
         Ok(())
     }
 
-    async fn try_set_nonces(
+    pub(crate) fn try_set_nonces(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
-        access_key: &(AccountId, PublicKey),
-        id: Option<&CryptoHash>,
+        updated_key: UpdatedKey,
+        mut nonce: Option<Nonce>,
     ) -> anyhow::Result<()> {
-        let mut n = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
-        if let Some(id) = id {
-            n.pending_outcomes.remove(id);
-        }
-        let mut nonce =
-            crate::fetch_access_key_nonce(target_view_client, &access_key.0, &access_key.1).await?;
+        let mut n = crate::read_target_nonce(db, &updated_key.account_id, &updated_key.public_key)?
+            .unwrap();
+        n.pending_outcomes.remove(&updated_key.id);
         n.nonce = std::cmp::max(n.nonce, nonce);
 
-        crate::put_target_nonce(db, &access_key.0, &access_key.1, &n)?;
+        crate::put_target_nonce(db, &updated_key.account_id, &updated_key.public_key, &n)?;
 
-        let updater = id.map(|id| NonceUpdater::ChainObjectId(*id));
-        if let Some(info) = self.nonces.get_mut(access_key) {
-            if let Some(updater) = &updater {
-                info.target_nonce.pending_outcomes.remove(updater);
-            }
+        let updater = NonceUpdater::ChainObjectId(updated_key.id);
+        let access_key = (updated_key.account_id.clone(), updated_key.public_key.clone());
+
+        if let Some(info) = self.nonces.get_mut(&access_key) {
+            info.target_nonce.pending_outcomes.remove(&updater);
             let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
             let mut to_remove = Vec::new();
 
@@ -756,9 +756,7 @@ impl TxTracker {
 
                 match tx {
                     TargetChainTx::AwaitingNonce(t) => {
-                        if let Some(updater) = &updater {
-                            t.target_nonce.pending_outcomes.remove(updater);
-                        }
+                        t.target_nonce.pending_outcomes.remove(&updater);
                         if let Some(nonce) = &mut nonce {
                             *nonce += 1;
                         }
@@ -768,10 +766,10 @@ impl TxTracker {
                             tx.try_set_nonce(nonce);
                             match tx {
                                 TargetChainTx::Ready(t) => {
-                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce());
+                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", &access_key, r, t.target_tx.transaction.nonce());
                                 }
                                 _ => {
-                                    tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", access_key, r);
+                                    tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", &access_key, r);
                                 }
                             }
                         } else {
@@ -782,7 +780,7 @@ impl TxTracker {
                 };
             }
 
-            let info = self.nonces.get_mut(access_key).unwrap();
+            let info = self.nonces.get_mut(&access_key).unwrap();
             for r in to_remove.iter() {
                 info.txs_awaiting_nonce.remove(r);
             }
@@ -791,27 +789,22 @@ impl TxTracker {
         Ok(())
     }
 
-    async fn on_outcome_finished(
+    fn on_outcome_finished(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         id: &CryptoHash,
-        access_keys: HashSet<(AccountId, PublicKey)>,
+        access_keys: &HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<()> {
         let updater = NonceUpdater::ChainObjectId(*id);
         if let Some(keys) = self.updater_to_keys.remove(&updater) {
-            assert!(access_keys == keys);
+            assert!(access_keys == &keys);
         }
 
-        for access_key in access_keys.iter() {
-            self.try_set_nonces(target_view_client, db, &access_key, Some(id)).await?;
-        }
         crate::delete_pending_outcome(db, id)
     }
 
-    async fn on_target_block_tx(
+    fn on_target_block_tx(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         tx: IndexerTransactionWithOutcome,
     ) -> anyhow::Result<()> {
@@ -825,44 +818,36 @@ impl TxTracker {
         if let Some(access_keys) = crate::read_pending_outcome(db, &tx.transaction.hash)? {
             match tx.outcome.execution_outcome.outcome.status {
                 ExecutionStatusView::SuccessReceiptId(receipt_id) => {
-                    self.tx_to_receipt(db, &tx.transaction.hash, &receipt_id, access_keys)?
+                    self.tx_to_receipt(db, &tx.transaction.hash, &receipt_id, access_keys)?;
                 }
                 ExecutionStatusView::SuccessValue(_) | ExecutionStatusView::Unknown => {
                     unreachable!()
                 }
                 ExecutionStatusView::Failure(_) => {
-                    self.on_outcome_finished(
-                        target_view_client,
-                        db,
-                        &tx.transaction.hash,
-                        access_keys,
-                    )
-                    .await?
+                    self.on_outcome_finished(db, &tx.transaction.hash, &access_keys)?;
                 }
-            }
+            };
         }
         Ok(())
     }
 
-    async fn on_target_block_applied_receipt(
+    fn on_target_block_applied_receipt(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         outcome: IndexerExecutionOutcomeWithReceipt,
         staked_accounts: &mut HashMap<(AccountId, PublicKey), AccountId>,
+        access_key_updates: &mut Vec<UpdatedKey>,
     ) -> anyhow::Result<()> {
         let access_keys = match crate::read_pending_outcome(db, &outcome.execution_outcome.id)? {
             Some(a) => a,
             None => return Ok(()),
         };
 
-        self.on_outcome_finished(
-            target_view_client,
-            db,
-            &outcome.execution_outcome.id,
-            access_keys,
-        )
-        .await?;
+        self.on_outcome_finished(db, &outcome.execution_outcome.id, &access_keys)?;
+        access_key_updates.extend(access_keys.into_iter().map(|(account_id, public_key)| {
+            UpdatedKey { account_id, public_key, id: outcome.execution_outcome.id }
+        }));
+
         for receipt_id in outcome.execution_outcome.outcome.receipt_ids {
             // we don't carry over the access keys here, because we set pending access keys when we send a tx with
             // an add key action, which should be applied after one receipt. Setting empty access keys here allows us
@@ -897,33 +882,32 @@ impl TxTracker {
     // receipt for any receipts that contain stake actions (w/ nonzero stake) that were
     // generated by our transactions. Then the caller will send extra stake transactions
     // to reverse those.
-    pub(crate) async fn on_target_block(
+    pub(crate) fn on_target_block(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         msg: StreamerMessage,
-    ) -> anyhow::Result<HashMap<(AccountId, PublicKey), AccountId>> {
+    ) -> anyhow::Result<TargetBlockInfo> {
         self.record_block_timestamp(&msg);
         self.log_target_block(&msg);
 
+        let mut access_key_updates = Vec::new();
         let mut staked_accounts = HashMap::new();
         for s in msg.shards {
             if let Some(c) = s.chunk {
                 for tx in c.transactions {
-                    self.on_target_block_tx(target_view_client, db, tx).await?;
+                    self.on_target_block_tx(db, tx)?;
                 }
                 for outcome in s.receipt_execution_outcomes {
                     self.on_target_block_applied_receipt(
-                        target_view_client,
                         db,
                         outcome,
                         &mut staked_accounts,
-                    )
-                    .await?;
+                        &mut access_key_updates,
+                    )?;
                 }
             }
         }
-        Ok(staked_accounts)
+        Ok(TargetBlockInfo { staked_accounts, access_key_updates })
     }
 
     async fn on_tx_sent(
