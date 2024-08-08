@@ -13,7 +13,7 @@ use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpd
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
-use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
+use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
@@ -88,6 +88,7 @@ struct ReplayChunkOutput {
 }
 
 struct ReplayController {
+    near_config: NearConfig,
     storage: Arc<ReplayDB>,
     chain_store: ChainStore,
     runtime: Arc<NightshadeRuntime>,
@@ -132,6 +133,7 @@ impl ReplayController {
         };
 
         Ok(Self {
+            near_config,
             storage,
             chain_store,
             runtime,
@@ -187,11 +189,7 @@ impl ReplayController {
 
         if block.header().is_genesis() {
             // Generate and save chunk extras for the genesis block so that we use them in the next block.
-            for (shard_uid, chunk_extra) in self.genesis_chunk_extras(&block)? {
-                let mut store_update = self.chain_store.store_update();
-                store_update.save_chunk_extra(&block.hash(), &shard_uid, chunk_extra);
-                let _ = store_update.commit();
-            }
+            self.save_genesis_chunk_extras(&block)?;
             return Ok(ReplayBlockOutput::Genesis(block));
         }
 
@@ -454,43 +452,22 @@ impl ReplayController {
         Ok(shard_context)
     }
 
-    /// Generates pairs or (ShardUId, ChunkExtra) for the shards in the genesis block.
+    /// Saves the ChunkExtras for the shards in the genesis block.
     /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.    
-    fn genesis_chunk_extras(&self, genesis_block: &Block) -> Result<Vec<(ShardUId, ChunkExtra)>> {
-        let epoch_id = genesis_block.header().epoch_id();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let congestion_infos = genesis_block.block_congestion_info();
+    fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
+        let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);
         let state_roots = get_genesis_state_roots(self.chain_store.store())?
             .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
-
-        let mut chunk_extras = vec![];
-        let chunks = genesis_block.chunks();
-        for shard_id in 0..chunks.len() {
-            let chunk_header = &chunks[shard_id];
-            let state_root = state_roots
-                .get(shard_id)
-                .ok_or_else(|| anyhow!("genesis state root does not exist for shard {shard_id}"))?;
-            let congestion_info =
-                congestion_infos.get(&(shard_id as u64)).map(|info| info.congestion_info);
-            let shard_uid = self
-                .epoch_manager
-                .shard_id_to_uid(shard_id.try_into()?, epoch_id)
-                .context("Failed to get shard UID from shard id")?;
-            chunk_extras.push((
-                shard_uid,
-                ChunkExtra::new(
-                    protocol_version,
-                    state_root,
-                    CryptoHash::default(),
-                    vec![],
-                    0,
-                    chunk_header.gas_limit(),
-                    0,
-                    congestion_info,
-                ),
-            ));
-        }
-        Ok(chunk_extras)
+        let mut store_update = self.chain_store.store_update();
+        Chain::save_genesis_chunk_extras(
+            &chain_genesis,
+            genesis_block,
+            &state_roots,
+            self.epoch_manager.as_ref(),
+            &mut store_update,
+        )?;
+        let _ = store_update.commit()?;
+        Ok(())
     }
 }
