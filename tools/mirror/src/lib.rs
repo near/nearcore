@@ -1797,6 +1797,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         loop {
             let msg = target_stream.recv().await.unwrap();
+            tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx do target block");
             *target_head.write().unwrap() = msg.block.header.hash;
             *target_height.write().unwrap() = msg.block.header.height;
             let target_block_info = {
@@ -1816,6 +1817,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 let mut tracker = tracker.lock().unwrap();
                 tracker.try_set_nonces(db.as_ref(), access_key_update, nonce)?;
             }
+            tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx did target block");
         }
     }
 
@@ -1840,6 +1842,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     };
                     source_hash = tx_batch.source_hash;
                     let start_time = tokio::time::Instant::now();
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx send txs");
                     self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                     self.source_chain_access.allow_gc(source_hash).await;
                     {
