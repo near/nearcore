@@ -1,30 +1,32 @@
 use crate::replaydb::{open_storage_for_replay, ReplayDB};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap;
 use itertools::Itertools;
 use near_chain::chain::{
-    collect_receipts_from_response, NewChunkData, OldChunkData, ShardContext, StorageContext,
+    collect_receipts_from_response, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
+    ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
-use near_chain::types::{ApplyChunkResult, StorageDataSource};
+use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
-use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
+use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, Gas, ShardId};
+use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
-use near_state_viewer::util::check_apply_block_result;
-use near_store::{ShardUId, Store};
+use near_state_viewer::util::resulting_chunk_extra;
+use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -74,13 +76,19 @@ impl ReplayArchiveCommand {
 
 /// Result of replaying a block. It is used to decide on
 /// the right post-processing steps after replaying the block.
-enum ReplayBlockStatus {
+enum ReplayBlockOutput {
     Genesis(Block),
     Missing(BlockHeight),
     Replayed(Block, Gas),
 }
 
+/// Result of replaying a chunk.
+struct ReplayChunkOutput {
+    chunk_extra: ChunkExtra,
+}
+
 struct ReplayController {
+    near_config: NearConfig,
     storage: Arc<ReplayDB>,
     chain_store: ChainStore,
     runtime: Arc<NightshadeRuntime>,
@@ -125,6 +133,7 @@ impl ReplayController {
         };
 
         Ok(Self {
+            near_config,
             storage,
             chain_store,
             runtime,
@@ -143,14 +152,14 @@ impl ReplayController {
         }
         let mut total_gas_burnt: Option<Gas> = None;
         match self.replay_block(self.next_height)? {
-            ReplayBlockStatus::Genesis(block) => {
-                tracing::debug!("Skipping genesis block at height {}", block.header().height());
+            ReplayBlockOutput::Genesis(block) => {
+                tracing::debug!(target: "replay-archive", "Skipping genesis block at height {}", block.header().height());
             }
-            ReplayBlockStatus::Missing(height) => {
-                tracing::debug!("Skipping missing block at height {}", height);
+            ReplayBlockOutput::Missing(height) => {
+                tracing::debug!(target: "replay-archive", "Skipping missing block at height {}", height);
             }
-            ReplayBlockStatus::Replayed(block, gas_burnt) => {
-                tracing::debug!("Replayed block at height {}", block.header().height());
+            ReplayBlockOutput::Replayed(block, gas_burnt) => {
+                tracing::debug!(target: "replay-archive", "Replayed block at height {}", block.header().height());
                 total_gas_burnt = Some(gas_burnt);
             }
         }
@@ -159,16 +168,19 @@ impl ReplayController {
         Ok(self.next_height <= self.end_height)
     }
 
-    fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockStatus> {
-        tracing::info!("Replaying block at height {}", self.next_height);
+    fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockOutput> {
+        tracing::info!(target: "replay-archive", "Replaying block at height {}", self.next_height);
 
         let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
-            return Ok(ReplayBlockStatus::Missing(height));
+            return Ok(ReplayBlockOutput::Missing(height));
         };
 
         let block = self.chain_store.get_block(&block_hash)?;
 
-        self.validate_block(&block)?;
+        let epoch_id = block.header().epoch_id();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+
+        self.validate_block(&block, protocol_version)?;
 
         // TODO: This should be done after applying the chunks. However, running it before helps to
         // initialize BlockInfo and EpochInfo, which are needed to collect the receipts from previous
@@ -176,7 +188,9 @@ impl ReplayController {
         self.update_epoch_manager(&block)?;
 
         if block.header().is_genesis() {
-            return Ok(ReplayBlockStatus::Genesis(block));
+            // Generate and save chunk extras for the genesis block so that we use them in the next block.
+            self.save_genesis_chunk_extras(&block)?;
+            return Ok(ReplayBlockOutput::Genesis(block));
         }
 
         let prev_block_hash = block.header().prev_hash();
@@ -194,19 +208,20 @@ impl ReplayController {
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];
             let prev_chunk_header = &prev_chunk_headers[shard_id];
-            let apply_result = self
+            let replay_output = self
                 .replay_chunk(
                     &block,
                     &prev_block,
                     shard_id.try_into()?,
                     chunk_header,
                     prev_chunk_header,
+                    protocol_version,
                 )
                 .context("Failed to replay the chunk")?;
-            total_gas_burnt += apply_result.total_gas_burnt;
+            total_gas_burnt += replay_output.chunk_extra.gas_used();
         }
 
-        Ok(ReplayBlockStatus::Replayed(block, total_gas_burnt))
+        Ok(ReplayBlockOutput::Replayed(block, total_gas_burnt))
     }
 
     fn replay_chunk(
@@ -216,8 +231,9 @@ impl ReplayController {
         shard_id: ShardId,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
-    ) -> Result<ApplyChunkResult> {
-        let span = tracing::debug_span!(target: "replay_archive", "replay_chunk").entered();
+        protocol_version: ProtocolVersion,
+    ) -> Result<ReplayChunkOutput> {
+        let span = tracing::debug_span!(target: "replay-archive", "replay_chunk").entered();
 
         // Collect receipts and transactions.
         let chunk_hash = chunk_header.chunk_hash();
@@ -226,19 +242,30 @@ impl ReplayController {
             .get_chunk(&chunk_hash)
             .context("Failed to get chunk from chunk hash")?;
 
-        self.validate_chunk(chunk.as_ref())?;
-
         let block_header = block.header();
-        let height = block_header.height();
-        let epoch_id = block_header.epoch_id();
+        let block_hash = block_header.hash();
 
         let prev_block_header = prev_block.header();
         let prev_block_hash = prev_block_header.hash();
 
+        let epoch_id = block_header.epoch_id();
         let shard_uid = self
             .epoch_manager
             .shard_id_to_uid(shard_id, epoch_id)
             .context("Failed to get shard UID from shard id")?;
+        let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
+
+        let height = block_header.height();
+        let is_new_chunk: bool = chunk_header.is_new_chunk(height);
+
+        self.validate_chunk(
+            is_new_chunk,
+            chunk.as_ref(),
+            chunk_header,
+            prev_block_hash,
+            prev_chunk_header,
+            prev_chunk_extra.as_ref(),
+        )?;
 
         let shard_context = self.get_shard_context(block_header, shard_uid)?;
         let resharding_state_roots = if shard_context.need_to_reshard {
@@ -252,16 +279,10 @@ impl ReplayController {
             None
         };
 
-        let prev_chunk_height_included = prev_chunk_header.height_included();
-
-        let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
-
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
             state_patch: Default::default(),
         };
-
-        let is_new_chunk: bool = chunk_header.is_new_chunk(height);
 
         let block_context = Chain::get_apply_chunk_block_context(
             self.epoch_manager.as_ref(),
@@ -271,18 +292,11 @@ impl ReplayController {
         )?;
 
         let update_reason = if is_new_chunk {
-            validate_chunk_with_chunk_extra(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                prev_block_hash,
-                prev_chunk_extra.as_ref(),
-                prev_chunk_height_included,
-                chunk_header,
-            )
-            .context("Failed to validate chunk with chunk extra")?;
-
-            let receipts =
-                self.collect_incoming_receipts(block_header, shard_id, prev_chunk_height_included)?;
+            let receipts = self.collect_incoming_receipts(
+                block_header,
+                shard_id,
+                prev_chunk_header.height_included(),
+            )?;
 
             let is_first_block_with_chunk_of_version =
                 check_if_block_is_first_with_chunk_of_version(
@@ -318,23 +332,34 @@ impl ReplayController {
             shard_context,
         )?;
 
-        let apply_result = match shard_update_result {
-            ShardUpdateResult::NewChunk(result) => result.apply_result,
-            ShardUpdateResult::OldChunk(result) => result.apply_result,
+        let output = match shard_update_result {
+            ShardUpdateResult::NewChunk(NewChunkResult {
+                gas_limit,
+                shard_uid: _,
+                apply_result,
+                resharding_results: _,
+            }) => {
+                let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
+                ReplayChunkOutput { chunk_extra }
+            }
+            ShardUpdateResult::OldChunk(OldChunkResult {
+                shard_uid: _,
+                apply_result,
+                resharding_results: _,
+            }) => {
+                let mut chunk_extra = ChunkExtra::clone(&prev_chunk_extra.as_ref());
+                *chunk_extra.state_root_mut() = apply_result.new_root;
+                ReplayChunkOutput { chunk_extra }
+            }
             ShardUpdateResult::Resharding(_) => bail!("Unexpected apply result for resharding"),
         };
 
-        // TODO: This uses ChunkExtra to check the result of apply-chunk.
-        // Make this check independent of the existing ChunkExtra (so no need to store it in the DB).
-        check_apply_block_result(
-            block,
-            &apply_result,
-            self.epoch_manager.as_ref(),
-            &self.chain_store,
-            shard_id,
-        )?;
+        // Save chunk extra.
+        let mut store_update = self.chain_store.store_update();
+        store_update.save_chunk_extra(&block_hash, &shard_uid, output.chunk_extra.clone());
+        let _ = store_update.commit()?;
 
-        Ok(apply_result)
+        Ok(output)
     }
 
     /// Returns the incoming receipts to the given shard.
@@ -355,11 +380,9 @@ impl ReplayController {
     }
 
     /// Validates a given block. The current set of checks may be extended later.
-    fn validate_block(&self, block: &Block) -> Result<()> {
+    fn validate_block(&self, block: &Block, protocol_version: ProtocolVersion) -> Result<()> {
         // Chunk endorsements will only exist for a non-genesis block generated with stateless validation.
         if !block.header().is_genesis() {
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
             if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
                 validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), block)?;
             }
@@ -368,7 +391,27 @@ impl ReplayController {
     }
 
     /// Validates a given chunk. The current set of checks may be extended later.
-    fn validate_chunk(&self, chunk: &ShardChunk) -> Result<()> {
+    fn validate_chunk(
+        &self,
+        is_new_chunk: bool,
+        chunk: &ShardChunk,
+        chunk_header: &ShardChunkHeader,
+        prev_block_hash: &CryptoHash,
+        prev_chunk_header: &ShardChunkHeader,
+        prev_chunk_extra: &ChunkExtra,
+    ) -> Result<()> {
+        // Check if the information in the ChunkExtra recorded after applying the previuous chunk matches the information in the new chunk.
+        if is_new_chunk {
+            validate_chunk_with_chunk_extra(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                prev_block_hash,
+                prev_chunk_extra,
+                prev_chunk_header.height_included(),
+                chunk_header,
+            )
+            .context("Failed to validate chunk with chunk extra")?;
+        }
         if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())
             .context("Failed to validate the chunk proofs")?
         {
@@ -381,12 +424,12 @@ impl ReplayController {
     }
 
     fn update_epoch_manager(&mut self, block: &Block) -> Result<()> {
-        // Update epoch manager data.
         let last_finalized_height =
             self.chain_store.get_block_height(block.header().last_final_block())?;
-        self.epoch_manager
-            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?
-            .commit()?;
+        let store_update = self
+            .epoch_manager
+            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
+        let _ = store_update.commit()?;
         Ok(())
     }
 
@@ -407,5 +450,24 @@ impl ReplayController {
             need_to_reshard: should_reshard,
         };
         Ok(shard_context)
+    }
+
+    /// Saves the ChunkExtras for the shards in the genesis block.
+    /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
+    /// from the information in the genesis block without applying any transactions or receipts.    
+    fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
+        let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);
+        let state_roots = get_genesis_state_roots(self.chain_store.store())?
+            .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
+        let mut store_update = self.chain_store.store_update();
+        Chain::save_genesis_chunk_extras(
+            &chain_genesis,
+            genesis_block,
+            &state_roots,
+            self.epoch_manager.as_ref(),
+            &mut store_update,
+        )?;
+        let _ = store_update.commit()?;
+        Ok(())
     }
 }

@@ -467,31 +467,13 @@ impl Chain {
                 store_update.save_block(genesis.clone());
                 store_update
                     .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
-
-                for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
-                    let congestion_info = if ProtocolFeature::CongestionControl
-                        .enabled(chain_genesis.protocol_version)
-                    {
-                        genesis
-                            .block_congestion_info()
-                            .get(&chunk_header.shard_id())
-                            .map(|info| info.congestion_info)
-                    } else {
-                        None
-                    };
-
-                    store_update.save_chunk_extra(
-                        genesis.hash(),
-                        &epoch_manager
-                            .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
-                        Self::create_genesis_chunk_extra(
-                            state_root,
-                            chain_genesis.gas_limit,
-                            chain_genesis.protocol_version,
-                            congestion_info,
-                        ),
-                    );
-                }
+                Self::save_genesis_chunk_extras(
+                    &chain_genesis,
+                    &genesis,
+                    &state_roots,
+                    epoch_manager.as_ref(),
+                    &mut store_update,
+                )?;
 
                 let block_head = Tip::from_header(genesis.header());
                 let header_head = block_head.clone();
@@ -660,6 +642,39 @@ impl Chain {
             genesis_protocol_version,
             congestion_info,
         ))
+    }
+
+    /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
+    pub fn save_genesis_chunk_extras(
+        chain_genesis: &ChainGenesis,
+        genesis: &Block,
+        state_roots: &Vec<CryptoHash>,
+        epoch_manager: &dyn EpochManagerAdapter,
+        store_update: &mut ChainStoreUpdate,
+    ) -> Result<(), Error> {
+        for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+            let congestion_info =
+                if ProtocolFeature::CongestionControl.enabled(chain_genesis.protocol_version) {
+                    genesis
+                        .block_congestion_info()
+                        .get(&chunk_header.shard_id())
+                        .map(|info| info.congestion_info)
+                } else {
+                    None
+                };
+
+            store_update.save_chunk_extra(
+                genesis.hash(),
+                &epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
+                Self::create_genesis_chunk_extra(
+                    state_root,
+                    chain_genesis.gas_limit,
+                    chain_genesis.protocol_version,
+                    congestion_info,
+                ),
+            );
+        }
+        Ok(())
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
