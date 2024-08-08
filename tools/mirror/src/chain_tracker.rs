@@ -120,7 +120,10 @@ struct NonceInfo {
 }
 
 pub(crate) enum SentBatch<'a> {
-    MappedBlock(TxBatch, Pin<&'a mut tokio::time::Sleep>),
+    // The last entry should be a tokio::time::Instant recorded when we started
+    // sending transactions in the last batch, so we can calculate the next time to
+    // send transactions based on that.
+    MappedBlock(TxBatch, Pin<&'a mut tokio::time::Sleep>, tokio::time::Instant),
     ExtraTxs(Vec<TargetChainTx>),
 }
 
@@ -1148,12 +1151,12 @@ impl TxTracker {
         let mut access_keys_to_remove = HashSet::new();
 
         let (txs_sent, provenance) = match sent_batch {
-            SentBatch::MappedBlock(b, send_time) => {
+            SentBatch::MappedBlock(b, send_time, start_time) => {
                 let block_delay = self.tx_batch_interval.unwrap_or_else(|| {
                     self.second_longest_recent_block_delay()
                         .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
                 });
-                send_time.reset(tokio::time::Instant::now() + block_delay);
+                send_time.reset(start_time + block_delay);
                 crate::set_last_source_height(db, b.source_height)?;
                 let txs =
                     b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();

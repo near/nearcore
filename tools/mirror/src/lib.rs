@@ -1729,12 +1729,13 @@ impl<T: ChainAccess> TxMirror<T> {
                         tracker.next_batch().await?
                     };
                     source_hash = tx_batch.source_hash;
+                    let start_time = tokio::time::Instant::now();
                     self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                     {
                         let mut tracker = tracker.lock().unwrap();
                         tracker.on_txs_sent(
                             &self.db,
-                            crate::chain_tracker::SentBatch::MappedBlock(tx_batch, self.send_time.as_mut()),
+                            crate::chain_tracker::SentBatch::MappedBlock(tx_batch, self.send_time.as_mut(), start_time),
                             *target_height.read().unwrap(),
                         ).await?;
                     }
@@ -1921,11 +1922,16 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracker.queue_block(block, &self.target_view_client, &self.db).await?;
                 (&mut self.send_time).await;
                 let mut b = tracker.next_batch().await?;
+                let start_time = tokio::time::Instant::now();
                 self.send_transactions(b.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
                 tracker
                     .on_txs_sent(
                         &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(b, self.send_time.as_mut()),
+                        crate::chain_tracker::SentBatch::MappedBlock(
+                            b,
+                            self.send_time.as_mut(),
+                            start_time,
+                        ),
                         *target_height.read().unwrap(),
                     )
                     .await?;
