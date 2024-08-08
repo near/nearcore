@@ -1,5 +1,5 @@
 use crate::replaydb::{open_storage_for_replay, ReplayDB};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap;
 use itertools::Itertools;
 use near_chain::chain::{
@@ -26,7 +26,7 @@ use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::resulting_chunk_extra;
-use near_store::{ShardUId, Store};
+use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -186,6 +186,12 @@ impl ReplayController {
         self.update_epoch_manager(&block)?;
 
         if block.header().is_genesis() {
+            // Save chunk extras for the genesis block.
+            for (shard_uid, chunk_extra) in self.genesis_chunk_extras(&block)? {
+                let mut store_update = self.chain_store.store_update();
+                store_update.save_chunk_extra(&block.hash(), &shard_uid, chunk_extra);
+                let _ = store_update.commit();
+            }
             return Ok(ReplayBlockOutput::Genesis(block));
         }
 
@@ -351,21 +357,9 @@ impl ReplayController {
         };
 
         // Save chunk extra.
-        self.chain_store.store_update().save_chunk_extra(
-            &block_hash,
-            &shard_uid,
-            output.chunk_extra.clone(),
-        );
-
-        // // TODO: This uses ChunkExtra to check the result of apply-chunk.
-        // // Make this check independent of the existing ChunkExtra (so no need to store it in the DB).
-        // check_apply_block_result(
-        //     block,
-        //     &apply_result,
-        //     self.epoch_manager.as_ref(),
-        //     &self.chain_store,
-        //     shard_id,
-        // )?;
+        let mut store_update = self.chain_store.store_update();
+        store_update.save_chunk_extra(&block_hash, &shard_uid, output.chunk_extra.clone());
+        let _ = store_update.commit()?;
 
         Ok(output)
     }
@@ -457,5 +451,42 @@ impl ReplayController {
             need_to_reshard: should_reshard,
         };
         Ok(shard_context)
+    }
+
+    fn genesis_chunk_extras(&self, genesis_block: &Block) -> Result<Vec<(ShardUId, ChunkExtra)>> {
+        let epoch_id = genesis_block.header().epoch_id();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let congestion_infos = genesis_block.block_congestion_info();
+        let state_roots = get_genesis_state_roots(self.chain_store.store())?
+            .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
+
+        let mut chunk_extras = vec![];
+        let chunks = genesis_block.chunks();
+        for shard_id in 0..chunks.len() {
+            let chunk_header = &chunks[shard_id];
+            let state_root = state_roots
+                .get(shard_id)
+                .ok_or_else(|| anyhow!("genesis state root does not exist for shard {shard_id}"))?;
+            let congestion_info =
+                congestion_infos.get(&(shard_id as u64)).map(|info| info.congestion_info);
+            let shard_uid = self
+                .epoch_manager
+                .shard_id_to_uid(shard_id.try_into()?, epoch_id)
+                .context("Failed to get shard UID from shard id")?;
+            chunk_extras.push((
+                shard_uid,
+                ChunkExtra::new(
+                    protocol_version,
+                    state_root,
+                    CryptoHash::default(),
+                    vec![],
+                    0,
+                    chunk_header.gas_limit(),
+                    0,
+                    congestion_info,
+                ),
+            ));
+        }
+        Ok(chunk_extras)
     }
 }
