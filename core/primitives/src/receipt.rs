@@ -5,6 +5,7 @@ use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
+use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::borrow::Borrow;
@@ -25,6 +26,7 @@ use std::io::{Error, ErrorKind};
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct DataReceiver {
     pub data_id: CryptoHash,
@@ -42,6 +44,7 @@ pub struct DataReceiver {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct ReceiptV0 {
     /// An issuer account_id of a particular receipt.
@@ -64,6 +67,7 @@ pub struct ReceiptV0 {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct ReceiptV1 {
     /// An issuer account_id of a particular receipt.
@@ -79,7 +83,7 @@ pub struct ReceiptV1 {
     pub priority: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize, ProtocolSchema)]
 #[serde(untagged)]
 pub enum Receipt {
     V0(ReceiptV0),
@@ -353,6 +357,7 @@ impl Receipt {
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
@@ -371,6 +376,7 @@ pub enum ReceiptEnum {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct ActionReceipt {
     /// A signer of the original transaction
@@ -404,6 +410,7 @@ pub struct ActionReceipt {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
@@ -424,7 +431,7 @@ impl fmt::Debug for DataReceipt {
 /// stored in a state trie with a key = `account_id` + `data_id` until
 /// `input_data_ids` of all incoming Receipts are satisfied
 /// None means data retrieval was failed
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, ProtocolSchema)]
 pub struct ReceivedData {
     pub data: Option<Vec<u8>>,
 }
@@ -438,7 +445,7 @@ impl fmt::Debug for ReceivedData {
 }
 
 /// Stores indices for a persistent queue for delayed receipts that didn't fit into a block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug, ProtocolSchema)]
 pub struct DelayedReceiptIndices {
     // First inclusive index in the queue.
     pub first_index: u64,
@@ -453,7 +460,7 @@ impl DelayedReceiptIndices {
 }
 
 /// Stores indices for a persistent queue for PromiseYield timeouts.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug, ProtocolSchema)]
 pub struct PromiseYieldIndices {
     // First inclusive index in the queue.
     pub first_index: u64,
@@ -468,7 +475,7 @@ impl PromiseYieldIndices {
 }
 
 /// Entries in the queue of PromiseYield timeouts.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug, ProtocolSchema)]
 pub struct PromiseYieldTimeout {
     /// The account on which the yielded promise was created
     pub account_id: AccountId,
@@ -479,7 +486,7 @@ pub struct PromiseYieldTimeout {
 }
 
 /// Stores indices for a persistent queue in the state trie.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug, ProtocolSchema)]
 pub struct TrieQueueIndices {
     // First inclusive index in the queue.
     pub first_index: u64,
@@ -514,7 +521,7 @@ impl From<TrieQueueIndices> for DelayedReceiptIndices {
 ///
 /// This is the singleton value stored in the `BUFFERED_RECEIPT_INDICES` trie
 /// column.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug, ProtocolSchema)]
 pub struct BufferedReceiptIndices {
     pub shard_buffers: BTreeMap<ShardId, TrieQueueIndices>,
 }

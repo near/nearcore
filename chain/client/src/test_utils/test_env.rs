@@ -23,7 +23,7 @@ use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};

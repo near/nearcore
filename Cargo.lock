@@ -4225,8 +4225,8 @@ dependencies = [
  "hex-literal",
  "near-account-id",
  "near-config-utils",
+ "near-schema-checker-lib",
  "near-stdx",
- "near-structs-checker-lib",
  "primitive-types 0.10.1",
  "secp256k1",
  "serde",
@@ -4246,6 +4246,7 @@ dependencies = [
  "bytesize",
  "clap",
  "indicatif",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
@@ -4258,6 +4259,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "tracing",
  "zstd",
 ]
 
@@ -4666,6 +4668,7 @@ dependencies = [
  "insta",
  "near-account-id",
  "near-primitives-core",
+ "near-schema-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_repr",
@@ -4753,8 +4756,8 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
+ "near-schema-checker-lib",
  "near-stdx",
- "near-structs-checker-lib",
  "near-time",
  "num-rational 0.3.2",
  "ordered-float",
@@ -4787,7 +4790,7 @@ dependencies = [
  "expect-test",
  "insta",
  "near-account-id",
- "near-structs-checker-lib",
+ "near-schema-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_json",
@@ -4803,6 +4806,7 @@ dependencies = [
  "anyhow",
  "borsh 1.2.0",
  "clap",
+ "itertools",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
@@ -4867,6 +4871,31 @@ dependencies = [
  "near-rpc-error-core",
  "serde",
  "serde_json",
+ "syn 2.0.70",
+]
+
+[[package]]
+name = "near-schema-checker-core"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+]
+
+[[package]]
+name = "near-schema-checker-lib"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+ "near-schema-checker-core",
+ "near-schema-checker-macro",
+]
+
+[[package]]
+name = "near-schema-checker-macro"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
  "syn 2.0.70",
 ]
 
@@ -4947,6 +4976,7 @@ dependencies = [
  "near-o11y",
  "near-parameters",
  "near-primitives",
+ "near-schema-checker-lib",
  "near-stdx",
  "near-time",
  "near-vm-runner",
@@ -4964,31 +4994,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "near-structs-checker-core"
-version = "0.0.0"
-dependencies = [
- "inventory",
-]
-
-[[package]]
-name = "near-structs-checker-lib"
-version = "0.0.0"
-dependencies = [
- "inventory",
- "near-structs-checker-core",
- "near-structs-checker-macro",
-]
-
-[[package]]
-name = "near-structs-checker-macro"
-version = "0.0.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.70",
 ]
 
 [[package]]
@@ -6351,10 +6356,11 @@ version = "0.0.0"
 dependencies = [
  "inventory",
  "near-crypto",
+ "near-parameters",
  "near-primitives",
  "near-primitives-core",
+ "near-schema-checker-lib",
  "near-stable-hasher",
- "near-structs-checker-lib",
  "serde_json",
  "toml",
 ]

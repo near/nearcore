@@ -1,14 +1,14 @@
+use crate::challenge::Challenges;
+use crate::sharding::ShardChunkHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::vrf::{Proof, Value};
 use near_crypto::Signature;
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
+use near_schema_checker_lib::ProtocolSchema;
 
-use crate::challenge::Challenges;
-use crate::sharding::ShardChunkHeader;
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockBodyV1 {
     pub chunks: Vec<ShardChunkHeader>,
     pub challenges: Challenges,
@@ -26,7 +26,7 @@ impl BlockBodyV1 {
 }
 
 /// V1 -> V2: added chunk_endorsements from chunk_validators
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockBodyV2 {
     pub chunks: Vec<ShardChunkHeader>,
     pub challenges: Challenges,
@@ -49,7 +49,7 @@ pub type ChunkEndorsementSignatures = Vec<Option<Box<Signature>>>;
 
 // For now, we only have one version of block body.
 // Eventually with ChunkValidation, we would include ChunkEndorsement in BlockBodyV2
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 pub enum BlockBody {
     V1(BlockBodyV1),
     V2(BlockBodyV2),

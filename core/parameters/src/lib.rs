@@ -1,3 +1,5 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 pub mod config;
 pub mod config_store;
 pub mod cost;
