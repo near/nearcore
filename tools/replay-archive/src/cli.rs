@@ -186,7 +186,7 @@ impl ReplayController {
         self.update_epoch_manager(&block)?;
 
         if block.header().is_genesis() {
-            // Save chunk extras for the genesis block.
+            // Generate and save chunk extras for the genesis block so that we use them in the next block.
             for (shard_uid, chunk_extra) in self.genesis_chunk_extras(&block)? {
                 let mut store_update = self.chain_store.store_update();
                 store_update.save_chunk_extra(&block.hash(), &shard_uid, chunk_extra);
@@ -402,6 +402,7 @@ impl ReplayController {
         prev_chunk_header: &ShardChunkHeader,
         prev_chunk_extra: &ChunkExtra,
     ) -> Result<()> {
+        // Check if the information in the ChunkExtra recorded after applying the previuous chunk matches the information in the new chunk.
         if is_new_chunk {
             validate_chunk_with_chunk_extra(
                 &self.chain_store,
@@ -453,6 +454,9 @@ impl ReplayController {
         Ok(shard_context)
     }
 
+    /// Generates pairs or (ShardUId, ChunkExtra) for the shards in the genesis block.
+    /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
+    /// from the information in the genesis block without applying any transactions or receipts.    
     fn genesis_chunk_extras(&self, genesis_block: &Block) -> Result<Vec<(ShardUId, ChunkExtra)>> {
         let epoch_id = genesis_block.header().epoch_id();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
