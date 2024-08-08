@@ -13,7 +13,7 @@ use super::SignatureDifferentiator;
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ChunkEndorsement {
     V1(ChunkEndorsementV1),
     V2(ChunkEndorsementV2),
@@ -58,7 +58,7 @@ impl ChunkEndorsement {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkEndorsementV1 {
     inner: ChunkEndorsementInner,
     pub account_id: AccountId,
@@ -102,12 +102,12 @@ impl ChunkEndorsementV2 {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkEndorsementInner::new(chunk_header.chunk_hash());
-        let metadata = ChunkEndorsementMetadata::V1(MetadataV1 {
+        let metadata = ChunkEndorsementMetadata {
             account_id: signer.validator_id().clone(),
             shard_id: chunk_header.shard_id(),
             epoch_id,
             height_created: chunk_header.height_created(),
-        });
+        };
         let signature = signer.sign_chunk_endorsement(&inner);
         let metadata_signature = signer.sign_chunk_endorsement_metadata(&metadata);
         Self { inner, signature, metadata, metadata_signature }
@@ -117,21 +117,14 @@ impl ChunkEndorsementV2 {
     pub fn into_v1(self) -> ChunkEndorsementV1 {
         ChunkEndorsementV1 {
             inner: self.inner,
-            account_id: match self.metadata {
-                ChunkEndorsementMetadata::V1(metadata) => metadata.account_id,
-            },
+            account_id: self.metadata.account_id,
             signature: self.signature,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum ChunkEndorsementMetadata {
-    V1(MetadataV1),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct MetadataV1 {
+pub struct ChunkEndorsementMetadata {
     account_id: AccountId,
     shard_id: ShardId,
     epoch_id: EpochId,
