@@ -157,9 +157,6 @@ pytest sanity/rosetta.py --features nightly
 # Make sure Docker image can be build and run
 pytest --skip-build --timeout=1h sanity/docker.py
 
-pytest sanity/recompress_storage.py
-pytest sanity/recompress_storage.py --features nightly
-
 # This is the test for meta transactions.
 pytest sanity/meta_tx.py --features nightly
 

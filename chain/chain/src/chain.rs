@@ -3941,15 +3941,6 @@ fn get_genesis_congestion_infos_impl(
         return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
     }
 
-    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
-    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
-    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
-    if let Ok(protocol_config) = runtime.get_protocol_config(&genesis_epoch_id) {
-        if protocol_config.genesis_config.chain_id == near_primitives::chains::STATELESSNET {
-            return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-        }
-    }
-
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
         tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
