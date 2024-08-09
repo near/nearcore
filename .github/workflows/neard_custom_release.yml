@@ -3,10 +3,6 @@ name: Neard binary image - custom build
 on:
   # Run when a new release or rc is created
 
-  push:
-    branches:
-      - statelessnet_master
-      - statelessnet_latest
   workflow_dispatch:
     inputs:
       release:
@@ -47,18 +43,8 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Set vars for workflow
-        if: ${{ github.event_name == 'push'}}
-        run: |
-          echo "RELEASE_NAME=statelessnet-release" >> $GITHUB_ENV
-
-      - name: Set vars for workflow
-        if: ${{ github.event_name == 'workflow_dispatch'}}
-        run: |
-          echo "RELEASE_NAME=${{ github.event.inputs.release }}" >> $GITHUB_ENV
-
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release.sh ${{ env.RELEASE_NAME }}
+        run: ./scripts/binary_release.sh ${{ github.event.inputs.release }}
 
       - name: Update latest version metadata in S3
         run: |
@@ -68,7 +54,7 @@ jobs:
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
-          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/${{ env.RELEASE_NAME }}/latest
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/${{ github.event.inputs.release }}/latest
 
   docker-release:
     name: "Build and publish nearcore Docker image"

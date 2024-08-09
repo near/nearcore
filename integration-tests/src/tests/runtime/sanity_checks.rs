@@ -152,8 +152,6 @@ fn test_cost_sanity() {
     insta::assert_debug_snapshot!(
         if cfg!(feature = "nightly") {
             "receipts_gas_profile_nightly"
-        } else if cfg!(feature = "statelessnet_protocol") {
-            "receipts_gas_profile_statelessnet_protocol"
         } else {
             "receipts_gas_profile"
         },

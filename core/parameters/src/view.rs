@@ -806,7 +806,6 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
 
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
-#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.

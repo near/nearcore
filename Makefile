@@ -96,11 +96,6 @@ sandbox-release: neard-sandbox-release
 neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
 
-#? statelessnet-release: build release version of neard with statelessnet_protocol feature
-statelessnet-release: NEAR_RELEASE_BUILD=release
-statelessnet-release:
-	cargo build -p neard --release --features statelessnet_protocol
-
 #? test-features-release: build release version of neard with test_features feature
 test-features-release: NEAR_RELEASE_BUILD=release
 test-features-release:

@@ -115,10 +115,6 @@ nightly_protocol = [
   "near-undo-block/nightly_protocol",
   "nearcore/nightly_protocol",
 ]
-statelessnet_protocol = [
-  "nearcore/statelessnet_protocol",
-  "near-primitives/statelessnet_protocol",
-]
 shadow_chunk_validation = [
   "near-client/shadow_chunk_validation",
 ]

@@ -50,8 +50,6 @@ nightly = [
 nightly_protocol = [
 ]
 
-statelessnet_protocol = []
-
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",
 ]
