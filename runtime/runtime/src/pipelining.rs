@@ -231,6 +231,13 @@ impl ReceiptPreparationPipeline {
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
         let Some(task) = self.map.get(&key) else {
             let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+            tracing::debug!(
+                target: "runtime::pipelining",
+                message="function call task was not submitted for preparation",
+                receipt=%receipt.get_hash(),
+                action_index,
+                backtrace = %std::backtrace::Backtrace::force_capture()
+            );
             return prepare_function_call(
                 &self.storage,
                 self.contract_cache.as_deref(),
@@ -252,6 +259,12 @@ impl ReceiptPreparationPipeline {
                     drop(status_guard);
 
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    tracing::trace!(
+                        target: "runtime::pipelining",
+                        message="function call preparation on the main thread",
+                        receipt=%receipt.get_hash(),
+                        action_index
+                    );
                     let contract = prepare_function_call(
                         &self.storage,
                         self.contract_cache.as_deref(),
