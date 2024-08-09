@@ -13,7 +13,7 @@ would be telling the truth. But what if that is not enough?
 
 The final solution would be to run your own node - this way you’d check all the
 transactions yourself, and then you could be sure - but this can become a quite
-expensive endeavour - especially when many shards are involved.
+expensive endeavor - especially when many shards are involved.
 
 But there is actually a better solution - that doesn’t require you to trust the
 single (or many) RPC nodes, and to verify, by yourself, that your transaction was
