@@ -19,7 +19,7 @@ use std::collections::hash_map;
 use std::collections::HashMap;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
-use std::pin::Pin;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 // Information related to a single transaction that we sent in the past.
@@ -124,6 +124,21 @@ pub(crate) enum SentBatch {
     ExtraTxs(Vec<TargetChainTx>),
 }
 
+// an access key's account ID and public key, along with the id of the tx or receipt that might
+// have udpated it
+pub(crate) struct UpdatedKey {
+    pub(crate) account_id: AccountId,
+    pub(crate) public_key: PublicKey,
+    pub(crate) id: CryptoHash,
+}
+
+// return value of on_target_block()
+pub(crate) struct TargetBlockInfo {
+    // these accounts need to be unstaked
+    pub(crate) staked_accounts: HashMap<(AccountId, PublicKey), AccountId>,
+    // these access keys that were previously unavailable may now be available
+    pub(crate) access_key_updates: Vec<UpdatedKey>,
+}
 // Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()
 // Also keeps track of txs we've sent so far and looks for them on chain, for metrics/logging purposes.
 
@@ -132,7 +147,6 @@ pub(crate) enum SentBatch {
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
     txs_by_signer: HashMap<(AccountId, PublicKey), BTreeSet<TxId>>,
-    queued_blocks: VecDeque<MappedBlock>,
     // for each updater (a tx or receipt hash, or a queued transaction we haven't sent yet), keeps
     // a set of access keys who might be updated by it
     updater_to_keys: HashMap<NonceUpdater, HashSet<(AccountId, PublicKey)>>,
@@ -146,7 +160,6 @@ pub(crate) struct TxTracker {
     nonempty_height_queued: Option<BlockHeight>,
     height_popped: Option<BlockHeight>,
     height_seen: Option<BlockHeight>,
-    send_time: Pin<Box<tokio::time::Sleep>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
     // optional specific tx send delay
@@ -176,13 +189,8 @@ impl TxTracker {
             next_heights,
             stop_height,
             tx_batch_interval,
-            // Wait at least 15 seconds before sending any transactions because for
-            // a few seconds after the node starts, transaction routing requests
-            // will be silently dropped by the peer manager.
-            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
             sent_txs: HashMap::new(),
             txs_by_signer: HashMap::new(),
-            queued_blocks: VecDeque::new(),
             updater_to_keys: HashMap::new(),
             nonces: HashMap::new(),
             height_queued: None,
@@ -232,10 +240,6 @@ impl TxTracker {
             }
             None => false,
         }
-    }
-
-    pub(crate) fn num_blocks_queued(&self) -> usize {
-        self.queued_blocks.len()
     }
 
     async fn initialize_target_nonce<'a>(
@@ -323,6 +327,7 @@ impl TxTracker {
     // we need to shift all the bigger nonces by one.
     pub(crate) async fn insert_nonce(
         &mut self,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         signer_id: &AccountId,
@@ -340,12 +345,15 @@ impl TxTracker {
         }
         let mut first_nonce = None;
         let txs = self.nonces.get(&access_key).unwrap().queued_txs.clone();
-        for tx_ref in txs {
-            let tx = self.get_tx(&tx_ref);
-            if first_nonce.is_none() {
-                first_nonce = Some(tx.target_nonce());
+        if !txs.is_empty() {
+            let mut tx_block_queue = tx_block_queue.lock().unwrap();
+            for tx_ref in txs {
+                let tx = Self::get_tx(&mut tx_block_queue, &tx_ref);
+                if first_nonce.is_none() {
+                    first_nonce = Some(tx.target_nonce());
+                }
+                tx.inc_target_nonce(secret_key)
             }
-            tx.inc_target_nonce(secret_key)
         }
         match first_nonce {
             Some(n) => {
@@ -363,12 +371,14 @@ impl TxTracker {
         }
     }
 
-    fn get_tx(&mut self, tx_ref: &TxRef) -> &mut TargetChainTx {
-        let block_idx = self
-            .queued_blocks
+    fn get_tx<'a>(
+        tx_block_queue: &'a mut VecDeque<MappedBlock>,
+        tx_ref: &TxRef,
+    ) -> &'a mut TargetChainTx {
+        let block_idx = tx_block_queue
             .binary_search_by(|b| b.source_height.cmp(&tx_ref.source_height))
             .unwrap();
-        let block = &mut self.queued_blocks[block_idx];
+        let block = &mut tx_block_queue[block_idx];
         let chunk = block.chunks.iter_mut().find(|c| c.shard_id == tx_ref.shard_id).unwrap();
         &mut chunk.txs[tx_ref.tx_idx]
     }
@@ -402,6 +412,7 @@ impl TxTracker {
 
     pub(crate) async fn queue_block(
         &mut self,
+        tx_block_queue: &mut VecDeque<MappedBlock>,
         block: MappedBlock,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
@@ -457,119 +468,8 @@ impl TxTracker {
                 };
             }
         }
-        self.queued_blocks.push_back(block);
+        tx_block_queue.push_back(block);
         Ok(())
-    }
-
-    pub(crate) fn next_batch_time(&self) -> Instant {
-        self.send_time.as_ref().deadline().into_std()
-    }
-
-    async fn try_set_batch_nonces(
-        &mut self,
-        target_view_client: &Addr<ViewClientActor>,
-        db: &DB,
-    ) -> anyhow::Result<()> {
-        let mut needed_access_keys = HashSet::new();
-        for c in self.queued_blocks[0].chunks.iter_mut() {
-            for tx in c.txs.iter_mut() {
-                if let TargetChainTx::AwaitingNonce(t) = tx {
-                    needed_access_keys.insert((
-                        t.target_tx.signer_id().clone(),
-                        t.target_tx.public_key().clone(),
-                    ));
-                }
-            }
-        }
-        for access_key in needed_access_keys.iter() {
-            self.try_set_nonces(target_view_client, db, access_key, None).await?;
-        }
-        let block = &mut self.queued_blocks[0];
-        self.height_popped = Some(block.source_height);
-        for c in block.chunks.iter_mut() {
-            for (tx_idx, tx) in c.txs.iter_mut().enumerate() {
-                match tx {
-                    TargetChainTx::AwaitingNonce(_) => {
-                        let tx_ref = TxRef {
-                            source_height: block.source_height,
-                            shard_id: c.shard_id,
-                            tx_idx,
-                        };
-                        tx.try_set_nonce(None);
-                        match tx {
-                            TargetChainTx::Ready(t) => {
-                                tracing::debug!(
-                                    target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
-                                    &t.provenance, t.target_tx.transaction.signer_id(), t.target_tx.transaction.public_key(), t.target_tx.transaction.nonce()
-                                );
-                                self.nonces
-                                    .get_mut(&(
-                                        t.target_tx.transaction.signer_id().clone(),
-                                        t.target_tx.transaction.public_key().clone(),
-                                    ))
-                                    .unwrap()
-                                    .txs_awaiting_nonce
-                                    .remove(&tx_ref);
-                            }
-                            TargetChainTx::AwaitingNonce(t) => {
-                                tracing::warn!(
-                                    target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
-                                    &t.provenance, t.target_tx.signer_id(), t.target_tx.public_key(),
-                                );
-                                self.nonces
-                                    .get_mut(&(
-                                        t.target_tx.signer_id().clone(),
-                                        t.target_tx.public_key().clone(),
-                                    ))
-                                    .unwrap()
-                                    .txs_awaiting_nonce
-                                    .remove(&tx_ref);
-                            }
-                        };
-                    }
-                    TargetChainTx::Ready(_) => {}
-                };
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) async fn next_batch(
-        &mut self,
-        target_view_client: &Addr<ViewClientActor>,
-        db: &DB,
-    ) -> anyhow::Result<TxBatch> {
-        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
-        // in the target chain. In the second or so between now and then, we might process another block
-        // that will set the nonces.
-        tokio::time::sleep_until(
-            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
-        )
-        .await;
-        self.try_set_batch_nonces(target_view_client, db).await?;
-        (&mut self.send_time).await;
-        let block = self.queued_blocks.pop_front().unwrap();
-        let b = TxBatch {
-            source_height: block.source_height,
-            source_hash: block.source_hash,
-            txs: block
-                .chunks
-                .into_iter()
-                .flat_map(|c| {
-                    c.txs.into_iter().enumerate().map(move |(tx_idx, tx)| {
-                        (
-                            TxRef {
-                                source_height: block.source_height,
-                                shard_id: c.shard_id,
-                                tx_idx,
-                            },
-                            tx,
-                        )
-                    })
-                })
-                .collect(),
-        };
-        Ok(b)
     }
 
     fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
@@ -693,6 +593,7 @@ impl TxTracker {
 
     fn tx_to_receipt(
         &mut self,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         tx_hash: &CryptoHash,
         receipt_id: &CryptoHash,
@@ -716,16 +617,19 @@ impl TxTracker {
             if let Some(info) = self.nonces.get(access_key) {
                 let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
 
-                for r in txs_awaiting_nonce.iter() {
-                    let tx = self.get_tx(r);
+                if !txs_awaiting_nonce.is_empty() {
+                    let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                    for r in txs_awaiting_nonce.iter() {
+                        let tx = Self::get_tx(&mut tx_block_queue, r);
 
-                    match tx {
-                        TargetChainTx::AwaitingNonce(t) => {
-                            assert!(t.target_nonce.pending_outcomes.remove(&updater));
-                            t.target_nonce.pending_outcomes.insert(new_updater.clone());
-                        }
-                        TargetChainTx::Ready(_) => unreachable!(),
-                    };
+                        match tx {
+                            TargetChainTx::AwaitingNonce(t) => {
+                                assert!(t.target_nonce.pending_outcomes.remove(&updater));
+                                t.target_nonce.pending_outcomes.insert(new_updater.clone());
+                            }
+                            TargetChainTx::Ready(_) => unreachable!(),
+                        };
+                    }
                 }
 
                 let info = self.nonces.get_mut(access_key).unwrap();
@@ -740,63 +644,61 @@ impl TxTracker {
         Ok(())
     }
 
-    async fn try_set_nonces(
+    pub(crate) fn try_set_nonces(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
-        access_key: &(AccountId, PublicKey),
-        id: Option<&CryptoHash>,
+        updated_key: UpdatedKey,
+        mut nonce: Option<Nonce>,
     ) -> anyhow::Result<()> {
-        let mut n = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
-        if let Some(id) = id {
-            n.pending_outcomes.remove(id);
-        }
-        let mut nonce =
-            crate::fetch_access_key_nonce(target_view_client, &access_key.0, &access_key.1).await?;
+        let mut n = crate::read_target_nonce(db, &updated_key.account_id, &updated_key.public_key)?
+            .unwrap();
+        n.pending_outcomes.remove(&updated_key.id);
         n.nonce = std::cmp::max(n.nonce, nonce);
 
-        crate::put_target_nonce(db, &access_key.0, &access_key.1, &n)?;
+        crate::put_target_nonce(db, &updated_key.account_id, &updated_key.public_key, &n)?;
 
-        let updater = id.map(|id| NonceUpdater::ChainObjectId(*id));
-        if let Some(info) = self.nonces.get_mut(access_key) {
-            if let Some(updater) = &updater {
-                info.target_nonce.pending_outcomes.remove(updater);
-            }
+        let updater = NonceUpdater::ChainObjectId(updated_key.id);
+        let access_key = (updated_key.account_id.clone(), updated_key.public_key.clone());
+
+        if let Some(info) = self.nonces.get_mut(&access_key) {
+            info.target_nonce.pending_outcomes.remove(&updater);
             let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
             let mut to_remove = Vec::new();
 
-            for r in txs_awaiting_nonce.iter() {
-                let tx = self.get_tx(r);
+            if !txs_awaiting_nonce.is_empty() {
+                let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                for r in txs_awaiting_nonce.iter() {
+                    let tx = Self::get_tx(&mut tx_block_queue, r);
 
-                match tx {
-                    TargetChainTx::AwaitingNonce(t) => {
-                        if let Some(updater) = &updater {
-                            t.target_nonce.pending_outcomes.remove(updater);
-                        }
-                        if let Some(nonce) = &mut nonce {
-                            *nonce += 1;
-                        }
-
-                        if t.target_nonce.pending_outcomes.is_empty() {
-                            to_remove.push(r.clone());
-                            tx.try_set_nonce(nonce);
-                            match tx {
-                                TargetChainTx::Ready(t) => {
-                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce());
-                                }
-                                _ => {
-                                    tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", access_key, r);
-                                }
+                    match tx {
+                        TargetChainTx::AwaitingNonce(t) => {
+                            t.target_nonce.pending_outcomes.remove(&updater);
+                            if let Some(nonce) = &mut nonce {
+                                *nonce += 1;
                             }
-                        } else {
-                            t.target_nonce.nonce = std::cmp::max(t.target_nonce.nonce, nonce);
+
+                            if t.target_nonce.pending_outcomes.is_empty() {
+                                to_remove.push(r.clone());
+                                tx.try_set_nonce(nonce);
+                                match tx {
+                                    TargetChainTx::Ready(t) => {
+                                        tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", &access_key, r, t.target_tx.transaction.nonce());
+                                    }
+                                    _ => {
+                                        tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", &access_key, r);
+                                    }
+                                }
+                            } else {
+                                t.target_nonce.nonce = std::cmp::max(t.target_nonce.nonce, nonce);
+                            }
                         }
-                    }
-                    TargetChainTx::Ready(_) => unreachable!(),
-                };
+                        TargetChainTx::Ready(_) => unreachable!(),
+                    };
+                }
             }
 
-            let info = self.nonces.get_mut(access_key).unwrap();
+            let info = self.nonces.get_mut(&access_key).unwrap();
             for r in to_remove.iter() {
                 info.txs_awaiting_nonce.remove(r);
             }
@@ -805,27 +707,23 @@ impl TxTracker {
         Ok(())
     }
 
-    async fn on_outcome_finished(
+    fn on_outcome_finished(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         id: &CryptoHash,
-        access_keys: HashSet<(AccountId, PublicKey)>,
+        access_keys: &HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<()> {
         let updater = NonceUpdater::ChainObjectId(*id);
         if let Some(keys) = self.updater_to_keys.remove(&updater) {
-            assert!(access_keys == keys);
+            assert!(access_keys == &keys);
         }
 
-        for access_key in access_keys.iter() {
-            self.try_set_nonces(target_view_client, db, &access_key, Some(id)).await?;
-        }
         crate::delete_pending_outcome(db, id)
     }
 
-    async fn on_target_block_tx(
+    fn on_target_block_tx(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         tx: IndexerTransactionWithOutcome,
     ) -> anyhow::Result<()> {
@@ -839,44 +737,42 @@ impl TxTracker {
         if let Some(access_keys) = crate::read_pending_outcome(db, &tx.transaction.hash)? {
             match tx.outcome.execution_outcome.outcome.status {
                 ExecutionStatusView::SuccessReceiptId(receipt_id) => {
-                    self.tx_to_receipt(db, &tx.transaction.hash, &receipt_id, access_keys)?
+                    self.tx_to_receipt(
+                        tx_block_queue,
+                        db,
+                        &tx.transaction.hash,
+                        &receipt_id,
+                        access_keys,
+                    )?;
                 }
                 ExecutionStatusView::SuccessValue(_) | ExecutionStatusView::Unknown => {
                     unreachable!()
                 }
                 ExecutionStatusView::Failure(_) => {
-                    self.on_outcome_finished(
-                        target_view_client,
-                        db,
-                        &tx.transaction.hash,
-                        access_keys,
-                    )
-                    .await?
+                    self.on_outcome_finished(db, &tx.transaction.hash, &access_keys)?;
                 }
-            }
+            };
         }
         Ok(())
     }
 
-    async fn on_target_block_applied_receipt(
+    fn on_target_block_applied_receipt(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         outcome: IndexerExecutionOutcomeWithReceipt,
         staked_accounts: &mut HashMap<(AccountId, PublicKey), AccountId>,
+        access_key_updates: &mut Vec<UpdatedKey>,
     ) -> anyhow::Result<()> {
         let access_keys = match crate::read_pending_outcome(db, &outcome.execution_outcome.id)? {
             Some(a) => a,
             None => return Ok(()),
         };
 
-        self.on_outcome_finished(
-            target_view_client,
-            db,
-            &outcome.execution_outcome.id,
-            access_keys,
-        )
-        .await?;
+        self.on_outcome_finished(db, &outcome.execution_outcome.id, &access_keys)?;
+        access_key_updates.extend(access_keys.into_iter().map(|(account_id, public_key)| {
+            UpdatedKey { account_id, public_key, id: outcome.execution_outcome.id }
+        }));
+
         for receipt_id in outcome.execution_outcome.outcome.receipt_ids {
             // we don't carry over the access keys here, because we set pending access keys when we send a tx with
             // an add key action, which should be applied after one receipt. Setting empty access keys here allows us
@@ -911,37 +807,38 @@ impl TxTracker {
     // receipt for any receipts that contain stake actions (w/ nonzero stake) that were
     // generated by our transactions. Then the caller will send extra stake transactions
     // to reverse those.
-    pub(crate) async fn on_target_block(
+    pub(crate) fn on_target_block(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         msg: StreamerMessage,
-    ) -> anyhow::Result<HashMap<(AccountId, PublicKey), AccountId>> {
+    ) -> anyhow::Result<TargetBlockInfo> {
         self.record_block_timestamp(&msg);
         self.log_target_block(&msg);
 
+        let mut access_key_updates = Vec::new();
         let mut staked_accounts = HashMap::new();
         for s in msg.shards {
             if let Some(c) = s.chunk {
                 for tx in c.transactions {
-                    self.on_target_block_tx(target_view_client, db, tx).await?;
+                    self.on_target_block_tx(tx_block_queue, db, tx)?;
                 }
                 for outcome in s.receipt_execution_outcomes {
                     self.on_target_block_applied_receipt(
-                        target_view_client,
                         db,
                         outcome,
                         &mut staked_accounts,
-                    )
-                    .await?;
+                        &mut access_key_updates,
+                    )?;
                 }
             }
         }
-        Ok(staked_accounts)
+        Ok(TargetBlockInfo { staked_accounts, access_key_updates })
     }
 
     async fn on_tx_sent(
         &mut self,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         tx_ref: Option<TxRef>,
         tx: MappedTx,
@@ -1007,16 +904,19 @@ impl TxTracker {
                         access_keys_to_remove.insert(access_key.clone());
                     }
 
-                    for r in txs_awaiting_nonce.iter() {
-                        let t = self.get_tx(r);
+                    if !txs_awaiting_nonce.is_empty() {
+                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                        for r in txs_awaiting_nonce.iter() {
+                            let t = Self::get_tx(&mut tx_block_queue, r);
 
-                        match t {
-                            TargetChainTx::AwaitingNonce(t) => {
-                                assert!(t.target_nonce.pending_outcomes.remove(&updater));
-                                t.target_nonce.pending_outcomes.insert(new_updater.clone());
-                            }
-                            TargetChainTx::Ready(_) => unreachable!(),
-                        };
+                            match t {
+                                TargetChainTx::AwaitingNonce(t) => {
+                                    assert!(t.target_nonce.pending_outcomes.remove(&updater));
+                                    t.target_nonce.pending_outcomes.insert(new_updater.clone());
+                                }
+                                TargetChainTx::Ready(_) => unreachable!(),
+                            };
+                        }
                     }
                 }
             }
@@ -1107,6 +1007,7 @@ impl TxTracker {
 
     fn on_tx_skipped(
         &mut self,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         tx_ref: &Option<TxRef>,
         tx: &Transaction,
         nonce_updates: &HashSet<(AccountId, PublicKey)>,
@@ -1124,25 +1025,28 @@ impl TxTracker {
                 if let Some(info) = self.nonces.get(&access_key) {
                     let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
                     let mut to_remove = Vec::new();
-                    for r in txs_awaiting_nonce.iter() {
-                        let target_tx = self.get_tx(r);
-                        match target_tx {
-                            TargetChainTx::AwaitingNonce(tx) => {
-                                assert!(tx.target_nonce.pending_outcomes.remove(&updater));
-                                if tx.target_nonce.pending_outcomes.is_empty() {
-                                    target_tx.try_set_nonce(None);
-                                    match target_tx {
-                                        TargetChainTx::Ready(t) => {
-                                            tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce());
+                    if !txs_awaiting_nonce.is_empty() {
+                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                        for r in txs_awaiting_nonce.iter() {
+                            let target_tx = Self::get_tx(&mut tx_block_queue, r);
+                            match target_tx {
+                                TargetChainTx::AwaitingNonce(tx) => {
+                                    assert!(tx.target_nonce.pending_outcomes.remove(&updater));
+                                    if tx.target_nonce.pending_outcomes.is_empty() {
+                                        target_tx.try_set_nonce(None);
+                                        match target_tx {
+                                            TargetChainTx::Ready(t) => {
+                                                tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce());
+                                            }
+                                            _ => {
+                                                tracing::warn!(target: "mirror", "After skipping {} could not set nonce for {:?}'s {}", tx_ref, &access_key, r);
+                                            }
                                         }
-                                        _ => {
-                                            tracing::warn!(target: "mirror", "After skipping {} could not set nonce for {:?}'s {}", tx_ref, &access_key, r);
-                                        }
+                                        to_remove.push(r.clone());
                                     }
-                                    to_remove.push(r.clone());
                                 }
+                                TargetChainTx::Ready(_) => unreachable!(),
                             }
-                            TargetChainTx::Ready(_) => unreachable!(),
                         }
                     }
 
@@ -1167,24 +1071,36 @@ impl TxTracker {
     }
 
     // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
+    // Returns the new amount that we should wait before sending transactions
     pub(crate) async fn on_txs_sent(
         &mut self,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
         sent_batch: SentBatch,
         target_height: BlockHeight,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Duration> {
         let mut total_sent = 0;
         let now = Instant::now();
         let mut access_keys_to_remove = HashSet::new();
 
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
-                let block_delay = self.tx_batch_interval.unwrap_or_else(|| {
-                    self.second_longest_recent_block_delay()
-                        .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
-                });
-                self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
-                crate::set_last_source_height(db, b.source_height)?;
+                self.height_popped = Some(b.source_height);
+                for (tx_ref, tx) in b.txs.iter() {
+                    match tx {
+                        TargetChainTx::AwaitingNonce(t) => {
+                            self.nonces
+                                .get_mut(&(
+                                    t.target_tx.signer_id().clone(),
+                                    t.target_tx.public_key().clone(),
+                                ))
+                                .unwrap()
+                                .txs_awaiting_nonce
+                                .remove(&tx_ref);
+                        }
+                        TargetChainTx::Ready(_) => {}
+                    };
+                }
                 let txs =
                     b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();
                 (txs, format!("source #{}", b.source_height))
@@ -1199,6 +1115,7 @@ impl TxTracker {
                 crate::TargetChainTx::Ready(t) => {
                     if t.sent_successfully {
                         self.on_tx_sent(
+                            tx_block_queue,
                             db,
                             tx_ref,
                             t,
@@ -1210,6 +1127,7 @@ impl TxTracker {
                         total_sent += 1;
                     } else {
                         self.on_tx_skipped(
+                            tx_block_queue,
                             &tx_ref,
                             &t.target_tx.transaction,
                             &t.nonce_updates,
@@ -1219,6 +1137,7 @@ impl TxTracker {
                 }
                 crate::TargetChainTx::AwaitingNonce(t) => {
                     self.on_tx_skipped(
+                        tx_block_queue,
                         &tx_ref,
                         &t.target_tx,
                         &t.nonce_updates,
@@ -1236,6 +1155,10 @@ impl TxTracker {
             total_sent, provenance, target_height
         );
 
-        Ok(())
+        let next_delay = self.tx_batch_interval.unwrap_or_else(|| {
+            self.second_longest_recent_block_delay()
+                .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
+        });
+        Ok(next_delay)
     }
 }

@@ -4529,6 +4529,7 @@ name = "near-mirror"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "actix-rt",
  "anyhow",
  "async-trait",
  "borsh 1.2.0",
