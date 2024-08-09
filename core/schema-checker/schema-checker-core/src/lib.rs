@@ -17,7 +17,7 @@ pub type Variant = Option<&'static [(FieldName, FieldTypeInfo)]>;
 // won't help to identify changes in the outer struct.
 pub type FieldTypeInfo = (TypeName, &'static [TypeId]);
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum ProtocolSchemaInfo {
     Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, FieldTypeInfo)] },
     Enum { name: FieldName, type_id: TypeId, variants: &'static [(VariantName, Variant)] },

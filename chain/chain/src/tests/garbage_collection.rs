@@ -15,7 +15,7 @@ use crate::{ChainStoreAccess, StoreValidator};
 use near_chain_configs::{GCConfig, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};

@@ -15,7 +15,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
-use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::get_num_state_parts;

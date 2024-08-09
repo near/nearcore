@@ -83,7 +83,14 @@ pub struct DeleteKeyAction {
 /// Deploy contract action
 #[serde_as]
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 pub struct DeployContractAction {
     /// WebAssembly binary
@@ -193,6 +200,7 @@ pub struct NonrefundableStorageTransferAction {
     serde::Serialize,
     serde::Deserialize,
     strum::AsRefStr,
+    ProtocolSchema,
 )]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for

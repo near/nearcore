@@ -10,6 +10,7 @@
 use near_crypto::*;
 use near_parameters::*;
 use near_primitives::*;
+use near_store::*;
 
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -28,13 +29,20 @@ use std::path::Path;
 fn compute_hash(
     info: &ProtocolSchemaInfo,
     structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
+    types_in_compute: &mut HashSet<TypeId>,
 ) -> u32 {
+    let type_id = info.type_id();
+    if types_in_compute.contains(&type_id) {
+        return 0;
+    }
+    types_in_compute.insert(type_id);
+
     let mut hasher = StableHasher::new();
     match info {
         ProtocolSchemaInfo::Struct { name, type_id: _, fields } => {
             "struct".hash(&mut hasher);
             name.hash(&mut hasher);
-            compute_fields_hash(fields, structs, &mut hasher);
+            compute_fields_hash(fields, structs, types_in_compute, &mut hasher);
         }
         ProtocolSchemaInfo::Enum { name, type_id: _, variants } => {
             "enum".hash(&mut hasher);
@@ -42,24 +50,28 @@ fn compute_hash(
             for (variant_name, variant_fields) in *variants {
                 variant_name.hash(&mut hasher);
                 if let Some(fields) = variant_fields {
-                    compute_fields_hash(fields, structs, &mut hasher);
+                    compute_fields_hash(fields, structs, types_in_compute, &mut hasher);
                 }
             }
         }
     }
+
+    types_in_compute.remove(&type_id);
+
     hasher.finish() as u32
 }
 
 fn compute_fields_hash(
     fields: &'static [(FieldName, FieldTypeInfo)],
     structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
+    types_in_compute: &mut HashSet<TypeId>,
     hasher: &mut StableHasher,
 ) {
     for (field_name, (type_name, generic_params)) in fields {
         field_name.hash(hasher);
         type_name.hash(hasher);
         for &param_type_id in generic_params.iter() {
-            compute_type_hash(param_type_id, structs, hasher);
+            compute_type_hash(param_type_id, structs, types_in_compute, hasher);
         }
     }
 }
@@ -67,10 +79,11 @@ fn compute_fields_hash(
 fn compute_type_hash(
     type_id: TypeId,
     structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
+    types_in_compute: &mut HashSet<TypeId>,
     hasher: &mut StableHasher,
 ) {
     if let Some(nested_info) = structs.get(&type_id) {
-        compute_hash(nested_info, structs).hash(hasher);
+        compute_hash(nested_info, structs, types_in_compute).hash(hasher);
     } else {
         // Unsupported type. Always assume that hash is 0 because we cannot
         // compute nontrivial deterministic hash in such cases.
@@ -104,7 +117,8 @@ fn main() {
 
     let mut current_hashes: BTreeMap<String, u32> = Default::default();
     for info in inventory::iter::<ProtocolSchemaInfo> {
-        let hash = compute_hash(info, &structs);
+        let mut types_in_compute: HashSet<TypeId> = Default::default();
+        let hash = compute_hash(info, &structs, &mut types_in_compute);
         current_hashes.insert(info.type_name().to_string(), hash);
     }
 
@@ -154,7 +168,8 @@ mod tests {
         structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
     ) -> u32 {
         let mut hasher = StableHasher::new();
-        compute_type_hash(ty, structs, &mut hasher);
+        let mut types_in_compute: HashSet<TypeId> = Default::default();
+        compute_type_hash(ty, structs, &mut types_in_compute, &mut hasher);
         hasher.finish() as u32
     }
 
