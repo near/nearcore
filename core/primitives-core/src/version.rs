@@ -240,21 +240,16 @@ impl ProtocolFeature {
     }
 }
 
-/// Current protocol version used on the mainnet.
-/// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
-/// the corresponding version
+/// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 70;
 
+// On nightly, pick big enough version to support all features.
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;
+
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
-    // Please note that congestion control and stateless validation are now
-    // stabilized but statelessnet should remain at its own version.
-    82
-} else if cfg!(feature = "nightly_protocol") {
-    // On nightly, pick big enough version to support all features.
-    144
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+    NIGHTLY_PROTOCOL_VERSION
 } else {
-    // Enable all stable features.
     STABLE_PROTOCOL_VERSION
 };
 
