@@ -92,7 +92,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                 self.client
                     .post(endpoint.clone())
                     .insert_header(("Content-Type", "application/json"))
-                    .force_close()
+                    .force_close() // See https://github.com/near/nearcore/pull/11914
                     .send_json(&msg.content)
                     .map(move |response| {
                         let result = if let Err(error) = response {
