@@ -120,9 +120,6 @@ struct NonceInfo {
 }
 
 pub(crate) enum SentBatch {
-    // The last entry should be a tokio::time::Instant recorded when we started
-    // sending transactions in the last batch, so we can calculate the next time to
-    // send transactions based on that.
     MappedBlock(TxBatch),
     ExtraTxs(Vec<TargetChainTx>),
 }
