@@ -26,6 +26,7 @@ use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::TestLoopPeerManagerActor;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
@@ -53,6 +54,8 @@ pub struct TestLoopBuilder {
     drop_chunks_validated_by: Option<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
+    /// The store of runtime configurations to be passed into runtime adapters.
+    runtime_config_store: Option<RuntimeConfigStore>,
 }
 
 impl TestLoopBuilder {
@@ -65,6 +68,7 @@ impl TestLoopBuilder {
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
             gc_num_epochs_to_keep: None,
+            runtime_config_store: None,
         }
     }
 
@@ -99,6 +103,12 @@ impl TestLoopBuilder {
 
     pub fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
         self.gc_num_epochs_to_keep = Some(num_epochs);
+        self
+    }
+
+    /// Sets the store of runtime configurations to be passed into runtime adapters.
+    pub fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
+        self.runtime_config_store = Some(runtime_config_store);
         self
     }
 
@@ -233,7 +243,7 @@ impl TestLoopBuilder {
             ContractRuntimeCache::handle(&contract_cache),
             &genesis.config,
             epoch_manager.clone(),
-            None,
+            self.runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
         );
@@ -329,7 +339,7 @@ impl TestLoopBuilder {
                     ContractRuntimeCache::handle(&contract_cache),
                     &genesis.config,
                     view_epoch_manager.clone(),
-                    None,
+                    self.runtime_config_store.clone(),
                     TrieConfig::from_store_config(&store_config),
                     StateSnapshotType::EveryEpoch,
                 );
