@@ -168,7 +168,8 @@ mod tests {
         structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
     ) -> u32 {
         let mut hasher = StableHasher::new();
-        compute_type_hash(ty, structs, &mut hasher);
+        let mut types_in_compute: HashSet<TypeId> = Default::default();
+        compute_type_hash(ty, structs, &mut types_in_compute, &mut hasher);
         hasher.finish() as u32
     }
 
