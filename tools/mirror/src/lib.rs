@@ -30,7 +30,7 @@ use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
 use rocksdb::DB;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
@@ -1117,6 +1117,7 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn prepare_tx(
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         source_signer_id: AccountId,
         source_receiver_id: AccountId,
@@ -1135,6 +1136,7 @@ impl<T: ChainAccess> TxMirror<T> {
             None => Some(
                 tracker
                     .insert_nonce(
+                        tx_block_queue,
                         target_view_client,
                         &self.db,
                         &target_signer_id,
@@ -1195,6 +1197,7 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn push_extra_tx(
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         block_hash: CryptoHash,
         txs: &mut Vec<TargetChainTx>,
@@ -1316,6 +1319,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let target_tx = self
             .prepare_tx(
                 tracker,
+                tx_block_queue,
                 target_view_client,
                 predecessor_id,
                 receiver_id,
@@ -1336,6 +1340,7 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn add_function_call_keys(
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
         receipt_id: &CryptoHash,
@@ -1419,6 +1424,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
                 self.push_extra_tx(
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     outcome.block_hash,
                     txs,
@@ -1443,6 +1449,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_height: BlockHeight,
         ref_hash: &CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
@@ -1461,6 +1468,7 @@ impl<T: ChainAccess> TxMirror<T> {
             {
                 self.add_function_call_keys(
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     txs,
                     &receipt_id,
@@ -1485,6 +1493,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_height: BlockHeight,
         ref_hash: &CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
@@ -1492,6 +1501,7 @@ impl<T: ChainAccess> TxMirror<T> {
             if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
                 self.add_function_call_keys(
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     txs,
                     receipt.receipt_id(),
@@ -1514,6 +1524,7 @@ impl<T: ChainAccess> TxMirror<T> {
         create_account_height: BlockHeight,
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
@@ -1529,6 +1540,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     create_account_height,
                     &ref_hash,
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     txs,
                 )
@@ -1547,6 +1559,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     create_account_height,
                     &ref_hash,
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     txs,
                 )
@@ -1565,6 +1578,7 @@ impl<T: ChainAccess> TxMirror<T> {
         create_account_height: Option<BlockHeight>,
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
     ) -> anyhow::Result<MappedBlock> {
         let source_block =
@@ -1600,6 +1614,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 let target_tx = self
                     .prepare_tx(
                         tracker,
+                        tx_block_queue,
                         target_view_client,
                         source_tx.transaction.signer_id().clone(),
                         source_tx.transaction.receiver_id().clone(),
@@ -1620,6 +1635,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     source_height,
                     &ref_hash,
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     &mut txs,
                 )
@@ -1632,6 +1648,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     source_height,
                     &ref_hash,
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     &mut txs,
                 )
@@ -1651,6 +1668,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     create_account_height,
                     ref_hash,
                     tracker,
+                    tx_block_queue,
                     target_view_client,
                     &mut chunks[0].txs,
                 )
@@ -1669,13 +1687,14 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn queue_txs(
         &mut self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         ref_hash: CryptoHash,
         next_batch_time: Option<Instant>,
     ) -> anyhow::Result<usize> {
-        let num_blocks_queued = {
-            let tracker = tracker.lock().unwrap();
-            tracker.num_blocks_queued()
+        let mut num_blocks_queued = {
+            let tx_block_queue = tx_block_queue.lock().unwrap();
+            tx_block_queue.len()
         };
         if num_blocks_queued > 100 {
             return Ok(num_blocks_queued);
@@ -1689,12 +1708,12 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let next_height = match next_height {
                 Some(h) => h,
-                None => return Ok(tracker.num_blocks_queued()),
+                None => return Ok(num_blocks_queued),
             };
             // if we have a stop height, just send the last few blocks without worrying about
             // extra create account txs, otherwise wait until we get more blocks
             if !tracker.has_stop_height() && create_account_height.is_none() {
-                return Ok(tracker.num_blocks_queued());
+                return Ok(num_blocks_queued);
             }
             let b = self
                 .fetch_txs(
@@ -1702,12 +1721,16 @@ impl<T: ChainAccess> TxMirror<T> {
                     create_account_height,
                     ref_hash,
                     &mut tracker,
+                    tx_block_queue,
                     target_view_client,
                 )
                 .await
                 .with_context(|| format!("Can't fetch source #{} transactions", next_height))?;
-            tracker.queue_block(b, target_view_client, &self.db).await?;
-            let num_blocks_queued = tracker.num_blocks_queued();
+            {
+                let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                tracker.queue_block(&mut tx_block_queue, b, target_view_client, &self.db).await?;
+            }
+            num_blocks_queued += 1;
             if num_blocks_queued > 100 {
                 return Ok(num_blocks_queued);
             }
@@ -1730,6 +1753,7 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn unstake(
         &mut self,
         tracker: &mut crate::chain_tracker::TxTracker,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_client: &Addr<ClientActor>,
         target_view_client: &Addr<ViewClientActor>,
         stakes: HashMap<(AccountId, PublicKey), AccountId>,
@@ -1741,6 +1765,7 @@ impl<T: ChainAccess> TxMirror<T> {
         for ((receiver_id, public_key), predecessor_id) in stakes {
             self.push_extra_tx(
                 tracker,
+                tx_block_queue,
                 target_view_client,
                 *source_hash,
                 &mut txs,
@@ -1757,6 +1782,7 @@ impl<T: ChainAccess> TxMirror<T> {
             self.send_transactions(target_client, txs.iter_mut()).await?;
             tracker
                 .on_txs_sent(
+                    tx_block_queue,
                     &self.db,
                     crate::chain_tracker::SentBatch::ExtraTxs(txs),
                     target_height,
@@ -1768,6 +1794,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn index_target_loop(
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
+        tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         home_dir: PathBuf,
         db: Arc<DB>,
         clients_tx: tokio::sync::oneshot::Sender<(Addr<ClientActor>, Addr<ViewClientActor>)>,
@@ -1786,6 +1813,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut target_stream = target_indexer.streamer();
         let (first_target_height, first_target_head) = Self::index_target_chain(
             &tracker,
+            &tx_block_queue,
             &mut target_stream,
             db.as_ref(),
             &target_view_client,
@@ -1803,7 +1831,7 @@ impl<T: ChainAccess> TxMirror<T> {
             *target_height.write().unwrap() = msg.block.header.height;
             let target_block_info = {
                 let mut tracker = tracker.lock().unwrap();
-                tracker.on_target_block(db.as_ref(), msg)?
+                tracker.on_target_block(&tx_block_queue, db.as_ref(), msg)?
             };
             if !target_block_info.staked_accounts.is_empty() {
                 accounts_to_unstake.send(target_block_info.staked_accounts).await.unwrap();
@@ -1816,7 +1844,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await?;
                 let mut tracker = tracker.lock().unwrap();
-                tracker.try_set_nonces(db.as_ref(), access_key_update, nonce)?;
+                tracker.try_set_nonces(&tx_block_queue, db.as_ref(), access_key_update, nonce)?;
             }
             tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx did target block");
         }
@@ -1825,6 +1853,7 @@ impl<T: ChainAccess> TxMirror<T> {
     async fn main_loop(
         &mut self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
+        tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         target_client: Addr<ClientActor>,
         target_view_client: Addr<ViewClientActor>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
@@ -1833,7 +1862,13 @@ impl<T: ChainAccess> TxMirror<T> {
         mut source_hash: CryptoHash,
     ) -> anyhow::Result<()> {
         let mut num_blocks_queued = self
-            .queue_txs(&tracker, &target_view_client, *target_head.read().unwrap(), None)
+            .queue_txs(
+                &tracker,
+                &tx_block_queue,
+                &target_view_client,
+                *target_head.read().unwrap(),
+                None,
+            )
             .await?;
 
         loop {
@@ -1842,7 +1877,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 _ = &mut self.send_time, if num_blocks_queued > 0 => {
                     let mut tx_batch = {
                         let mut tracker = tracker.lock().unwrap();
-                        tracker.next_batch().await?
+                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                        tracker.next_batch(&mut tx_block_queue).await?
                     };
                     source_hash = tx_batch.source_hash;
                     let start_time = tokio::time::Instant::now();
@@ -1852,6 +1888,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     {
                         let mut tracker = tracker.lock().unwrap();
                         tracker.on_txs_sent(
+                            &tx_block_queue,
                             &self.db,
                             crate::chain_tracker::SentBatch::MappedBlock(tx_batch, self.send_time.as_mut(), start_time),
                             *target_height.read().unwrap(),
@@ -1861,17 +1898,17 @@ impl<T: ChainAccess> TxMirror<T> {
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
                     // TODO: continue in best effort fashion on error
-                    num_blocks_queued = self.queue_txs(&tracker, &target_view_client, *target_head.read().unwrap(), Some(self.send_time.as_ref().deadline().into_std())).await?;
+                    num_blocks_queued = self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap(), Some(self.send_time.as_ref().deadline().into_std())).await?;
                 }
                 msg = accounts_to_unstake.recv() => {
                     let staked_accounts = msg.unwrap();
                     let mut tracker = tracker.lock().unwrap();
-                    self.unstake(&mut tracker, &target_client, &target_view_client, staked_accounts, &source_hash, &target_head.read().unwrap(), *target_height.read().unwrap()).await?;
+                    self.unstake(&mut tracker, &tx_block_queue, &target_client, &target_view_client, staked_accounts, &source_hash, &target_head.read().unwrap(), *target_height.read().unwrap()).await?;
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
                 _ = tokio::time::sleep(std::time::Duration::from_millis(200)), if num_blocks_queued == 0 => {
-                    num_blocks_queued = self.queue_txs(&tracker, &target_view_client, *target_head.read().unwrap(), Some(self.send_time.as_ref().deadline().into_std())).await?;
+                    num_blocks_queued = self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap(), Some(self.send_time.as_ref().deadline().into_std())).await?;
                 }
             };
             // TODO: this locking of the mutex before continuing the loop is kind of unnecessary since we should be able to tell
@@ -1910,6 +1947,7 @@ impl<T: ChainAccess> TxMirror<T> {
     // call tracker.on_target_block() on each target chain block until that client is synced
     async fn index_target_chain(
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_stream: &mut mpsc::Receiver<StreamerMessage>,
         db: &DB,
         target_view_client: &Addr<ViewClientActor>,
@@ -1925,7 +1963,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 let mut tracker = tracker.lock().unwrap();
                 // TODO: handle the return value. it is possible we want to unstake or update nonces
                 // after a restart.
-                tracker.on_target_block(db, msg)?;
+                tracker.on_target_block(&tx_block_queue, db, msg)?;
             }
 
             match head {
@@ -1993,9 +2031,13 @@ impl<T: ChainAccess> TxMirror<T> {
         let tracker2 = tracker.clone();
         let arbiter = actix::Arbiter::new();
 
+        let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
+
+        let tx_block_queue2 = tx_block_queue.clone();
         arbiter.spawn(async move {
             let res = Self::index_target_loop(
                 tracker2,
+                tx_block_queue2,
                 target_home,
                 db,
                 clients_tx,
@@ -2025,6 +2067,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     h,
                     *target_head.read().unwrap(),
                     &mut tracker,
+                    &tx_block_queue,
                     &target_view_client,
                     &mut block.chunks[0].txs,
                 )
@@ -2032,14 +2075,20 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
-                tracker.queue_block(block, &target_view_client, &self.db).await?;
-                (&mut self.send_time).await;
-                let mut b = tracker.next_batch().await?;
+                let mut b = {
+                    let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                    tracker
+                        .queue_block(&mut tx_block_queue, block, &target_view_client, &self.db)
+                        .await?;
+                    (&mut self.send_time).await;
+                    tracker.next_batch(&mut tx_block_queue).await?
+                };
                 let start_time = tokio::time::Instant::now();
                 self.send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
                     .await?;
                 tracker
                     .on_txs_sent(
+                        &tx_block_queue,
                         &self.db,
                         crate::chain_tracker::SentBatch::MappedBlock(
                             b,
@@ -2053,7 +2102,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
 
         tokio::select! {
-            res = self.main_loop(tracker, target_client, target_view_client, unstake_rx, target_height, target_head, source_hash) => {
+            res = self.main_loop(tracker, tx_block_queue, target_client, target_view_client, unstake_rx, target_height, target_head, source_hash) => {
                 // TODO: cancel target indexer loop
                 res
             }
