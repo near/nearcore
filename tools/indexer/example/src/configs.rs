@@ -7,7 +7,7 @@ use near_indexer::near_primitives::types::Gas;
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(crate) struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
-    #[clap(short, long)]
+    #[clap(long)]
     pub home_dir: Option<std::path::PathBuf>,
     #[clap(subcommand)]
     pub subcmd: SubCommand,
