@@ -146,7 +146,7 @@ export const LogVisualizer = () => {
                                             className={
                                                 'attached-event' +
                                                 (event.id == selectedEventId ||
-                                                parent.id == selectedEventId
+                                                    parent.id == selectedEventId
                                                     ? ' selected'
                                                     : '')
                                             }
