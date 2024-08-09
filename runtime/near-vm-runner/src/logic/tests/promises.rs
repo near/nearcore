@@ -164,7 +164,7 @@ fn test_promise_batch_action_create_account() {
     logic
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
-    assert_eq!(logic.used_gas().unwrap(), 12578263688564);
+    assert_eq!(logic.used_gas().unwrap(), 8918540688564);
     expect_test::expect![[r#"
         [
           {
@@ -233,7 +233,7 @@ fn test_promise_batch_action_deploy_contract() {
     logic
         .promise_batch_action_deploy_contract(index, code.len, code.ptr)
         .expect("should add an action to deploy contract");
-    assert_eq!(logic.used_gas().unwrap(), 5255774958146);
+    assert_eq!(logic.used_gas().unwrap(), 1596051958146);
     expect_test::expect![[r#"
         [
           {
@@ -312,7 +312,7 @@ fn test_promise_batch_action_transfer() {
         .promise_batch_action_transfer(index, num_110u128.ptr)
         .expect("should add an action to transfer money");
     logic.promise_batch_action_transfer(index, num_1u128.ptr).expect_err("not enough money");
-    assert_eq!(logic.used_gas().unwrap(), 5349703444787);
+    assert_eq!(logic.used_gas().unwrap(), 1689980444787);
     expect_test::expect![[r#"
         [
           {
@@ -387,7 +387,7 @@ fn test_promise_batch_action_stake() {
     logic
         .promise_batch_action_stake(index, num_110u128.ptr, key.len, key.ptr)
         .expect("should add an action to stake");
-    assert_eq!(logic.used_gas().unwrap(), 5138414976215);
+    assert_eq!(logic.used_gas().unwrap(), 1478691976215);
     expect_test::expect![[r#"
         [
           {
@@ -485,7 +485,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
         method_names,
     )
     .expect("should add allowance");
-    assert_eq!(logic.used_gas().unwrap(), 5126680499695);
+    assert_eq!(logic.used_gas().unwrap(), 1466957499695);
     expect_test::expect![[r#"
         [
           {
@@ -572,7 +572,7 @@ fn test_promise_batch_then() {
     logic
         .promise_batch_then(index, account_id.len, account_id.ptr)
         .expect("promise batch should run ok");
-    assert_eq!(logic.used_gas().unwrap(), 24124999601771);
+    assert_eq!(logic.used_gas().unwrap(), 20465276601771);
     expect_test::expect![[r#"
         [
           {
