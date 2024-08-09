@@ -33,7 +33,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
 
@@ -422,7 +422,6 @@ struct TxMirror<T: ChainAccess> {
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     default_extra_key: SecretKey,
     config: MirrorConfig,
-    send_time: Pin<Box<tokio::time::Sleep>>,
 }
 
 fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
@@ -501,7 +500,7 @@ impl std::fmt::Display for MappedTxProvenance {
 // what nonce to use because the public key was added in an AddKey
 // action that we haven't seen on chain yet. The target_tx field is complete
 // except for the nonce field.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct TxAwaitingNonce {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
@@ -549,7 +548,7 @@ impl TxAwaitingNonce {
 // A transaction meant for the target chain that is complete/ready to send.
 // We keep some extra info about the transaction for the purposes of logging
 // later on when we find it on chain.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct MappedTx {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
@@ -603,7 +602,7 @@ impl MappedTx {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum TargetChainTx {
     Ready(MappedTx),
     AwaitingNonce(TxAwaitingNonce),
@@ -743,6 +742,31 @@ struct TxBatch {
     txs: Vec<(TxRef, TargetChainTx)>,
 }
 
+impl From<&MappedBlock> for TxBatch {
+    fn from(block: &MappedBlock) -> Self {
+        Self {
+            source_height: block.source_height,
+            source_hash: block.source_hash,
+            txs: block
+                .chunks
+                .iter()
+                .flat_map(|c| {
+                    c.txs.iter().enumerate().map(move |(tx_idx, tx)| {
+                        (
+                            TxRef {
+                                source_height: block.source_height,
+                                shard_id: c.shard_id,
+                                tx_idx,
+                            },
+                            tx.clone(),
+                        )
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
 async fn account_exists(
     view_client: &Addr<ViewClientActor>,
     account_id: &AccountId,
@@ -850,15 +874,10 @@ impl<T: ChainAccess> TxMirror<T> {
             secret,
             default_extra_key,
             config,
-            // Wait at least 15 seconds before sending any transactions because for
-            // a few seconds after the node starts, transaction routing requests
-            // will be silently dropped by the peer manager.
-            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
         })
     }
 
     async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
-        &mut self,
         target_client: &Addr<ClientActor>,
         txs: I,
     ) -> anyhow::Result<()> {
@@ -1577,14 +1596,13 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         ref_hash: CryptoHash,
-        next_batch_time: Option<Instant>,
-    ) -> anyhow::Result<usize> {
+    ) -> anyhow::Result<()> {
         let mut num_blocks_queued = {
             let tx_block_queue = tx_block_queue.lock().unwrap();
             tx_block_queue.len()
         };
         if num_blocks_queued > 100 {
-            return Ok(num_blocks_queued);
+            return Ok(());
         }
 
         loop {
@@ -1595,12 +1613,12 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let next_height = match next_height {
                 Some(h) => h,
-                None => return Ok(num_blocks_queued),
+                None => return Ok(()),
             };
             // if we have a stop height, just send the last few blocks without worrying about
             // extra create account txs, otherwise wait until we get more blocks
             if !tracker.has_stop_height() && create_account_height.is_none() {
-                return Ok(num_blocks_queued);
+                return Ok(());
             }
             let b = self
                 .fetch_txs(
@@ -1619,15 +1637,7 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             num_blocks_queued += 1;
             if num_blocks_queued > 100 {
-                return Ok(num_blocks_queued);
-            }
-
-            if let Some(next_batch_time) = next_batch_time {
-                if num_blocks_queued > 0
-                    && Instant::now() + Duration::from_millis(20) > next_batch_time
-                {
-                    return Ok(num_blocks_queued);
-                }
+                return Ok(());
             }
         }
     }
@@ -1666,7 +1676,7 @@ impl<T: ChainAccess> TxMirror<T> {
             .await?;
         }
         if !txs.is_empty() {
-            self.send_transactions(target_client, txs.iter_mut()).await?;
+            Self::send_transactions(target_client, txs.iter_mut()).await?;
             tracker
                 .on_txs_sent(
                     tx_block_queue,
@@ -1677,6 +1687,68 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
         }
         Ok(())
+    }
+
+    async fn send_txs_loop(
+        db: Arc<DB>,
+        blocks_sent: mpsc::Sender<TxBatch>,
+        tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
+        mut send_time: Pin<Box<tokio::time::Sleep>>,
+        send_delay: Arc<Mutex<Duration>>,
+        target_client: Addr<ClientActor>,
+    ) -> anyhow::Result<()> {
+        let mut sent_source_height = None;
+
+        loop {
+            (&mut send_time).await;
+
+            let tx_batch = {
+                let tx_block_queue = tx_block_queue.lock().unwrap();
+                let b = match sent_source_height {
+                    Some(sent_source_height) => {
+                        let mut block_idx = None;
+                        for (idx, b) in tx_block_queue.iter().enumerate() {
+                            if b.source_height > sent_source_height {
+                                block_idx = Some(idx);
+                                break;
+                            }
+                        }
+                        match block_idx {
+                            Some(idx) => tx_block_queue.get(idx),
+                            None => None,
+                        }
+                    }
+                    None => tx_block_queue.get(0),
+                };
+                b.map(|b| TxBatch::from(b))
+            };
+
+            let mut tx_batch = match tx_batch {
+                Some(b) => b,
+                None => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    continue;
+                }
+            };
+
+            let start_time = tokio::time::Instant::now();
+
+            tracing::debug!(target: "mirror", "Sending transactions for source block #{}", tx_batch.source_height);
+            Self::send_transactions(
+                &target_client,
+                tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),
+            )
+            .await?;
+            set_last_source_height(&db, tx_batch.source_height)?;
+            sent_source_height = Some(tx_batch.source_height);
+
+            blocks_sent.send(tx_batch).await.unwrap();
+
+            let send_delay = *send_delay.lock().unwrap();
+            tracing::debug!(target: "mirror", "Sleeping for {:?} until sending more transactions", &send_delay);
+            let next_send_time = start_time + send_delay;
+            send_time.as_mut().reset(next_send_time);
+        }
     }
 
     async fn index_target_loop(
@@ -1735,63 +1807,57 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    async fn main_loop(
+    async fn queue_txs_loop(
         &mut self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         target_client: Addr<ClientActor>,
         target_view_client: Addr<ViewClientActor>,
+        mut blocks_sent: mpsc::Receiver<TxBatch>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
+        send_delay: Arc<Mutex<Duration>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
         mut source_hash: CryptoHash,
     ) -> anyhow::Result<()> {
-        let mut num_blocks_queued = self
-            .queue_txs(
-                &tracker,
-                &tx_block_queue,
-                &target_view_client,
-                *target_head.read().unwrap(),
-                None,
-            )
-            .await?;
+        let mut queue_txs_time = tokio::time::interval(Duration::from_millis(100));
 
         loop {
             tokio::select! {
                 // time to send a batch of transactions
-                _ = &mut self.send_time, if num_blocks_queued > 0 => {
-                    let mut tx_batch = {
-                        let mut tracker = tracker.lock().unwrap();
-                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
-                        tracker.next_batch(&mut tx_block_queue).await?
-                    };
+                _ = queue_txs_time.tick() => {
+                    self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap()).await?;
+                }
+                tx_batch = blocks_sent.recv() => {
+                    let tx_batch = tx_batch.unwrap();
                     source_hash = tx_batch.source_hash;
-                    let start_time = tokio::time::Instant::now();
-                    self.send_transactions(&target_client, tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
+                    // lock the tracker before removing the block from the queue so that
+                    // we don't call on_target_block() in the other thread between removing the block
+                    // and calling on_txs_sent(), because that could lead to a bug looking up transactions
+                    // in TxTracker::get_tx()
+                    let mut tracker = tracker.lock().unwrap();
                     {
-                        let mut tracker = tracker.lock().unwrap();
-                        tracker.on_txs_sent(
-                            &tx_block_queue,
-                            &self.db,
-                            crate::chain_tracker::SentBatch::MappedBlock(tx_batch, self.send_time.as_mut(), start_time),
-                            *target_height.read().unwrap(),
-                        ).await?;
-                    }
-
-                    // now we have one second left until we need to send more transactions. In the
-                    // meantime, we might as well prepare some more batches of transactions.
-                    // TODO: continue in best effort fashion on error
-                    num_blocks_queued = self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap(), Some(self.send_time.as_ref().deadline().into_std())).await?;
+                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                        let b = tx_block_queue.pop_front().unwrap();
+                        assert!(b.source_height == tx_batch.source_height);
+                    };
+                    let target_height = *target_height.read().unwrap();
+                    let new_delay = tracker.on_txs_sent(
+                        &tx_block_queue,
+                        &self.db,
+                        crate::chain_tracker::SentBatch::MappedBlock(tx_batch),
+                        target_height,
+                    ).await?;
+                    *send_delay.lock().unwrap() = new_delay;
                 }
                 msg = accounts_to_unstake.recv() => {
                     let staked_accounts = msg.unwrap();
                     let mut tracker = tracker.lock().unwrap();
-                    self.unstake(&mut tracker, &tx_block_queue, &target_client, &target_view_client, staked_accounts, &source_hash, &target_head.read().unwrap(), *target_height.read().unwrap()).await?;
-                }
-                // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
-                // chain and can't fetch the transactions. Check if we have them now here.
-                _ = tokio::time::sleep(std::time::Duration::from_millis(200)), if num_blocks_queued == 0 => {
-                    num_blocks_queued = self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap(), Some(self.send_time.as_ref().deadline().into_std())).await?;
+                    self.unstake(
+                        &mut tracker, &tx_block_queue, &target_client,
+                        &target_view_client, staked_accounts, &source_hash,
+                        &target_head.read().unwrap(), *target_height.read().unwrap()
+                    ).await?;
                 }
             };
             // TODO: this locking of the mutex before continuing the loop is kind of unnecessary since we should be able to tell
@@ -1935,6 +2001,15 @@ impl<T: ChainAccess> TxMirror<T> {
         // wait til we set the values in target_height and target_head after receiving a message from the indexer
         let (target_client, target_view_client) = clients_rx.await.unwrap();
 
+        // Wait at least 15 seconds before sending any transactions because for
+        // a few seconds after the node starts, transaction routing requests
+        // will be silently dropped by the peer manager.
+        let mut send_time = Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15)));
+        let mut send_delay = self
+            .config
+            .tx_batch_interval
+            .unwrap_or(self.target_min_block_production_delay + Duration::from_millis(100));
+
         if last_stored_height.is_none() {
             // send any extra function call-initiated create accounts for the first few blocks right now
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
@@ -1963,35 +2038,67 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracker
                         .queue_block(&mut tx_block_queue, block, &target_view_client, &self.db)
                         .await?;
-                    (&mut self.send_time).await;
-                    tracker.next_batch(&mut tx_block_queue).await?
+                    (&mut send_time).await;
+                    TxBatch::from(&tx_block_queue.pop_front().unwrap())
                 };
-                let start_time = tokio::time::Instant::now();
-                self.send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
+                Self::send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
                     .await?;
-                tracker
+                send_delay = tracker
                     .on_txs_sent(
                         &tx_block_queue,
                         &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(
-                            b,
-                            self.send_time.as_mut(),
-                            start_time,
-                        ),
+                        crate::chain_tracker::SentBatch::MappedBlock(b),
                         *target_height.read().unwrap(),
                     )
                     .await?;
             }
         }
+        self.queue_txs(
+            &tracker,
+            &tx_block_queue,
+            &target_view_client,
+            *target_head.read().unwrap(),
+        )
+        .await?;
 
+        let send_delay = Arc::new(Mutex::new(send_delay));
+        let send_delay2 = send_delay.clone();
+        let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel(10);
+        let tx_block_queue2 = tx_block_queue.clone();
+        let target_client2 = target_client.clone();
+        let db = self.db.clone();
+        let arbiter2 = actix::Arbiter::new();
+        let (send_txs_done_tx, send_txs_done_rx) =
+            tokio::sync::oneshot::channel::<anyhow::Result<()>>();
+        arbiter2.spawn(async move {
+            let res = Self::send_txs_loop(
+                db,
+                blocks_sent_tx,
+                tx_block_queue2,
+                send_time,
+                send_delay2,
+                target_client2,
+            )
+            .await;
+            send_txs_done_tx.send(res).unwrap();
+        });
         tokio::select! {
-            res = self.main_loop(tracker, tx_block_queue, target_client, target_view_client, unstake_rx, target_height, target_head, source_hash) => {
-                // TODO: cancel target indexer loop
+            res = self.queue_txs_loop(
+                tracker, tx_block_queue, target_client, target_view_client,
+                blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
+                source_hash
+            ) => {
+                // TODO: cancel other threads
                 res
             }
             res = target_indexer_done_rx => {
                 let res = res.unwrap();
                 tracing::error!("target indexer thread exited");
+                res.context("target indexer thread failure")
+            }
+            res = send_txs_done_rx => {
+                let res = res.unwrap();
+                tracing::error!("transaction sending thread exited");
                 res.context("target indexer thread failure")
             }
         }
