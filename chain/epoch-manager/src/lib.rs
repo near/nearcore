@@ -220,6 +220,7 @@ impl EpochManager {
         let initial_epoch_config = EpochConfig::from(genesis_config);
         let epoch_config = AllEpochConfig::new_with_test_overrides(
             genesis_config.use_production_config(),
+            genesis_config.protocol_version,
             initial_epoch_config,
             &genesis_config.chain_id,
             test_overrides,

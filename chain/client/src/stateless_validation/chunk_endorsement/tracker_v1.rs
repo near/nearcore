@@ -1,39 +1,20 @@
 use lru::LruCache;
-use near_chain::ChainStoreAccess;
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, ChunkEndorsementV1,
-};
-use near_primitives::stateless_validation::validator_assignment::EndorsementStats;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::AccountId;
 
-use crate::Client;
+use super::ChunkEndorsementsState;
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
 const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
-
-pub enum ChunkEndorsementsState {
-    Endorsed(Option<EndorsementStats>, ChunkEndorsementSignatures),
-    NotEnoughStake(Option<EndorsementStats>),
-}
-
-impl ChunkEndorsementsState {
-    pub fn stats(&self) -> Option<&EndorsementStats> {
-        match self {
-            Self::Endorsed(stats, _) => stats.as_ref(),
-            Self::NotEnoughStake(stats) => stats.as_ref(),
-        }
-    }
-}
 
 /// Module to track chunk endorsements received from chunk validators.
 pub struct ChunkEndorsementTracker {
@@ -54,28 +35,8 @@ struct ChunkEndorsementTrackerInner {
     pending_chunk_endorsements: LruCache<ChunkHash, HashMap<AccountId, ChunkEndorsementV1>>,
 }
 
-impl Client {
-    pub fn process_chunk_endorsement(
-        &mut self,
-        endorsement: ChunkEndorsement,
-    ) -> Result<(), Error> {
-        // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
-        let chunk_header =
-            match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
-                Ok(chunk) => Some(chunk.cloned_header()),
-                Err(Error::ChunkMissing(_)) => None,
-                Err(error) => return Err(error),
-            };
-        match endorsement {
-            ChunkEndorsement::V1(endorsement) => {
-                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, chunk_header)
-            }
-        }
-    }
-}
-
 impl ChunkEndorsementTracker {
-    pub fn process_chunk_endorsement(
+    pub(crate) fn process_chunk_endorsement(
         &self,
         endorsement: ChunkEndorsementV1,
         chunk_header: Option<ShardChunkHeader>,
@@ -115,7 +76,7 @@ impl ChunkEndorsementTracker {
     }
 
     /// Add the chunk endorsement to a cache of pending chunk endorsements (if not yet there).
-    pub(crate) fn add_chunk_endorsement_to_pending_cache(
+    fn add_chunk_endorsement_to_pending_cache(
         &self,
         endorsement: ChunkEndorsementV1,
     ) -> Result<(), Error> {

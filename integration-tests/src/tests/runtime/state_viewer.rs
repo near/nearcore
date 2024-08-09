@@ -1,11 +1,12 @@
 use std::{collections::HashMap, io, sync::Arc};
 
 use borsh::BorshDeserialize;
+use near_vm_runner::ContractCode;
 
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
-    hash::{hash as sha256, CryptoHash},
+    hash::CryptoHash,
     serialize::to_base64,
     trie_key::trie_key_parsers,
     types::{AccountId, StateRoot},
@@ -374,12 +375,14 @@ fn test_view_state_with_large_contract() {
     let (_, tries, root) = get_runtime_and_trie();
     let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
     let contract_code = [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec();
+    let code = ContractCode::new(contract_code, None);
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, 0, sha256(&contract_code), 50_001, PROTOCOL_VERSION),
+        &Account::new(0, 0, 0, *code.hash(), 50_001, PROTOCOL_VERSION),
     );
-    state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
+    // FIXME: this really should use the deploy action.
+    state_update.contract_storage.store(code);
     let trie_viewer = TrieViewer::new(Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
     assert!(result.is_ok());
