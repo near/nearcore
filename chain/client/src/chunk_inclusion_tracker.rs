@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
 use crate::metrics;
-use crate::stateless_validation::chunk_endorsement_tracker::{
+use crate::stateless_validation::chunk_endorsement::{
     ChunkEndorsementTracker, ChunkEndorsementsState,
 };
 

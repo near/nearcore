@@ -230,10 +230,10 @@ impl TestReshardingEnv {
         // doesn't support requesting chunks and non-validators wouldn't be able
         // to obtain the chunks at all.
         // Same needs to be set in the genesis.
-        let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+        let epoch_config_test_overrides = AllEpochConfigTestOverrides {
             block_producer_kickout_threshold: Some(0),
             chunk_producer_kickout_threshold: Some(0),
-        });
+        };
         let env = builder
             .clients_count(num_clients)
             .validator_seats(num_validators)
@@ -886,7 +886,8 @@ fn setup_genesis(
     genesis.config.protocol_upgrade_stake_threshold = Rational32::new(7, 10);
 
     let default_epoch_config = EpochConfig::from(&genesis.config);
-    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config, "test-chain");
+    let all_epoch_config =
+        AllEpochConfig::new(true, genesis_protocol_version, default_epoch_config, "test-chain");
     let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
 
     genesis.config.shard_layout = epoch_config.shard_layout;

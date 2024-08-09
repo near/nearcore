@@ -15,6 +15,7 @@ workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
+itertools.workspace = true
 
 near-chain.workspace = true
 near-chain-primitives.workspace = true

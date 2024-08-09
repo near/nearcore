@@ -154,7 +154,7 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::v0(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, epoch_config, "test-chain")
+    AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
 }
 
 pub fn epoch_config(
