@@ -1846,7 +1846,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let start_time = tokio::time::Instant::now();
 
-            tracing::debug!(target: "mirror", "Sending transactions for source block #{}", tx_batch.source_height);
+            tracing::debug!(target: "mirror", "xxxxxxxx Sending transactions for source block #{}", tx_batch.source_height);
             Self::send_transactions(
                 &target_client,
                 tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),
@@ -1855,10 +1855,12 @@ impl<T: ChainAccess> TxMirror<T> {
             set_last_source_height(&db, tx_batch.source_height)?;
             sent_source_height = Some(tx_batch.source_height);
 
+            tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx send sent batch");
             blocks_sent.send(tx_batch).await.unwrap();
+            tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx sent sent batch");
 
             let send_delay = *send_delay.lock().unwrap();
-            tracing::debug!(target: "mirror", "Sleeping for {:?} until sending more transactions", &send_delay);
+            tracing::debug!(target: "mirror", "xxxxxxxx Sleeping for {:?} until sending more transactions", &send_delay);
             let next_send_time = start_time + send_delay;
             send_time.as_mut().reset(next_send_time);
         }
@@ -1942,7 +1944,9 @@ impl<T: ChainAccess> TxMirror<T> {
             tokio::select! {
                 // time to send a batch of transactions
                 _ = queue_txs_time.tick() => {
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx do queue txs");
                     self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap()).await?;
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx did queue txs");
                 }
                 tx_batch = blocks_sent.recv() => {
                     let tx_batch = tx_batch.unwrap();
@@ -1958,17 +1962,20 @@ impl<T: ChainAccess> TxMirror<T> {
                         assert!(b.source_height == tx_batch.source_height);
                     };
                     let target_height = *target_height.read().unwrap();
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx do on_txs_sent");
                     let new_delay = tracker.on_txs_sent(
                         &tx_block_queue,
                         &self.db,
                         crate::chain_tracker::SentBatch::MappedBlock(tx_batch),
                         target_height,
                     ).await?;
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx did on_txs_sent");
                     *send_delay.lock().unwrap() = new_delay;
                 }
                 msg = accounts_to_unstake.recv() => {
                     let staked_accounts = msg.unwrap();
                     let mut tracker = tracker.lock().unwrap();
+                    tracing::info!(target: "mirror", thread_id=?std::thread::current().id(), "xxxxxxxx do unstake");
                     self.unstake(
                         &mut tracker, &tx_block_queue, &target_client,
                         &target_view_client, staked_accounts, &source_hash,
