@@ -47,10 +47,7 @@ nightly = [
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
 
-nightly_protocol = [
-]
-
-statelessnet_protocol = []
+nightly_protocol = []
 
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",

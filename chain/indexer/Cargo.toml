@@ -60,8 +60,3 @@ nightly = [
   "nightly_protocol",
   "node-runtime/nightly",
 ]
-statelessnet_protocol = [
-  "near-client/statelessnet_protocol",
-  "near-primitives/statelessnet_protocol",
-  "nearcore/statelessnet_protocol",
-]

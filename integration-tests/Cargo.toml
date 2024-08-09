@@ -159,10 +159,6 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
   "testlib/nightly_protocol",
 ]
-statelessnet_protocol = [
-  "near-chain/statelessnet_protocol",
-  "near-primitives/statelessnet_protocol",
-]
 sandbox = [
   "near-chain/sandbox",
   "near-client/sandbox",
