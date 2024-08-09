@@ -519,7 +519,7 @@ class LocalNode(BaseNode):
     def output_logs(self):
         stdout = pathlib.Path(self.node_dir) / 'stdout'
         stderr = pathlib.Path(self.node_dir) / 'stderr'
-        if os.environ.get('BUILDKITE'):
+        if os.environ.get('CI_HACKS'):
             logger.info('=== stdout: ')
             logger.info(stdout.read_text('utf-8', 'replace'))
             logger.info('=== stderr: ')
