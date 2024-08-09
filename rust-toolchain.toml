@@ -2,6 +2,6 @@
 # This specifies the version of Rust we use to build.
 # Individual crates in the workspace may support a lower version, as indicated by `rust-version` field in each crate's `Cargo.toml`.
 # The version specified below, should be at least as high as the maximum `rust-version` within the workspace.
-channel = "1.80.0"
+channel = "1.80.1"
 components = ["rustfmt", "clippy", "rust-analyzer"]
 targets = ["wasm32-unknown-unknown"]
