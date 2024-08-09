@@ -9,6 +9,7 @@ mod contract_accounts;
 mod epoch_info;
 mod latest_witnesses;
 pub mod progress_reporter;
+mod replay_headers;
 mod rocksdb_stats;
 mod scan_db;
 mod state_changes;
