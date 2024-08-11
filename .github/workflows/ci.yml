@@ -29,12 +29,6 @@ jobs:
             type: stable
             runs_integ_tests: true
             upload_profraws: true
-          - name: Linux StatelessNet
-            id: linux-statelessnet
-            os: ubuntu-22.04-16core
-            type: statelessnet
-            runs_integ_tests: true
-            upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
             os: ubuntu-22.04-16core

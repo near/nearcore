@@ -340,7 +340,6 @@ pub(crate) fn receipt_congestion_gas(
             // they never cross the shard boundaries. This makes it irrelevant
             // for the congestion MVP, which only counts gas in the outgoing
             // buffers and delayed receipts queue.
-            tracing::error!(target: "congestion_control", "Attempting to calculate congestion gas for a `PromiseYield`.");
             Ok(0)
         }
         ReceiptEnum::PromiseResume(_) => {
