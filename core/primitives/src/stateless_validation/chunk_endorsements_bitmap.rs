@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(
@@ -16,14 +17,15 @@ use near_schema_checker_lib::ProtocolSchema;
 pub struct ChunkEndorsementsBitmap(Vec<Vec<u8>>);
 
 impl ChunkEndorsementsBitmap {
-    /// Returns a clone of this bitmap with all the bits unset.
-    pub fn clone_cleared(&self) -> Self {
-        let mut clone = self.clone();
-        clone.clear();
-        clone
+    pub fn new(num_shards: usize) -> Self {
+        Self(Vec::with_capacity(num_shards))
     }
 
-    fn clear(&mut self) {
+    pub fn set(&mut self, shard_id: ShardId, endorsements: Vec<bool>) {
+        unimplemented!()
+    }
+
+    pub fn is_set(&self, shard_id: ShardId, validator_index: usize) -> bool {
         unimplemented!()
     }
 }

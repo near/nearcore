@@ -36,6 +36,7 @@ yansi.workspace = true
 
 near-time.workspace = true
 near-chain-configs.workspace = true
+near-chain-primitives.workspace = true
 near-chain.workspace = true
 near-client.workspace = true
 near-crypto.workspace = true

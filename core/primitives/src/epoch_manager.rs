@@ -345,6 +345,7 @@ pub struct ValidatorSelectionConfig {
 pub mod block_info {
     use super::SlashState;
     use crate::challenge::SlashedValidator;
+    use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
@@ -381,7 +382,7 @@ pub mod block_info {
             total_supply: Balance,
             latest_protocol_version: ProtocolVersion,
             timestamp_nanosec: u64,
-            chunk_endorsements: Option<Vec<Vec<u8>>>,
+            chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         ) -> Self {
             if let Some(chunk_endorsements) = chunk_endorsements {
                 Self::V3(BlockInfoV3 {
@@ -589,11 +590,11 @@ pub mod block_info {
         }
 
         #[inline]
-        pub fn chunk_endorsements(&self) -> Option<Vec<Vec<u8>>> {
+        pub fn chunk_endorsements(&self) -> Option<&ChunkEndorsementsBitmap> {
             match self {
                 Self::V1(_) => None,
                 Self::V2(_) => None,
-                Self::V3(info) => Some(info.chunk_endorsements.clone()),
+                Self::V3(info) => Some(&info.chunk_endorsements),
             }
         }
     }
@@ -642,7 +643,7 @@ pub mod block_info {
         /// Total supply at this block.
         pub total_supply: Balance,
         pub timestamp_nanosec: u64,
-        pub chunk_endorsements: Vec<Vec<u8>>,
+        pub chunk_endorsements: ChunkEndorsementsBitmap,
     }
 }
 

@@ -51,7 +51,8 @@ impl BlockHeaderInfo {
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
             timestamp_nanosec: header.raw_timestamp(),
-            chunk_endorsements: header.chunk_endorsements().cloned(),
+            // TODO(#11900): Set this from the block header.
+            chunk_endorsements: None,
         }
     }
 }
@@ -110,7 +111,9 @@ impl EpochInfoAggregator {
     ) {
         let _span =
             debug_span!(target: "epoch_tracker", "update_tail", prev_block_height).entered();
-        // Step 1: update block tracer
+
+        // Step 1: update block tracer (block-production stats)
+
         let block_info_height = block_info.height();
         for height in prev_block_height + 1..=block_info_height {
             let block_producer_id = EpochManager::block_producer_from_info(epoch_info, height);
@@ -135,19 +138,21 @@ impl EpochInfoAggregator {
             }
         }
 
-        // Step 2: update shard tracker
+        // Step 2: update shard tracker (chunk production/endorsement stats)
 
-        // Note: a possible optimization is to access the epoch_manager cache of this value.
+        // TODO(#11900): Call EpochManager::get_chunk_validator_assignments to access the cached validator assignments.
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
+        let chunk_endorsements = block_info.chunk_endorsements();
 
         for (i, mask) in block_info.chunk_mask().iter().enumerate() {
+            let shard_id: ShardId = i as ShardId;
             let chunk_producer_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 prev_block_height + 1,
                 i as ShardId,
             )
             .unwrap();
-            let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
+            let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)
                 .and_modify(|stats| {
@@ -170,17 +175,35 @@ impl EpochInfoAggregator {
                 .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
                 .iter()
                 .map(|(id, _)| *id);
-            for chunk_validator_id in chunk_validators {
+            for (index, chunk_validator_id) in chunk_validators.enumerate() {
                 tracker
                     .entry(chunk_validator_id)
                     .and_modify(|stats| {
                         let endorsement_stats = stats.endorsement_stats_mut();
-                        if *mask {
+                        if let Some(chunk_endorsements) = chunk_endorsements.as_ref() {
+                            if chunk_endorsements.is_set(shard_id, index) {
+                                endorsement_stats.produced += 1;
+                            }
+                        } else if *mask {
                             endorsement_stats.produced += 1;
                         }
                         endorsement_stats.expected += 1;
                     })
-                    .or_insert_with(|| ChunkStats::new_with_endorsement(u64::from(*mask), 1));
+                    .or_insert_with(|| {
+                        let produced = if let Some(chunk_endorsements) = chunk_endorsements.as_ref()
+                        {
+                            if chunk_endorsements.is_set(shard_id, index) {
+                                1
+                            } else {
+                                0
+                            }
+                        } else if *mask {
+                            1
+                        } else {
+                            0
+                        };
+                        ChunkStats::new_with_endorsement(produced, 1)
+                    });
             }
         }
 
