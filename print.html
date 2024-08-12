@@ -916,7 +916,7 @@ simply using 4 shards.</p>
 basic information about past epochs - stay tuned.</p>
 <h2 id="technical-details"><a class="header" href="#technical-details">Technical details</a></h2>
 <h3 id="where-do-we-store-epoch-info"><a class="header" href="#where-do-we-store-epoch-info">Where do we store epoch info?</a></h3>
-<p>We use a couple columns in the database to store epoch information:</p>
+<p>We use a couple of columns in the database to store epoch information:</p>
 <ul>
 <li><strong>ColEpochInfo = 11</strong> - is storing the mapping from EpochId to EpochInfo
 structure that contains all the details.</li>
@@ -1913,7 +1913,7 @@ accounts. This means there is no financial incentive for Alice to delete her
 account. But it does not solve the problem that the relayer has to pay for the
 account creation and Alice can simply refuse to send a meta transaction
 afterwards. In particular, anyone creating an account would have financial
-incentive to let a relayer create it for them instead of paying out of the own
+incentive to let a relayer create it for them instead of paying out of their own
 pockets. This would still be better than Alice stealing tokens but
 fundamentally, there still needs to be some trust.</p>
 <p>An alternative solution discussed is to do NONCE checks on the relayer's access
@@ -2148,7 +2148,7 @@ enough?</p>
 would be telling the truth. But what if that is not enough?</p>
 <p>The final solution would be to run your own node - this way you’d check all the
 transactions yourself, and then you could be sure - but this can become a quite
-expensive endeavour - especially when many shards are involved.</p>
+expensive endeavor - especially when many shards are involved.</p>
 <p>But there is actually a better solution - that doesn’t require you to trust the
 single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.</p>
@@ -3750,7 +3750,7 @@ per 1 Tgas of execution, we spend no more than 1ms wall-clock time.</p>
 <p>For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
 nearcore can serve requests fast enough proves that it is possible to be at
-least as fast. However, we should be careful to not couple costs too tightly
+least as fast. However, we should be careful not to couple costs too tightly
 with the specific implementation of nearcore to allow for innovation in new
 clients.</p>
 <p>The estimator code is part of the nearcore repository in the directory
