@@ -2499,7 +2499,6 @@ impl CongestionInfoView {
 
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
-#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
