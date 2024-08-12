@@ -375,7 +375,6 @@ mod tests {
     /// Alternatively, add --accept to the first command so that it automatically does step 2.
     #[test]
     #[cfg(not(feature = "nightly"))]
-    #[cfg(not(feature = "statelessnet_protocol"))]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::view::RuntimeConfigView;
