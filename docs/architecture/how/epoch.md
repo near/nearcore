@@ -82,7 +82,7 @@ basic information about past epochs - stay tuned.
 
 ### Where do we store epoch info?
 
-We use a couple columns in the database to store epoch information:
+We use a couple of columns in the database to store epoch information:
 
 * **ColEpochInfo = 11** - is storing the mapping from EpochId to EpochInfo
   structure that contains all the details.
