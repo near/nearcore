@@ -185,6 +185,7 @@ impl ValidateEpochSyncInfoCmd {
                     last_header.total_supply(),
                     last_header.latest_protocol_version(),
                     last_header.raw_timestamp(),
+                    None, // TODO(#11900): Implement this.
                 );
 
                 *last_block_info.epoch_id_mut() = *last_header.epoch_id();

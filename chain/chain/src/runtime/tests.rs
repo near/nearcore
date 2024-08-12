@@ -178,6 +178,7 @@ impl TestEnv {
                 total_supply: genesis_total_supply,
                 latest_protocol_version: genesis_protocol_version,
                 timestamp_nanosec: 0,
+                chunk_endorsements: None, // TODO(#11900): Implement this.
             })
             .unwrap()
             .commit()
@@ -344,6 +345,7 @@ impl TestEnv {
                 total_supply: self.runtime.genesis_config.total_supply,
                 latest_protocol_version: self.runtime.genesis_config.protocol_version,
                 timestamp_nanosec: self.time + 10u64.pow(9),
+                chunk_endorsements: None, // TODO(#11900): Implement this.
             })
             .unwrap()
             .commit()
@@ -752,6 +754,7 @@ fn test_state_sync() {
                 total_supply: new_env.runtime.genesis_config.total_supply,
                 latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
                 timestamp_nanosec: new_env.time,
+                chunk_endorsements: None, // TODO(#11900): Implement this.
             })
             .unwrap()
             .commit()

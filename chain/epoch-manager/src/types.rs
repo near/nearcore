@@ -4,6 +4,7 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
@@ -32,6 +33,7 @@ pub struct BlockHeaderInfo {
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
     pub timestamp_nanosec: u64,
+    pub chunk_endorsements: Option<ChunkEndorsementsBitmap>,
 }
 
 impl BlockHeaderInfo {
@@ -49,6 +51,7 @@ impl BlockHeaderInfo {
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
             timestamp_nanosec: header.raw_timestamp(),
+            chunk_endorsements: header.chunk_endorsements().cloned(),
         }
     }
 }

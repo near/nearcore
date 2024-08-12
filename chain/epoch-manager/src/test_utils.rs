@@ -326,6 +326,7 @@ pub fn record_block_with_final_block_hash(
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                None, // TODO(#11900): Implement this.
             ),
             [0; 32],
         )
@@ -356,6 +357,7 @@ pub fn record_block_with_slashes(
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                None, // TODO(#11900): Implement this.
             ),
             [0; 32],
         )

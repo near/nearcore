@@ -350,12 +350,12 @@ impl Block {
             };
 
         match prev {
-            BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
-            BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
-            BlockHeader::BlockHeaderV3(_) => {
-                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
+            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
+                debug_assert_eq!(prev.block_ordinal(), 0)
             }
-            BlockHeader::BlockHeaderV4(_) => {
+            BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };

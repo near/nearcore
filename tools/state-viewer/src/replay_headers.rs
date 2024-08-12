@@ -35,6 +35,9 @@ pub(crate) fn replay_headers(
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             tracing::trace!("Height: {}, header: {:#?}", height, header);
+
+            // Create a new header with the chunk endorsements included.
+
             epoch_manager_replay
                 .add_validator_proposals(BlockHeaderInfo::new(
                     &header,

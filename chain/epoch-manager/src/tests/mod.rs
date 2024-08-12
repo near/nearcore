@@ -2101,6 +2101,7 @@ fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: Proto
     match info {
         BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
         BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
+        BlockInfo::V3(v2) => v2.latest_protocol_version = protocol_version,
     }
 }
 
