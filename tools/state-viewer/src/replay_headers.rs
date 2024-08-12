@@ -83,33 +83,36 @@ fn get_block_header_info(
         chain_store.get_block_height(header.last_final_block()).unwrap(),
     );
 
-    // Note(#11900): If stateless validation is enabled, we generate chunk endorsement bitmap
-    // in the block header from the chunk endorsement signatures in the block body.
-
     let epoch_id = header.epoch_id();
     let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-    if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        return Ok(header_info);
+
+    // Note(#11900): If chunk endorsements in block header is enabled but we have not yet populated the endorsements bitmap
+    // in the header yet, we generate chunk endorsement bitmap from the chunk endorsement signatures in the block body.
+    // TODO(#11900): Remove this code after ChunkEndorsementsInBlockHeader is stabilized.
+    if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version)
+        && header.chunk_endorsements().is_none()
+    {
+        let shard_ids = epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect_vec();
+        let mut bitmap = ChunkEndorsementsBitmap::new(shard_ids.len());
+
+        let block = chain_store.get_block(header.hash())?;
+        let endorsement_signatures = block.chunk_endorsements().to_vec();
+        assert_eq!(endorsement_signatures.len(), shard_ids.len());
+
+        let height = header.height();
+        for shard_id in shard_ids.into_iter() {
+            let assignments = epoch_manager
+                .get_chunk_validator_assignments(epoch_id, shard_id, height)?
+                .ordered_chunk_validators();
+            let endorsements = &endorsement_signatures[shard_id as usize];
+            assert_eq!(assignments.len(), endorsements.len());
+            bitmap.set(
+                shard_id,
+                endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
+            );
+        }
+        header_info.chunk_endorsements = Some(bitmap);
     }
-
-    let shard_ids = epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect_vec();
-    let mut bitmap = ChunkEndorsementsBitmap::new(shard_ids.len());
-
-    let block = chain_store.get_block(header.hash())?;
-    let shards_to_endorsements = block.chunk_endorsements().to_vec();
-    assert_eq!(shards_to_endorsements.len(), shard_ids.len());
-
-    let height = header.height();
-    for shard_id in shard_ids.into_iter() {
-        let assignments = epoch_manager
-            .get_chunk_validator_assignments(epoch_id, shard_id, height)?
-            .ordered_chunk_validators();
-        let endorsements = &shards_to_endorsements[shard_id as usize];
-        assert_eq!(assignments.len(), endorsements.len());
-        bitmap
-            .set(shard_id, endorsements.iter().map(|signature| signature.is_some()).collect_vec());
-    }
-    header_info.chunk_endorsements = Some(bitmap);
     Ok(header_info)
 }
 
