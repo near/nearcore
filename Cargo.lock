@@ -4294,6 +4294,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "num-rational 0.3.2",
  "primitive-types 0.10.1",
