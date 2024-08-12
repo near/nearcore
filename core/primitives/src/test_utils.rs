@@ -353,15 +353,14 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV5 {
+    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
             BlockHeader::BlockHeaderV1(_)
             | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_)
-            | BlockHeader::BlockHeaderV4(_) => {
+            | BlockHeader::BlockHeaderV3(_) => {
                 panic!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
         }
     }
 
@@ -380,10 +379,6 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
-            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -413,11 +408,6 @@ impl BlockHeader {
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
-                header.hash = hash;
-                header.signature = signature;
-            }
-            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;

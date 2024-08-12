@@ -8,10 +8,11 @@ use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
-    BlockHeaderInnerRestV4, BlockHeaderInnerRestV5, BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
-    BlockHeaderV4, BlockHeaderV5,
+    BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
+use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
+use crate::checked_feature;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -23,7 +24,6 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
-use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
@@ -45,7 +45,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -770,7 +770,6 @@ pub struct BlockHeaderView {
     pub approvals: Vec<Option<Box<Signature>>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
-    pub chunk_endorsements: Option<ChunkEndorsementsBitmap>,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -813,7 +812,6 @@ impl From<BlockHeader> for BlockHeaderView {
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
             latest_protocol_version: header.latest_protocol_version(),
-            chunk_endorsements: header.chunk_endorsements().cloned(),
         }
     }
 }
@@ -893,14 +891,11 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Arc::new(header))
-        } else if ProtocolFeature::ChunkEndorsementsInBlockHeader
-            .enabled(view.latest_protocol_version)
-        {
-            let mut header = BlockHeaderV5 {
+        } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
+            let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
                 inner_lite,
-                inner_rest: BlockHeaderInnerRestV5 {
-                    block_body_hash: view.block_body_hash.unwrap_or_default(),
+                inner_rest: BlockHeaderInnerRestV3 {
                     prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
@@ -922,14 +917,13 @@ impl From<BlockHeaderView> for BlockHeader {
                     epoch_sync_data_hash: view.epoch_sync_data_hash,
                     approvals: view.approvals.clone(),
                     latest_protocol_version: view.latest_protocol_version,
-                    chunk_endorsements: view.chunk_endorsements.unwrap_or_else(|| panic!("ChunkEndorsementsInBlockHeader is enabled but chunk endorsements is not set.")),
                 },
                 signature: view.signature,
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV5(Arc::new(header))
-        } else if ProtocolFeature::BlockHeaderV4.enabled(view.latest_protocol_version) {
+            BlockHeader::BlockHeaderV3(Arc::new(header))
+        } else {
             let mut header = BlockHeaderV4 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -962,38 +956,6 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV4(Arc::new(header))
-        } else {
-            let mut header = BlockHeaderV3 {
-                prev_hash: view.prev_hash,
-                inner_lite,
-                inner_rest: BlockHeaderInnerRestV3 {
-                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
-                    chunk_headers_root: view.chunk_headers_root,
-                    chunk_tx_root: view.chunk_tx_root,
-                    challenges_root: view.challenges_root,
-                    random_value: view.random_value,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    chunk_mask: view.chunk_mask,
-                    next_gas_price: view.gas_price,
-                    block_ordinal: view.block_ordinal.unwrap_or(0),
-                    total_supply: view.total_supply,
-                    challenges_result: view.challenges_result,
-                    last_final_block: view.last_final_block,
-                    last_ds_final_block: view.last_ds_final_block,
-                    prev_height: view.prev_height.unwrap_or_default(),
-                    epoch_sync_data_hash: view.epoch_sync_data_hash,
-                    approvals: view.approvals.clone(),
-                    latest_protocol_version: view.latest_protocol_version,
-                },
-                signature: view.signature,
-                hash: CryptoHash::default(),
-            };
-            header.init();
-            BlockHeader::BlockHeaderV3(Arc::new(header))
         }
     }
 }
@@ -1029,7 +991,6 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
@@ -2538,7 +2499,6 @@ impl CongestionInfoView {
 
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
-#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
