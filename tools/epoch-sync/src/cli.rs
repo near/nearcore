@@ -4,7 +4,7 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMod
 use near_epoch_manager::EpochManager;
 use near_primitives::block::BlockHeader;
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_store::{checkpoint_hot_storage_and_cleanup_columns, DBCol, NodeStorage};
