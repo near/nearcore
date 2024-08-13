@@ -248,7 +248,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 70;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
