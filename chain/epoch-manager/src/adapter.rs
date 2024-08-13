@@ -6,8 +6,8 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -335,7 +335,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Verify validator signature for the given epoch.
-    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
+    /// Note: doesn't account for slashed accounts within given epoch. USE WITH CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
