@@ -1,6 +1,7 @@
 mod chunk_validator_kickout;
 pub mod congestion_control;
 pub mod congestion_control_genesis_bootstrap;
+pub mod gas_limit_adjustment;
 pub mod in_memory_tries;
 pub mod max_receipt_size;
 pub mod multinode_stateless_validators;
