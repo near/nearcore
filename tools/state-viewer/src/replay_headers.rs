@@ -92,24 +92,31 @@ fn get_block_header_info(
     if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version)
         && header.chunk_endorsements().is_none()
     {
-        let shard_ids = epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect_vec();
-        let mut bitmap = ChunkEndorsementsBitmap::new(shard_ids.len());
-
         let block = chain_store.get_block(header.hash())?;
+        let chunks = block.chunks();
+
         let endorsement_signatures = block.chunk_endorsements().to_vec();
-        assert_eq!(endorsement_signatures.len(), shard_ids.len());
+        assert_eq!(endorsement_signatures.len(), chunks.len());
+
+        let mut bitmap = ChunkEndorsementsBitmap::new(chunks.len());
 
         let height = header.height();
-        for shard_id in shard_ids.into_iter() {
-            let assignments = epoch_manager
-                .get_chunk_validator_assignments(epoch_id, shard_id, height)?
-                .ordered_chunk_validators();
+        for chunk_header in chunks.iter() {
+            let shard_id = chunk_header.shard_id();
             let endorsements = &endorsement_signatures[shard_id as usize];
-            assert_eq!(assignments.len(), endorsements.len());
-            bitmap.add_endorsements(
-                shard_id,
-                endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
-            );
+            if !chunk_header.is_new_chunk(height) {
+                assert_eq(endorsements.len(), 0);
+                bitmap.add_endorsements(shard_id, vec![]);
+            } else {
+                let assignments = epoch_manager
+                    .get_chunk_validator_assignments(epoch_id, shard_id, height)?
+                    .ordered_chunk_validators();
+                assert_eq!(endorsements.len(), assignments.len());
+                bitmap.add_endorsements(
+                    shard_id,
+                    endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
+                );
+            }
         }
         header_info.chunk_endorsements = Some(bitmap);
     }
