@@ -452,16 +452,3 @@ pub enum BlockKnownError {
     #[error("already known in invalid blocks")]
     KnownAsInvalid,
 }
-
-#[cfg(feature = "new_epoch_sync")]
-pub mod epoch_sync {
-    #[derive(thiserror::Error, std::fmt::Debug)]
-    pub enum EpochSyncInfoError {
-        #[error(transparent)]
-        EpochSyncInfoErr(#[from] near_primitives::errors::epoch_sync::EpochSyncInfoError),
-        #[error(transparent)]
-        IOErr(#[from] std::io::Error),
-        #[error(transparent)]
-        ChainErr(#[from] crate::Error),
-    }
-}

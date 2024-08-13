@@ -162,8 +162,7 @@ impl TestLoopBuilder {
         let sync_jobs_adapter = LateBoundSender::new();
 
         let genesis = self.genesis.clone().unwrap();
-        let mut client_config =
-            ClientConfig::test(true, 600, 2000, 4, is_archival, true, false, false);
+        let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
         client_config.state_sync_timeout = Duration::milliseconds(100);

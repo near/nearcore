@@ -53,7 +53,6 @@ fn start_nodes(
         if i >= num_validator_seats && i < num_tracking_nodes {
             near_config.client_config.tracked_shards = vec![0];
         }
-        near_config.client_config.epoch_sync_enabled = false;
         near_configs.push(near_config);
     }
 
