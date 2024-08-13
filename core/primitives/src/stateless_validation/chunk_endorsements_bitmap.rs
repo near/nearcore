@@ -24,7 +24,7 @@ const UINT_SIZE: usize = std::mem::size_of::<UIntType>();
 
 impl ChunkEndorsementsBitmap {
     pub fn new(num_shards: usize) -> Self {
-        Self { inner: Vec::with_capacity(num_shards) }
+        Self { inner: vec![Default::default(); num_shards] }
     }
 
     pub fn init(&mut self) {
@@ -57,8 +57,7 @@ impl ChunkEndorsementsBitmap {
         }
         let encoded_bytes = encoded.to_le_bytes();
         let (compacted_bytes, _) = encoded_bytes.split_at(num_endorsements.div_ceil(8));
-        debug_assert_eq!(self.inner.len(), shard_id as usize);
-        self.inner.insert(shard_id as usize, compacted_bytes.to_vec());
+        self.inner[shard_id as usize] = compacted_bytes.to_vec();
     }
 
     pub fn iter(&self, shard_id: ShardId) -> Box<dyn Iterator<Item = bool>> {
@@ -111,7 +110,7 @@ mod tests {
     fn run_bitmap_test(num_assignments: usize, num_produced: usize) {
         let assert_bitmap = |bitmap: &ChunkEndorsementsBitmap,
                              expected_endorsements: &Vec<Vec<bool>>| {
-            // 1. Endorsements (of num validator seats) from the iterator must match the endorsements specified in the set method.
+            // 1. Endorsements from the bitmap iterator must match the endorsements given previously.
             for (shard_id, endorsements) in expected_endorsements.iter().enumerate() {
                 assert_eq!(
                     bitmap.iter(shard_id as ShardId).take(num_assignments).collect_vec(),
