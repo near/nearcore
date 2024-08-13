@@ -106,7 +106,7 @@ fn get_block_header_info(
                 .ordered_chunk_validators();
             let endorsements = &endorsement_signatures[shard_id as usize];
             assert_eq!(assignments.len(), endorsements.len());
-            bitmap.set(
+            bitmap.add_endorsements(
                 shard_id,
                 endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
             );

@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_info::EpochInfo;
@@ -51,8 +52,7 @@ impl BlockHeaderInfo {
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
             timestamp_nanosec: header.raw_timestamp(),
-            // TODO(#11900): Set this from the block header.
-            chunk_endorsements: None,
+            chunk_endorsements: header.chunk_endorsements().cloned(),
         }
     }
 }
@@ -142,7 +142,6 @@ impl EpochInfoAggregator {
 
         // TODO(#11900): Call EpochManager::get_chunk_validator_assignments to access the cached validator assignments.
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
-        let chunk_endorsements = block_info.chunk_endorsements();
 
         for (i, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id: ShardId = i as ShardId;
@@ -174,35 +173,28 @@ impl EpochInfoAggregator {
                 .get(i)
                 .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
                 .iter()
-                .map(|(id, _)| *id);
-            for (index, chunk_validator_id) in chunk_validators.enumerate() {
+                .map(|(id, _)| *id)
+                .collect_vec();
+            let chunk_endorsements =
+                if let Some(chunk_endorsements) = block_info.chunk_endorsements() {
+                    chunk_endorsements.iter(shard_id)
+                } else {
+                    Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
+                };
+            for (chunk_validator_id, endorsement_produced) in
+                chunk_validators.iter().zip(chunk_endorsements)
+            {
                 tracker
-                    .entry(chunk_validator_id)
+                    .entry(*chunk_validator_id)
                     .and_modify(|stats| {
                         let endorsement_stats = stats.endorsement_stats_mut();
-                        if let Some(chunk_endorsements) = chunk_endorsements.as_ref() {
-                            if chunk_endorsements.is_set(shard_id, index) {
-                                endorsement_stats.produced += 1;
-                            }
-                        } else if *mask {
+                        if endorsement_produced {
                             endorsement_stats.produced += 1;
                         }
                         endorsement_stats.expected += 1;
                     })
                     .or_insert_with(|| {
-                        let produced = if let Some(chunk_endorsements) = chunk_endorsements.as_ref()
-                        {
-                            if chunk_endorsements.is_set(shard_id, index) {
-                                1
-                            } else {
-                                0
-                            }
-                        } else if *mask {
-                            1
-                        } else {
-                            0
-                        };
-                        ChunkStats::new_with_endorsement(produced, 1)
+                        ChunkStats::new_with_endorsement(u64::from(endorsement_produced), 1)
                     });
             }
         }
