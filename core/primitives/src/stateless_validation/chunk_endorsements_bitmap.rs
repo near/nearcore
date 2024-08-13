@@ -97,6 +97,7 @@ impl Iterator for BitmapIterator {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::ChunkEndorsementsBitmap;
     use crate::stateless_validation::chunk_endorsements_bitmap::UINT_SIZE;

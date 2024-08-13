@@ -63,8 +63,9 @@ pub(crate) fn replay_headers(
 
                 assert_eq!(validator_info.epoch_height, validator_info_replay.epoch_height);
                 tracing::info!(
-                    "Comparing validator infos for epoch height {}",
-                    validator_info.epoch_height
+                    "Comparing validator infos for epoch height {} block height {}",
+                    validator_info.epoch_height,
+                    height
                 );
 
                 assert_eq!(validator_info, validator_info_replay);
@@ -83,12 +84,10 @@ fn get_block_header_info(
         chain_store.get_block_height(header.last_final_block()).unwrap(),
     );
 
-    let epoch_id = header.epoch_id();
-    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-
     // Note(#11900): If chunk endorsements in block header is enabled but we have not yet populated the endorsements bitmap
     // in the header yet, we generate chunk endorsement bitmap from the chunk endorsement signatures in the block body.
     // TODO(#11900): Remove this code after ChunkEndorsementsInBlockHeader is stabilized.
+    let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
     if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version)
         && header.chunk_endorsements().is_none()
     {
@@ -101,15 +100,20 @@ fn get_block_header_info(
         let mut bitmap = ChunkEndorsementsBitmap::new(chunks.len());
 
         let height = header.height();
+        let prev_block_epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
         for chunk_header in chunks.iter() {
             let shard_id = chunk_header.shard_id();
             let endorsements = &endorsement_signatures[shard_id as usize];
             if !chunk_header.is_new_chunk(height) {
-                assert_eq(endorsements.len(), 0);
+                assert_eq!(endorsements.len(), 0);
                 bitmap.add_endorsements(shard_id, vec![]);
             } else {
                 let assignments = epoch_manager
-                    .get_chunk_validator_assignments(epoch_id, shard_id, height)?
+                    .get_chunk_validator_assignments(
+                        &prev_block_epoch_id,
+                        shard_id,
+                        chunk_header.height_created(),
+                    )?
                     .ordered_chunk_validators();
                 assert_eq!(endorsements.len(), assignments.len());
                 bitmap.add_endorsements(
