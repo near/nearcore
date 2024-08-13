@@ -47,10 +47,12 @@ pub(crate) struct TestLoopBuilder {
     clients: Vec<AccountId>,
     /// Overrides the stores; rather than constructing fresh new stores, use
     /// the provided ones (to test with existing data).
+    /// Each element in the vector is (hot_store, split_store).
     stores_override: Option<Vec<(Store, Option<Store>)>>,
-    /// Overrides the tempdir; rather than constructing fresh new tempdir, use
-    /// the provided one (to test with existing data).
-    tempdir_override: Option<TempDir>,
+    /// Overrides the directory used for test loop shared data; rather than
+    /// constructing fresh new tempdir, use the provided one (to test with
+    /// existing data from a previous test loop run).
+    test_loop_data_dir: Option<TempDir>,
     /// Accounts whose clients should be configured as an archival node.
     /// This should be a subset of the accounts in the `clients` list.
     archival_clients: HashSet<AccountId>,
@@ -75,7 +77,7 @@ impl TestLoopBuilder {
             genesis: None,
             clients: vec![],
             stores_override: None,
-            tempdir_override: None,
+            test_loop_data_dir: None,
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
@@ -104,6 +106,7 @@ impl TestLoopBuilder {
     }
 
     /// Uses the provided stores instead of generating new ones.
+    /// Each element in the vector is (hot_store, split_store).
     pub fn stores_override(mut self, stores: Vec<(Store, Option<Store>)>) -> Self {
         self.stores_override = Some(stores);
         self
@@ -127,6 +130,7 @@ impl TestLoopBuilder {
     }
 
     /// Custom function to change the configs before constructing each client.
+    #[allow(dead_code)]
     pub fn config_modifier(
         mut self,
         modifier: impl Fn(&mut ClientConfig, usize) + 'static,
@@ -137,9 +141,8 @@ impl TestLoopBuilder {
 
     /// Do not automatically warmup the chain. Start from genesis instead.
     /// Note that this can cause unexpected issues, as the chain behaves
-    /// somewhat differently (and correctly so) at genesis. So unless you
-    /// are interested in the behavior of starting from genesis, it's best
-    /// not to skip warmup.
+    /// somewhat differently (and correctly so) at genesis. So only skip
+    /// warmup if you are interested in the behavior of starting from genesis.
     pub fn skip_warmup(mut self) -> Self {
         self.warmup = false;
         self
@@ -147,8 +150,8 @@ impl TestLoopBuilder {
 
     /// Overrides the tempdir (which contains state dump, etc.) instead
     /// of creating a new one.
-    pub fn tempdir_override(mut self, tempdir: TempDir) -> Self {
-        self.tempdir_override = Some(tempdir);
+    pub fn test_loop_data_dir(mut self, dir: TempDir) -> Self {
+        self.test_loop_data_dir = Some(dir);
         self
     }
 
@@ -175,7 +178,8 @@ impl TestLoopBuilder {
         let mut datas = Vec::new();
         let mut network_adapters = Vec::new();
         let mut epoch_manager_adapters = Vec::new();
-        let tempdir = self.tempdir_override.take().unwrap_or_else(|| tempfile::tempdir().unwrap());
+        let tempdir =
+            self.test_loop_data_dir.take().unwrap_or_else(|| tempfile::tempdir().unwrap());
         for idx in 0..self.clients.len() {
             let account = &self.clients[idx];
             let is_archival = self.archival_clients.contains(account);

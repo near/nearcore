@@ -1,21 +1,19 @@
-use itertools::Itertools;
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_client::test_utils::test_loop::ClientQueries;
-use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
-
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::transactions::execute_money_transfers;
 use crate::test_loop::utils::ONE_NEAR;
+use itertools::Itertools;
 use near_async::messaging::CanSend;
+use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_client::test_utils::test_loop::ClientQueries;
 use near_client::SetNetworkInfo;
 use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
+use near_primitives::types::AccountId;
 use near_store::test_utils::create_test_store;
-use tempfile::TempDir;
 
 const NUM_CLIENTS: usize = 4;
 
@@ -91,12 +89,8 @@ fn test_sync_from_genesis() {
     // Properly shut down the previous TestLoopEnv.
     // We must preserve the tempdir, since state dumps are stored there,
     // and are necessary for state sync to work on the new node.
-    TestLoopEnv {
-        test_loop,
-        datas: node_datas,
-        tempdir: TempDir::new().unwrap(), /* don't destroy yet */
-    }
-    .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
+        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 
     tracing::info!("Starting new TestLoopEnv with new node");
 
@@ -106,7 +100,7 @@ fn test_sync_from_genesis() {
         .genesis(genesis.clone())
         .clients(clients)
         .stores_override(stores)
-        .tempdir_override(tempdir)
+        .test_loop_data_dir(tempdir)
         .skip_warmup()
         .build();
 
@@ -117,10 +111,7 @@ fn test_sync_from_genesis() {
     let chain0 = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client.chain;
     let peer_info = HighestHeightPeerInfo {
         archival: false,
-        genesis_id: GenesisId {
-            chain_id: genesis.config.chain_id.clone(),
-            hash: *chain0.genesis().hash(),
-        },
+        genesis_id: GenesisId { chain_id: genesis.config.chain_id, hash: *chain0.genesis().hash() },
         highest_block_hash: chain0.head().unwrap().last_block_hash,
         highest_block_height: chain0.head().unwrap().height,
         tracked_shards: vec![],

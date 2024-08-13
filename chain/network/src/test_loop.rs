@@ -40,7 +40,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
     pub block_request: AsyncSender<BlockRequest, ActixResult<BlockRequest>>,
 }
 
-type NetworkRequestHandler = Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
+type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
 
 /// A custom actor for the TestLoop framework that can be used to send network messages across clients
 /// in a multi-node test.
@@ -90,7 +90,7 @@ impl TestLoopPeerManagerActor {
                 future_spawner,
             ),
             network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
-            network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
+            network_message_to_shards_manager_handler(clock, &account_id, shared_state),
             network_message_to_state_snapshot_handler(),
         ];
         Self { handlers }
@@ -211,7 +211,7 @@ fn network_message_to_client_handler(
     shared_state: Arc<TestLoopNetworkSharedState>,
 ) -> NetworkRequestHandler {
     let my_account_id = my_account_id.clone();
-    Arc::new(move |request| match request {
+    Box::new(move |request| match request {
         NetworkRequests::Block { block } => {
             for account_id in shared_state.accounts() {
                 if account_id != &my_account_id {
@@ -266,7 +266,7 @@ fn network_message_to_view_client_handler(
     shared_state: Arc<TestLoopNetworkSharedState>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> NetworkRequestHandler {
-    Arc::new(move |request| match request {
+    Box::new(move |request| match request {
         NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
             let responder = shared_state.senders_for_account(&my_account_id).client_sender.clone();
             let future = shared_state
@@ -306,7 +306,7 @@ fn network_message_to_partial_witness_handler(
     shared_state: Arc<TestLoopNetworkSharedState>,
 ) -> NetworkRequestHandler {
     let my_account_id = my_account_id.clone();
-    Arc::new(move |request| match request {
+    Box::new(move |request| match request {
         NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
             assert_ne!(target, my_account_id, "Sending message to self not supported.");
             shared_state
@@ -341,7 +341,7 @@ fn network_message_to_partial_witness_handler(
 }
 
 fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
-    Arc::new(move |request| match request {
+    Box::new(move |request| match request {
         NetworkRequests::SnapshotHostInfo { .. } => None,
         _ => Some(request),
     })
@@ -351,9 +351,9 @@ fn network_message_to_shards_manager_handler(
     clock: Clock,
     my_account_id: &AccountId,
     shared_state: Arc<TestLoopNetworkSharedState>,
-) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> NetworkRequestHandler {
     let my_account_id = my_account_id.clone();
-    Arc::new(move |request| match request {
+    Box::new(move |request| match request {
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
             let route_back = shared_state.generate_route_back(my_peer_id);

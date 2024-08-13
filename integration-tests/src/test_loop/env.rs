@@ -66,13 +66,16 @@ impl TestLoopEnv {
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing
     /// TestLoop itself, as it asserts that all events have been handled.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
+    ///
+    /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
+    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) -> TempDir {
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in self.datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
+        self.tempdir
     }
 }
 
