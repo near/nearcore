@@ -41,7 +41,7 @@ use tempfile::TempDir;
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use super::utils::network::partial_encoded_chunks_dropper;
 
-pub struct TestLoopBuilder {
+pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
@@ -59,7 +59,7 @@ pub struct TestLoopBuilder {
 }
 
 impl TestLoopBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             test_loop: TestLoopV2::new(),
             genesis: None,
@@ -73,47 +73,41 @@ impl TestLoopBuilder {
     }
 
     /// Get the clock for the test loop.
-    pub fn clock(&self) -> Clock {
+    pub(crate) fn clock(&self) -> Clock {
         self.test_loop.clock()
     }
 
     /// Set the genesis configuration for the test loop.
-    pub fn genesis(mut self, genesis: Genesis) -> Self {
+    pub(crate) fn genesis(mut self, genesis: Genesis) -> Self {
         self.genesis = Some(genesis);
         self
     }
 
     /// Set the clients for the test loop.
-    pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
+    pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
         self
     }
 
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
-    pub fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
+    pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
         self.archival_clients = clients;
         self
     }
 
-    pub fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
+    pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
         self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
         self
     }
 
-    pub fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
+    pub(crate) fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
         self.gc_num_epochs_to_keep = Some(num_epochs);
         self
     }
 
-    /// Sets the store of runtime configurations to be passed into runtime adapters.
-    pub fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
-        self.runtime_config_store = Some(runtime_config_store);
-        self
-    }
-
     /// Build the test loop environment.
-    pub fn build(self) -> TestLoopEnv {
+    pub(crate) fn build(self) -> TestLoopEnv {
         self.ensure_genesis().ensure_clients().build_impl()
     }
 
