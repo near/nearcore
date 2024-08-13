@@ -4,11 +4,11 @@ use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
+use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::{
     AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, EpochSummary, ShardConfig,
-    SlashState, AGGREGATOR_KEY,
+    AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;

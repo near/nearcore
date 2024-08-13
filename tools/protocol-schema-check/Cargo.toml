@@ -16,6 +16,7 @@ near-primitives-core = { workspace = true, features = ["protocol_schema"] }
 near-primitives = { workspace = true, features = ["protocol_schema"] }
 near-parameters = { workspace = true, features = ["protocol_schema"] }
 near-crypto = { workspace = true, features = ["protocol_schema"] }
+near-store = { workspace = true, features = ["protocol_schema"] }
 near-stable-hasher.workspace = true
 
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -28,4 +29,5 @@ default = [
     "near-primitives/protocol_schema",
     "near-parameters/protocol_schema",
     "near-crypto/protocol_schema",
+    "near-store/protocol_schema",
 ]

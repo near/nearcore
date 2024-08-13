@@ -6361,6 +6361,7 @@ dependencies = [
  "near-primitives-core",
  "near-schema-checker-lib",
  "near-stable-hasher",
+ "near-store",
  "serde_json",
  "toml",
 ]
