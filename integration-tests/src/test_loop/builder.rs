@@ -25,7 +25,7 @@ use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
 use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::test_loop::TestLoopPeerManagerActor;
+use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -45,6 +45,14 @@ pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
+    /// Overrides the stores; rather than constructing fresh new stores, use
+    /// the provided ones (to test with existing data).
+    /// Each element in the vector is (hot_store, split_store).
+    stores_override: Option<Vec<(Store, Option<Store>)>>,
+    /// Overrides the directory used for test loop shared data; rather than
+    /// constructing fresh new tempdir, use the provided one (to test with
+    /// existing data from a previous test loop run).
+    test_loop_data_dir: Option<TempDir>,
     /// Accounts whose clients should be configured as an archival node.
     /// This should be a subset of the accounts in the `clients` list.
     archival_clients: HashSet<AccountId>,
@@ -56,6 +64,10 @@ pub(crate) struct TestLoopBuilder {
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
     runtime_config_store: Option<RuntimeConfigStore>,
+    /// Custom function to change the configs before constructing each client.
+    config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
+    /// Whether to do the warmup or not. See `skip_warmup` for more details.
+    warmup: bool,
 }
 
 impl TestLoopBuilder {
@@ -64,11 +76,15 @@ impl TestLoopBuilder {
             test_loop: TestLoopV2::new(),
             genesis: None,
             clients: vec![],
+            stores_override: None,
+            test_loop_data_dir: None,
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
+            config_modifier: None,
+            warmup: true,
         }
     }
 
@@ -89,6 +105,13 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Uses the provided stores instead of generating new ones.
+    /// Each element in the vector is (hot_store, split_store).
+    pub fn stores_override(mut self, stores: Vec<(Store, Option<Store>)>) -> Self {
+        self.stores_override = Some(stores);
+        self
+    }
+
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
@@ -103,6 +126,32 @@ impl TestLoopBuilder {
 
     pub(crate) fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
         self.gc_num_epochs_to_keep = Some(num_epochs);
+        self
+    }
+
+    /// Custom function to change the configs before constructing each client.
+    #[allow(dead_code)]
+    pub fn config_modifier(
+        mut self,
+        modifier: impl Fn(&mut ClientConfig, usize) + 'static,
+    ) -> Self {
+        self.config_modifier = Some(Box::new(modifier));
+        self
+    }
+
+    /// Do not automatically warmup the chain. Start from genesis instead.
+    /// Note that this can cause unexpected issues, as the chain behaves
+    /// somewhat differently (and correctly so) at genesis. So only skip
+    /// warmup if you are interested in the behavior of starting from genesis.
+    pub fn skip_warmup(mut self) -> Self {
+        self.warmup = false;
+        self
+    }
+
+    /// Overrides the tempdir (which contains state dump, etc.) instead
+    /// of creating a new one.
+    pub fn test_loop_data_dir(mut self, dir: TempDir) -> Self {
+        self.test_loop_data_dir = Some(dir);
         self
     }
 
@@ -129,7 +178,8 @@ impl TestLoopBuilder {
         let mut datas = Vec::new();
         let mut network_adapters = Vec::new();
         let mut epoch_manager_adapters = Vec::new();
-        let tempdir = tempfile::tempdir().unwrap();
+        let tempdir =
+            self.test_loop_data_dir.take().unwrap_or_else(|| tempfile::tempdir().unwrap());
         for idx in 0..self.clients.len() {
             let account = &self.clients[idx];
             let is_archival = self.archival_clients.contains(account);
@@ -142,7 +192,11 @@ impl TestLoopBuilder {
         self.setup_network(&datas, &network_adapters, &epoch_manager_adapters);
 
         let env = TestLoopEnv { test_loop: self.test_loop, datas, tempdir };
-        env.warmup()
+        if self.warmup {
+            env.warmup()
+        } else {
+            env
+        }
     }
 
     fn setup_client(
@@ -200,6 +254,10 @@ impl TestLoopBuilder {
             client_config.tracked_shards = vec![666];
         }
 
+        if let Some(config_modifier) = &self.config_modifier {
+            config_modifier(&mut client_config, idx);
+        }
+
         let homedir = tempdir.path().join(format!("{}", idx));
         std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
 
@@ -209,13 +267,16 @@ impl TestLoopBuilder {
             ..Default::default()
         };
 
-        let (store, split_store): (Store, Option<Store>) = if is_archival {
-            let (hot_store, split_store) = create_test_split_store();
-            (hot_store, Some(split_store))
-        } else {
-            let hot_store = create_test_store();
-            (hot_store, None)
-        };
+        let (store, split_store): (Store, Option<Store>) =
+            if let Some(stores_override) = &self.stores_override {
+                stores_override[idx].clone()
+            } else if is_archival {
+                let (hot_store, split_store) = create_test_split_store();
+                (hot_store, Some(split_store))
+            } else {
+                let hot_store = create_test_store();
+                (hot_store, None)
+            };
         initialize_genesis_state(store.clone(), &genesis, None);
 
         let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
@@ -269,6 +330,10 @@ impl TestLoopBuilder {
             chunks_storage: self.chunks_storage.clone(),
         });
 
+        // Generate a PeerId. It doesn't matter what this is. We're just making it based on
+        // the account ID, so that it is stable across multiple runs in the same test.
+        let peer_id = PeerId::new(create_test_signer(self.clients[idx].as_str()).public_key());
+
         let client = Client::new(
             self.test_loop.clock(),
             client_config.clone(),
@@ -305,7 +370,7 @@ impl TestLoopBuilder {
             self.test_loop.clock(),
             client,
             client_adapter.as_multi_sender(),
-            PeerId::random(),
+            peer_id.clone(),
             network_adapter.as_multi_sender(),
             noop().into_sender(),
             None,
@@ -419,6 +484,7 @@ impl TestLoopBuilder {
 
         let data = TestData {
             account_id: self.clients[idx].clone(),
+            peer_id,
             client_sender,
             view_client_sender,
             shards_manager_sender,
@@ -436,9 +502,14 @@ impl TestLoopBuilder {
         network_adapters: &Vec<Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>>,
         epoch_manager_adapters: &Vec<Arc<dyn EpochManagerAdapter>>,
     ) {
+        let shared_state = Arc::new(TestLoopNetworkSharedState::new(&datas));
         for (idx, data) in datas.iter().enumerate() {
-            let mut peer_manager_actor =
-                TestLoopPeerManagerActor::new(self.test_loop.clock(), &data.account_id, datas);
+            let mut peer_manager_actor = TestLoopPeerManagerActor::new(
+                self.test_loop.clock(),
+                &data.account_id,
+                shared_state.clone(),
+                Arc::new(self.test_loop.future_spawner()),
+            );
 
             if let Some(account_id) = &self.drop_chunks_validated_by {
                 peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
