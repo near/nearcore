@@ -49,6 +49,7 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-vm-runner.workspace = true
+near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -101,4 +102,9 @@ nightly = [
   "near-vm-runner/nightly",
   "nightly_protocol",
 ]
-statelessnet_protocol = ["near-primitives/statelessnet_protocol"]
+protocol_schema = [
+  "near-crypto/protocol_schema",
+  "near-primitives/protocol_schema",
+  "near-parameters/protocol_schema",
+  "near-schema-checker-lib/protocol_schema",
+]

@@ -6,14 +6,14 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
-use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -335,7 +335,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Verify validator signature for the given epoch.
-    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
+    /// Note: doesn't account for slashed accounts within given epoch. USE WITH CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
@@ -418,7 +418,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_chunk_endorsement(
         &self,
         chunk_header: &ShardChunkHeader,
-        endorsement: &ChunkEndorsement,
+        endorsement: &ChunkEndorsementV1,
     ) -> Result<bool, Error>;
 
     fn verify_partial_witness_signature(
@@ -1049,7 +1049,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn verify_chunk_endorsement(
         &self,
         chunk_header: &ShardChunkHeader,
-        endorsement: &ChunkEndorsement,
+        endorsement: &ChunkEndorsementV1,
     ) -> Result<bool, Error> {
         if &chunk_header.chunk_hash() != endorsement.chunk_hash() {
             return Err(Error::InvalidChunkEndorsement);

@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::cli::StorageSource;
+use crate::util::{check_apply_block_result, resulting_chunk_extra};
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
 // know of a block containing the target chunk
@@ -213,7 +214,7 @@ fn apply_tx_in_block(
                     println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
                     let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, epoch_manager, runtime, chain_store, storage);
-                    crate::commands::check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
+                    check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
                 HashType::Receipt => {
@@ -282,7 +283,7 @@ fn apply_tx_in_chunk(
             apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
         println!(
             "resulting chunk extra:\n{:?}",
-            crate::commands::resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
+            resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
         );
         results.push(apply_result);
     }
@@ -332,7 +333,7 @@ fn apply_receipt_in_block(
                     println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
                     let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, epoch_manager, runtime, chain_store, storage);
-                    crate::commands::check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
+                    check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
             }
@@ -431,8 +432,7 @@ fn apply_receipt_in_chunk(
             None,
             storage,
         )?;
-        let chunk_extra =
-            crate::commands::resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
+        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);
     }

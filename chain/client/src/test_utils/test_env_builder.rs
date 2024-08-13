@@ -16,7 +16,8 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
-use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, RngSeed};
+use near_primitives::epoch_info::RngSeed;
+use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::config::StateSnapshotType;
@@ -248,7 +249,7 @@ impl TestEnvBuilder {
     /// Constructs real EpochManager implementations for each instance.
     pub fn epoch_managers_with_test_overrides(
         self,
-        test_overrides: Option<AllEpochConfigTestOverrides>,
+        test_overrides: AllEpochConfigTestOverrides,
     ) -> Self {
         assert!(
             self.num_shards.is_none(),
@@ -260,7 +261,7 @@ impl TestEnvBuilder {
                 EpochManager::new_arc_handle_with_test_overrides(
                     ret.stores.as_ref().unwrap()[i].clone(),
                     &ret.genesis_config,
-                    test_overrides.clone(),
+                    Some(test_overrides.clone()),
                 )
             })
             .collect();
@@ -273,7 +274,7 @@ impl TestEnvBuilder {
         if ret.epoch_managers.is_some() {
             return ret;
         }
-        ret.epoch_managers_with_test_overrides(None)
+        ret.epoch_managers_with_test_overrides(AllEpochConfigTestOverrides::default())
     }
 
     /// Constructs MockEpochManager implementations for each instance.

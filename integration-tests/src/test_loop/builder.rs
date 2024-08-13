@@ -26,6 +26,7 @@ use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
@@ -40,7 +41,7 @@ use tempfile::TempDir;
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use super::utils::network::partial_encoded_chunks_dropper;
 
-pub struct TestLoopBuilder {
+pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
@@ -59,6 +60,8 @@ pub struct TestLoopBuilder {
     drop_chunks_validated_by: Option<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
+    /// The store of runtime configurations to be passed into runtime adapters.
+    runtime_config_store: Option<RuntimeConfigStore>,
     /// Custom function to change the configs before constructing each client.
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
     /// Whether to do the warmup or not. See `skip_warmup` for more details.
@@ -66,7 +69,7 @@ pub struct TestLoopBuilder {
 }
 
 impl TestLoopBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             test_loop: TestLoopV2::new(),
             genesis: None,
@@ -77,24 +80,25 @@ impl TestLoopBuilder {
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
             gc_num_epochs_to_keep: None,
+            runtime_config_store: None,
             config_modifier: None,
             warmup: true,
         }
     }
 
     /// Get the clock for the test loop.
-    pub fn clock(&self) -> Clock {
+    pub(crate) fn clock(&self) -> Clock {
         self.test_loop.clock()
     }
 
     /// Set the genesis configuration for the test loop.
-    pub fn genesis(mut self, genesis: Genesis) -> Self {
+    pub(crate) fn genesis(mut self, genesis: Genesis) -> Self {
         self.genesis = Some(genesis);
         self
     }
 
     /// Set the clients for the test loop.
-    pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
+    pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
         self
     }
@@ -107,17 +111,17 @@ impl TestLoopBuilder {
 
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
-    pub fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
+    pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
         self.archival_clients = clients;
         self
     }
 
-    pub fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
+    pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
         self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
         self
     }
 
-    pub fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
+    pub(crate) fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
         self.gc_num_epochs_to_keep = Some(num_epochs);
         self
     }
@@ -149,7 +153,7 @@ impl TestLoopBuilder {
     }
 
     /// Build the test loop environment.
-    pub fn build(self) -> TestLoopEnv {
+    pub(crate) fn build(self) -> TestLoopEnv {
         self.ensure_genesis().ensure_clients().build_impl()
     }
 
@@ -290,7 +294,7 @@ impl TestLoopBuilder {
             ContractRuntimeCache::handle(&contract_cache),
             &genesis.config,
             epoch_manager.clone(),
-            None,
+            self.runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
         );
@@ -390,7 +394,7 @@ impl TestLoopBuilder {
                     ContractRuntimeCache::handle(&contract_cache),
                     &genesis.config,
                     view_epoch_manager.clone(),
-                    None,
+                    self.runtime_config_store.clone(),
                     TrieConfig::from_store_config(&store_config),
                     StateSnapshotType::EveryEpoch,
                 );

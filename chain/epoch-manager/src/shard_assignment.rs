@@ -1,5 +1,5 @@
+use crate::EpochInfo;
 use crate::RngSeed;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::min_heap::{MinHeap, PeekMut};

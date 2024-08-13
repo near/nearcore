@@ -5,7 +5,7 @@ use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributi
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
-use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::SyncShardInfo;
@@ -64,7 +64,7 @@ use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -1476,7 +1476,7 @@ impl Client {
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1867,9 +1867,8 @@ impl Client {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
-        // If endorsement was received before chunk header, we can process it
-        // only now.
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        // If endorsement was received before chunk header, we can process it only now.
+        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         self.chunk_inclusion_tracker
             .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
     }

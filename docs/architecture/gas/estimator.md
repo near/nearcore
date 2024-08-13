@@ -13,7 +13,7 @@ per 1 Tgas of execution, we spend no more than 1ms wall-clock time.
 For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
 nearcore can serve requests fast enough proves that it is possible to be at
-least as fast. However, we should be careful to not couple costs too tightly
+least as fast. However, we should be careful not to couple costs too tightly
 with the specific implementation of nearcore to allow for innovation in new
 clients.
 

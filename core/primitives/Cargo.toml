@@ -47,7 +47,7 @@ near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
-near-structs-checker-lib.workspace = true
+near-schema-checker-lib.workspace = true
 
 [features]
 sandbox = []
@@ -88,14 +88,12 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 
-statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
-
 new_epoch_sync = []
 default = ["near-primitives/rand"]
 calimero_zero_storage = []
 
 protocol_schema = [
-  "near-structs-checker-lib/protocol_schema",
+  "near-schema-checker-lib/protocol_schema",
 ]
 
 [dev-dependencies]

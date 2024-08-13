@@ -673,7 +673,7 @@ impl ClientActorInner {
     }
 
     /// Computes the ratio of stake endorsed to all chunks in `block`.
-    /// The logic is based on `Chain::validate_chunk_endorsements_in_block`.
+    /// The logic is based on `validate_chunk_endorsements_in_block`.
     fn compute_chunk_endorsements_ratio(
         &self,
         block: &Option<Block>,

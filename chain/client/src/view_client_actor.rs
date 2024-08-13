@@ -37,7 +37,7 @@ use near_network::types::{
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;

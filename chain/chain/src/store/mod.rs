@@ -447,7 +447,7 @@ pub struct ChainStore {
     /// Processed block heights.
     pub(crate) processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,

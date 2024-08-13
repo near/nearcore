@@ -71,11 +71,11 @@ pub enum DBCol {
     RecentOutboundConnections,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
+    /// - *Content type*: [near_primitives::epoch_info::EpochInfo]
     EpochInfo,
     /// Mapping from BlockHash to BlockInfo
     /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::block_info::BlockInfo]
+    /// - *Content type*: [near_primitives::epoch_block_info::BlockInfo]
     BlockInfo,
     /// Mapping from ChunkHash to ShardChunk.
     /// - *Rows*: ChunkHash (CryptoHash)

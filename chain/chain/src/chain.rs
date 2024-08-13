@@ -12,6 +12,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
@@ -466,31 +467,13 @@ impl Chain {
                 store_update.save_block(genesis.clone());
                 store_update
                     .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
-
-                for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
-                    let congestion_info = if ProtocolFeature::CongestionControl
-                        .enabled(chain_genesis.protocol_version)
-                    {
-                        genesis
-                            .block_congestion_info()
-                            .get(&chunk_header.shard_id())
-                            .map(|info| info.congestion_info)
-                    } else {
-                        None
-                    };
-
-                    store_update.save_chunk_extra(
-                        genesis.hash(),
-                        &epoch_manager
-                            .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
-                        Self::create_genesis_chunk_extra(
-                            state_root,
-                            chain_genesis.gas_limit,
-                            chain_genesis.protocol_version,
-                            congestion_info,
-                        ),
-                    );
-                }
+                Self::save_genesis_chunk_extras(
+                    &chain_genesis,
+                    &genesis,
+                    &state_roots,
+                    epoch_manager.as_ref(),
+                    &mut store_update,
+                )?;
 
                 let block_head = Tip::from_header(genesis.header());
                 let header_head = block_head.clone();
@@ -659,6 +642,39 @@ impl Chain {
             genesis_protocol_version,
             congestion_info,
         ))
+    }
+
+    /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
+    pub fn save_genesis_chunk_extras(
+        chain_genesis: &ChainGenesis,
+        genesis: &Block,
+        state_roots: &Vec<CryptoHash>,
+        epoch_manager: &dyn EpochManagerAdapter,
+        store_update: &mut ChainStoreUpdate,
+    ) -> Result<(), Error> {
+        for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+            let congestion_info =
+                if ProtocolFeature::CongestionControl.enabled(chain_genesis.protocol_version) {
+                    genesis
+                        .block_congestion_info()
+                        .get(&chunk_header.shard_id())
+                        .map(|info| info.congestion_info)
+                } else {
+                    None
+                };
+
+            store_update.save_chunk_extra(
+                genesis.hash(),
+                &epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
+                Self::create_genesis_chunk_extra(
+                    state_root,
+                    chain_genesis.gas_limit,
+                    chain_genesis.protocol_version,
+                    congestion_info,
+                ),
+            );
+        }
+        Ok(())
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -2199,7 +2215,7 @@ impl Chain {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            self.validate_chunk_endorsements_in_block(&block)?;
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
@@ -3454,13 +3470,13 @@ impl Chain {
         })
     }
 
-    fn get_resharding_state_roots(
-        &self,
+    pub fn get_resharding_state_roots(
+        chain_store: &dyn ChainStoreAccess,
+        epoch_manager: &dyn EpochManagerAdapter,
         block: &Block,
         shard_id: ShardId,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let next_shard_layout =
-            self.epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
+        let next_shard_layout = epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
         let new_shards =
             next_shard_layout.get_children_shards_uids(shard_id).unwrap_or_else(|| {
                 panic!(
@@ -3471,7 +3487,8 @@ impl Chain {
         new_shards
             .iter()
             .map(|shard_uid| {
-                self.get_chunk_extra(block.header().prev_hash(), shard_uid)
+                chain_store
+                    .get_chunk_extra(block.header().prev_hash(), shard_uid)
                     .map(|chunk_extra| (*shard_uid, *chunk_extra.state_root()))
             })
             .collect()
@@ -3666,7 +3683,12 @@ impl Chain {
         //    states
         let resharding_state_roots =
             if shard_context.need_to_reshard && mode != ApplyChunksMode::NotCaughtUp {
-                Some(self.get_resharding_state_roots(block, shard_id)?)
+                Some(Self::get_resharding_state_roots(
+                    self.chain_store(),
+                    self.epoch_manager.as_ref(),
+                    block,
+                    shard_id,
+                )?)
             } else {
                 None
             };
@@ -3932,15 +3954,6 @@ fn get_genesis_congestion_infos_impl(
     // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
     if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
         return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-    }
-
-    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
-    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
-    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
-    if let Ok(protocol_config) = runtime.get_protocol_config(&genesis_epoch_id) {
-        if protocol_config.genesis_config.chain_id == near_primitives::chains::STATELESSNET {
-            return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-        }
     }
 
     // Check we had already computed the congestion infos from the genesis state roots.

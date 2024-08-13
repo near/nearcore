@@ -7,8 +7,6 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::{GetValidatorInfo, ViewClientActorInner};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{AccountId, EpochId, EpochReference};
-use near_primitives::version::ProtocolFeature::StatelessValidation;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -26,11 +24,6 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 
 #[test]
 fn test_stateless_validators_with_multi_test_loop() {
-    if !StatelessValidation.enabled(PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
-
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
