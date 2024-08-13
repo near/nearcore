@@ -79,14 +79,7 @@ struct PrepareTask {
 }
 
 enum PrepareTaskStatus {
-    Pending {
-        created: Instant,
-        cache: Option<Box<dyn ContractRuntimeCache>>,
-        gas_counter: GasCounter,
-        code_hash: CryptoHash,
-        account_id: AccountId,
-        method_name: String,
-    },
+    Pending,
     Working,
     Prepared(Box<dyn PreparedContract>),
     Finished,
@@ -163,33 +156,16 @@ impl ReceiptPreparationPipeline {
                     let code_hash = account.code_hash();
                     let created = Instant::now();
                     let method_name = function_call.method_name.clone();
-                    let status = Mutex::new(PrepareTaskStatus::Pending {
-                        created,
-                        cache,
-                        gas_counter,
-                        code_hash,
-                        account_id,
-                        method_name,
-                    });
+                    let status = Mutex::new(PrepareTaskStatus::Pending);
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
-                    // FIXME: don't spawn all tasks at once. We want to keep some capacity for
-                    // other things and also to control (in a way) the concurrency here.
                     rayon::spawn_fifo(move || {
                         let task_status = {
                             let mut status = task.status.lock().expect("mutex lock");
                             std::mem::replace(&mut *status, PrepareTaskStatus::Working)
                         };
-                        let PrepareTaskStatus::Pending {
-                            created,
-                            cache,
-                            gas_counter,
-                            code_hash,
-                            account_id,
-                            method_name,
-                        } = task_status
-                        else {
+                        let PrepareTaskStatus::Pending = task_status else {
                             return;
                         };
                         PIPELINING_ACTIONS_TASK_DELAY_TIME.inc_by(created.elapsed().as_secs_f64());
@@ -288,14 +264,7 @@ impl ReceiptPreparationPipeline {
         loop {
             let current = std::mem::replace(&mut *status_guard, PrepareTaskStatus::Working);
             match current {
-                PrepareTaskStatus::Pending {
-                    gas_counter,
-                    code_hash,
-                    account_id,
-                    method_name,
-                    cache,
-                    ..
-                } => {
+                PrepareTaskStatus::Pending => {
                     *status_guard = PrepareTaskStatus::Finished;
                     drop(status_guard);
                     let start = Instant::now();
@@ -305,6 +274,9 @@ impl ReceiptPreparationPipeline {
                         receipt=%receipt.get_hash(),
                         action_index
                     );
+                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let cache = self.contract_cache.as_ref().map(|c| c.handle());
+                    let method_name = function_call.method_name.clone();
                     let contract = prepare_function_call(
                         &self.storage,
                         cache.as_deref(),
