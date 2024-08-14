@@ -1018,7 +1018,7 @@ pub(crate) fn print_epoch_analysis(
         // let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         // let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
         // let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
-        let original_next_next_protocol_version = 69;
+        let original_next_next_protocol_version = 68;
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
