@@ -82,7 +82,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
     let mut schedule = vec![];
-    
+
     // 2.1.0
     // Tuesday
     let protocol_version = 70;
