@@ -17,6 +17,7 @@ use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
+use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -271,6 +272,10 @@ pub enum NetworkRequests {
     PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    /// Requests an epoch sync
+    EpochSyncRequest { peer_id: PeerId },
+    /// Response to an epoch sync request
+    EpochSyncResponse { route_back: CryptoHash, proof: EpochSyncProof },
 }
 
 /// Combines peer address info, chain.

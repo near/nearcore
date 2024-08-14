@@ -668,9 +668,10 @@ pub fn display_sync_status(
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
-        SyncStatus::EpochSync { epoch_ord } => {
-            format!("[EPOCH: {:>5}] Getting to a recent epoch", epoch_ord)
+        SyncStatus::EpochSync(status) => {
+            format!("[EPOCH] {:?}", status)
         }
+        SyncStatus::EpochSyncDone => "[EPOCH] Done".to_string(),
         SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
             let percent = if highest_height <= start_height {
                 0.0

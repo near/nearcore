@@ -159,6 +159,26 @@ impl SyncConfig {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct EpochSyncConfig {
+    pub enabled: bool,
+    pub epoch_sync_horizon: BlockHeightDelta,
+    pub epoch_sync_accept_proof_max_horizon: BlockHeightDelta,
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub timeout_for_epoch_sync: Duration,
+}
+
+impl Default for EpochSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            epoch_sync_horizon: 216000,
+            epoch_sync_accept_proof_max_horizon: 86400,
+            timeout_for_epoch_sync: Duration::seconds(60),
+        }
+    }
+}
+
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
 #[derive(Clone)]
@@ -275,6 +295,10 @@ pub fn default_state_sync() -> Option<StateSyncConfig> {
                 DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
         }),
     })
+}
+
+pub fn default_epoch_sync() -> Option<EpochSyncConfig> {
+    Some(EpochSyncConfig::default())
 }
 
 pub fn default_state_sync_enabled() -> bool {
@@ -450,6 +474,8 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Options for epoch sync.
+    pub epoch_sync: EpochSyncConfig,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
@@ -557,6 +583,7 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::seconds(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
+            epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
             resharding_config: MutableConfigValue::new(

@@ -315,6 +315,11 @@ impl ChainStore {
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
         let head = self.head()?;
+        if head.prev_block_hash == CryptoHash::default() {
+            // This is genesis. It means we are state syncing right after epoch sync. Don't clear
+            // anything at genesis, or else the node will never boot up again.
+            return Ok(());
+        }
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();

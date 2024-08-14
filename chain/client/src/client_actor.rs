@@ -1714,6 +1714,14 @@ impl ClientActorInner {
     ///
     /// This method runs the header sync, the block sync
     fn handle_sync_needed(&mut self, highest_height: u64, signer: &Option<Arc<ValidatorSigner>>) {
+        let epoch_sync_result = self.client.epoch_sync.run(
+            &mut self.client.sync_status,
+            &self.client.chain,
+            highest_height,
+            &self.network_info.highest_height_peers,
+        );
+        unwrap_and_report_state_sync_result!(epoch_sync_result);
+
         // Run each step of syncing separately.
         let header_sync_result = self.client.header_sync.run(
             &mut self.client.sync_status,
