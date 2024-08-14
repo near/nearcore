@@ -81,16 +81,18 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
     // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
+    let mut schedule = vec![];
+    
     // 2.1.0
     // Tuesday
     let protocol_version = 70;
     let datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-08-06 10:00:00").unwrap();
-    let schedule = vec![(datetime, protocol_version)];
+    schedule.push((datetime, protocol_version));
 
     // FixMinStakeRatio
     let protocol_version = 71;
     let datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-08-18 10:00:00").unwrap();
-    let schedule = vec![(datetime, protocol_version)];
+    schedule.push((datetime, protocol_version));
 
     ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 });
