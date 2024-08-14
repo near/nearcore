@@ -10,7 +10,8 @@ use near_client::{PartialWitnessActor, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::test_loop::ClientSenderForTestLoopNetwork;
+use near_network::test_loop::{ClientSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork};
+use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
@@ -65,13 +66,16 @@ impl TestLoopEnv {
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing
     /// TestLoop itself, as it asserts that all events have been handled.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
+    ///
+    /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
+    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) -> TempDir {
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in self.datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
+        self.tempdir
     }
 }
 
@@ -135,6 +139,7 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
 
 pub struct TestData {
     pub account_id: AccountId,
+    pub peer_id: PeerId,
     pub client_sender: TestLoopSender<ClientActorInner>,
     pub view_client_sender: TestLoopSender<ViewClientActorInner>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
@@ -148,6 +153,12 @@ impl From<&TestData> for AccountId {
     }
 }
 
+impl From<&TestData> for PeerId {
+    fn from(data: &TestData) -> PeerId {
+        data.peer_id.clone()
+    }
+}
+
 impl From<&TestData> for ClientSenderForTestLoopNetwork {
     fn from(data: &TestData) -> ClientSenderForTestLoopNetwork {
         data.client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
@@ -156,6 +167,12 @@ impl From<&TestData> for ClientSenderForTestLoopNetwork {
 
 impl From<&TestData> for ViewClientSenderForRpc {
     fn from(data: &TestData) -> ViewClientSenderForRpc {
+        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&TestData> for ViewClientSenderForTestLoopNetwork {
+    fn from(data: &TestData) -> ViewClientSenderForTestLoopNetwork {
         data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }

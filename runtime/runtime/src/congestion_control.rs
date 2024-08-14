@@ -9,7 +9,7 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::receipts_column_helper::{
-    DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
+    DelayedReceiptQueue, ReceiptIterator, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -340,7 +340,6 @@ pub(crate) fn receipt_congestion_gas(
             // they never cross the shard boundaries. This makes it irrelevant
             // for the congestion MVP, which only counts gas in the outgoing
             // buffers and delayed receipts queue.
-            tracing::error!(target: "congestion_control", "Attempting to calculate congestion gas for a `PromiseYield`.");
             Ok(0)
         }
         ReceiptEnum::PromiseResume(_) => {
@@ -444,6 +443,10 @@ impl DelayedReceiptQueueWrapper {
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
         }
         Ok(receipt)
+    }
+
+    pub(crate) fn peek_iter<'a>(&'a self, trie_update: &'a TrieUpdate) -> ReceiptIterator<'a> {
+        self.queue.iter(trie_update)
     }
 
     pub(crate) fn len(&self) -> u64 {

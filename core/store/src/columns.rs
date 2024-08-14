@@ -75,7 +75,7 @@ pub enum DBCol {
     EpochInfo,
     /// Mapping from BlockHash to BlockInfo
     /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::block_info::BlockInfo]
+    /// - *Content type*: [near_primitives::epoch_block_info::BlockInfo]
     BlockInfo,
     /// Mapping from ChunkHash to ShardChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
@@ -293,12 +293,6 @@ pub enum DBCol {
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
     LatestWitnessesByIndex,
-    /// Column to store data for Epoch Sync.
-    /// Does not contain data for genesis epoch.
-    /// - *Rows*: `epoch_id`
-    /// - *Column type*: `EpochSyncInfo
-    #[cfg(feature = "new_epoch_sync")]
-    EpochSyncInfo,
 }
 
 /// Defines different logical parts of a db key.
@@ -501,8 +495,6 @@ impl DBCol {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus => false,
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => false
         }
     }
 
@@ -574,8 +566,6 @@ impl DBCol {
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
         }
     }
 }
