@@ -40,7 +40,7 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::types::{Balance, EpochHeight};
+use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
@@ -936,6 +936,7 @@ pub(crate) fn print_epoch_analysis(
     mode: EpochAnalysisMode,
     near_config: NearConfig,
     store: Store,
+    force_protocol_version: ProtocolVersion,
 ) {
     let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
@@ -979,7 +980,7 @@ pub(crate) fn print_epoch_analysis(
     let mut next_epoch_info =
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
     let mut next_next_epoch_config =
-        epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION).unwrap();
+        epoch_manager.get_config_for_protocol_version(force_protocol_version).unwrap();
     let mut has_same_shard_layout;
     let mut epoch_protocol_version;
     let mut next_next_protocol_version;
@@ -1036,8 +1037,8 @@ pub(crate) fn print_epoch_analysis(
             }
             EpochAnalysisMode::Backtest => {
                 has_same_shard_layout = true;
-                epoch_protocol_version = PROTOCOL_VERSION;
-                next_next_protocol_version = PROTOCOL_VERSION;
+                epoch_protocol_version = force_protocol_version;
+                next_next_protocol_version = force_protocol_version;
             }
         };
 

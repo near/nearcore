@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
-use near_primitives_core::types::EpochHeight;
+use near_primitives_core::types::{EpochHeight, ProtocolVersion};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -567,6 +567,8 @@ pub struct EpochAnalysisCmd {
     /// Epoch analysis mode.
     #[clap(subcommand)]
     mode: EpochAnalysisMode,
+    #[clap(long)]
+    force_pv: ProtocolVersion,
 }
 
 #[derive(clap::Subcommand)]
@@ -585,7 +587,7 @@ pub enum EpochAnalysisMode {
 
 impl EpochAnalysisCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
-        print_epoch_analysis(self.start_height, self.mode, near_config, store);
+        print_epoch_analysis(self.start_height, self.mode, near_config, store, self.force_pv);
     }
 }
 
