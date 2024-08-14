@@ -1048,6 +1048,7 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        println!("{}", next_next_epoch_config.validator_selection_config.minimum_stake_ratio);
         let next_next_epoch_info = near_epoch_manager::proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
