@@ -26,8 +26,8 @@ fn gas_limit_adjustment_factor(
 ) -> u64 {
     match gas_limit_adjustment_config {
         None => {
-            // Under normal conditions (outside of `BENCHMARKNET`), gas limit cannot be adjusted
-            // for more than 0.1% at a time.
+            // In production `gas_limit_adjustment_config` is expected to be `None`. Then do not
+            // adjust the gas limit for more than 0.1% at a time.
             1000
         }
         Some(&GasLimitAdjustmentConfig { adjustment_factor_override, .. }) => {

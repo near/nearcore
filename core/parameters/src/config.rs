@@ -31,11 +31,14 @@ pub struct RuntimeConfig {
     pub congestion_control_config: CongestionControlConfig,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfig,
-    /// Configures gas limit adjustments at runtime.
+    /// Configures gas limit adjustments at runtime. No gas limit changes are expected at runtime
+    /// if this is `None`.
     ///
-    /// It is optional as this is supposed to be enabled only on `BENCHMARKNET`. Therefore
-    /// `GasLimitAdjustmentConfig` is not read from config files but instead set when building the
-    /// `RuntimeConfig` for `BENCHMARKNET`.
+    /// It is optional since this functionality is supposed to be used only in tests/benchmarks,
+    /// like for example in `BENCHMARKNET`.
+    ///
+    /// `GasLimitAdjustmentConfig` is not read from config files. Instead tests/benchmarks that
+    /// want to use this feature must set it in their `RuntimeConfig`.
     pub gas_limit_adjustment_config: Option<GasLimitAdjustmentConfig>,
 }
 
@@ -250,19 +253,28 @@ pub struct WitnessConfig {
     pub new_transactions_validation_state_size_soft_limit: usize,
 }
 
+/// Configures gas limit adjustments at runtime.
+///
+/// This functionality is not intended for production, but only for tests or benchmarks.
+///
+/// A possible use case is making a node that runs benchmarks automatically set the maximum gas
+/// limit that it can sustain.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GasLimitAdjustmentConfig {
     /// Override for `GAS_LIMIT_ADJUSTMENT_FACTOR`.
+    ///
+    /// The default adjustment factor might not be effective enough.
     pub adjustment_factor_override: u64,
     /// The maximum chunk apply time considered sustainable, in milliseconds.
     pub max_chunk_apply_time: u64,
     /// Increasing the gas limit when chunk apply times are close to the targeted maximum can lead
-    /// to overshooting the target in subsequent blocks.
+    /// to overshooting the target in subsequent chunks. To avoid this, the gas limit will be
+    /// increased only if `apply_time + backoff_time < max_chunk_apply_time`.
     ///
     /// Measured in milliseconds.
     pub backoff_time: u64,
-    /// When there is no load it is hard to predict if the node could handle more load. Hence we
-    /// need some notion of measuring load.
+    /// When there is no load it is hard to predict if the node could handle more. Hence we need
+    /// some notion of measuring the current load.
     ///
     /// Measured in milliseconds.
     pub load_indication_apply_time: u64,

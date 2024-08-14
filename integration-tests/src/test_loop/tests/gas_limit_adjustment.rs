@@ -35,6 +35,8 @@ fn test_by_default_gas_limit_is_constant() {
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
+    // Since we are **not** patching in a `RuntimeConfig` with `Some(GasLimitAdjustmentConfig)`, the
+    // adjustment is disabled by default.
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
