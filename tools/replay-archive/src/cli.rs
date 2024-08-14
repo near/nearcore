@@ -23,7 +23,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::resulting_chunk_extra;
 use near_store::{get_genesis_state_roots, ShardUId, Store};
@@ -401,8 +401,11 @@ impl ReplayController {
         prev_chunk_extra: &ChunkExtra,
     ) -> Result<()> {
         // Check if the information in the ChunkExtra recorded after applying the previuous chunk matches the information in the new chunk.
-        let gas_limit_adjustment_config =
-            self.runtime.get_runtime_config(PROTOCOL_VERSION)?.gas_limit_adjustment_config;
+        let gas_limit_adjustment_config = {
+            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            self.runtime.get_runtime_config(protocol_version)?.gas_limit_adjustment_config
+        };
         if is_new_chunk {
             validate_chunk_with_chunk_extra(
                 &self.chain_store,

@@ -2326,9 +2326,11 @@ fn test_validate_chunk_extra() {
         .unwrap();
     let chunk_extra =
         client.chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
+    let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(block1.hash()).unwrap();
+    let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let gas_limit_adjustment_config = client
         .runtime_adapter
-        .get_runtime_config(PROTOCOL_VERSION)
+        .get_runtime_config(protocol_version)
         .unwrap()
         .gas_limit_adjustment_config;
     assert!(validate_chunk_with_chunk_extra(

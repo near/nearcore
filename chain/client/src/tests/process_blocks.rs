@@ -239,7 +239,13 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     let prev_block_hash = block.header().prev_hash();
     let client = &env.clients[0];
     let prev_chunk_extra = client.chain.get_chunk_extra(prev_block_hash, &shard_uid).unwrap();
-    // TODO construct RuntimeConfig
+    let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+    let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+    let gas_limit_adjustment_config = client
+        .runtime_adapter
+        .get_runtime_config(protocol_version)
+        .unwrap()
+        .gas_limit_adjustment_config;
     let result: Result<(), near_chain::Error> = validate_chunk_with_chunk_extra(
         &client.chain.chain_store,
         client.epoch_manager.as_ref(),
@@ -247,7 +253,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         &prev_chunk_extra,
         1,
         &modified_chunk,
-        None,
+        gas_limit_adjustment_config.as_ref(),
     );
 
     let expected_is_ok = mode.is_ok();

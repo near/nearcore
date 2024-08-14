@@ -21,7 +21,6 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::sync::Arc;
 
@@ -123,7 +122,7 @@ impl ChunkValidator {
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             let gas_limit_adjustment_config = self
                 .runtime_adapter
-                .get_runtime_config(PROTOCOL_VERSION)?
+                .get_runtime_config(epoch_manager.get_epoch_protocol_version(&epoch_id)?)?
                 .gas_limit_adjustment_config;
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),

@@ -3693,6 +3693,9 @@ impl Chain {
                 let prev_chunk_height_included = prev_chunk_header.height_included();
 
                 // Validate that all next chunk information matches previous chunk extra.
+                let epoch_id =
+                    self.epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
@@ -3703,7 +3706,7 @@ impl Chain {
                     prev_chunk_height_included,
                     &chunk_header,
                     self.runtime_adapter
-                        .get_runtime_config(PROTOCOL_VERSION)?
+                        .get_runtime_config(protocol_version)?
                         .gas_limit_adjustment_config
                         .as_ref(),
                 )

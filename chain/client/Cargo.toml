@@ -61,7 +61,6 @@ near-performance-metrics-macros.workspace = true
 near-performance-metrics.workspace = true
 near-pool.workspace = true
 near-primitives = { workspace = true, features = ["clock"] }
-near-primitives-core.workspace = true
 near-store.workspace = true
 near-telemetry.workspace = true
 near-vm-runner.workspace = true
@@ -96,7 +95,6 @@ nightly_protocol = [
   "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-pool/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "near-telemetry/nightly_protocol",
@@ -115,7 +113,6 @@ nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-pool/nightly",
-  "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",

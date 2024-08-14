@@ -4155,7 +4155,6 @@ dependencies = [
  "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
- "near-primitives-core",
  "near-store",
  "near-telemetry",
  "near-vm-runner",
