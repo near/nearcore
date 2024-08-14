@@ -1062,7 +1062,10 @@ pub(crate) fn print_epoch_analysis(
             has_same_shard_layout,
         )
         .unwrap();
-
+        
+        const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+        let seat_price_near = next_next_epoch_info.seat_price() / ONE_NEAR;
+        
         // Compute difference between chunk producer assignments.
         let next_assignment = next_epoch_info.chunk_producers_settlement();
         let next_next_assignment = next_next_epoch_info.chunk_producers_settlement();
@@ -1114,12 +1117,14 @@ pub(crate) fn print_epoch_analysis(
             EpochAnalysisMode::Backtest => {
                 // Print csv-style stats on screen.
                 println!(
-                    "{next_next_epoch_height},{original_next_next_protocol_version},{state_syncs},{},{},{},{},{}",
-                    validator_num.values().min().unwrap(),
-                    validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
-                    min_stake,
-                    max_stake - min_stake,
-                    ((max_stake - min_stake) as f64) / (*max_stake as f64)
+                    "{},{original_next_next_protocol_version},{state_syncs},{}",
+                    next_epoch_height + 1,
+                    seat_price_near,
+                    // validator_num.values().min().unwrap(),
+                    // validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
+                    // min_stake,
+                    // max_stake - min_stake,
+                    // ((max_stake - min_stake) as f64) / (*max_stake as f64)
                 );
                 // Use the generated epoch info for the next iteration.
                 next_epoch_info = next_next_epoch_info;
