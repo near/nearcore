@@ -179,7 +179,7 @@ impl AllEpochConfig {
         Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
 
         Self::config_max_kickout_stake(&mut config, protocol_version);
-        
+
         Self::config_fix_min_stake_ratio(&mut config, protocol_version);
 
         Self::config_test_overrides(&mut config, &self.test_overrides);
@@ -487,7 +487,11 @@ mod tests {
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);
-            assert_eq!(*stored_config.as_ref(), expected_config, "Mismatch for protocol version {protocol_version}");
+            assert_eq!(
+                *stored_config.as_ref(),
+                expected_config,
+                "Mismatch for protocol version {protocol_version}"
+            );
         }
     }
 

@@ -148,7 +148,7 @@ pub enum ProtocolFeature {
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
     FixMinStakeRatio,
-    
+
     /// Protocol version reserved for use in resharding tests.
     SimpleNightshadeTestonly,
 
@@ -215,7 +215,7 @@ impl ProtocolFeature {
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
-            
+
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
             // protocol versions will still have the production layout.
