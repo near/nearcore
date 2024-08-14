@@ -49,6 +49,15 @@ impl ChunkEndorsementsBitmap {
         Self { inner: vec![Default::default(); num_shards] }
     }
 
+    // Creates an endorsement bitmap for all the shards.
+    pub fn from_endorsements(shards_to_endorsements: Vec<Vec<bool>>) -> Self {
+        let mut bitmap = ChunkEndorsementsBitmap::new(shards_to_endorsements.len());
+        for (shard_id, endorsements) in shards_to_endorsements.into_iter().enumerate() {
+            bitmap.add_endorsements(shard_id as ShardId, endorsements);
+        }
+        bitmap
+    }
+
     /// Performs sanity check that the size of the unsigned int used for the internal implementation
     /// is sufficient to store the endorsements encoded in the deserialized bytes.
     pub fn init(&mut self) {

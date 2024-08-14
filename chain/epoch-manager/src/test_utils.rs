@@ -366,6 +366,7 @@ pub fn record_block_with_slashes(
         .unwrap();
 }
 
+// TODO(#11900): Start using BlockInfoV3 in the tests.
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
