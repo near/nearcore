@@ -65,7 +65,6 @@ fn repro_1183() {
             5,
             false,
             vec![false; validators.len()],
-            vec![true; validators.len()],
             false,
             None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
@@ -194,7 +193,6 @@ fn test_sync_from_archival_node() {
             epoch_length,
             false,
             vec![true, false, false, false],
-            vec![false, true, true, true],
             false,
             None,
             Box::new(
@@ -299,7 +297,6 @@ fn test_long_gap_between_blocks() {
             epoch_length,
             true,
             vec![false, false],
-            vec![true, true],
             false,
             None,
             Box::new(

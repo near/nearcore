@@ -7,7 +7,7 @@ use near_async::{
     messaging::{noop, IntoMultiSender},
 };
 use near_chain_configs::GenesisConfig;
-use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
+use near_client::test_utils::setup_no_network_with_validity_period;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::{
@@ -30,16 +30,16 @@ pub enum NodeType {
 }
 
 pub fn start_all(clock: Clock, node_type: NodeType) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
-    start_all_with_validity_period_and_no_epoch_sync(clock, node_type, 100, false)
+    start_all_with_validity_period(clock, node_type, 100, false)
 }
 
-pub fn start_all_with_validity_period_and_no_epoch_sync(
+pub fn start_all_with_validity_period(
     clock: Clock,
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
-    let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
+    let actor_handles = setup_no_network_with_validity_period(
         clock,
         vec!["test1".parse().unwrap()],
         if let NodeType::Validator = node_type {

@@ -41,7 +41,6 @@ near-config-utils.workspace = true
 near-crypto.workspace = true
 near-database-tool.workspace = true
 near-dyn-configs.workspace = true
-near-epoch-sync-tool = { workspace = true, optional = true }
 near-flat-storage.workspace = true
 near-fork-network.workspace = true
 near-jsonrpc-primitives.workspace = true
@@ -74,7 +73,6 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
-new_epoch_sync = ["nearcore/new_epoch_sync", "near-epoch-sync-tool/new_epoch_sync"]
 
 nightly = [
   "near-chain-configs/nightly",
