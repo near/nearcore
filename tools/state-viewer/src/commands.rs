@@ -954,7 +954,7 @@ pub(crate) fn print_epoch_analysis(
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();
     // We can analyze only epochs without last two because these are not
     // finalized yet, so we don't have next next epoch info stored for them.
-    let max_epoch_height = max_stored_epoch_height.saturating_sub(1);
+    let max_epoch_height = max_stored_epoch_height; //.saturating_sub(1);
 
     let epoch_heights_to_infos =
         BTreeMap::from_iter(epoch_infos.values().map(|e| (e.epoch_height(), e)));
@@ -966,7 +966,7 @@ pub(crate) fn print_epoch_analysis(
             }
             // Filter out too big epoch heights because they may not be
             // finalized yet.
-            if epoch_height > max_epoch_height - 1 {
+            if epoch_height > max_epoch_height - 2 {
                 return None;
             }
             Some((epoch_height, epoch_manager.get_epoch_validator_info(epoch_id).unwrap()))
