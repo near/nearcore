@@ -413,6 +413,7 @@ fn select_validators(
         // all slots were filled, so the threshold stake is 1 more than the current
         // smallest stake
         let threshold = validators.last().unwrap().stake() + 1;
+        println!("MAX {}", threshold);
         (validators, proposals, threshold)
     } else {
         // the stake ratio condition prevented all slots from being filled,
@@ -430,6 +431,7 @@ fn select_validators(
         } else {
             (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer()
         };
+        println!("CUT {}", threshold);
         (validators, proposals, threshold)
     }
 }
