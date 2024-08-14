@@ -955,7 +955,7 @@ pub(crate) fn print_epoch_analysis(
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();
     // We can analyze only epochs without last two because these are not
     // finalized yet, so we don't have next next epoch info stored for them.
-    let max_epoch_height = max_stored_epoch_height; //.saturating_sub(1);
+    let max_epoch_height = max_stored_epoch_height.saturating_sub(2);
 
     let epoch_heights_to_infos =
         BTreeMap::from_iter(epoch_infos.values().map(|e| (e.epoch_height(), e)));
@@ -967,7 +967,7 @@ pub(crate) fn print_epoch_analysis(
             }
             // Filter out too big epoch heights because they may not be
             // finalized yet.
-            if epoch_height > max_epoch_height - 2 {
+            if epoch_height > max_epoch_height {
                 return None;
             }
             Some((epoch_height, epoch_manager.get_epoch_validator_info(epoch_id).unwrap()))
@@ -1013,12 +1013,12 @@ pub(crate) fn print_epoch_analysis(
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
-        let next_next_epoch_height = epoch_height.saturating_add(1);
-        // let next_next_epoch_height = epoch_height.saturating_add(2);
+        // let next_next_epoch_height = epoch_height.saturating_add(1);
+        let next_next_epoch_height = epoch_height.saturating_add(2);
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
-        // let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
-        // let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
-        // let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
+        let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
+        let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
+        let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
         let original_next_next_protocol_version = force_protocol_version;
 
         match mode {
@@ -1053,10 +1053,10 @@ pub(crate) fn print_epoch_analysis(
             &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
-            vec![],
-            HashMap::default(),
-            // epoch_summary.all_proposals.clone(),
-            // epoch_summary.validator_kickout.clone(),
+            // vec![],
+            // HashMap::default(),
+            epoch_summary.all_proposals.clone(),
+            epoch_summary.validator_kickout.clone(),
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             epoch_protocol_version,
