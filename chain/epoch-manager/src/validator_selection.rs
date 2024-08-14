@@ -392,6 +392,7 @@ fn select_validators(
     min_stake_ratio: Ratio<u128>,
     protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
+    println!("{}", min_stake_ratio);
     let mut total_stake = 0;
     let n = cmp::min(max_number_selected, proposals.len());
     let mut validators = Vec::with_capacity(n);
