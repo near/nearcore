@@ -966,7 +966,7 @@ pub(crate) fn print_epoch_analysis(
             }
             // Filter out too big epoch heights because they may not be
             // finalized yet.
-            if epoch_height > max_epoch_height {
+            if epoch_height > max_epoch_height - 1 {
                 return None;
             }
             Some((epoch_height, epoch_manager.get_epoch_validator_info(epoch_id).unwrap()))
@@ -1015,9 +1015,9 @@ pub(crate) fn print_epoch_analysis(
         let next_next_epoch_height = epoch_height.saturating_add(2);
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
         let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
-        let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
+        // let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
         let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
-        let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
+        let original_next_next_protocol_version = 69;
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
@@ -1049,8 +1049,10 @@ pub(crate) fn print_epoch_analysis(
             &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
-            epoch_summary.all_proposals.clone(),
-            epoch_summary.validator_kickout.clone(),
+            vec![],
+            HashMap::default(),
+            // epoch_summary.all_proposals.clone(),
+            // epoch_summary.validator_kickout.clone(),
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             epoch_protocol_version,
