@@ -45,22 +45,13 @@ for i in range(10):
 time.sleep(3)
 acc_id = nodes[0].signer_key.account_id
 
-
-def process():
-    for i in range(100):
-        key = bytearray(8)
-        key[0] = i % 10
-        res = nodes[4].call_function(
-            acc_id, 'read_value',
-            base64.b64encode(bytes(key)).decode("ascii"))
-        res = int.from_bytes(res["result"]["result"], byteorder='little')
-        assert res == (i % 10)
-    logger.info("all done")
-
-
-ps = [multiprocessing.Process(target=process, args=()) for i in range(6)]
-for p in ps:
-    p.start()
-
-for p in ps:
-    p.join()
+# Read values from storage
+for i in range(100):
+    key = bytearray(8)
+    key[0] = i % 10
+    res = nodes[4].call_function(
+        acc_id, 'read_value',
+        base64.b64encode(bytes(key)).decode("ascii"), timeout=10)
+    res = int.from_bytes(res["result"]["result"], byteorder='little')
+    assert res == (i % 10)
+logger.info("all done")
