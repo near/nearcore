@@ -15,6 +15,11 @@ use near_store::db::{MixedDB, ReadOrder, TestDB};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NearConfig;
 
+/// Replays the headers for the blocks between `start_height` and `end-height`.
+/// If `start_height` is not set, uses the genesis height. If `end_height` is not set, uses the chain head.
+/// The headers are replayed by updating the [`EpochManager`] with the headers (by calling `add_validator_proposals`)
+/// and then comparing the resulting validator information ([`EpochValidatorInfo`]) in the original operation of
+/// the chain (from the read-only store) and from the replay of the headers.
 pub(crate) fn replay_headers(
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
@@ -74,6 +79,8 @@ pub(crate) fn replay_headers(
     }
 }
 
+/// Returns the [`BlockHeaderInfo`] corresponding to the header.
+/// This function may override the resulting [`BlockHeaderInfo`] based on certain protocol versions.
 fn get_block_header_info(
     header: &BlockHeader,
     chain_store: &ChainStore,
@@ -127,6 +134,9 @@ fn get_block_header_info(
     Ok(header_info)
 }
 
+/// Returns a stored that reads from the original chain store, but also allows writes to a temporary DB.
+/// This allows to execute a new algorithm for EpochManager without changing the original chain data.
+/// If the node has cold storage, the read DB is the split store (Hot+Cold). Write store is a TestDB (in memory).
 fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let store_opener = NodeStorage::opener(
         home_dir,

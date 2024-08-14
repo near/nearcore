@@ -301,7 +301,7 @@ mod tests {
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
                     height * 10u64.pow(9),
-                    None, // TODO(#11900): Implement this.
+                    None,
                 ),
                 [0; 32],
             )
