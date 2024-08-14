@@ -1012,7 +1012,8 @@ pub(crate) fn print_epoch_analysis(
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
-        let next_next_epoch_height = epoch_height.saturating_add(2);
+        let next_next_epoch_height = epoch_height.saturating_add(1);
+        // let next_next_epoch_height = epoch_height.saturating_add(2);
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
         // let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         // let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
