@@ -239,7 +239,6 @@ nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
-near-epoch-sync-tool = { path = "tools/epoch-sync" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }

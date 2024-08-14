@@ -4306,21 +4306,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-epoch-sync-tool"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "near-chain",
- "near-chain-configs",
- "near-epoch-manager",
- "near-primitives",
- "near-store",
- "nearcore",
- "tracing",
-]
-
-[[package]]
 name = "near-flat-storage"
 version = "0.0.0"
 dependencies = [
@@ -5375,7 +5360,6 @@ dependencies = [
  "near-crypto",
  "near-database-tool",
  "near-dyn-configs",
- "near-epoch-sync-tool",
  "near-flat-storage",
  "near-fork-network",
  "near-jsonrpc-primitives",

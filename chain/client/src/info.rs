@@ -936,7 +936,7 @@ mod tests {
 
     #[test]
     fn test_telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
         let validator = MutableConfigValue::new(None, "validator_signer");
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config);
 
@@ -1043,7 +1043,7 @@ mod tests {
         );
 
         // Then check that get_num_validators returns the correct number of validators.
-        let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
+        let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
             num_validators,
