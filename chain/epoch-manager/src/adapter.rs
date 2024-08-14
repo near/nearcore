@@ -1,6 +1,4 @@
 use crate::types::BlockHeaderInfo;
-#[cfg(feature = "new_epoch_sync")]
-use crate::EpochInfoAggregator;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -25,8 +23,6 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-#[cfg(feature = "new_epoch_sync")]
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -462,19 +458,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         tip: &Tip,
         height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError>;
-
-    /// Returns a vector of all hashes in the epoch ending with `last_block_info`.
-    /// Only return blocks on chain of `last_block_info`.
-    /// Hashes are returned in the order from the last block to the first block.
-    #[cfg(feature = "new_epoch_sync")]
-    fn get_all_epoch_hashes(
-        &self,
-        last_block_info: &BlockInfo,
-        hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
-    ) -> Result<Vec<CryptoHash>, EpochError>;
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash);
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
@@ -1122,27 +1105,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<EpochId>, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.possible_epochs_of_height_around_tip(tip, height)
-    }
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn get_all_epoch_hashes(
-        &self,
-        last_block_info: &BlockInfo,
-        hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
-    ) -> Result<Vec<CryptoHash>, EpochError> {
-        let epoch_manager = self.read();
-        match hash_to_prev_hash {
-            None => epoch_manager.get_all_epoch_hashes_from_db(last_block_info),
-            Some(hash_to_prev_hash) => {
-                epoch_manager.get_all_epoch_hashes_from_cache(last_block_info, hash_to_prev_hash)
-            }
-        }
-    }
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash) {
-        let mut epoch_manager = self.write();
-        epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(*epoch_id, *hash);
     }
 
     /// Returns the set of chunk validators for a given epoch

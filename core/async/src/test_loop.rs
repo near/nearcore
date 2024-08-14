@@ -197,6 +197,8 @@ impl TestLoopV2 {
             pending_events.add(callback_event);
         });
         let shutting_down = Arc::new(AtomicBool::new(false));
+        // Needed for the log visualizer to know when the test loop starts.
+        tracing::info!(target: "test_loop", "TEST_LOOP_INIT");
         Self {
             data: TestLoopData::new(pending_events_sender.clone(), shutting_down.clone()),
             events: BinaryHeap::new(),
@@ -426,6 +428,8 @@ impl Drop for TestLoopV2 {
                 event.due, event.event.description
             );
         }
+        // Needed for the log visualizer to know when the test loop ends.
+        tracing::info!(target: "test_loop", "TEST_LOOP_SHUTDOWN");
     }
 }
 
