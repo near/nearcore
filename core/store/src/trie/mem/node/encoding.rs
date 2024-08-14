@@ -265,11 +265,15 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
         RawDecoder::new(self.ptr)
     }
 
-    /// Decodes the data.
-    pub(crate) fn view_impl(&self) -> MemTrieNodeView<'a, M> {
-        let mut decoder = self.decoder();
+    #[inline]
+    pub(crate) fn get_kind(&self) -> u8 {
         let header = self.ptr.slice(0, CommonHeader::SERIALIZED_SIZE).raw_slice();
-        let kind = header[CommonHeader::SERIALIZED_SIZE - 1];
+        header[CommonHeader::SERIALIZED_SIZE - 1]
+    }
+
+    /// Decodes the data.
+    pub(crate) fn view_kind(&self, kind: u8) -> MemTrieNodeView<'a, M> {
+        let mut decoder = self.decoder();
         match kind {
             NodeKind::DISCRIMINANT_LEAF => {
                 let header = decoder.decode::<LeafHeader>();
