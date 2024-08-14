@@ -954,7 +954,7 @@ pub(crate) fn print_epoch_analysis(
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();
     // We can analyze only epochs without last two because these are not
     // finalized yet, so we don't have next next epoch info stored for them.
-    let max_epoch_height = max_stored_epoch_height.saturating_sub(2);
+    let max_epoch_height = max_stored_epoch_height.saturating_sub(1);
 
     let epoch_heights_to_infos =
         BTreeMap::from_iter(epoch_infos.values().map(|e| (e.epoch_height(), e)));
