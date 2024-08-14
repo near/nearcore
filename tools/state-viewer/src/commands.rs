@@ -1014,9 +1014,9 @@ pub(crate) fn print_epoch_analysis(
         let next_epoch_height = epoch_height.saturating_add(1);
         let next_next_epoch_height = epoch_height.saturating_add(2);
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
-        let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
+        // let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         // let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
-        let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
+        // let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
         let original_next_next_protocol_version = 69;
 
         match mode {
@@ -1025,10 +1025,11 @@ pub(crate) fn print_epoch_analysis(
                 // about epochs.
                 next_epoch_info =
                     epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-                next_next_epoch_config =
-                    epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
-                has_same_shard_layout =
-                    next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
+                // next_next_epoch_config =
+                //     epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
+                has_same_shard_layout = true;
+                // has_same_shard_layout =
+                //     next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
                 epoch_protocol_version = epoch_info.protocol_version();
                 next_next_protocol_version = original_next_next_protocol_version;
             }
