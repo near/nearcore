@@ -124,5 +124,3 @@ sandbox = [
   "near-chain/sandbox",
   "near-o11y/sandbox",
 ]
-new_epoch_sync = ["near-chain/new_epoch_sync"]
-statelessnet_protocol = ["near-chain/statelessnet_protocol"]

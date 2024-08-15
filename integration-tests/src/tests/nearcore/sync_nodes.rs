@@ -36,13 +36,11 @@ fn sync_state_stake_change() {
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", *port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::milliseconds(200);
-        near1.client_config.epoch_sync_enabled = false;
         let mut near2 = load_test_config("test2", port2, genesis.clone());
         near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
         near2.client_config.min_block_production_delay = Duration::milliseconds(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
-        near2.client_config.epoch_sync_enabled = false;
 
         let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();

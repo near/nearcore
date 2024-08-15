@@ -4246,6 +4246,7 @@ dependencies = [
  "bytesize",
  "clap",
  "indicatif",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
@@ -4258,6 +4259,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "tracing",
  "zstd",
 ]
 
@@ -4299,21 +4301,6 @@ dependencies = [
  "rand_hc",
  "serde_json",
  "smart-default",
- "tracing",
-]
-
-[[package]]
-name = "near-epoch-sync-tool"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "near-chain",
- "near-chain-configs",
- "near-epoch-manager",
- "near-primitives",
- "near-store",
- "nearcore",
  "tracing",
 ]
 
@@ -4804,6 +4791,7 @@ dependencies = [
  "anyhow",
  "borsh 1.2.0",
  "clap",
+ "itertools",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
@@ -5371,7 +5359,6 @@ dependencies = [
  "near-crypto",
  "near-database-tool",
  "near-dyn-configs",
- "near-epoch-sync-tool",
  "near-flat-storage",
  "near-fork-network",
  "near-jsonrpc-primitives",
@@ -6358,6 +6345,7 @@ dependencies = [
  "near-primitives-core",
  "near-schema-checker-lib",
  "near-stable-hasher",
+ "near-store",
  "serde_json",
  "toml",
 ]

@@ -24,10 +24,7 @@ tracked_shards = {
 nodes = start_cluster(
     3, 1, 4, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
-     ["chunk_producer_kickout_threshold", 10]], {
-         0: tracked_shards,
-         1: tracked_shards
-     })
+     ["chunk_producer_kickout_threshold", 10]], {3: tracked_shards})
 
 time.sleep(3)
 

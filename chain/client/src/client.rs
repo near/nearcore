@@ -5,12 +5,11 @@ use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributi
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
-use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
-use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::SyncAdapter;
@@ -97,12 +96,6 @@ use crate::client_actor::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
-/// The time we wait for the response to a Epoch Sync request before retrying
-// TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::milliseconds(1_000);
-/// How frequently a Epoch Sync response can be sent to a particular peer
-// TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::milliseconds(10);
 /// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
 const BLOCK_HORIZON: u64 = 500;
 
@@ -158,8 +151,6 @@ pub struct Client {
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs:
         HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>, BlocksCatchUpState)>,
-    /// Keeps track of information needed to perform the initial Epoch Sync
-    pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -286,23 +277,6 @@ impl Client {
         let sharded_tx_pool =
             ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
-        let genesis_block = chain.genesis_block();
-        let epoch_sync = EpochSync::new(
-            clock.clone(),
-            network_adapter.clone(),
-            *genesis_block.header().epoch_id(),
-            *genesis_block.header().next_epoch_id(),
-            epoch_manager
-                .get_epoch_block_producers_ordered(
-                    genesis_block.header().epoch_id(),
-                    genesis_block.hash(),
-                )?
-                .iter()
-                .map(|x| x.0.clone())
-                .collect(),
-            EPOCH_SYNC_REQUEST_TIMEOUT,
-            EPOCH_SYNC_PEER_TIMEOUT,
-        );
         let header_sync = HeaderSync::new(
             clock.clone(),
             network_adapter.clone(),
@@ -398,7 +372,6 @@ impl Client {
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
             catchup_state_syncs: HashMap::new(),
-            epoch_sync,
             header_sync,
             block_sync,
             state_sync,
@@ -1476,7 +1449,7 @@ impl Client {
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1867,9 +1840,8 @@ impl Client {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
-        // If endorsement was received before chunk header, we can process it
-        // only now.
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        // If endorsement was received before chunk header, we can process it only now.
+        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         self.chunk_inclusion_tracker
             .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
     }
