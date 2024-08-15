@@ -10,6 +10,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
@@ -141,26 +142,22 @@ impl InfoHelper {
         }
     }
 
-    /// Count which shards are tracked by the node in the epoch indicated by head parameter.
+    /// Update metrics to record the shards tracked by the validator.
     fn record_tracked_shards(
         head: &Tip,
         client: &crate::client::Client,
-        shard_ids: Option<Vec<ShardId>>,
+        shard_layout: &ShardLayout,
     ) {
-        if let Some(shard_ids) = shard_ids {
-            let validator_signer = client.validator_signer.get();
-            let me = validator_signer.as_ref().map(|x| x.validator_id());
-            for shard_id in shard_ids {
-                let tracked = client.shard_tracker.care_about_shard(
-                    me,
-                    &head.last_block_hash,
-                    shard_id,
-                    true,
-                );
-                metrics::TRACKED_SHARDS
-                    .with_label_values(&[&shard_id.to_string()])
-                    .set(if tracked { 1 } else { 0 });
-            }
+        let validator_signer = client.validator_signer.get();
+        let me = validator_signer.as_ref().map(|x| x.validator_id());
+        for shard_id in shard_layout.shard_ids() {
+            let tracked =
+                client.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+            metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
+                1
+            } else {
+                0
+            });
         }
     }
 
@@ -181,7 +178,7 @@ impl InfoHelper {
     fn record_chunk_producers(
         head: &Tip,
         client: &crate::client::Client,
-        shard_ids: Option<Vec<ShardId>>,
+        shard_layout: Option<&ShardLayout>,
     ) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.get().map(|x| x.validator_id().clone()),
@@ -196,8 +193,8 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Some(shard_ids) = shard_ids {
-            for shard_id in shard_ids {
+        } else if let Some(shard_layout) = shard_layout {
+            for shard_id in shard_layout.shard_ids() {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
@@ -354,11 +351,13 @@ impl InfoHelper {
                 .unwrap_or_default()
         };
 
-        let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).ok();
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).ok();
 
-        InfoHelper::record_tracked_shards(&head, &client, shard_ids.clone());
+        if let Some(shard_layout) = shard_layout.as_ref() {
+            InfoHelper::record_tracked_shards(&head, &client, shard_layout);
+        }
         InfoHelper::record_block_producers(&head, &client);
-        InfoHelper::record_chunk_producers(&head, &client, shard_ids.clone());
+        InfoHelper::record_chunk_producers(&head, &client, shard_layout.as_ref());
         let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
@@ -377,7 +376,7 @@ impl InfoHelper {
             network_info,
             validator_info,
             validator_production_status,
-            shard_ids,
+            shard_layout.as_ref(),
             client
                 .epoch_manager
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
@@ -399,7 +398,7 @@ impl InfoHelper {
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
         validator_production_status: Vec<ValidatorProductionStatus>,
-        shard_ids: Option<Vec<ShardId>>,
+        shard_layout: Option<&ShardLayout>,
         protocol_upgrade_block_height: BlockHeight,
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
@@ -473,7 +472,7 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
 
-        Self::update_validator_metrics(validator_production_status, shard_ids);
+        Self::update_validator_metrics(validator_production_status, shard_layout);
 
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
@@ -499,9 +498,8 @@ impl InfoHelper {
     /// Updates the prometheus metrics to track the block and chunk production and endorsement by validators.
     fn update_validator_metrics(
         validator_status: Vec<ValidatorProductionStatus>,
-        shard_ids: Option<Vec<ShardId>>,
+        shard_layout: Option<&ShardLayout>,
     ) {
-        let shards = shard_ids.unwrap_or(vec![]);
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
         // Note that the metrics are removed for previous epoch validators who are no longer
@@ -547,15 +545,17 @@ impl InfoHelper {
                         .remove_label_values(&[account_id.as_str()]);
                     let _ = metrics::VALIDATORS_CHUNKS_EXPECTED
                         .remove_label_values(&[account_id.as_str()]);
-                    for shard in shards.iter() {
-                        let _ = metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
-                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
-                        let _ = metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
-                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
-                        let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
-                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
-                        let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
-                            .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                    if let Some(shard_layout) = shard_layout {
+                        for shard in shard_layout.shard_ids() {
+                            let _ = metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                            let _ = metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                            let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                            let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                        }
                     }
                 }
             }
