@@ -147,6 +147,9 @@ pub enum ProtocolFeature {
     EthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
+    /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
+    /// Fixes increase to 100K NEAR in the previous protocol version.
+    /// See #11953 for more details.
     FixMinStakeRatio,
 
     /// Protocol version reserved for use in resharding tests.
