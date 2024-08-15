@@ -18,7 +18,9 @@ pub enum Color {
     #[allow(unused)]
     Cyan,
     White,
-    Gray { shade: u8 },
+    Gray {
+        shade: u8,
+    },
     Color256(u8),
 }
 

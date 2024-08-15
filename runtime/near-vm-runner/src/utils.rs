@@ -1,4 +1,4 @@
-#![cfg(not(target_os="macOS"))]
+#![cfg(not(target_os = "macOS"))]
 // This method is not used on macOS so it's fine to allow it to be unused.
 use std::hash::{Hash, Hasher};
 

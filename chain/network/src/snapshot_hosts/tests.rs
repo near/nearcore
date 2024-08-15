@@ -330,10 +330,13 @@ async fn run_select_peer_test(
                 let mut inner = cache.0.lock();
                 let selector = inner.state_part_selectors.entry(0).or_default();
                 selector.selectors.remove(&part_id.idx);
-                assert_eq!(match inner.state_part_selectors.get(&0) {
-                    Some(s) => s.len(part_id),
-                    None => 0,
-                }, 0);
+                assert_eq!(
+                    match inner.state_part_selectors.get(&0) {
+                        Some(s) => s.len(part_id),
+                        None => 0,
+                    },
+                    0
+                );
             }
         }
     }

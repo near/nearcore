@@ -33,7 +33,10 @@ impl SyncActor {
         Self {
             shard_uid,
             sync_hash: CryptoHash::new(),
-            _senders: MessageSenders { _client_adapter: client_adapter, _network_adapter: network_adapter },
+            _senders: MessageSenders {
+                _client_adapter: client_adapter,
+                _network_adapter: network_adapter,
+            },
         }
     }
 

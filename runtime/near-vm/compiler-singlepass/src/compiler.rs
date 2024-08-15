@@ -6,13 +6,10 @@ use crate::codegen_x64::{
 use crate::config::Singlepass;
 use near_vm_compiler::{
     Architecture, CallingConvention, Compilation, CompileError, CompileModuleInfo,
-    CompiledFunction, Compiler, CpuFeature, FunctionBody, FunctionBodyData,
-    SectionIndex, Target, 
+    CompiledFunction, Compiler, CpuFeature, FunctionBody, FunctionBodyData, SectionIndex, Target,
 };
 use near_vm_types::entity::{EntityRef, PrimaryMap};
-use near_vm_types::{
-    FunctionIndex, LocalFunctionIndex,  
-};
+use near_vm_types::{FunctionIndex, LocalFunctionIndex};
 use near_vm_vm::VMOffsets;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 

@@ -340,7 +340,10 @@ impl PeerActor {
                         tcp::StreamType::Inbound => PeerType::Inbound,
                         tcp::StreamType::Outbound { .. } => PeerType::Outbound,
                     },
-                    peer_status: PeerStatus::Connecting { _handshake: send, status: connecting_status },
+                    peer_status: PeerStatus::Connecting {
+                        _handshake: send,
+                        status: connecting_status,
+                    },
                     framed,
                     tracker: Default::default(),
                     stats,
@@ -517,7 +520,7 @@ impl PeerActor {
     ) {
         tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
         let cs = match &self.peer_status {
-            PeerStatus::Connecting { status , .. } => status,
+            PeerStatus::Connecting { status, .. } => status,
             _ => panic!("process_handshake called in non-connecting state"),
         };
         match cs {
@@ -866,7 +869,10 @@ impl PeerActor {
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
         match (&mut self.peer_status, msg) {
             (
-                PeerStatus::Connecting { status: ConnectingStatus::Outbound { handshake_spec, .. }, .. },
+                PeerStatus::Connecting {
+                    status: ConnectingStatus::Outbound { handshake_spec, .. },
+                    ..
+                },
                 PeerMessage::HandshakeFailure(peer_info, reason),
             ) => {
                 match reason {
@@ -904,7 +910,10 @@ impl PeerActor {
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
             (
-                PeerStatus::Connecting{ status: ConnectingStatus::Outbound { handshake_spec, .. }, .. },
+                PeerStatus::Connecting {
+                    status: ConnectingStatus::Outbound { handshake_spec, .. },
+                    ..
+                },
                 PeerMessage::LastEdge(edge),
             ) => {
                 // Check that the edge provided:
@@ -1596,8 +1605,10 @@ impl actix::Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if let PeerStatus::Connecting { status: ConnectingStatus::Outbound { handshake_spec, .. }, ..} =
-            &self.peer_status
+        if let PeerStatus::Connecting {
+            status: ConnectingStatus::Outbound { handshake_spec, .. },
+            ..
+        } = &self.peer_status
         {
             self.send_handshake(handshake_spec.clone());
         }

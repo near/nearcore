@@ -501,7 +501,9 @@ impl GasCost {
 
 #[cfg(test)]
 mod tests {
-    use super::{least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance, NonNegativeTolerance};
+    use super::{
+        least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance, NonNegativeTolerance,
+    };
     use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
     use crate::qemu::QemuMeasurement;
     use near_primitives::types::Gas;

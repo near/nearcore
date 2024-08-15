@@ -8,8 +8,8 @@ use crate::types::{
     RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, ShardUpdateResult};
-use crate::{metrics, DoomslugThresholdMode};
 use crate::Chain;
+use crate::{metrics, DoomslugThresholdMode};
 use near_chain_primitives::error::Error;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;

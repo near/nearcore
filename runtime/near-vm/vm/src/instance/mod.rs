@@ -295,7 +295,7 @@ impl Instance {
         }
     }
 
-   /// Return the indexed `VMGlobalDefinition`.
+    /// Return the indexed `VMGlobalDefinition`.
     fn global_ptr(&self, index: LocalGlobalIndex) -> NonNull<VMGlobalDefinition> {
         let index = usize::try_from(index.as_u32()).unwrap();
         // TODO:
