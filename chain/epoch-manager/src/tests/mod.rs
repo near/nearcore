@@ -2480,8 +2480,8 @@ fn test_validator_kickout_determinism() {
     ]);
     let chunk_stats0: Vec<_> = chunk_stats0.into_iter().rev().collect();
     let chunk_stats_tracker2 = HashMap::from([
-        (0, chunk_stats0.clone().into_iter().collect()),
-        (1, chunk_stats1.clone().into_iter().into_iter().collect()),
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts1) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
