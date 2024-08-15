@@ -147,6 +147,10 @@ pub enum ProtocolFeature {
     EthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
+    /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
+    /// Fixes increase to 100K NEAR in the previous protocol version.
+    /// See #11953 for more details.
+    FixMinStakeRatio,
 
     /// Protocol version reserved for use in resharding tests.
     SimpleNightshadeTestonly,
@@ -210,6 +214,7 @@ impl ProtocolFeature {
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
+            ProtocolFeature::FixMinStakeRatio => 71,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -239,7 +244,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 70;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {

@@ -150,6 +150,8 @@ impl AllEpochConfig {
 
         Self::config_max_kickout_stake(&mut config, protocol_version);
 
+        Self::config_fix_min_stake_ratio(&mut config, protocol_version);
+
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
@@ -283,6 +285,12 @@ impl AllEpochConfig {
     fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {
         if checked_feature!("stable", MaxKickoutStake, protocol_version) {
             config.validator_max_kickout_stake_perc = 30;
+        }
+    }
+
+    fn config_fix_min_stake_ratio(config: &mut EpochConfig, protocol_version: u32) {
+        if checked_feature!("stable", FixMinStakeRatio, protocol_version) {
+            config.validator_selection_config.minimum_stake_ratio = Rational32::new(1, 62_500);
         }
     }
 
