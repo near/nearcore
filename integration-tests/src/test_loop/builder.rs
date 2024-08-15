@@ -129,16 +129,6 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Custom function to change the configs before constructing each client.
-    #[allow(dead_code)]
-    pub fn config_modifier(
-        mut self,
-        modifier: impl Fn(&mut ClientConfig, usize) + 'static,
-    ) -> Self {
-        self.config_modifier = Some(Box::new(modifier));
-        self
-    }
-
     /// Do not automatically warmup the chain. Start from genesis instead.
     /// Note that this can cause unexpected issues, as the chain behaves
     /// somewhat differently (and correctly so) at genesis. So only skip

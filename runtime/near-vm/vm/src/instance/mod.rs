@@ -276,14 +276,6 @@ impl Instance {
         }
     }
 
-    #[allow(dead_code)]
-    /// Set the indexed memory to `VMMemoryDefinition`.
-    fn set_memory(&self, index: LocalMemoryIndex, mem: &VMMemoryDefinition) {
-        unsafe {
-            *self.memory_ptr(index).as_ptr() = *mem;
-        }
-    }
-
     /// Return the indexed `VMMemoryDefinition`.
     fn memory_ptr(&self, index: LocalMemoryIndex) -> NonNull<VMMemoryDefinition> {
         let index = usize::try_from(index.as_u32()).unwrap();
@@ -303,15 +295,7 @@ impl Instance {
         }
     }
 
-    /// Set the indexed global to `VMGlobalDefinition`.
-    #[allow(dead_code)]
-    fn set_global(&self, index: LocalGlobalIndex, global: &VMGlobalDefinition) {
-        unsafe {
-            *self.global_ptr(index).as_ptr() = global.clone();
-        }
-    }
-
-    /// Return the indexed `VMGlobalDefinition`.
+   /// Return the indexed `VMGlobalDefinition`.
     fn global_ptr(&self, index: LocalGlobalIndex) -> NonNull<VMGlobalDefinition> {
         let index = usize::try_from(index.as_u32()).unwrap();
         // TODO:

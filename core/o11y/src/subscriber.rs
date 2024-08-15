@@ -27,10 +27,8 @@ pub struct DefaultSubscriberGuard<S> {
     // lost.
     subscriber: Option<S>,
     local_subscriber_guard: Option<DefaultGuard>,
-    #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
-    writer_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
-    #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
-    io_trace_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    _writer_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    _io_trace_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
 /// Configures exporter of span and trace data.
@@ -227,8 +225,8 @@ pub fn default_subscriber(
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
-        writer_guard: None,
-        io_trace_guard,
+        _writer_guard: None,
+        _io_trace_guard: io_trace_guard,
     }
 }
 
@@ -290,7 +288,7 @@ pub async fn default_subscriber_with_opentelemetry(
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
-        writer_guard: Some(writer_guard),
-        io_trace_guard,
+        _writer_guard: Some(writer_guard),
+        _io_trace_guard: io_trace_guard,
     }
 }

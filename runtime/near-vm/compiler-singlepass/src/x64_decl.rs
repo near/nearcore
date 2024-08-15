@@ -41,7 +41,7 @@ pub(crate) enum GPR {
 }
 
 impl GPR {
-    pub const fn num_gprs() -> usize {
+    pub const fn _num_gprs() -> usize {
         GPR::R15 as usize + 1
     }
 }
@@ -85,7 +85,7 @@ pub(crate) enum XMM {
 }
 
 impl XMM {
-    pub const fn num_xmms() -> usize {
+    pub const fn _num_xmms() -> usize {
         XMM::XMM15 as usize + 1
     }
 }

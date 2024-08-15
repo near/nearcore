@@ -9,7 +9,7 @@ use crate::types::{
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, ShardUpdateResult};
 use crate::{metrics, DoomslugThresholdMode};
-use crate::{Chain, Doomslug};
+use crate::Chain;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
@@ -36,6 +36,7 @@ pub struct ChainUpdate<'a> {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
+    #[allow(unused)]
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
@@ -495,36 +496,6 @@ impl<'a> ChainUpdate<'a> {
             header,
             self.epoch_manager.as_ref(),
             &mut self.chain_store_update,
-        )
-    }
-
-    #[allow(dead_code)]
-    fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = header.prev_hash();
-        let prev_height = match header.prev_height() {
-            None => {
-                // this will accept orphans of V1 and V2
-                // TODO: reject header V1 and V2 after a certain height
-                return Ok(());
-            }
-            Some(prev_height) => prev_height,
-        };
-        let height = header.height();
-        let epoch_id = header.epoch_id();
-        let approvals = header.approvals();
-        self.epoch_manager.verify_approvals_and_threshold_orphan(
-            epoch_id,
-            &|approvals, stakes| {
-                Doomslug::can_approved_block_be_produced(
-                    self.doomslug_threshold_mode,
-                    approvals,
-                    stakes,
-                )
-            },
-            prev_hash,
-            prev_height,
-            height,
-            approvals,
         )
     }
 

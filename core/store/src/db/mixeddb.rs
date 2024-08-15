@@ -4,7 +4,6 @@ use std::sync::Arc;
 use crate::db::{DBIterator, DBSlice, DBTransaction, Database, StoreStatistics};
 use crate::DBCol;
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub enum ReadOrder {
     ReadDBFirst,
@@ -32,7 +31,6 @@ pub struct MixedDB {
 }
 
 impl MixedDB {
-    #[allow(dead_code)]
     pub fn new(
         read_db: Arc<dyn Database>,
         write_db: Arc<dyn Database>,

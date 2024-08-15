@@ -65,8 +65,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub struct GenesisBuilder {
     home_dir: PathBuf,
     // We hold this temporary directory to avoid deletion through deallocation.
-    #[allow(dead_code)]
-    tmpdir: tempfile::TempDir,
+    _tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Store,
     epoch_manager: Arc<EpochManagerHandle>,
@@ -97,7 +96,7 @@ impl GenesisBuilder {
         .expect("could not create the transaction runtime");
         Self {
             home_dir: home_dir.to_path_buf(),
-            tmpdir,
+            _tmpdir: tmpdir,
             genesis: Arc::new(config.genesis),
             store,
             epoch_manager,

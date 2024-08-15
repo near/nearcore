@@ -1,15 +1,6 @@
 use parking_lot::RwLock;
 use std::future::Future;
 
-fn is_send<T: Send>() {}
-fn is_sync<T: Sync>() {}
-
-#[allow(dead_code)]
-fn test<T: Clone + Send + Sync>() {
-    is_send::<Once<T>>();
-    is_sync::<Once<T>>();
-}
-
 // Once is a synchronization primitive, which stores a single value.
 // This value can be set at most once, and multiple consumers are
 // allowed to wait for that value.

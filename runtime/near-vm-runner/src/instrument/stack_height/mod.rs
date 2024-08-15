@@ -90,8 +90,7 @@ mod thunk;
 ///
 /// This means that the module is invalid.
 #[derive(Debug)]
-#[allow(dead_code)]
-pub struct Error(String);
+pub struct Error(#[allow(unused)] String);
 
 pub(crate) struct Context {
     stack_height_global_idx: u32,

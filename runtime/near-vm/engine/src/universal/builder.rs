@@ -3,8 +3,7 @@ use near_vm_compiler::{CompilerConfig, Features, Target};
 
 /// The Universal builder
 pub struct Universal {
-    #[allow(dead_code)]
-    compiler_config: Option<Box<dyn CompilerConfig>>,
+    _compiler_config: Option<Box<dyn CompilerConfig>>,
     target: Option<Target>,
     features: Option<Features>,
     pool: Option<super::MemoryPool>,
@@ -17,7 +16,7 @@ impl Universal {
         T: Into<Box<dyn CompilerConfig>>,
     {
         Self {
-            compiler_config: Some(compiler_config.into()),
+            _compiler_config: Some(compiler_config.into()),
             target: None,
             features: None,
             pool: None,
@@ -26,7 +25,7 @@ impl Universal {
 
     /// Create a new headless Universal
     pub fn headless() -> Self {
-        Self { compiler_config: None, target: None, features: None, pool: None }
+        Self { _compiler_config: None, target: None, features: None, pool: None }
     }
 
     /// Set the target
@@ -52,7 +51,7 @@ impl Universal {
         let target = self.target.unwrap_or_default();
         let pool =
             self.pool.unwrap_or_else(|| panic!("Universal::code_memory_pool was not set up!"));
-        if let Some(compiler_config) = self.compiler_config {
+        if let Some(compiler_config) = self._compiler_config {
             let features = self
                 .features
                 .unwrap_or_else(|| compiler_config.default_features_for_target(&target));

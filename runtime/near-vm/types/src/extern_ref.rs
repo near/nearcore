@@ -131,16 +131,6 @@ impl VMExternRef {
             }
         }
     }
-
-    #[allow(dead_code)]
-    /// Get the number of strong references to this data.
-    fn strong_count(&self) -> usize {
-        if self.0.is_null() {
-            0
-        } else {
-            unsafe { (&*self.0).strong.load(atomic::Ordering::SeqCst) }
-        }
-    }
 }
 
 #[derive(Debug)]

@@ -402,8 +402,9 @@ pub(super) struct RunCmd {
     rpc_prometheus_addr: Option<String>,
     /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
     /// RPC endpoint.
+    // TODO: implement disable rpc endpoint
     #[clap(long)]
-    #[allow(dead_code)]
+    #[allow(unused)]
     disable_rpc: bool,
     /// Customize telemetry url.
     #[clap(long)]

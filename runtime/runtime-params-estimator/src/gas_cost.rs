@@ -232,12 +232,6 @@ impl Default for LeastSquaresTolerance {
 }
 impl LeastSquaresTolerance {
     /// Tolerate negative values in base cost up to a factor of total cost
-    #[allow(dead_code)]
-    pub(crate) fn base_rel_nn_tolerance(mut self, rel_tolerance: f64) -> Self {
-        self.base_nn_tolerance = NonNegativeTolerance::RelativeTolerance(rel_tolerance);
-        self
-    }
-    /// Tolerate negative values in base cost up to a factor of total cost
     pub(crate) fn factor_rel_nn_tolerance(mut self, rel_tolerance: f64) -> Self {
         self.factor_nn_tolerance = NonNegativeTolerance::RelativeTolerance(rel_tolerance);
         self
@@ -245,12 +239,6 @@ impl LeastSquaresTolerance {
     /// Tolerate negative values in base cost up to a fixed gas value
     pub(crate) fn base_abs_nn_tolerance(mut self, abs_tolerance: Gas) -> Self {
         self.base_nn_tolerance = NonNegativeTolerance::AbsoluteTolerance(abs_tolerance);
-        self
-    }
-    /// Tolerate negative values in base cost up to a fixed gas value
-    #[allow(dead_code)]
-    pub(crate) fn factor_abs_nn_tolerance(mut self, abs_tolerance: Gas) -> Self {
-        self.factor_nn_tolerance = NonNegativeTolerance::AbsoluteTolerance(abs_tolerance);
         self
     }
 }
@@ -513,7 +501,7 @@ impl GasCost {
 
 #[cfg(test)]
 mod tests {
-    use super::{least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance};
+    use super::{least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance, NonNegativeTolerance};
     use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
     use crate::qemu::QemuMeasurement;
     use near_primitives::types::Gas;
@@ -565,10 +553,15 @@ mod tests {
     }
 
     fn abs_tolerance(base: Gas, factor: Gas) -> LeastSquaresTolerance {
-        LeastSquaresTolerance::default().base_abs_nn_tolerance(base).factor_abs_nn_tolerance(factor)
+        let mut tolerance = LeastSquaresTolerance::default();
+        tolerance.base_nn_tolerance = NonNegativeTolerance::AbsoluteTolerance(base);
+        tolerance.factor_nn_tolerance = NonNegativeTolerance::AbsoluteTolerance(factor);
+        tolerance
     }
     fn rel_tolerance(base: f64, factor: f64) -> LeastSquaresTolerance {
-        LeastSquaresTolerance::default().base_rel_nn_tolerance(base).factor_rel_nn_tolerance(factor)
+        let mut tolerance = LeastSquaresTolerance::default().factor_rel_nn_tolerance(factor);
+        tolerance.base_nn_tolerance = NonNegativeTolerance::RelativeTolerance(base);
+        tolerance
     }
 
     #[test]

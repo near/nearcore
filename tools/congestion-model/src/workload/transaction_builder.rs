@@ -171,7 +171,7 @@ impl TransactionBuilder {
             .collect();
 
         Transaction {
-            id: self.id,
+            _id: self.id,
             submitted_at: self.round,
             sender_shard: self.sender_shard,
             initial_receipt_receiver: receipts[&initial_receipt].receiver,
@@ -179,7 +179,7 @@ impl TransactionBuilder {
             initial_receipt,
             tx_conversion_cost: self.tx_conversion_cost,
             outgoing,
-            dependencies,
+            _dependencies: dependencies,
             future_receipts: receipts,
             pending_receipts: HashSet::new(),
             dropped_receipts: HashMap::new(),

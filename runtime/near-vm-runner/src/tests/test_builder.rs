@@ -69,7 +69,6 @@ impl TestBuilder {
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn get_wasm(&self) -> &[u8] {
         self.code.code()
     }
@@ -116,18 +115,8 @@ impl TestBuilder {
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn only_wasmtime(self) -> Self {
-        self.skip_wasmer0().skip_wasmer2().skip_near_vm()
-    }
-
     pub(crate) fn only_wasmer0(self) -> Self {
         self.skip_wasmer2().skip_near_vm().skip_wasmtime()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn only_wasmer2(self) -> Self {
-        self.skip_wasmer0().skip_near_vm().skip_wasmtime()
     }
 
     pub(crate) fn only_near_vm(self) -> Self {

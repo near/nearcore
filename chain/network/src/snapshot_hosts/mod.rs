@@ -180,10 +180,6 @@ impl PeerSelector {
             None => true,
         }
     }
-
-    fn clear(&mut self, part_id: &PartId) {
-        self.selectors.remove(&part_id.idx);
-    }
 }
 
 struct Inner {
@@ -352,25 +348,5 @@ impl SnapshotHostsCache {
         }
         let selector = inner.state_part_selectors.get_mut(&shard_id).unwrap();
         selector.next(part_id)
-    }
-
-    // Lets us know that we have already successfully retrieved this part, and we can free any data
-    // associated with it that we were going to use to respond to future calls to select_host()
-    // TODO: get rid of the dead_code and hook this up to the decentralized state sync
-    #[allow(dead_code)]
-    pub fn part_received(&self, _sync_hash: &CryptoHash, shard_id: ShardId, part_id: &PartId) {
-        let mut inner = self.0.lock();
-        let selector = inner.state_part_selectors.entry(shard_id).or_default();
-        selector.clear(part_id);
-    }
-
-    // used for testing purposes only to check that we clear state after part_received() is called
-    #[allow(dead_code)]
-    pub(crate) fn part_peer_state_len(&self, shard_id: ShardId, part_id: &PartId) -> usize {
-        let inner = self.0.lock();
-        match inner.state_part_selectors.get(&shard_id) {
-            Some(s) => s.len(part_id),
-            None => 0,
-        }
     }
 }

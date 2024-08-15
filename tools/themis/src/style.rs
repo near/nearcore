@@ -1,15 +1,21 @@
 /// ANSI Color Codes
 ///
 /// <https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit>
-#[allow(dead_code)]
 #[derive(Eq, Copy, Debug, Clone, PartialEq)]
 pub enum Color {
+    #[allow(unused)]
     Black,
+    #[allow(unused)]
     Red,
+    #[allow(unused)]
     Green,
+    #[allow(unused)]
     Yellow,
+    #[allow(unused)]
     Blue,
+    #[allow(unused)]
     Magenta,
+    #[allow(unused)]
     Cyan,
     White,
     Gray { shade: u8 },

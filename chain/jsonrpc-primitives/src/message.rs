@@ -105,7 +105,7 @@ fn some_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value
 #[serde(deny_unknown_fields)]
 struct WireResponse {
     // It is actually used to eat and sanity check the deserialized text
-    #[allow(dead_code)]
+    #[allow(unused)]
     jsonrpc: Version,
     // Make sure we accept null as Some(Value::Null), instead of going to None
     #[serde(default, deserialize_with = "some_value")]

@@ -82,7 +82,8 @@ fn test_unknown_vs_not_connected() {
     let nodes = [&peer_info_a, &peer_info_b, &peer_info_boot_node];
 
     let get_in_memory_status = |peer_store: &PeerStore| {
-        nodes.map(|peer| peer_store.get_peer_state(&peer.id).map(|known_state| known_state.status))
+        nodes.map(|peer| peer_store.0.lock().peer_states.get(&peer.id).cloned().map(|known_state| known_state.status))
+        
     };
 
     let peer_store =

@@ -30,10 +30,8 @@ macro_rules! bitset_of_regs {
 
 // Note: the below asserts are because we currently use u32 for used_gprs and used_xmms
 // Feel free to increase the number in this assert by making them bigger if needed
-#[allow(dead_code)]
-const _GPRS_FIT_IN_U32: () = assert!(GPR::num_gprs() <= 32);
-#[allow(dead_code)]
-const _XMMS_FIT_IN_U32: () = assert!(XMM::num_xmms() <= 32);
+const _GPRS_FIT_IN_U32: () = assert!(GPR::_num_gprs() <= 32);
+const _XMMS_FIT_IN_U32: () = assert!(XMM::_num_xmms() <= 32);
 
 impl Machine {
     pub(crate) fn new() -> Self {

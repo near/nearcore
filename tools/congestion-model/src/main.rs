@@ -391,22 +391,3 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
     }
     panic!("The requested strategy name did not match any available strategies. Requested strategy name {:?}, The available strategies are: {:?}", strategy_name, available);
 }
-
-// for looking at more details during execution, call print_report
-#[allow(dead_code)]
-fn print_report(model: &Model) {
-    let queues = model.queue_lengths();
-    let throughput = model.gas_throughput();
-    let progress = model.progress();
-
-    println!("burnt {} PGas", throughput.total / PGAS,);
-    println!("{:>6} transactions finished", progress.finished_transactions);
-    println!("{:>6} transactions waiting", progress.waiting_transactions);
-    println!("{:>6} transactions pending", progress.pending_transactions);
-    println!("{:>6} transactions failed", progress.failed_transactions);
-    for shard_id in model.shard_ids() {
-        println!("SHARD {shard_id}");
-        println!("    {:>6} receipts incoming", queues[shard_id].incoming_receipts.num);
-        println!("    {:>6} receipts queued", queues[shard_id].queued_receipts.num);
-    }
-}

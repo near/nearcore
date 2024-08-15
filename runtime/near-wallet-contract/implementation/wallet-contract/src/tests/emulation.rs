@@ -438,7 +438,6 @@ fn get_nep_141_memo(log: &str) -> anyhow::Result<Option<String>> {
     Ok(log.data[0].memo.clone())
 }
 
-#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct TransferLog {
     standard: String,
@@ -447,7 +446,6 @@ struct TransferLog {
     data: [TransferData; 1],
 }
 
-#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct TransferData {
     old_owner_id: String,

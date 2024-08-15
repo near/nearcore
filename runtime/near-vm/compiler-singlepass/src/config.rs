@@ -1,18 +1,15 @@
-// Allow unused imports while developing
-#![allow(unused_imports, dead_code)]
-
 use crate::compiler::SinglepassCompiler;
 use crate::emitter_x64::Location;
-use near_vm_compiler::{Compiler, CompilerConfig, CpuFeature, Target};
+use near_vm_compiler::{Compiler, CompilerConfig, Target};
 use near_vm_types::{Features, FunctionType, Type};
 use smallvec::SmallVec;
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) enum IntrinsicKind {
     Gas,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct Intrinsic {
     pub(crate) kind: IntrinsicKind,
@@ -26,6 +23,7 @@ pub struct Singlepass {
     pub(crate) enable_stack_check: bool,
     pub(crate) disable_9393_fix: bool,
     /// Compiler intrinsics.
+    #[allow(dead_code)]
     pub(crate) intrinsics: Vec<Intrinsic>,
 }
 
@@ -57,6 +55,7 @@ impl Singlepass {
         self
     }
 
+    #[allow(dead_code)]
     fn enable_nan_canonicalization(&mut self) {
         self.enable_nan_canonicalization = true;
     }
@@ -97,6 +96,7 @@ impl Default for Singlepass {
 }
 
 impl Intrinsic {
+    #[allow(dead_code)]
     pub(crate) fn is_params_ok(&self, params: &SmallVec<[Location; 8]>) -> bool {
         match self.kind {
             IntrinsicKind::Gas => match params[0] {

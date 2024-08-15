@@ -34,7 +34,6 @@ pub(crate) enum Location {
     MemoryAddTriple(GPR, GPR, i32),
 }
 
-#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Condition {
     None,
@@ -50,6 +49,7 @@ pub(crate) enum Condition {
     NotEqual,
     Signed,
     Carry,
+    #[allow(unused)]
     Overflow,
 }
 
@@ -68,9 +68,9 @@ pub(crate) enum XMMOrMemory {
 }
 
 #[derive(Copy, Clone, Debug)]
-#[allow(dead_code)]
 pub(crate) enum GPROrMemory {
     GPR(GPR),
+    #[allow(unused)]
     Memory(GPR, i32),
 }
 

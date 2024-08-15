@@ -10,7 +10,6 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
-#[allow(dead_code)]
 fn verify_contract_limits_upgrade(
     feature: ProtocolFeature,
     function_limit: u32,

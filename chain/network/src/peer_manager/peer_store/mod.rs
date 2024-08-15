@@ -361,12 +361,6 @@ impl PeerStore {
         self.0.lock().update(clock)
     }
 
-    #[allow(dead_code)]
-    /// Returns the state of the current peer in memory.
-    pub fn get_peer_state(&self, peer_id: &PeerId) -> Option<KnownPeerState> {
-        self.0.lock().peer_states.get(peer_id).cloned()
-    }
-
     pub fn peer_connected(&self, clock: &time::Clock, peer_info: &PeerInfo) {
         let mut inner = self.0.lock();
         inner.add_signed_peer(clock, peer_info.clone());

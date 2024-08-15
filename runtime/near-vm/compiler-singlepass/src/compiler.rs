@@ -1,7 +1,4 @@
 //! Support for compiling with Singlepass.
-// Allow unused imports while developing.
-#![allow(unused_imports, dead_code)]
-
 use crate::codegen_x64::{
     gen_import_call_trampoline, gen_std_dynamic_import_trampoline, gen_std_trampoline,
     CodegenError, FuncGen,
@@ -9,16 +6,15 @@ use crate::codegen_x64::{
 use crate::config::Singlepass;
 use near_vm_compiler::{
     Architecture, CallingConvention, Compilation, CompileError, CompileModuleInfo,
-    CompiledFunction, Compiler, CompilerConfig, CpuFeature, FunctionBody, FunctionBodyData,
-    ModuleTranslationState, OperatingSystem, SectionIndex, Target, TrapInformation,
+    CompiledFunction, Compiler, CpuFeature, FunctionBody, FunctionBodyData,
+    SectionIndex, Target, 
 };
 use near_vm_types::entity::{EntityRef, PrimaryMap};
 use near_vm_types::{
-    FunctionIndex, FunctionType, LocalFunctionIndex, MemoryIndex, ModuleInfo, TableIndex,
+    FunctionIndex, LocalFunctionIndex,  
 };
-use near_vm_vm::{TrapCode, VMOffsets};
+use near_vm_vm::VMOffsets;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use std::sync::Arc;
 
 /// A compiler that compiles a WebAssembly module with Singlepass.
 /// It does the compilation in one pass
@@ -33,7 +29,7 @@ impl SinglepassCompiler {
     }
 
     /// Gets the config for this Compiler
-    fn config(&self) -> &Singlepass {
+    fn _config(&self) -> &Singlepass {
         &self.config
     }
 }
@@ -232,9 +228,10 @@ fn to_compile_error<T: ToCompileError>(x: T) -> CompileError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_vm_compiler::{CpuFeature, Features, Triple};
-    use near_vm_vm::{MemoryStyle, TableStyle};
-    use std::str::FromStr;
+    use near_vm_compiler::{CpuFeature, Features};
+    use near_vm_types::{MemoryIndex, TableIndex};
+    use near_vm_vm::{MemoryStyle, ModuleInfo, TableStyle};
+    use std::{str::FromStr, sync::Arc};
     use target_lexicon::triple;
 
     fn dummy_compilation_ingredients<'a>() -> (

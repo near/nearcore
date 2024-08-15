@@ -6,8 +6,7 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Shards only interact with this using the [`TransactionId`]`.
 pub(crate) struct Transaction {
-    #[allow(dead_code)]
-    pub(crate) id: TransactionId,
+    pub(crate) _id: TransactionId,
     /// When the transaction was produced.
     pub(crate) submitted_at: Round,
 
@@ -29,8 +28,7 @@ pub(crate) struct Transaction {
     ///
     /// TODO: this is currently ignored, but we will need it for postponed
     /// receipts handling.
-    #[allow(dead_code)]
-    pub(crate) dependencies: HashMap<ReceiptId, Vec<ReceiptId>>,
+    pub(crate) _dependencies: HashMap<ReceiptId, Vec<ReceiptId>>,
 
     /// Receipts that have not been created on chain, yet, but will be part of
     /// the transaction execution. Once created, receipts are removed here and

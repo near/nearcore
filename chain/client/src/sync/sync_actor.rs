@@ -7,23 +7,21 @@ use near_store::ShardUId;
 use tracing::{debug, info, warn};
 
 /// Message channels
-#[allow(dead_code)]
 struct MessageSenders {
     /// Used to send messages to client
-    client_adapter: Sender<ClientSyncMessage>,
+    _client_adapter: Sender<ClientSyncMessage>,
     /// Used to send messages to peer manager
-    network_adapter: Sender<PeerManagerMessageRequest>,
+    _network_adapter: Sender<PeerManagerMessageRequest>,
 }
 
 /// Actor that runs state sync for a shard
-#[allow(dead_code)]
 pub struct SyncActor {
     /// Shard being synced
     shard_uid: ShardUId,
     /// Hash of the state that is downloaded
     sync_hash: CryptoHash,
     /// Channels used to communicate with other actors
-    senders: MessageSenders,
+    _senders: MessageSenders,
 }
 
 impl SyncActor {
@@ -35,7 +33,7 @@ impl SyncActor {
         Self {
             shard_uid,
             sync_hash: CryptoHash::new(),
-            senders: MessageSenders { client_adapter, network_adapter },
+            _senders: MessageSenders { _client_adapter: client_adapter, _network_adapter: network_adapter },
         }
     }
 

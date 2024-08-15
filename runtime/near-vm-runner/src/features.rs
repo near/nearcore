@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 mod opts {
     pub(super) const REFERENCE_TYPES: bool = false;
     pub(super) const MULTI_VALUE: bool = false;
@@ -17,7 +16,6 @@ mod opts {
     pub(super) const FUNCTION_REFERENCES: bool = false;
     pub(super) const MEMORY_CONTROL: bool = false;
 }
-#[allow(unused_imports)]
 use opts::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
