@@ -55,30 +55,32 @@ def process():
         key[0] = i % 10
         data = {
             'method': 'query',
-            'params': { 
-                "request_type": "call_function", 
-                "account_id": acc_id, 
-                "method_name": "read_value", 
-                "finality": "optimistic", 
-                "args_base64": base64.b64encode(bytes(key)).decode("ascii") 
+            'params': {
+                "request_type": "call_function",
+                "account_id": acc_id,
+                "method_name": "read_value",
+                "finality": "optimistic",
+                "args_base64": base64.b64encode(bytes(key)).decode("ascii")
             },
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
 
         session = requests.Session()
-        retries = Retry(total=5,
-                backoff_factor=0.1)
+        retries = Retry(total=5, backoff_factor=0.1)
 
         session.mount('http://', HTTPAdapter(max_retries=retries))
 
-        res = session.post("http://%s:%s" % nodes[4].rpc_addr(), json=data, timeout=2)
-        
+        res = session.post("http://%s:%s" % nodes[4].rpc_addr(),
+                           json=data,
+                           timeout=2)
+
         assert res.status_code == 200
         res = json.loads(res.text)
         res = int.from_bytes(res["result"]["result"], byteorder='little')
         assert res == (i % 10)
     logger.info("all done")
+
 
 ps = [multiprocessing.Process(target=process, args=()) for i in range(6)]
 for p in ps:
