@@ -1,10 +1,10 @@
 use crate::congestion_control::ReceiptSink;
 use crate::ApplyState;
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
-    try_create_gauge_vec, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge_vec, Counter, CounterVec, GaugeVec,
-    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
+    exponential_buckets, linear_buckets, try_create_counter_vec, try_create_gauge_vec,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge_vec, CounterVec, GaugeVec, HistogramVec, IntCounter, IntCounterVec,
+    IntGaugeVec,
 };
 use near_parameters::config::CongestionControlConfig;
 use near_primitives::congestion_info::CongestionInfo;
@@ -438,72 +438,6 @@ pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: LazyLock<IntCounterVec> = LazyLock:
         "near_chunk_receipts_limited_by",
         "Number of chunks where the number of processed receipts was limited by a certain factor.",
         &["shard_id", "limited_by"],
-    )
-    .unwrap()
-});
-
-pub(crate) static PIPELINING_ACTIONS_SUBMITTED: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_pipelininig_actions_submitted_count",
-        "Number of actions submitted to the pipeline for preparation.",
-    )
-    .unwrap()
-});
-
-pub(crate) static PIPELINING_ACTIONS_PREPARED_IN_MAIN_THREAD: LazyLock<IntCounter> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "near_pipelininig_actions_prepared_in_main_thread_count",
-            "Number of actions prepared in the main thread, rather than the pipeline.",
-        )
-        .unwrap()
-    });
-
-pub(crate) static PIPELINING_ACTIONS_NOT_SUBMITTED: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_pipelininig_actions_not_submitted_count",
-        "Number of actions prepared in the main thread, because they were never submitted.",
-    )
-    .unwrap()
-});
-
-pub(crate) static PIPELINING_ACTIONS_FOUND_PREPARED: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_pipelininig_actions_found_prepared_count",
-        "Number of actions that were found prepared by the time they were needed.",
-    )
-    .unwrap()
-});
-
-pub(crate) static PIPELINING_ACTIONS_WAITING_TIME: LazyLock<Counter> = LazyLock::new(|| {
-    try_create_counter(
-        "near_pipelininig_waiting_seconds_total",
-        "Time spent waiting for the task results to be ready.",
-    )
-    .unwrap()
-});
-
-pub(crate) static PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME: LazyLock<Counter> =
-    LazyLock::new(|| {
-        try_create_counter(
-            "near_pipelininig_main_thread_seconds_total",
-            "Time spent preparing contracts on the main thread (for whatever reason.)",
-        )
-        .unwrap()
-    });
-
-pub(crate) static PIPELINING_ACTIONS_TASK_DELAY_TIME: LazyLock<Counter> = LazyLock::new(|| {
-    try_create_counter(
-        "near_pipelininig_delay_seconds_total",
-        "Time spent waiting for the preparation task to be scheduled on thread pool.",
-    )
-    .unwrap()
-});
-
-pub(crate) static PIPELINING_ACTIONS_TASK_WORKING_TIME: LazyLock<Counter> = LazyLock::new(|| {
-    try_create_counter(
-        "near_pipelininig_working_seconds_total",
-        "Time spent working to produce the results for work scheduled on the pipeline.",
     )
     .unwrap()
 });
