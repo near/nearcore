@@ -8,16 +8,9 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
-use near_primitives_core::checked_feature;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use std::string::ToString;
 
 fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
-
     init_test_logger();
     let builder = TestLoopBuilder::new();
 

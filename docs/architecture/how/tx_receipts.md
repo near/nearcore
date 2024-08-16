@@ -8,7 +8,7 @@ In this article, we’ll cover what happens next:
 How it is changed into a receipt and executed, potentially creating even
 more receipts in the process.
 
-First, let’s look at the ‘high level view’:
+First, let’s look at the ‘high-level view’:
 
 ![image](https://user-images.githubusercontent.com/1711539/198282472-3883dcc1-77ca-452c-b21e-0a7af1435ede.png)
 
@@ -24,7 +24,7 @@ contract) - they are created by the block/chunk producers.
 
 ## Life of a Transaction
 
-If we ‘zoom-in', the chunk producer's work looks like this:
+If we ‘zoom-in‘, the chunk producer's work looks like this:
 
 ![image](https://user-images.githubusercontent.com/1711539/198282518-cdeb375e-8f1c-4634-842c-6490020ad9c0.png)
 

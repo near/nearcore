@@ -2,6 +2,7 @@ use std::ops::ControlFlow;
 use std::str::FromStr;
 
 use actix::System;
+use awc::http::StatusCode;
 use futures::{future, FutureExt};
 use serde_json::json;
 
@@ -466,7 +467,7 @@ fn test_validators_ordered() {
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
-        if !cfg!(feature = "nightly_protocol") && !cfg!(feature = "statelessnet_protocol") {
+        if !cfg!(feature = "nightly_protocol") {
             assert_eq!(
                 genesis_config["protocol_version"].as_u64().unwrap(),
                 near_primitives::version::PROTOCOL_VERSION as u64
@@ -534,6 +535,8 @@ fn test_invalid_methods() {
                 .await
                 .unwrap();
 
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
             let response =
                 serde_json::from_value::<serde_json::Value>(response.json().await.unwrap())
                     .unwrap();
@@ -544,6 +547,78 @@ fn test_invalid_methods() {
                 method_name
             );
         }
+    });
+}
+
+#[test]
+fn test_parse_error_status_code() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let json = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "dontcare",
+            "method": "tx",
+            "params": serde_json::json!({
+                "tx": "badtx",
+                "sender_account_id": "frolik.near"
+            }),
+        });
+
+        let response = &mut client
+            .client
+            .post(&client.server_addr)
+            .insert_header(("Content-Type", "application/json"))
+            .send_json(&json)
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    });
+}
+
+#[test]
+fn test_bad_handler_error_status_code() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let json = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "dontcare",
+            "method": "tx",
+            "params": serde_json::json!({
+                "tx_hash": CryptoHash::new().to_string(),
+                "sender_account_id": "frolik.near"
+            }),
+        });
+
+        let response = &mut client
+            .client
+            .post(&client.server_addr)
+            .insert_header(("Content-Type", "application/json"))
+            .send_json(&json)
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+    });
+}
+
+#[test]
+fn test_good_handler_error_status_code() {
+    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let json = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "dontcare",
+            "method": "EXPERIMENTAL_receipt",
+            "params": serde_json::json!({"receipt_id": CryptoHash::new().to_string()})
+        });
+
+        let response = &mut client
+            .client
+            .post(&client.server_addr)
+            .insert_header(("Content-Type", "application/json"))
+            .send_json(&json)
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     });
 }
 

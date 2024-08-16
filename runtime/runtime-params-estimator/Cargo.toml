@@ -80,7 +80,6 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_bls12381",
 ]
 nightly_protocol = [
   "genesis-populate/nightly_protocol",
@@ -96,4 +95,3 @@ nightly_protocol = [
 ]
 sandbox = ["near-o11y/sandbox", "node-runtime/sandbox"]
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-runner/io_trace"]
-protocol_feature_bls12381 = []

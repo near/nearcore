@@ -11,8 +11,7 @@ use crate::network_protocol::SnapshotHostInfoVerificationError;
 use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
-    SyncSnapshotHosts,
+    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -46,6 +45,7 @@ use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
@@ -978,14 +978,6 @@ impl PeerActor {
                 network_state.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
                 None
             }
-            RoutedMessageBody::StateResponse(info) => {
-                network_state
-                    .client
-                    .send_async(StateResponse(StateResponseInfo::V1(info).into()))
-                    .await
-                    .ok();
-                None
-            }
             RoutedMessageBody::BlockApproval(approval) => {
                 network_state.client.send_async(BlockApproval(approval, peer_id)).await.ok();
                 None
@@ -1037,6 +1029,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
+                let endorsement = ChunkEndorsement::V1(endorsement);
                 network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
@@ -1050,6 +1043,10 @@ impl PeerActor {
                 network_state
                     .partial_witness_adapter
                     .send(PartialEncodedStateWitnessForwardMessage(witness));
+                None
+            }
+            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
+                network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
             body => {

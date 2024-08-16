@@ -90,7 +90,6 @@ impl Test {
             ]);
         }
         let archive = vec![false; vs.all_validators().count()];
-        let epoch_sync_enabled = vec![true; vs.all_validators().count()];
         let key_pairs =
             (0..vs.all_validators().count()).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
@@ -105,7 +104,6 @@ impl Test {
             5,
             true,
             archive,
-            epoch_sync_enabled,
             false,
             chunk_distribution_config,
             Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {

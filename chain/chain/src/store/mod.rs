@@ -10,8 +10,6 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
-#[cfg(feature = "new_epoch_sync")]
-use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -25,6 +23,7 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
@@ -50,7 +49,6 @@ use near_store::{
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
-use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
@@ -447,7 +445,7 @@ pub struct ChainStore {
     /// Processed block heights.
     pub(crate) processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
@@ -898,15 +896,6 @@ impl ChainStore {
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
         self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
-    }
-
-    /// Save epoch sync info
-    #[cfg(feature = "new_epoch_sync")]
-    pub fn get_epoch_sync_info(&self, epoch_id: &EpochId) -> Result<EpochSyncInfo, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::EpochSyncInfo, epoch_id.as_ref()),
-            "EpochSyncInfo",
-        )
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.

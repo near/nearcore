@@ -7,7 +7,8 @@ use crate::{
 };
 use ethabi::{Address, ParamType};
 use near_sdk::{AccountId, Gas, NearToken, PublicKey};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+use std::num::NonZeroU128;
 
 pub const FUNCTION_CALL_SELECTOR: &[u8] = &[0x61, 0x79, 0xb7, 0x07];
 pub const FUNCTION_CALL_SIGNATURE: [ParamType; 5] = [
@@ -25,8 +26,8 @@ pub const TRANSFER_SIGNATURE: [ParamType; 2] = [
 ];
 
 pub const ADD_KEY_SELECTOR: &[u8] = &[0x75, 0x3c, 0xe5, 0xab];
-// This one needs to be `Lazy` because it requires `Box` (non-const) in the `Array`.
-pub static ADD_KEY_SIGNATURE: Lazy<[ParamType; 8]> = Lazy::new(|| {
+// This one needs to be `LazyLock` because it requires `Box` (non-const) in the `Array`.
+pub static ADD_KEY_SIGNATURE: LazyLock<[ParamType; 8]> = LazyLock::new(|| {
     [
         ParamType::Uint(8),                            // public_key_kind
         ParamType::Bytes,                              // public_key
@@ -124,9 +125,11 @@ pub enum TransactionKind {
 
 #[must_use]
 pub enum EthEmulationKind {
-    EOABaseTokenTransfer { address_check: Option<Address> },
+    EOABaseTokenTransfer { address_check: Option<Address>, fee: NearToken },
+    SelfBaseTokenTransfer,
     ERC20Balance,
-    ERC20Transfer { receiver_id: AccountId },
+    ERC20Transfer { receiver_id: AccountId, fee: NearToken },
+    ERC20TotalSupply,
 }
 
 /// Describes a kind of transaction that is directly parsable
@@ -150,17 +153,41 @@ pub enum ParsableTransactionKind {
 #[must_use]
 pub enum ParsableEthEmulationKind {
     ERC20Balance,
-    ERC20Transfer { receiver_id: AccountId },
+    ERC20Transfer { receiver_id: AccountId, fee: NearToken },
+    ERC20TotalSupply,
 }
 
 impl From<ParsableEthEmulationKind> for EthEmulationKind {
     fn from(value: ParsableEthEmulationKind) -> Self {
         match value {
             ParsableEthEmulationKind::ERC20Balance => Self::ERC20Balance,
-            ParsableEthEmulationKind::ERC20Transfer { receiver_id } => {
-                Self::ERC20Transfer { receiver_id }
+            ParsableEthEmulationKind::ERC20Transfer { receiver_id, fee } => {
+                Self::ERC20Transfer { receiver_id, fee }
             }
+            ParsableEthEmulationKind::ERC20TotalSupply => Self::ERC20TotalSupply,
         }
+    }
+}
+
+/// A data type to keep track of the deposit given by an external caller.
+/// This allows us to refund the caller's deposit if the cross-contract call fails.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CallerDeposit {
+    pub account_id: AccountId,
+    pub yocto_near: NonZeroU128,
+}
+
+impl CallerDeposit {
+    pub fn new(context: &ExecutionContext) -> Option<Self> {
+        // Only track for external (non-self) callers
+        if context.current_account_id == context.predecessor_account_id {
+            return None;
+        }
+
+        NonZeroU128::new(context.attached_deposit.as_yoctonear()).map(|yocto_near| Self {
+            account_id: context.predecessor_account_id.clone(),
+            yocto_near,
+        })
     }
 }
 

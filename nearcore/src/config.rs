@@ -9,13 +9,13 @@ use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
 };
 use near_chain_configs::{
-    default_enable_multiline_logging, default_epoch_sync_enabled,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
-    default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
+    default_enable_multiline_logging, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_sync,
+    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
     default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
     default_tx_routing_height_horizon, default_view_client_threads,
     default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
@@ -174,6 +174,9 @@ pub struct Consensus {
     pub doomslug_step_period: Duration,
     #[serde(default = "default_sync_height_threshold")]
     pub sync_height_threshold: u64,
+    /// Maximum number of block requests to send to peers to sync
+    #[serde(default = "default_sync_max_block_requests")]
+    pub sync_max_block_requests: usize,
 }
 
 impl Default for Consensus {
@@ -201,6 +204,7 @@ impl Default for Consensus {
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
             sync_height_threshold: default_sync_height_threshold(),
+            sync_max_block_requests: default_sync_max_block_requests(),
         }
     }
 }
@@ -245,7 +249,6 @@ pub struct Config {
     #[serde(flatten)]
     pub gc: GCConfig,
     pub view_client_threads: usize,
-    pub epoch_sync_enabled: bool,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub view_client_throttle_period: Duration,
     pub trie_viewer_state_size_limit: Option<u64>,
@@ -346,7 +349,6 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
-            epoch_sync_enabled: default_epoch_sync_enabled(),
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
@@ -538,6 +540,7 @@ impl NearConfig {
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
                 sync_height_threshold: config.consensus.sync_height_threshold,
+                sync_max_block_requests: config.consensus.sync_max_block_requests,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
@@ -566,7 +569,6 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
-                epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
@@ -1016,15 +1018,63 @@ pub fn init_configs(
     Ok(())
 }
 
-pub fn create_testnet_configs_from_seeds(
+/// Params specific to a localnet node, used for configuring the node for certain roles.
+/// The params are not mutually exclusive, both is_validator and is_archival may be set to true.
+struct LocalnetNodeParams {
+    /// If true, this node is used as a boot node.
+    is_boot: bool,
+    /// If true, this is a validator node.
+    is_validator: bool,
+    // If true, this is an archival node.
+    is_archival: bool,
+    // If true, this is an RPC node.
+    is_rpc: bool,
+}
+
+impl LocalnetNodeParams {
+    fn new_validator(is_boot: bool) -> Self {
+        Self { is_boot, is_validator: true, is_archival: false, is_rpc: false }
+    }
+
+    fn new_non_validator_archival() -> Self {
+        Self { is_boot: false, is_validator: false, is_archival: true, is_rpc: false }
+    }
+
+    fn new_non_validator_rpc() -> Self {
+        Self { is_boot: false, is_validator: false, is_archival: false, is_rpc: true }
+    }
+
+    fn new_non_validator() -> Self {
+        Self { is_boot: false, is_validator: false, is_archival: false, is_rpc: false }
+    }
+}
+
+/// Creates configurations for a number of localnet nodes.
+///
+/// # Arguments
+///
+/// * `seeds` - Seeds to use for creating the signing keys for accounts
+/// * `num_shards` - Number of shards to partition the chain into
+/// * `num_validators` - Number of validator nodes to create
+/// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
+/// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
+/// * `num_non_validators` - Number of additional non-validator nodes to create
+/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
+
+pub fn create_localnet_configs_from_seeds(
     seeds: Vec<String>,
     num_shards: NumShards,
-    num_non_validator_seats: NumSeats,
-    local_ports: bool,
-    archive: bool,
+    num_validators: NumSeats,
+    num_non_validators_archival: NumSeats,
+    num_non_validators_rpc: NumSeats,
+    num_non_validators: NumSeats,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
-    let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
+    assert_eq!(
+        seeds.len() as u64,
+        num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators,
+        "Number of seeds should match the total number of nodes including validators and non-validators."
+    );
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
     let network_signers = seeds
@@ -1039,87 +1089,202 @@ pub fn create_testnet_configs_from_seeds(
     let genesis = Genesis::test_with_seeds(
         Clock::real(),
         accounts_to_add_to_genesis,
-        num_validator_seats,
-        get_num_seats_per_shard(num_shards, num_validator_seats),
+        num_validators,
+        get_num_seats_per_shard(num_shards, num_validators),
         shard_layout,
     );
     let mut configs = vec![];
-    let first_node_addr = tcp::ListenerAddr::reserve_for_test();
-    for i in 0..seeds.len() {
-        let mut config = Config::default();
-        config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
-        config.consensus.min_block_production_delay = Duration::milliseconds(600);
-        config.consensus.max_block_production_delay = Duration::milliseconds(2000);
-        if local_ports {
-            config.network.addr = if i == 0 {
-                first_node_addr.to_string()
-            } else {
-                tcp::ListenerAddr::reserve_for_test().to_string()
-            };
-            config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
-            config.network.boot_nodes = if i == 0 {
-                "".to_string()
-            } else {
-                format!("{}@{}", network_signers[0].public_key, first_node_addr)
-            };
-            config.network.skip_sync_wait = num_validator_seats == 1;
-        }
-        config.archive = archive;
-        config.tracked_shards.clone_from(&tracked_shards);
-        config.consensus.min_num_peers =
-            std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
+
+    // We assign the seeds to the nodes in the following order:
+    // 1. Validators (num_validators)
+    // 2. Non-validator archival nodes (num_non_validators_archival)
+    // 3. Non-validator RPC nodes (num_non_validators_rpc)
+    // 4. Non-validator nodes (num_non_validators)
+
+    // We use the first validator node as the boot node.
+    assert!(num_validators > 0, "No validators were added");
+    let boot_node_addr = tcp::ListenerAddr::reserve_for_test();
+    for i in 0..num_validators {
+        let params = LocalnetNodeParams::new_validator(i == 0);
+        let config = create_localnet_config(
+            num_shards,
+            num_validators,
+            &tracked_shards,
+            &network_signers,
+            &boot_node_addr,
+            params,
+        );
+        configs.push(config);
+    }
+    for _ in 0..num_non_validators_archival {
+        let params = LocalnetNodeParams::new_non_validator_archival();
+        let config = create_localnet_config(
+            num_shards,
+            num_validators,
+            &tracked_shards,
+            &network_signers,
+            &boot_node_addr,
+            params,
+        );
+        configs.push(config);
+    }
+    for _ in 0..num_non_validators_rpc {
+        let params = LocalnetNodeParams::new_non_validator_rpc();
+        let config = create_localnet_config(
+            num_shards,
+            num_validators,
+            &tracked_shards,
+            &network_signers,
+            &boot_node_addr,
+            params,
+        );
+        configs.push(config);
+    }
+    for _ in 0..num_non_validators {
+        let params = LocalnetNodeParams::new_non_validator();
+        let config = create_localnet_config(
+            num_shards,
+            num_validators,
+            &tracked_shards,
+            &network_signers,
+            &boot_node_addr,
+            params,
+        );
         configs.push(config);
     }
     (configs, validator_signers, network_signers, genesis)
 }
 
-/// Create testnet configuration. If `local_ports` is true,
-/// sets up new ports for all nodes except the first one and sets boot node to it.
-pub fn create_testnet_configs(
+fn create_localnet_config(
     num_shards: NumShards,
-    num_validator_seats: NumSeats,
-    num_non_validator_seats: NumSeats,
+    num_validators: NumSeats,
+    tracked_shards: &Vec<u64>,
+    network_signers: &Vec<InMemorySigner>,
+    boot_node_addr: &tcp::ListenerAddr,
+    params: LocalnetNodeParams,
+) -> Config {
+    let mut config = Config::default();
+
+    // Configure consensus protocol.
+    config.consensus.min_block_production_delay = Duration::milliseconds(600);
+    config.consensus.max_block_production_delay = Duration::milliseconds(2000);
+    config.consensus.min_num_peers =
+        std::cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
+
+    // Configure networking and RPC endpoint. Enable debug-RPC by default for all nodes.
+    config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
+    config.network.addr = if params.is_boot {
+        boot_node_addr.to_string()
+    } else {
+        tcp::ListenerAddr::reserve_for_test().to_string()
+    };
+    config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
+    config.network.boot_nodes = if params.is_boot {
+        "".to_string()
+    } else {
+        format!("{}@{}", network_signers[0].public_key, boot_node_addr)
+    };
+    config.network.skip_sync_wait = num_validators == 1;
+
+    // Configure archival node with split storage (hot + cold DB).
+    if params.is_archival {
+        config.archive = true;
+        config.cold_store.get_or_insert(config.store.clone()).path =
+            Some(PathBuf::from("cold-data"));
+        config.split_storage.get_or_insert(Default::default()).enable_split_storage_view_client =
+            true;
+        config.save_trie_changes = Some(true);
+    }
+
+    // Make non-validator archival and RPC nodes track all shards.
+    // Note that validator nodes may track all or some of the shards.
+    config.tracked_shards = if !params.is_validator && (params.is_archival || params.is_rpc) {
+        (0..num_shards).collect()
+    } else {
+        tracked_shards.clone()
+    };
+
+    config
+}
+
+/// Create testnet configuration.
+/// Sets up new ports for all nodes except the first one and sets boot node to it.
+///
+/// # Arguments
+///
+/// * `dir` - Root directory in which node-specific directories are created
+/// * `num_shards` - Number of shards to partition the chain into
+/// * `num_validators` - Number of validator nodes to create
+/// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
+/// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
+/// * `num_non_validators` - Number of additional non-validator nodes to create
+/// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
+/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
+pub fn create_localnet_configs(
+    num_shards: NumShards,
+    num_validators: NumSeats,
+    num_non_validators_archival: NumSeats,
+    num_non_validators_rpc: NumSeats,
+    num_non_validators: NumSeats,
     prefix: &str,
-    local_ports: bool,
-    archive: bool,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>) {
-    let shard_keys = vec![];
-    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
-        (0..(num_validator_seats + num_non_validator_seats))
-            .map(|i| format!("{}{}", prefix, i))
-            .collect::<Vec<_>>(),
+    let num_all_nodes =
+        num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators;
+    let seeds = (0..num_all_nodes).map(|i| format!("{}{}", prefix, i)).collect::<Vec<_>>();
+
+    let (configs, validator_signers, network_signers, genesis) = create_localnet_configs_from_seeds(
+        seeds,
         num_shards,
-        num_non_validator_seats,
-        local_ports,
-        archive,
+        num_validators,
+        num_non_validators_archival,
+        num_non_validators_rpc,
+        num_non_validators,
         tracked_shards,
     );
 
+    let shard_keys = vec![];
     (configs, validator_signers, network_signers, genesis, shard_keys)
 }
 
-pub fn init_testnet_configs(
+/// Creates localnet configuration and initializes the local home directories for a number of nodes.
+///
+/// # Arguments
+///
+/// * `dir` - Root directory in which node-specific directories are created
+/// * `num_shards` - Number of shards to partition the chain into
+/// * `num_validators` - Number of validator nodes to create
+/// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
+/// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
+/// * `num_non_validators` - Number of additional non-validator nodes to create
+/// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
+/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
+pub fn init_localnet_configs(
     dir: &Path,
     num_shards: NumShards,
-    num_validator_seats: NumSeats,
-    num_non_validator_seats: NumSeats,
+    num_validators: NumSeats,
+    num_non_validators_archival: NumSeats,
+    num_non_validators_rpc: NumSeats,
+    num_non_validators: NumSeats,
     prefix: &str,
-    local_ports: bool,
-    archive: bool,
     tracked_shards: Vec<u64>,
 ) {
-    let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
-        num_shards,
-        num_validator_seats,
-        num_non_validator_seats,
-        prefix,
-        local_ports,
-        archive,
-        tracked_shards,
-    );
+    let (configs, validator_signers, network_signers, genesis, shard_keys) =
+        create_localnet_configs(
+            num_shards,
+            num_validators,
+            num_non_validators_archival,
+            num_non_validators_rpc,
+            num_non_validators,
+            prefix,
+            tracked_shards,
+        );
+
+    // Save the generated configs to the corresponding files in the home directory for each node.
     let log_config = LogConfig::default();
-    for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
+    let num_all_nodes =
+        num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators;
+    for i in 0..num_all_nodes as usize {
         let config = &configs[i];
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
@@ -1293,18 +1458,6 @@ pub fn load_config(
             if let Err(e) = genesis.validate(genesis_validation) {
                 validation_errors.push_errors(e)
             };
-            if validator_signer.is_some()
-                && matches!(
-                    genesis.config.chain_id.as_ref(),
-                    near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
-                )
-                && config.tracked_shards.is_empty()
-            {
-                // Make sure validators tracks all shards, see
-                // https://github.com/near/nearcore/issues/7388
-                let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
-                validation_errors.push_cross_file_semantics_error(error_message.to_string());
-            }
             Some(genesis)
         }
         Err(error) => {
@@ -1357,7 +1510,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 #[cfg(test)]
 mod tests {
     use std::io::Write;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
     use near_async::time::Duration;
@@ -1368,7 +1521,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::config::{
-        create_testnet_configs, generate_or_load_key, init_configs, Config, CONFIG_FILENAME,
+        create_localnet_configs, generate_or_load_key, init_configs, Config, CONFIG_FILENAME,
     };
 
     #[test]
@@ -1537,58 +1690,152 @@ mod tests {
     }
 
     #[test]
-    fn test_create_testnet_configs() {
+    fn test_create_localnet_configs_track_single_shard() {
         let num_shards = 4;
-        let num_validator_seats = 4;
-        let num_non_validator_seats = 8;
+        let num_validators = 4;
+        let num_non_validators_archival = 2;
+        let num_non_validators_rpc = 2;
+        let num_non_validators = 2;
         let prefix = "node";
-        let local_ports = true;
 
-        // Set all supported options to true and verify config and genesis.
-
-        let archive = true;
-        let tracked_shards: Vec<u64> = vec![0, 1, 3];
+        // Validators will track single shard but archival and RPC nodes will track all shards.
+        let empty_tracked_shards: Vec<u64> = vec![];
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
-            create_testnet_configs(
+            create_localnet_configs(
                 num_shards,
-                num_validator_seats,
-                num_non_validator_seats,
+                num_validators,
+                num_non_validators_archival,
+                num_non_validators_rpc,
+                num_non_validators,
                 prefix,
-                local_ports,
-                archive,
+                empty_tracked_shards.clone(),
+            );
+        assert_eq!(
+            configs.len() as u64,
+            num_validators
+                + num_non_validators_archival
+                + num_non_validators_rpc
+                + num_non_validators
+        );
+
+        // Check validator nodes.
+        for i in 0..4 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
+            assert_eq!(config.tracked_shards, empty_tracked_shards);
+        }
+
+        // Check non-validator archival nodes.
+        for i in 4..6 {
+            let config = &configs[i];
+            assert_eq!(config.archive, true);
+            assert_eq!(
+                config.cold_store.clone().unwrap().path.unwrap(),
+                PathBuf::from("cold-data")
+            );
+            assert_eq!(config.save_trie_changes.unwrap(), true);
+            assert_eq!(
+                config.split_storage.clone().unwrap().enable_split_storage_view_client,
+                true
+            );
+            assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
+        }
+
+        // Check non-validator RPC nodes.
+        for i in 6..8 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
+            assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
+        }
+
+        // Check other non-validator nodes.
+        for i in 8..10 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
+            assert_eq!(config.tracked_shards, empty_tracked_shards);
+        }
+
+        assert_eq!(genesis.config.validators.len() as u64, num_shards);
+        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+    }
+
+    #[test]
+    fn test_create_localnet_configs_track_some_shards() {
+        let num_shards = 4;
+        let num_validators = 4;
+        let num_non_validators_archival = 2;
+        let num_non_validators_rpc = 2;
+        let num_non_validators = 2;
+        let prefix = "node";
+
+        // Validators will track 2 shards and non-validators will track all shards.
+        let tracked_shards: Vec<u64> = vec![1, 3];
+
+        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+            create_localnet_configs(
+                num_shards,
+                num_validators,
+                num_non_validators_archival,
+                num_non_validators_rpc,
+                num_non_validators,
+                prefix,
                 tracked_shards.clone(),
             );
+        assert_eq!(
+            configs.len() as u64,
+            num_validators
+                + num_non_validators_archival
+                + num_non_validators_rpc
+                + num_non_validators
+        );
 
-        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
-
-        for config in configs {
-            assert_eq!(config.archive, true);
+        // Check validator nodes.
+        for i in 0..4 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
             assert_eq!(config.tracked_shards, tracked_shards);
         }
 
-        assert_eq!(genesis.config.validators.len(), num_shards as usize);
-        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
-
-        // Set all supported options to false and verify config and genesis.
-
-        let archive = false;
-        let tracked_shards: Vec<u64> = vec![];
-
-        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
-            create_testnet_configs(
-                num_shards,
-                num_validator_seats,
-                num_non_validator_seats,
-                prefix,
-                local_ports,
-                archive,
-                tracked_shards.clone(),
+        // Check non-validator archival nodes.
+        for i in 4..6 {
+            let config = &configs[i];
+            assert_eq!(config.archive, true);
+            assert_eq!(
+                config.cold_store.clone().unwrap().path.unwrap(),
+                PathBuf::from("cold-data")
             );
-        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+            assert_eq!(config.save_trie_changes.unwrap(), true);
+            assert_eq!(
+                config.split_storage.clone().unwrap().enable_split_storage_view_client,
+                true
+            );
+            assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
+        }
 
-        for config in configs {
+        // Check non-validator RPC nodes.
+        for i in 6..8 {
+            let config = &configs[i];
             assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
+            assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
+        }
+
+        // Check other non-validator nodes.
+        for i in 8..10 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
             assert_eq!(config.tracked_shards, tracked_shards);
         }
 

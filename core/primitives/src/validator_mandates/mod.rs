@@ -1,13 +1,23 @@
 use crate::types::{validator_stake::ValidatorStake, ValidatorId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::Balance;
+use near_schema_checker_lib::ProtocolSchema;
 
 mod compute_price;
 
 /// Represents the configuration of [`ValidatorMandates`]. Its parameters are expected to remain
 /// valid for one epoch.
 #[derive(
-    BorshSerialize, BorshDeserialize, Default, Copy, Clone, Debug, PartialEq, Eq, serde::Serialize,
+    BorshSerialize,
+    BorshDeserialize,
+    Default,
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct ValidatorMandatesConfig {
     /// The desired number of mandates required per shard.
@@ -40,7 +50,15 @@ impl ValidatorMandatesConfig {
 ///
 /// See #9983 for context and links to resources that introduce mandates.
 #[derive(
-    BorshSerialize, BorshDeserialize, Default, Clone, Debug, PartialEq, Eq, serde::Serialize,
+    BorshSerialize,
+    BorshDeserialize,
+    Default,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct ValidatorMandates {
     /// The configuration applied to the mandates.
@@ -225,6 +243,7 @@ pub type ChunkValidatorStakeAssignment = Vec<Vec<(ValidatorId, Balance)>>;
 /// When mandates cannot be distributed evenly across shards, some shards will be assigned one
 /// mandata less than others. Shuffling shard ids prevents a bias towards lower shard ids, as it is
 /// no longer predictable which shard(s) will be assigned one mandate less.
+#[cfg(feature = "rand")]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 struct ShuffledShardIds {
     /// Contains the shard ids `[0, num_shards)` in shuffled order.

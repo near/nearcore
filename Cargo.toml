@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.79.0"
+rust-version = "1.80.1"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -47,6 +47,9 @@ members = [
     "core/primitives",
     "core/primitives-core",
     "core/store",
+    "core/schema-checker/schema-checker-core",
+    "core/schema-checker/schema-checker-macro",
+    "core/schema-checker/schema-checker-lib",
     "core/time",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
@@ -81,6 +84,7 @@ members = [
     "tools/mirror",
     "tools/mock-node",
     "tools/ping",
+    "tools/protocol-schema-check",
     "tools/restaked",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
@@ -95,6 +99,7 @@ members = [
     "utils/fmt",
     "utils/mainnet-res",
     "utils/near-cache",
+    "utils/near-stable-hasher",
     "utils/stdx",
 ]
 exclude = ["tracing", "benchmarks"]
@@ -113,6 +118,9 @@ len_zero = "deny"
 or_fun_call = "deny"
 unnecessary_lazy_evaluations = "deny"
 
+[workspace.lints.rust]
+# Will take effect since Rust 1.80, produces unused warning before it: https://github.com/rust-lang/cargo/pull/13913
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
 actix = "0.13.0"
@@ -197,10 +205,10 @@ indexmap = "1.6"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
 insta = { version = "1.37.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
+inventory = "0.3.15"
 itertools = "0.10.0"
 itoa = "1.0"
 json_comments = "0.2.1"
-lazy_static = "1.4"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
@@ -231,7 +239,6 @@ nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
-near-epoch-sync-tool = { path = "tools/epoch-sync" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
@@ -255,12 +262,17 @@ near-ping = { path = "tools/ping" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
+near-replay-archive-tool = { path = "tools/replay-archive" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
+near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
+near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" }
+near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
+near-schema-checker-lib = { path = "core/schema-checker/schema-checker-lib" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
@@ -286,7 +298,7 @@ num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
 once_cell = "1.13.1"
-openssl = { version = "0.10.60", features = ["vendored"] }
+openssl = { version = "0.10.66", features = ["vendored"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }

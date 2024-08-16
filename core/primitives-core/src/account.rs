@@ -5,6 +5,7 @@ use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, ProtocolVersion, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
+use near_schema_checker_lib::ProtocolSchema;
 use std::io;
 
 #[derive(
@@ -19,6 +20,7 @@ use std::io;
     Default,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum AccountVersion {
     #[cfg_attr(not(feature = "protocol_feature_nonrefundable_transfer_nep491"), default)]
@@ -46,7 +48,7 @@ impl TryFrom<u8> for AccountVersion {
     not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
     derive(serde::Deserialize)
 )]
-#[derive(serde::Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct Account {
     /// The total not locked tokens.
     #[serde(with = "dec_format")]
@@ -181,7 +183,16 @@ impl Account {
 
 /// These accounts are serialized in merklized state.
 /// We keep old accounts in the old format to avoid migration of the MPT.
-#[derive(BorshSerialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    ProtocolSchema,
+)]
 struct LegacyAccount {
     amount: Balance,
     locked: Balance,
@@ -190,7 +201,7 @@ struct LegacyAccount {
 }
 
 /// We only allow nonrefundable storage on new accounts (see `LegacyAccount`).
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
 struct AccountV2 {
     amount: Balance,
     locked: Balance,
@@ -386,6 +397,7 @@ impl BorshSerialize for Account {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct AccessKey {
     /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
@@ -416,6 +428,7 @@ impl AccessKey {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
@@ -439,6 +452,7 @@ pub enum AccessKeyPermission {
     Hash,
     Clone,
     Debug,
+    ProtocolSchema,
 )]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and

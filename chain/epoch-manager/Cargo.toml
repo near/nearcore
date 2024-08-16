@@ -23,7 +23,6 @@ smart-default.workspace = true
 tracing.workspace = true
 # itertools has collect_vec which is useful in quick debugging prints
 itertools.workspace = true
-once_cell.workspace = true
 
 near-o11y.workspace = true
 near-crypto.workspace = true
@@ -34,6 +33,7 @@ near-chain-primitives.workspace = true
 near-cache.workspace = true
 
 [features]
+default = ["near-primitives/rand"]
 expensive_tests = []
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
@@ -53,4 +53,3 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 no_cache = []
-new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]

@@ -253,16 +253,16 @@ pub fn default_sync_check_period() -> Duration {
     Duration::seconds(10)
 }
 
+pub fn default_sync_max_block_requests() -> usize {
+    10
+}
+
 pub fn default_sync_step_period() -> Duration {
     Duration::milliseconds(10)
 }
 
 pub fn default_sync_height_threshold() -> u64 {
     1
-}
-
-pub fn default_epoch_sync_enabled() -> bool {
-    false
 }
 
 pub fn default_state_sync() -> Option<StateSyncConfig> {
@@ -372,6 +372,8 @@ pub struct ClientConfig {
     pub sync_step_period: Duration,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockHeightDelta,
+    /// Maximum number of block requests to send to peers to sync
+    pub sync_max_block_requests: usize,
     /// How much time to wait after initial header sync
     pub header_sync_initial_timeout: Duration,
     /// How much time to wait after some progress is made in header sync
@@ -427,8 +429,6 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
-    /// Run Epoch Sync on the start.
-    pub epoch_sync_enabled: bool,
     /// Number of seconds between state requests for view client.
     pub view_client_throttle_period: Duration,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
@@ -495,7 +495,6 @@ impl ClientConfig {
         num_block_producer_seats: NumSeats,
         archive: bool,
         save_trie_changes: bool,
-        epoch_sync_enabled: bool,
         state_sync_enabled: bool,
     ) -> Self {
         assert!(
@@ -520,6 +519,7 @@ impl ClientConfig {
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
             sync_height_threshold: 1,
+            sync_max_block_requests: 10,
             header_sync_initial_timeout: Duration::seconds(10),
             header_sync_progress_timeout: Duration::seconds(2),
             header_sync_stall_ban_timeout: Duration::seconds(30),
@@ -548,7 +548,6 @@ impl ClientConfig {
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
-            epoch_sync_enabled,
             view_client_throttle_period: Duration::seconds(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,

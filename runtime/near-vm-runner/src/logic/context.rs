@@ -20,8 +20,6 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
-    /// The name of the method to invoke.
-    pub method: String,
     /// The input to the contract call.
     /// Encoded as base64 string to be able to pass input in borsh binary format.
     pub input: Vec<u8>,
@@ -61,5 +59,22 @@ pub struct VMContext {
 impl VMContext {
     pub fn is_view(&self) -> bool {
         self.view_config.is_some()
+    }
+
+    /// Make a gas counter based on the configuration in this VMContext.
+    ///
+    /// Meant for use in tests only.
+    pub fn make_gas_counter(&self, config: &near_parameters::vm::Config) -> super::GasCounter {
+        let max_gas_burnt = match self.view_config {
+            Some(near_primitives_core::config::ViewConfig { max_gas_burnt }) => max_gas_burnt,
+            None => config.limit_config.max_gas_burnt,
+        };
+        crate::logic::GasCounter::new(
+            config.ext_costs.clone(),
+            max_gas_burnt,
+            config.regular_op_cost,
+            self.prepaid_gas,
+            self.is_view(),
+        )
     }
 }

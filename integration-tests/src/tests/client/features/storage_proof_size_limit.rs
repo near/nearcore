@@ -6,7 +6,6 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
-use near_primitives::checked_feature;
 use near_primitives::errors::FunctionCallError;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
@@ -113,24 +112,20 @@ fn test_storage_proof_size_limit() {
     // Now perform a 20MB read (keys 0..20), which should fail due to the hard per-receipt storage proof size limit.
     let read20_tx = make_read_transaction(0, 20);
     let res = env.execute_tx(read20_tx).unwrap();
-    if checked_feature!("stable", PerReceiptHardStorageProofLimit, PROTOCOL_VERSION) {
-        assert_matches!(res.status, FinalExecutionStatus::Failure(_));
-        let error_string = match res.status {
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
-                match action_error.kind {
-                    ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
-                        error_string,
-                    )) => error_string,
-                    other => panic!("Bad ActionErrorKind: {:?}", other),
-                }
+    assert_matches!(res.status, FinalExecutionStatus::Failure(_));
+    let error_string = match res.status {
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
+            match action_error.kind {
+                ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                    error_string,
+                )) => error_string,
+                other => panic!("Bad ActionErrorKind: {:?}", other),
             }
-            other => panic!("Bad FinalExecutionStatus: {:?}", other),
-        };
-        assert!(error_string
-            .contains("Size of the recorded trie storage proof has exceeded the allowed limit"));
-    } else {
-        assert_matches!(res.status, FinalExecutionStatus::SuccessValue(_));
-    }
+        }
+        other => panic!("Bad FinalExecutionStatus: {:?}", other),
+    };
+    assert!(error_string
+        .contains("Size of the recorded trie storage proof has exceeded the allowed limit"));
 
     // Now test the per-chunk soft limit.
     // Spawn 3 transactions, each reading 2MB of data. The first two should end up in the same chunk.
@@ -170,22 +165,13 @@ fn test_storage_proof_size_limit() {
     let chunk = next_chunk();
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
-    if checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
-        assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 2);
-    } else {
-        // Without soft limit the receipts are processed immediately.
-        assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 3);
-    }
+    assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 2);
 
     // Chunk D - 1 transfer receipt from the third FunctionCall
     let chunk = next_chunk();
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
-    if checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
-        assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 1);
-    } else {
-        assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 0);
-    }
+    assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 1);
 }
 
 fn count_function_call_receipts(receipts: &[Receipt]) -> usize {

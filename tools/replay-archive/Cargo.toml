@@ -1,0 +1,47 @@
+[package]
+name = "near-replay-archive-tool"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+borsh.workspace = true
+clap.workspace = true
+itertools.workspace = true
+
+near-chain.workspace = true
+near-chain-primitives.workspace = true
+near-primitives.workspace = true
+near-primitives-core.workspace = true
+near-chain-configs.workspace = true
+near-epoch-manager.workspace = true
+near-o11y.workspace = true
+near-state-viewer.workspace = true
+near-store.workspace = true
+nearcore.workspace = true
+tracing.workspace = true
+
+[features]
+nightly = [
+  "near-o11y/nightly",
+  "near-primitives-core/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+  "nightly_protocol",
+]
+nightly_protocol = [
+  "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

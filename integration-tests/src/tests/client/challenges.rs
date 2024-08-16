@@ -18,7 +18,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -416,7 +416,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
-        ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
+        ChunkEndorsementV1::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,

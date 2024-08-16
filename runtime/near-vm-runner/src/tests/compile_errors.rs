@@ -417,7 +417,7 @@ fn test_sandbox_only_function() {
 
     #[cfg(feature = "sandbox")]
     tb.expect(&expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 59805981 used gas 59805981
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 154515074 used gas 154515074
     "#]]);
 
     #[cfg(not(feature = "sandbox"))]

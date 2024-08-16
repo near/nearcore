@@ -1,5 +1,5 @@
 use crate::apply_chain_range::apply_chain_range;
-use crate::cli::{ApplyRangeMode, EpochAnalysisMode};
+use crate::cli::{ApplyRangeMode, EpochAnalysisMode, StorageSource};
 use crate::contract_accounts::ContractAccount;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::contract_accounts::Summary;
@@ -7,7 +7,10 @@ use crate::epoch_info::iterate_and_filter;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
-use crate::util::{load_trie, load_trie_stop_at_height, LoadTrieMode};
+use crate::util::{
+    check_apply_block_result, load_trie, load_trie_stop_at_height, resulting_chunk_extra,
+    LoadTrieMode,
+};
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
 use bytesize::ByteSize;
@@ -17,29 +20,27 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
-use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::types::{Balance, EpochHeight, Gas};
+use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
@@ -63,12 +64,12 @@ pub(crate) fn apply_block(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-    if use_flat_storage {
+    if matches!(storage, StorageSource::FlatStorage) {
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
@@ -96,7 +97,7 @@ pub(crate) fn apply_block(
 
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -121,7 +122,7 @@ pub(crate) fn apply_block(
 
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                storage.create_runtime_storage(*chunk_extra.state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -146,36 +147,47 @@ pub(crate) fn apply_block(
 pub(crate) fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
-    use_flat_storage: bool,
+    storage: StorageSource,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Store,
+    read_store: Store,
+    write_store: Option<Store>,
 ) -> anyhow::Result<()> {
-    let mut chain_store = ChainStore::new(
-        store.clone(),
+    let mut read_chain_store = ChainStore::new(
+        read_store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+        NightshadeRuntime::from_config(home_dir, read_store, &near_config, epoch_manager.clone())
             .context("could not create the transaction runtime")?;
-    let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+    let block_hash = read_chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) = apply_block(
         block_hash,
         shard_id,
         epoch_manager.as_ref(),
         runtime.as_ref(),
-        &mut chain_store,
-        use_flat_storage,
+        &mut read_chain_store,
+        storage,
     );
     check_apply_block_result(
         &block,
         &apply_result,
         epoch_manager.as_ref(),
-        &mut chain_store,
+        &mut read_chain_store,
         shard_id,
-    )
+    )?;
+    let result = maybe_save_trie_changes(
+        write_store.clone(),
+        near_config.genesis.config.genesis_height,
+        apply_result,
+        height,
+        shard_id,
+    );
+    maybe_print_db_stats(write_store);
+    result
 }
 
 pub(crate) fn apply_chunk(
@@ -184,7 +196,7 @@ pub(crate) fn apply_chunk(
     store: Store,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -206,9 +218,22 @@ pub(crate) fn apply_chunk(
         chunk_hash,
         target_height,
         None,
-        use_flat_storage,
+        storage,
     )?;
-    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
+    let protocol_version = if let Some(height) = target_height {
+        // Retrieve the protocol version at the given height.
+        let block_hash = chain_store.get_block_hash_by_height(height)?;
+        chain_store.get_block(&block_hash)?.header().latest_protocol_version()
+    } else {
+        // No block height specified, fallback to current protocol version.
+        PROTOCOL_VERSION
+    };
+    // Most probably `PROTOCOL_VERSION` won't work if the target_height points to a time
+    // before congestion control has been introduced.
+    println!(
+        "resulting chunk extra:\n{:?}",
+        resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
+    );
     Ok(())
 }
 
@@ -221,23 +246,26 @@ pub(crate) fn apply_range(
     csv_file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Store,
+    read_store: Store,
+    write_store: Option<Store>,
     only_contracts: bool,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
         home_dir,
-        store.clone(),
+        read_store.clone(),
         &near_config,
         epoch_manager.clone(),
     )
     .expect("could not create the transaction runtime");
     apply_chain_range(
         mode,
-        store,
+        read_store,
+        write_store.clone(),
         &near_config.genesis,
         start_index,
         end_index,
@@ -247,8 +275,9 @@ pub(crate) fn apply_range(
         verbose_output,
         csv_file.as_mut(),
         only_contracts,
-        use_flat_storage,
+        storage,
     );
+    maybe_print_db_stats(write_store);
 }
 
 pub(crate) fn apply_receipt(
@@ -256,7 +285,7 @@ pub(crate) fn apply_receipt(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -272,7 +301,7 @@ pub(crate) fn apply_receipt(
         runtime.as_ref(),
         store,
         hash,
-        use_flat_storage,
+        storage,
     )
     .map(|_| ())
 }
@@ -282,7 +311,7 @@ pub(crate) fn apply_tx(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
-    use_flat_storage: bool,
+    storage: StorageSource,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -298,7 +327,7 @@ pub(crate) fn apply_tx(
         runtime.as_ref(),
         store,
         hash,
-        use_flat_storage,
+        storage,
     )
     .map(|_| ())
 }
@@ -511,80 +540,6 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     println!("Receipt: {:#?}", receipt);
 }
 
-fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
-    // explicitly enumerate the versions in a match here first so that if a new version is
-    // added, we'll get a compile error here and be reminded to update it correctly.
-    //
-    // edit with v3: To avoid too many explicit combinations, use wildcards for
-    // versions >= 3. The compiler will still notice the missing `(v1, new_v)`
-    // combinations.
-    match (&l, &r) {
-        (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
-        (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
-        (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
-        (ChunkExtra::V1(_), ChunkExtra::V2(_))
-        | (ChunkExtra::V2(_), ChunkExtra::V1(_))
-        | (_, ChunkExtra::V3(_))
-        | (ChunkExtra::V3(_), _) => {}
-    };
-    if l.state_root() != r.state_root() {
-        return false;
-    }
-    if l.outcome_root() != r.outcome_root() {
-        return false;
-    }
-    if l.gas_used() != r.gas_used() {
-        return false;
-    }
-    if l.gas_limit() != r.gas_limit() {
-        return false;
-    }
-    if l.balance_burnt() != r.balance_burnt() {
-        return false;
-    }
-    if l.congestion_info() != r.congestion_info() {
-        return false;
-    }
-    l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
-}
-
-pub(crate) fn check_apply_block_result(
-    block: &Block,
-    apply_result: &ApplyChunkResult,
-    epoch_manager: &EpochManagerHandle,
-    chain_store: &ChainStore,
-    shard_id: ShardId,
-) -> anyhow::Result<()> {
-    let height = block.header().height();
-    let block_hash = block.header().hash();
-    let new_chunk_extra =
-        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit());
-    println!(
-        "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id, height, &new_chunk_extra,
-    );
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-    if block.chunks()[shard_id as usize].height_included() == height {
-        if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
-            if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
-                println!("new chunk extra matches old chunk extra");
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!(
-                    "mismatch in resulting chunk extra.\nold: {:?}\nnew: {:?}",
-                    &old_chunk_extra,
-                    &new_chunk_extra
-                ))
-            }
-        } else {
-            Err(anyhow::anyhow!("No existing chunk extra available"))
-        }
-    } else {
-        println!("No existing chunk extra available");
-        Ok(())
-    }
-}
-
 pub(crate) fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
@@ -739,22 +694,6 @@ pub(crate) fn replay_chain(
     }
 }
 
-pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
-    // TODO(congestion_control): is it okay to use latest protocol version here for the chunk extra?
-    let protocol_version = PROTOCOL_VERSION;
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
-    ChunkExtra::new(
-        protocol_version,
-        &result.new_root,
-        outcome_root,
-        result.validator_proposals.clone(),
-        result.total_gas_burnt,
-        gas_limit,
-        result.total_balance_burnt,
-        result.congestion_info,
-    )
-}
-
 pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (_, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
@@ -844,6 +783,100 @@ pub(crate) fn view_chain(
             println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
     }
+}
+
+pub(crate) fn view_genesis(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    view_config: bool,
+    view_store: bool,
+    compare: bool,
+) {
+    let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime_adapter = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    )
+    .unwrap();
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store, genesis_height, near_config.client_config.save_trie_changes);
+
+    if view_config || compare {
+        tracing::info!(target: "state_viewer", "Computing genesis from config...");
+        let state_roots =
+            near_store::get_genesis_state_roots(chain_store.store()).unwrap().unwrap();
+        let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
+            epoch_manager.as_ref(),
+            runtime_adapter.as_ref(),
+            &chain_genesis,
+            state_roots,
+        )
+        .unwrap();
+
+        if view_config {
+            println!("Genesis block from config: {:#?}", genesis_block);
+            for chunk in genesis_chunks {
+                println!("Genesis chunk from config at shard {}: {:#?}", chunk.shard_id(), chunk);
+            }
+        }
+
+        // Check that genesis in the store is the same as genesis given in the config.
+        if compare {
+            let genesis_hash_in_storage =
+                chain_store.get_block_hash_by_height(chain_genesis.height).unwrap();
+            let genesis_hash_in_config = genesis_block.hash();
+            if &genesis_hash_in_storage == genesis_hash_in_config {
+                println!("Genesis in storage and config match.");
+            } else {
+                println!(
+                    "Genesis mismatch between storage and config: {:?} vs {:?}",
+                    genesis_hash_in_storage, genesis_hash_in_config
+                );
+            }
+        }
+    }
+
+    if view_store {
+        tracing::info!(target: "state_viewer", genesis_height, "Reading genesis from store...");
+        match read_genesis_from_store(&chain_store, genesis_height) {
+            Ok((genesis_block, genesis_chunks)) => {
+                println!("Genesis block from store: {:#?}", genesis_block);
+                for chunk in genesis_chunks {
+                    println!(
+                        "Genesis chunk from store at shard {}: {:#?}",
+                        chunk.shard_id(),
+                        chunk
+                    );
+                }
+            }
+            Err(error) => {
+                println!("Failed to read genesis block from store. Error: {}", error);
+                if !near_config.config.archive {
+                    println!("Hint: This is not an archival node. Try running this command from an archival node since genesis block may be garbage collected.");
+                }
+            }
+        }
+    }
+}
+
+fn read_genesis_from_store(
+    chain_store: &ChainStore,
+    genesis_height: u64,
+) -> Result<(Block, Vec<Arc<ShardChunk>>), Error> {
+    let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
+    let genesis_block = chain_store.get_block(&genesis_hash)?;
+    let mut genesis_chunks = vec![];
+    for chunk_header in genesis_block.chunks().iter() {
+        if chunk_header.height_included() == genesis_height {
+            genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
+        }
+    }
+    Ok((genesis_block, genesis_chunks))
 }
 
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
@@ -1225,6 +1258,34 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
     for shard_uid in shard_layout.shard_uids() {
         print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
     }
+}
+
+/// Persists the trie changes expressed by `apply_result` in the given storage.
+pub(crate) fn maybe_save_trie_changes(
+    store: Option<Store>,
+    genesis_height: u64,
+    apply_result: ApplyChunkResult,
+    block_height: u64,
+    shard_id: u64,
+) -> anyhow::Result<()> {
+    if let Some(store) = store {
+        let mut chain_store = ChainStore::new(store, genesis_height, false);
+        let mut chain_store_update = chain_store.store_update();
+        chain_store_update.save_trie_changes(apply_result.trie_changes);
+        chain_store_update.commit()?;
+        tracing::debug!("Trie changes persisted for block {block_height}, shard {shard_id}");
+    }
+    Ok(())
+}
+
+pub(crate) fn maybe_print_db_stats(store: Option<Store>) {
+    store.map(|store| {
+        store.get_store_statistics().map(|stats| {
+            stats.data.iter().for_each(|(metric, values)| {
+                tracing::info!(%metric, ?values);
+            })
+        })
+    });
 }
 
 /// Prints the state statistics for a single shard.

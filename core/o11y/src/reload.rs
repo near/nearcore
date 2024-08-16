@@ -1,8 +1,8 @@
 use crate::opentelemetry::get_opentelemetry_filter;
 use crate::{log_config, log_counter, BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel};
-use once_cell::sync::OnceCell;
 use opentelemetry_sdk::trace::Tracer;
 use std::str::FromStr as _;
+use std::sync::OnceLock;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::filter::{Filtered, Targets};
@@ -10,15 +10,15 @@ use tracing_subscriber::layer::Layered;
 use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{fmt, reload, EnvFilter, Registry};
 
-static LOG_LAYER_RELOAD_HANDLE: OnceCell<
+static LOG_LAYER_RELOAD_HANDLE: OnceLock<
     Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
-> = OnceCell::new();
-static OTLP_LAYER_RELOAD_HANDLE: OnceCell<
+> = OnceLock::new();
+static OTLP_LAYER_RELOAD_HANDLE: OnceLock<
     Handle<Targets, LogLayer<log_counter::LogCountingLayer<Registry>>>,
-> = OnceCell::new();
+> = OnceLock::new();
 
 // Records the level of opentelemetry tracing verbosity configured via command-line flags at the startup.
-static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
+static DEFAULT_OTLP_LEVEL: OnceLock<OpenTelemetryLevel> = OnceLock::new();
 
 pub(crate) type LogLayer<Inner> = Layered<
     Filtered<

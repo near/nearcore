@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use near_chain_primitives::error::Error;
 use near_primitives::block::Block;
-use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
@@ -18,21 +17,15 @@ type StateTransitionStartHeights = HashMap<ShardId, BlockHeight>;
 
 impl Chain {
     pub(crate) fn garbage_collect_state_transition_data(&self, block: &Block) -> Result<(), Error> {
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        if cfg!(feature = "shadow_chunk_validation")
-            || checked_feature!("stable", StatelessValidationV0, protocol_version)
-        {
-            let chain_store = self.chain_store();
-            let final_block_hash = *block.header().last_final_block();
-            if final_block_hash == CryptoHash::default() {
-                return Ok(());
-            }
-            let final_block = chain_store.get_block(&final_block_hash)?;
-            let final_block_chunk_created_heights =
-                final_block.chunks().iter().map(|chunk| chunk.height_created()).collect::<Vec<_>>();
-            clear_before_last_final_block(chain_store, &final_block_chunk_created_heights)?;
+        let chain_store = self.chain_store();
+        let final_block_hash = *block.header().last_final_block();
+        if final_block_hash == CryptoHash::default() {
+            return Ok(());
         }
+        let final_block = chain_store.get_block(&final_block_hash)?;
+        let final_block_chunk_created_heights =
+            final_block.chunks().iter().map(|chunk| chunk.height_created()).collect::<Vec<_>>();
+        clear_before_last_final_block(chain_store, &final_block_chunk_created_heights)?;
         Ok(())
     }
 }
@@ -122,7 +115,7 @@ mod tests {
 
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::stateless_validation::StoredChunkStateTransitionData;
+    use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
     use near_primitives::types::{BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;

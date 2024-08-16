@@ -1048,8 +1048,6 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             => unreachable!(),
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => unreachable!(),
         }
         self.merge(store_update);
     }

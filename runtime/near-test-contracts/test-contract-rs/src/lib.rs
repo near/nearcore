@@ -1012,6 +1012,18 @@ pub unsafe fn call_yield_create_return_promise() {
         data_id_register,
     );
 
+    // Write the data id to state for convenience in testing.
+    let key = 42u64.to_le_bytes().to_vec();
+    let data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+    storage_write(
+        key.len() as u64,
+        key.as_ptr() as u64,
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        0,
+    );
+
     promise_return(promise_index);
 }
 
@@ -1058,6 +1070,31 @@ pub unsafe fn call_yield_resume() {
 
     let data_id = &data[data_len - 32..];
     let payload = &data[0..data_len - 32];
+
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+    );
+
+    let result = vec![success as u8];
+    value_return(result.len() as u64, result.as_ptr() as u64);
+}
+
+/// Call promise_yield_resume.
+/// Input is the payload to be passed to `promise_yield_resume`.
+/// The data_id is read from storage.
+#[no_mangle]
+pub unsafe fn call_yield_resume_read_data_id_from_storage() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    let data_id_key = 42u64.to_le_bytes().to_vec();
+    storage_read(data_id_key.len() as u64, data_id_key.as_ptr() as u64, 0);
+    let data_id = vec![0u8; register_len(0) as usize];
+    read_register(0, data_id.as_ptr() as u64);
 
     let success = promise_yield_resume(
         data_id.len() as u64,
@@ -1570,4 +1607,43 @@ pub unsafe fn sanity_check_panic() {
 pub unsafe fn sanity_check_panic_utf8() {
     let data = b"xyz";
     panic_utf8(data.len() as u64, data.as_ptr() as u64);
+}
+
+/// Generate a single large receipt that has many FunctionCall actions with large args.
+/// Accepts json parmeters:
+/// account_id - the account id to send the FunctionCall actions to.
+/// method_name - the method name to call in FunctionCalls.
+/// total_args_size - the total size of the arguments to send in the FunctionCalls.
+#[no_mangle]
+pub unsafe fn generate_large_receipt() {
+    input(0);
+    let data = vec![0u8; register_len(0) as usize];
+    read_register(0, data.as_ptr() as u64);
+    let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+    let account_id = input_args["account_id"].as_str().unwrap().as_bytes();
+    let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
+    let mut total_size_to_send = input_args["total_args_size"].as_u64().unwrap();
+
+    // Up to 500 kB of arguments in a single function call.
+    let single_call_size = 500_000;
+
+    let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+    while total_size_to_send > 0 {
+        let args_size = std::cmp::min(total_size_to_send, single_call_size);
+        let args = vec![0u8; args_size as usize];
+        let amount = 0u128;
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        promise_batch_action_function_call_weight(
+            promise_idx,
+            method_name.len() as u64,
+            method_name.as_ptr() as u64,
+            args_size,
+            args.as_ptr() as u64,
+            &amount as *const u128 as u64,
+            gas_fixed,
+            gas_weight,
+        );
+        total_size_to_send = total_size_to_send.checked_sub(args_size).unwrap();
+    }
 }

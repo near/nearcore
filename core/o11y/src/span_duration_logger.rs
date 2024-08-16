@@ -1,5 +1,5 @@
 use crate::metrics::try_create_histogram_vec;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use prometheus::HistogramVec;
 use std::time::{Duration, Instant};
 use tracing::span::Attributes;
@@ -11,7 +11,7 @@ use tracing_subscriber::Layer;
 #[derive(Default)]
 pub(crate) struct SpanDurationLogger {}
 
-pub(crate) static SPAN_BUSY_DURATIONS: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static SPAN_BUSY_DURATIONS: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_span_busy_duration",
         "Busy duration of spans",

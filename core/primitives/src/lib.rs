@@ -1,3 +1,5 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;
@@ -12,8 +14,9 @@ pub mod block_body;
 pub mod block_header;
 pub mod challenge;
 pub mod congestion_info;
+pub mod epoch_block_info;
+pub mod epoch_info;
 pub mod epoch_manager;
-pub mod epoch_sync;
 pub mod errors;
 pub mod merkle;
 pub mod network;

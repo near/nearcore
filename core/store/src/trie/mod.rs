@@ -32,6 +32,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -378,7 +379,18 @@ pub trait TrieAccess {
 }
 
 /// Stores reference count addition for some key-value pair in DB.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Hash,
+    ProtocolSchema,
+)]
 pub struct TrieRefcountAddition {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
@@ -391,7 +403,18 @@ pub struct TrieRefcountAddition {
 }
 
 /// Stores reference count subtraction for some key in DB.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Hash,
+    ProtocolSchema,
+)]
 pub struct TrieRefcountSubtraction {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
@@ -404,7 +427,7 @@ pub struct TrieRefcountSubtraction {
 }
 
 /// Struct that is borsh compatible with Vec<u8> but which is logically the unit type.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, ProtocolSchema)]
 struct IgnoredVecU8 {
     _ignored: Vec<u8>,
 }
@@ -525,7 +548,7 @@ pub struct MemTrieChanges {
 /// Having old_root and values in deletions allows to apply TrieChanges in reverse
 ///
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
@@ -658,6 +681,11 @@ impl Trie {
             accounting_cache,
             recorder: None,
         }
+    }
+
+    /// Helper to simulate gas costs as if flat storage was present.
+    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
+        self.charge_gas_for_trie_node_access = false;
     }
 
     /// Makes a new trie that has everything the same except that access

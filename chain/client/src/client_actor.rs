@@ -66,11 +66,11 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -150,7 +150,7 @@ pub fn start_client(
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
         clock.clone(),
-        client_config.clone(),
+        client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker,
@@ -179,7 +179,6 @@ pub fn start_client(
             clock,
             client,
             client_sender_for_client_clone.as_multi_sender(),
-            client_config,
             node_id,
             network_adapter,
             telemetry_sender,
@@ -300,12 +299,49 @@ impl messaging::Actor for ClientActorInner {
     }
 }
 
+/// Before stateless validation we require validators to track all shards, see
+/// https://github.com/near/nearcore/issues/7388.
+/// Since stateless validation we use single shard tracking.
+fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> Result<(), Error> {
+    if !matches!(
+        client.config.chain_id.as_ref(),
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
+    ) {
+        return Ok(());
+    }
+
+    let epoch_id = client.chain.head()?.epoch_id;
+    let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).into_chain_error()?;
+
+    // We do not apply the check if this is not a current validator, see
+    // https://github.com/near/nearcore/issues/11821.
+    if epoch_info.get_validator_by_account(validator_id).is_none() {
+        warn!(target: "client", "The account '{}' is not a current validator, this node won't be validating in the current epoch", validator_id);
+        return Ok(());
+    }
+
+    let protocol_version = epoch_info.protocol_version();
+
+    if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
+        && client.config.tracked_shards.is_empty()
+    {
+        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+    }
+
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
+        && !client.config.tracked_shards.is_empty()
+    {
+        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector");
+    }
+
+    Ok(())
+}
+
 impl ClientActorInner {
     pub fn new(
         clock: Clock,
         client: Client,
         myself_sender: ClientSenderForClient,
-        config: ClientConfig,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
@@ -317,8 +353,9 @@ impl ClientActorInner {
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
+            check_validator_tracked_shards(&client, vs.validator_id())?;
         }
-        let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &config);
+        let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &client.config);
 
         let now = clock.now_utc();
         Ok(ClientActorInner {
@@ -1169,7 +1206,14 @@ impl ClientActorInner {
                 },
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
+
             if update_result.validator_signer_updated {
+                let validator_signer =
+                    self.client.validator_signer.get().expect("Validator signer just updated");
+
+                check_validator_tracked_shards(&self.client, validator_signer.validator_id())
+                    .expect("Could not check validator tracked shards");
+
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
                 self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
@@ -1293,7 +1337,7 @@ impl ClientActorInner {
                     || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash, &signer)
                 {
                     for approval in approvals {
-                        if let Err(e) = self.client.send_approval(
+                        if let Err(e) = self.client.send_block_approval(
                             &self.client.doomslug.get_tip().0,
                             approval,
                             &signer,
@@ -1417,6 +1461,7 @@ impl ClientActorInner {
         .entered();
         for accepted_block in accepted_blocks {
             let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);
@@ -1928,6 +1973,7 @@ impl ClientActorInner {
             &self.client.chain,
             highest_height,
             &self.network_info.highest_height_peers,
+            self.client.config.sync_max_block_requests,
         )?;
         Ok(block_sync_result)
     }

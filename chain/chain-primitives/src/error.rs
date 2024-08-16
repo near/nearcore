@@ -146,7 +146,7 @@ pub enum Error {
     /// Invalid epoch hash
     #[error("Invalid Epoch Hash")]
     InvalidEpochHash,
-    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    /// `next_bps_hash` doesn't correspond to the actual next block producers set
     #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
     /// The block has a protocol version that's outdated
@@ -451,17 +451,4 @@ pub enum BlockKnownError {
     KnownInProcessing,
     #[error("already known in invalid blocks")]
     KnownAsInvalid,
-}
-
-#[cfg(feature = "new_epoch_sync")]
-pub mod epoch_sync {
-    #[derive(thiserror::Error, std::fmt::Debug)]
-    pub enum EpochSyncInfoError {
-        #[error(transparent)]
-        EpochSyncInfoErr(#[from] near_primitives::errors::epoch_sync::EpochSyncInfoError),
-        #[error(transparent)]
-        IOErr(#[from] std::io::Error),
-        #[error(transparent)]
-        ChainErr(#[from] crate::Error),
-    }
 }
