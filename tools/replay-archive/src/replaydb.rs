@@ -142,7 +142,6 @@ pub(crate) fn open_storage_for_replay(
         DBCol::Chunks,
         DBCol::BlockHeight,
         DBCol::BlockHeader,
-        DBCol::OutgoingReceipts,
         DBCol::State,
         DBCol::Block,
     ]);
