@@ -98,6 +98,9 @@ pub enum StateViewerSubCommand {
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
+    /// View genesis block and chunks built from the config and in the store.
+    #[clap(alias = "view_genesis")]
+    ViewGenesis(ViewGenesisCmd),
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
@@ -146,9 +149,11 @@ impl StateViewerSubCommand {
         };
 
         match self {
-            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store, storage),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyRange(cmd) => {
+                cmd.run(home_dir, near_config, store, storage)
+            }
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(near_config, store),
@@ -173,6 +178,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
@@ -201,6 +207,14 @@ impl StorageSource {
     }
 }
 
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+pub enum SaveTrieTemperature {
+    // The logic in `crate::commands::maybe_save_trie_changes` is not guaranteed to work correctly when writing
+    // trie nodes in the hot storage.
+    // Hot,
+    Cold,
+}
+
 #[derive(clap::Parser)]
 pub struct ApplyCmd {
     #[clap(long)]
@@ -209,10 +223,19 @@ pub struct ApplyCmd {
     shard_id: ShardId,
     #[clap(long, default_value = "trie")]
     storage: StorageSource,
+    /// Modifies the DB column 'State' and writes the missing trie nodes generated as a result of applying the block.
+    #[clap(long)]
+    save_state: Option<SaveTrieTemperature>,
 }
 
 impl ApplyCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        near_config: NearConfig,
+        store: Store,
+        node_storage: NodeStorage,
+    ) {
         apply_block_at_height(
             self.height,
             self.shard_id,
@@ -220,6 +243,7 @@ impl ApplyCmd {
             home_dir,
             near_config,
             store,
+            self.save_state.map(|temperature| initialize_write_store(temperature, node_storage)),
         )
         .unwrap();
     }
@@ -275,10 +299,22 @@ pub struct ApplyRangeCmd {
     storage: StorageSource,
     #[clap(subcommand)]
     mode: ApplyRangeMode,
+    /// Modifies the DB column 'State' and writes the missing trie nodes generated as a result of applying the blocks.
+    #[clap(long)]
+    save_state: Option<SaveTrieTemperature>,
 }
 
 impl ApplyRangeCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        near_config: NearConfig,
+        store: Store,
+        node_storage: NodeStorage,
+    ) {
+        if matches!(self.mode, ApplyRangeMode::Benchmarking) && self.save_state.is_some() {
+            panic!("Persisting trie nodes in storage is not compatible with benchmark mode!");
+        }
         apply_range(
             self.mode,
             self.start_index,
@@ -289,6 +325,7 @@ impl ApplyRangeCmd {
             home_dir,
             near_config,
             store,
+            self.save_state.map(|temperature| initialize_write_store(temperature, node_storage)),
             self.only_contracts,
             self.storage,
         );
@@ -737,6 +774,31 @@ impl ViewChainCmd {
     }
 }
 
+#[derive(clap::Parser)]
+pub struct ViewGenesisCmd {
+    /// If true, displays the genesis block built from nearcore code that combines the
+    /// contents of the genesis config (JSON) file with some hard-coded logic to set some
+    /// fields of the genesis block. At any given time, the block built this way should match
+    /// the genesis block recorded in the store (to be displayed with the --store option).
+    #[clap(long)]
+    config: bool,
+    /// If true, displays the genesis block saved in the store, when the genesis block is built
+    /// for the first time. At any given time, this saved block should match the genesis block
+    /// built by the code (to be displayed with the --config option).
+    #[clap(long)]
+    store: bool,
+    /// If true, compares the contents of the genesis block saved in the store with
+    /// the genesis block built from the genesis config (JSON) file.
+    #[clap(long, default_value = "false")]
+    compare: bool,
+}
+
+impl ViewGenesisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_genesis(home_dir, near_config, store, self.config, self.store, self.compare);
+    }
+}
+
 #[derive(Clone)]
 pub enum ViewTrieFormat {
     Full,
@@ -887,5 +949,13 @@ impl ViewTrieCmd {
                 .unwrap();
             }
         }
+    }
+}
+
+fn initialize_write_store(temperature: SaveTrieTemperature, node_storage: NodeStorage) -> Store {
+    match temperature {
+        SaveTrieTemperature::Cold => node_storage
+            .get_recovery_store()
+            .expect("recovery store must be present if explicitly requested"),
     }
 }

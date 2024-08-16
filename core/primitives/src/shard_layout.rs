@@ -2,6 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
+use near_schema_checker_lib::ProtocolSchema;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -307,7 +308,18 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    ProtocolSchema,
+)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -493,7 +505,7 @@ mod tests {
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
-    use near_primitives_core::version::ProtocolFeature;
+    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -544,7 +556,13 @@ mod tests {
                 validator_selection_config: ValidatorSelectionConfig::default(),
             };
 
-            let all_epoch_config = AllEpochConfig::new(true, genesis_epoch_config, "test-chain");
+            let genesis_protocol_version = PROTOCOL_VERSION;
+            let all_epoch_config = AllEpochConfig::new(
+                true,
+                genesis_protocol_version,
+                genesis_epoch_config,
+                "test-chain",
+            );
             let latest_epoch_config = all_epoch_config.for_protocol_version(protocol_version);
             latest_epoch_config.shard_layout
         }

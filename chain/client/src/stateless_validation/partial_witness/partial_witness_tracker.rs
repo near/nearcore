@@ -8,10 +8,11 @@ use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert_fail;
-use near_primitives::stateless_validation::{
-    ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
-    PartialEncodedStateWitness,
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -206,9 +207,7 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
         let num_parts = self.get_num_parts(&partial_witness)?;
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(partial_witness.epoch_id())?;
-        let new_entry = CacheEntry::new(self.encoders.entry(num_parts, protocol_version));
+        let new_entry = CacheEntry::new(self.encoders.entry(num_parts));
         if let Some((evicted_key, evicted_entry)) = self.parts_cache.push(key, new_entry) {
             tracing::warn!(
                 target: "client",

@@ -19,7 +19,6 @@ actix.workspace = true
 arbitrary.workspace = true
 awc.workspace = true
 libfuzzer-sys.workspace = true
-once_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

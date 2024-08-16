@@ -118,18 +118,12 @@ pub fn setup_configs_with_epoch_length(
     let mut near1 = load_test_config("test1", port1, genesis.clone());
     near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", *port2)]);
     near1.client_config.min_num_peers = 1;
-    near1.client_config.epoch_sync_enabled = false;
     near1.client_config.state_sync_enabled = true;
 
     let mut near2 = load_test_config("test2", port2, genesis.clone());
     near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
     near2.client_config.min_num_peers = 1;
-    near2.client_config.epoch_sync_enabled = false;
     near2.client_config.state_sync_enabled = true;
 
     (genesis, genesis_block, near1, near2)
-}
-
-pub fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
-    setup_configs_with_epoch_length(5)
 }

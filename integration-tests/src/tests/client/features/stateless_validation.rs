@@ -6,7 +6,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::version::ProtocolFeature;
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
@@ -29,7 +29,6 @@ use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -43,11 +42,6 @@ fn run_chunk_validation_test(
     genesis_protocol_version: ProtocolVersion,
 ) {
     init_integration_logger();
-
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
@@ -111,10 +105,10 @@ fn run_chunk_validation_test(
         max_inflation_rate: Rational32::new(1, 1),
         ..Default::default()
     };
-    let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+    let epoch_config_test_overrides = AllEpochConfigTestOverrides {
         block_producer_kickout_threshold: Some(0),
         chunk_producer_kickout_threshold: Some(0),
-    });
+    };
 
     // Set up the records corresponding to the validator accounts.
     let mut records = Vec::new();
@@ -290,7 +284,7 @@ fn test_chunk_validation_protocol_upgrade_no_missing() {
         42,
         0.0,
         0.0,
-        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+        ProtocolFeature::StatelessValidation.protocol_version() - 1,
     );
 }
 
@@ -300,7 +294,7 @@ fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
         42,
         0.2,
         0.1,
-        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+        ProtocolFeature::StatelessValidation.protocol_version() - 1,
     );
 }
 
@@ -310,7 +304,7 @@ fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
         42,
         0.6,
         0.3,
-        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+        ProtocolFeature::StatelessValidation.protocol_version() - 1,
     );
 }
 
@@ -318,75 +312,52 @@ fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
 fn test_protocol_upgrade_81() {
     init_integration_logger();
 
-    if !checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, PROTOCOL_VERSION) {
-        println!("Test not applicable without LowerValidatorKickoutPercentForDebugging enabled");
-        return;
-    }
-    for is_statelessnet in [true, false] {
-        let validator_stake = 1000000 * ONE_NEAR;
-        let num_accounts = 9;
-        let accounts = (0..num_accounts)
-            .map(|i| format!("account{}", i).parse().unwrap())
-            .collect::<Vec<AccountId>>();
-        let num_validators = 8;
-        // Split accounts into 4 shards, so that each shard will store two
-        // validator accounts.
-        let shard_layout = ShardLayout::v1(
-            vec!["account2", "account4", "account6"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
-            None,
-            1,
-        );
-        let num_shards = shard_layout.shard_ids().count();
-        let genesis_config = GenesisConfig {
-            protocol_version: PROTOCOL_VERSION,
-            chain_id: if is_statelessnet {
-                "statelessnet".to_string()
-            } else {
-                "mocknet".to_string()
-            },
-            shard_layout,
-            validators: accounts
-                .iter()
-                .take(num_validators)
-                .map(|account_id| AccountInfo {
-                    account_id: account_id.clone(),
-                    public_key: create_test_signer(account_id.as_str()).public_key(),
-                    amount: validator_stake,
-                })
-                .collect(),
-            // The genesis requires this, so set it to something arbitrary.
-            protocol_treasury_account: accounts[num_validators].clone(),
-            num_block_producer_seats: num_validators as NumSeats,
-            minimum_validators_per_shard: num_validators as NumSeats,
-            num_block_producer_seats_per_shard: vec![8; num_shards],
-            block_producer_kickout_threshold: 90,
-            chunk_producer_kickout_threshold: 90,
-            ..Default::default()
-        };
-        let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
-        let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
-        if is_statelessnet {
-            assert_eq!(config.block_producer_kickout_threshold, 50);
-            assert_eq!(config.chunk_producer_kickout_threshold, 50);
-        } else {
-            assert_eq!(config.block_producer_kickout_threshold, 90);
-            assert_eq!(config.chunk_producer_kickout_threshold, 90);
-        }
-    }
+    let validator_stake = 1000000 * ONE_NEAR;
+    let num_accounts = 9;
+    let accounts = (0..num_accounts)
+        .map(|i| format!("account{}", i).parse().unwrap())
+        .collect::<Vec<AccountId>>();
+    let num_validators = 8;
+    // Split accounts into 4 shards, so that each shard will store two
+    // validator accounts.
+    let shard_layout = ShardLayout::v1(
+        vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
+        None,
+        1,
+    );
+    let num_shards = shard_layout.shard_ids().count();
+    let genesis_config = GenesisConfig {
+        protocol_version: PROTOCOL_VERSION,
+        chain_id: "mocknet".to_string(),
+        shard_layout,
+        validators: accounts
+            .iter()
+            .take(num_validators)
+            .map(|account_id| AccountInfo {
+                account_id: account_id.clone(),
+                public_key: create_test_signer(account_id.as_str()).public_key(),
+                amount: validator_stake,
+            })
+            .collect(),
+        // The genesis requires this, so set it to something arbitrary.
+        protocol_treasury_account: accounts[num_validators].clone(),
+        num_block_producer_seats: num_validators as NumSeats,
+        minimum_validators_per_shard: num_validators as NumSeats,
+        num_block_producer_seats_per_shard: vec![8; num_shards],
+        block_producer_kickout_threshold: 90,
+        chunk_producer_kickout_threshold: 90,
+        ..Default::default()
+    };
+    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
+    let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
+    assert_eq!(config.block_producer_kickout_threshold, 90);
+    assert_eq!(config.chunk_producer_kickout_threshold, 90);
 }
 
 /// Test that Client rejects ChunkStateWitnesses with invalid shard_id
 #[test]
 fn test_chunk_state_witness_bad_shard_id() {
     init_integration_logger();
-
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
 
     let accounts = vec!["test0".parse().unwrap()];
     let genesis = Genesis::test(accounts.clone(), 1);
@@ -554,13 +525,6 @@ fn test_invalid_transactions() {
 /// Tests that eth-implicit accounts still work with stateless validation.
 #[test]
 fn test_eth_implicit_accounts() {
-    if !(checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
-        && checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION))
-    {
-        println!("Test not applicable without both StatelessValidation and eth-implicit accounts enabled");
-        return;
-    }
-
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let genesis = Genesis::test(accounts.clone(), 2);

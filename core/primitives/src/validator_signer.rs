@@ -9,9 +9,11 @@ use crate::challenge::ChallengeBody;
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
-use crate::stateless_validation::{
-    ChunkEndorsementInner, EncodedChunkStateWitness, PartialEncodedStateWitnessInner,
+use crate::stateless_validation::chunk_endorsement::{
+    ChunkEndorsementInner, ChunkEndorsementMetadata,
 };
+use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
+use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
@@ -88,6 +90,14 @@ impl ValidatorSigner {
         match self {
             ValidatorSigner::Empty(signer) => signer.sign_chunk_endorsement(inner),
             ValidatorSigner::InMemory(signer) => signer.sign_chunk_endorsement(inner),
+        }
+    }
+
+    /// Signs chunk endorsement metadata.
+    pub fn sign_chunk_endorsement_metadata(&self, inner: &ChunkEndorsementMetadata) -> Signature {
+        match self {
+            ValidatorSigner::Empty(signer) => signer.sign_chunk_endorsement_metadata(inner),
+            ValidatorSigner::InMemory(signer) => signer.sign_chunk_endorsement_metadata(inner),
         }
     }
 
@@ -231,6 +241,10 @@ impl EmptyValidatorSigner {
         Signature::default()
     }
 
+    fn sign_chunk_endorsement_metadata(&self, _inner: &ChunkEndorsementMetadata) -> Signature {
+        Signature::default()
+    }
+
     fn sign_chunk_state_witness(&self, _witness_bytes: &EncodedChunkStateWitness) -> Signature {
         Signature::default()
     }
@@ -325,6 +339,10 @@ impl InMemoryValidatorSigner {
     }
 
     fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature {
+        self.signer.sign(&borsh::to_vec(inner).unwrap())
+    }
+
+    fn sign_chunk_endorsement_metadata(&self, inner: &ChunkEndorsementMetadata) -> Signature {
         self.signer.sign(&borsh::to_vec(inner).unwrap())
     }
 

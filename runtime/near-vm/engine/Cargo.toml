@@ -18,7 +18,6 @@ workspace = true
 backtrace.workspace = true
 enumset.workspace = true
 finite-wasm.workspace = true
-lazy_static.workspace = true
 more-asserts.workspace = true
 near-vm-compiler.workspace = true
 near-vm-types.workspace = true

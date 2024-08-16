@@ -49,7 +49,7 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
 [js-api]: https://github.com/near/near-api-js
 [rust-sdk]: https://github.com/near/near-sdk-rs
 [js-sdk]: https://github.com/near/near-sdk-js
-[examples-url]: https://near.dev
+[examples-url]: https://github.com/near-examples
 [docs-url]: https://docs.near.org
 [tutorials-url]: https://docs.near.org/tutorials/welcome
 [api-docs-url]: https://docs.near.org/api/rpc/introduction

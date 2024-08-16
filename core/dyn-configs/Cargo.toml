@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-once_cell.workspace = true
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true

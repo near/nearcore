@@ -246,7 +246,7 @@ fn check_meta_tx_fn_call(
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
     let gas_burnt_for_function_call =
-        tx_result.receipts_outcome[1].outcome.gas_burnt - static_send_gas;
+        tx_result.receipts_outcome[1].outcome.gas_burnt - static_exec_gas;
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 

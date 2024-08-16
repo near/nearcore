@@ -6,8 +6,6 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
-#[cfg(feature = "new_epoch_sync")]
-use near_epoch_sync_tool::EpochSyncCommand;
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -22,6 +20,7 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
@@ -102,9 +101,6 @@ impl NeardCmd {
                 cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
-            NeardSubCommand::RecompressStorage(cmd) => {
-                cmd.run(&home_dir);
-            }
             NeardSubCommand::VerifyProof(cmd) => {
                 cmd.run();
             }
@@ -146,8 +142,7 @@ impl NeardCmd {
             NeardSubCommand::StatePartsDumpCheck(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "new_epoch_sync")]
-            NeardSubCommand::EpochSync(cmd) => {
+            NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir)?;
             }
         };
@@ -203,42 +198,17 @@ impl NeardOpts {
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     Init(InitCmd),
+
     /// Runs NEAR node
     Run(RunCmd),
+
     /// Sets up local configuration with all necessary files (validator key, node key, genesis and
     /// config)
     Localnet(LocalnetCmd),
+
     /// View DB state.
     #[clap(name = "view-state", alias = "view_state")]
     StateViewer(StateViewerCommand),
-    /// Recompresses the entire storage.  This is a slow operation which reads
-    /// all the data from the database and writes them down to a new copy of the
-    /// database.
-    ///
-    /// In 1.26 release the compression algorithm for the database has changed
-    /// to reduce storage size.  Nodes don’t need to do anything for new data to
-    /// take advantage of better compression but existing data may take months
-    /// to be recompressed.  This may be an issue for archival nodes which keep
-    /// hold of all the old data.
-    ///
-    /// This command makes it possible to force the recompression as a one-time
-    /// operation.  Using it reduces the database even by up to 40% though that
-    /// is partially due to database ‘defragmentation’ (whose effects will wear
-    /// off in time).  Still, reduction by about 20% even if that’s taken into
-    /// account can be expected.
-    ///
-    /// It’s important to remember however, that this command may take up to
-    /// a day to finish in which time the database cannot be used by the node.
-    ///
-    /// Furthermore, file system where output directory is located needs enough
-    /// free space to store the new copy of the database.  It will be smaller
-    /// than the original but to be safe one should provision around the same
-    /// space as the size of the current `data` directory.
-    ///
-    /// Finally, because this command is meant only as a temporary migration
-    /// tool, it is planned to be removed by the end of 2022.
-    #[clap(alias = "recompress_storage")]
-    RecompressStorage(RecompressStorageSubCommand),
 
     /// Verify proofs
     #[clap(alias = "verify_proof")]
@@ -279,9 +249,8 @@ pub(super) enum NeardSubCommand {
     /// Check completeness of dumped state parts of an epoch
     StatePartsDumpCheck(StatePartsDumpCheckCommand),
 
-    #[cfg(feature = "new_epoch_sync")]
-    /// Testing tool for epoch sync
-    EpochSync(EpochSyncCommand),
+    /// Replays the blocks in the chain from an archival node.
+    ReplayArchive(ReplayArchiveCommand),
 }
 
 #[derive(clap::Parser)]
@@ -344,8 +313,7 @@ pub(super) struct InitCmd {
 fn check_release_build(chain: &str) {
     let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
         && !cfg!(feature = "nightly")
-        && !cfg!(feature = "nightly_protocol")
-        && !cfg!(feature = "statelessnet_protocol");
+        && !cfg!(feature = "nightly_protocol");
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
@@ -619,22 +587,31 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
 
 #[derive(clap::Parser)]
 pub(super) struct LocalnetCmd {
-    /// Number of non-validators to initialize the localnet with.
-    #[clap(short = 'n', long, alias = "n", default_value = "0")]
-    non_validators: NumSeats,
-    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
-    /// ‘node0’, ‘node1’, ...)
-    #[clap(long, default_value = "node")]
-    prefix: String,
     /// Number of shards to initialize the localnet with.
     #[clap(short = 's', long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the localnet with.
     #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    /// Whether to configure nodes as archival.
-    #[clap(long)]
-    archival_nodes: bool,
+    /// Number of non-validator archival nodes to initialize the localnet with.
+    /// They are created in addition to the other non-validators.
+    /// The archival nodes will have split storage (hot + cold) and they will track all shards.
+    #[clap(long, default_value = "0")]
+    non_validators_archival: NumSeats,
+    /// Number of non-validator RPC nodes to initialize the localnet with.
+    /// They are created in addition to the other non-validators.
+    /// The RPC nodes will track all shards.
+    #[clap(long, default_value = "0")]
+    non_validators_rpc: NumSeats,
+    /// Number of non-validators to initialize the localnet with.
+    /// Prefer `--non_validators_archival` and `--non_validators_rpc`
+    /// to create non-validator nodes configured for the archival and RPC roles.
+    #[clap(short = 'n', long, alias = "n", default_value = "0")]
+    non_validators: NumSeats,
+    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
+    /// ‘node0’, ‘node1’, ...)
+    #[clap(long, default_value = "node")]
+    prefix: String,
     /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
     #[clap(long, default_value = "all")]
     tracked_shards: String,
@@ -656,58 +633,16 @@ impl LocalnetCmd {
 
     pub(super) fn run(self, home_dir: &Path) {
         let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
-
-        nearcore::config::init_testnet_configs(
+        nearcore::config::init_localnet_configs(
             home_dir,
             self.shards,
             self.validators,
+            self.non_validators_archival,
+            self.non_validators_rpc,
             self.non_validators,
             &self.prefix,
-            true,
-            self.archival_nodes,
             tracked_shards,
         );
-    }
-}
-
-#[derive(clap::Args)]
-#[clap(arg_required_else_help = true)]
-pub(super) struct RecompressStorageSubCommand {
-    /// Directory where to save new storage.
-    #[clap(long)]
-    output_dir: PathBuf,
-
-    /// Keep data in DBCol::PartialChunks column.  Data in that column can be
-    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This is
-    /// always true if node is not an archival node.
-    #[clap(long)]
-    keep_partial_chunks: bool,
-
-    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only used
-    /// when receiving chunks and is not needed to serve archival requests.
-    /// This is always true if node is not an archival node.
-    #[clap(long)]
-    keep_invalid_chunks: bool,
-
-    /// Keep data in DBCol::TrieChanges column.  Data in that column is never used
-    /// by archival nodes.  This is always true if node is not an archival node.
-    #[clap(long)]
-    keep_trie_changes: bool,
-}
-
-impl RecompressStorageSubCommand {
-    pub(super) fn run(self, home_dir: &Path) {
-        warn!(target: "neard", "Recompressing storage; note that this operation may take up to a day to finish.");
-        let opts = nearcore::RecompressOpts {
-            dest_dir: self.output_dir,
-            keep_partial_chunks: self.keep_partial_chunks,
-            keep_invalid_chunks: self.keep_invalid_chunks,
-            keep_trie_changes: self.keep_trie_changes,
-        };
-        if let Err(err) = nearcore::recompress_storage(home_dir, opts) {
-            error!("{}", err);
-            std::process::exit(1);
-        }
     }
 }
 

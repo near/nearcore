@@ -32,9 +32,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"C3zeKRZubVungxfrSdq379TSCYnuz2YzjEkcJTdm3pU4");
+        insta::assert_snapshot!(hash, @"H9qfaTFJ7jFMEmJX9eYQ3kJQ6vwATAhidfbjwa9PvCPK");
     } else {
-        insta::assert_snapshot!(hash, @"EKBbsbiindwuPwbiARE9LevUffurNhprbSaUjgPKCwEq");
+        insta::assert_snapshot!(hash, @"2x5Ls6Pdh83oYghv7smHoJXSVebHyN3k9gfJQViGnLE8");
     }
 
     for i in 1..5 {
@@ -50,9 +50,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"EjLaoHRiAdRp2NcDqwbMcAYYxGfcv5R7GuYUNfRpaJvB");
+        insta::assert_snapshot!(hash, @"HPRdNbp8dJL2JA5bRSmLg6GJpGXx6xmw472vVAWLpXhi");
     } else {
-        insta::assert_snapshot!(hash, @"9Ag5sa6bF9knuJKe9XECTKZi7HwtDhCSxCZ8P9AdSvWH");
+        insta::assert_snapshot!(hash, @"B7eWe1H5Dm5FRUYzxjgguBHuFg1BgX8f5ecn5d1M51R");
     }
 }
 

@@ -21,7 +21,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
@@ -249,7 +249,7 @@ pub fn create_chunk(
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
-    let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
+    let endorsement = ChunkEndorsementV1::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,

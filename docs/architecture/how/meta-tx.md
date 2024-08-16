@@ -1,6 +1,6 @@
 # Meta Transactions
 
-[NEP-366](https://github.com/near/NEPs/pull/366) introduced the concept of meta
+[NEP-366](https://github.com/near/NEPs/blob/master/neps/nep-0366.md) introduced the concept of meta
 transactions to Near Protocol. This feature allows users to execute transactions
 on NEAR without owning any gas or tokens. In order to enable this, users
 construct and sign transactions off-chain. A third party (the relayer) is used
@@ -154,7 +154,7 @@ accounts. This means there is no financial incentive for Alice to delete her
 account. But it does not solve the problem that the relayer has to pay for the
 account creation and Alice can simply refuse to send a meta transaction
 afterwards. In particular, anyone creating an account would have financial
-incentive to let a relayer create it for them instead of paying out of the own
+incentive to let a relayer create it for them instead of paying out of their own
 pockets. This would still be better than Alice stealing tokens but
 fundamentally, there still needs to be some trust.
 

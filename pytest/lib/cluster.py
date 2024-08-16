@@ -5,7 +5,7 @@ import json
 import os
 import pathlib
 import rc
-from geventhttpclient import Session
+from geventhttpclient import Session, useragent
 import shutil
 import signal
 import subprocess
@@ -232,12 +232,9 @@ class BaseNode(object):
         cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
         return cmd + make_boot_nodes_arg(boot_node)
 
-    def get_command_for_subprogram(self,
-                                   cmd: tuple,
-                                   near_root,
-                                   node_dir,
-                                   binary_name='neard'):
-        return (os.path.join(near_root, binary_name), '--home', node_dir) + cmd
+    def get_command_for_subprogram(self, cmd: tuple):
+        return (os.path.join(self.near_root,
+                             self.binary_name), '--home', self.node_dir) + cmd
 
     def addr_with_pk(self) -> str:
         pk_hash = self.node_key.pk.split(':')[1]
@@ -403,7 +400,7 @@ class BaseNode(object):
 
     # Get the transaction status.
     #
-    # The default timeout is quite high - 15s - so that is is longer than the
+    # The default timeout is quite high - 15s - so that is longer than the
     # node's default polling_timeout. It's done this way to differentiate
     # between the case when the transaction is not found on the node and when
     # the node is dead or not responding.
@@ -434,17 +431,20 @@ class BaseNode(object):
 
     def check_store(self):
         if self.is_check_store:
-            res = self.json_rpc('adv_check_store', [])
-            if not 'result' in res:
-                # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+            try:
+                res = self.json_rpc('adv_check_store', [])
+                if not 'result' in res:
+                    # cannot check Storage Consistency for the node, possibly not Adversarial Mode is running
+                    pass
+                else:
+                    if res['result'] == 0:
+                        logger.error(
+                            "Storage for %s:%s in inconsistent state, stopping"
+                            % self.addr())
+                        self.kill()
+                    self.store_tests += res['result']
+            except useragent.BadStatusCode:
                 pass
-            else:
-                if res['result'] == 0:
-                    logger.error(
-                        "Storage for %s:%s in inconsistent state, stopping" %
-                        self.addr())
-                    self.kill()
-                self.store_tests += res['result']
 
 
 class RpcNode(BaseNode):
@@ -519,7 +519,7 @@ class LocalNode(BaseNode):
     def output_logs(self):
         stdout = pathlib.Path(self.node_dir) / 'stdout'
         stderr = pathlib.Path(self.node_dir) / 'stderr'
-        if os.environ.get('BUILDKITE'):
+        if os.environ.get('CI_HACKS'):
             logger.info('=== stdout: ')
             logger.info(stdout.read_text('utf-8', 'replace'))
             logger.info('=== stderr: ')
@@ -837,6 +837,7 @@ def init_cluster(
     genesis_config_changes: GenesisConfigChanges,
     client_config_changes: ClientConfigChanges,
     prefix="test",
+    initialize_cold_storage=True,
 ) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
@@ -900,8 +901,9 @@ def init_cluster(
 
     # apply config changes for nodes marked as archival node.
     # for now, we do this only for local nodes (eg. nayduck tests).
-    for i, node_dir in enumerate(node_dirs):
-        configure_cold_storage_for_archival_node(node_dir)
+    if initialize_cold_storage:
+        for i, node_dir in enumerate(node_dirs):
+            configure_cold_storage_for_archival_node(node_dir)
 
     return near_root, node_dirs
 

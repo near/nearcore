@@ -20,20 +20,21 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
-use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
-};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -48,7 +49,6 @@ use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
-use near_primitives::{checked_feature, shard_layout};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
     set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
@@ -945,7 +945,7 @@ impl EpochManagerAdapter for MockEpochManager {
     fn verify_chunk_endorsement(
         &self,
         _chunk_header: &ShardChunkHeader,
-        _endorsement: &ChunkEndorsement,
+        _endorsement: &ChunkEndorsementV1,
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -1043,18 +1043,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(vec)
     }
 
-    #[cfg(feature = "new_epoch_sync")]
-    fn get_all_epoch_hashes(
-        &self,
-        _last_block_info: &BlockInfo,
-        _hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
-    ) -> Result<Vec<CryptoHash>, EpochError> {
-        Ok(vec![])
-    }
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
-
     fn get_epoch_all_validators(
         &self,
         _epoch_id: &EpochId,
@@ -1126,13 +1114,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let storage_proof = Some(Default::default());
         Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
     }
 
@@ -1282,13 +1264,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
-            Some(Default::default())
-        } else {
-            None
-        };
+        let storage_proof = Some(Default::default());
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),

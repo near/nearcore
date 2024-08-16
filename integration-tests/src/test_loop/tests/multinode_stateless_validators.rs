@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
+use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_client::Client;
+use near_client::{GetValidatorInfo, ViewClientActorInner};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, EpochId, ValidatorInfoIdentifier};
-use near_primitives::version::ProtocolFeature::StatelessValidationV0;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::CurrentEpochValidatorInfo;
+use near_primitives::types::{AccountId, EpochId, EpochReference};
+use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
@@ -25,11 +24,6 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 
 #[test]
 fn test_stateless_validators_with_multi_test_loop() {
-    if !StatelessValidationV0.enabled(PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
-
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
@@ -89,11 +83,12 @@ fn test_stateless_validators_with_multi_test_loop() {
     );
 
     // Check the validator information for the epoch with the prev_epoch_id.
+    let view_client_handle = node_datas[0].view_client_sender.actor_handle();
     assert_validator_info(
-        &test_loop.data.get(&client_handle).client,
+        test_loop.data.get_mut(&view_client_handle),
         prev_epoch_id,
         initial_epoch_id,
-        &accounts,
+        accounts.clone(),
     );
 
     // Give the test a chance to finish off remaining events in the event loop, which can
@@ -103,18 +98,14 @@ fn test_stateless_validators_with_multi_test_loop() {
 }
 
 /// Returns the CurrentEpochValidatorInfo for each validator account for the given epoch id.
-fn get_current_validators(
-    client: &Client,
+fn get_validator_info(
+    view_client: &mut ViewClientActorInner,
     epoch_id: EpochId,
 ) -> HashMap<AccountId, CurrentEpochValidatorInfo> {
-    client
-        .epoch_manager
-        .get_validator_info(ValidatorInfoIdentifier::EpochId(epoch_id))
-        .unwrap()
-        .current_validators
-        .iter()
-        .map(|v| (v.account_id.clone(), v.clone()))
-        .collect()
+    let validator_info: EpochValidatorInfo = view_client
+        .handle(GetValidatorInfo { epoch_reference: EpochReference::EpochId(epoch_id) })
+        .unwrap();
+    validator_info.current_validators.iter().map(|v| (v.account_id.clone(), v.clone())).collect()
 }
 
 /// Asserts the following:
@@ -123,13 +114,13 @@ fn get_current_validators(
 /// 3. Stake of both the block/chunk producers and chunk validators increase (due to rewards).
 /// TODO: Assert on the specific reward amount, currently it only checks that some amount is rewarded.
 fn assert_validator_info(
-    client: &Client,
+    view_client: &mut ViewClientActorInner,
     epoch_id: EpochId,
     initial_epoch_id: EpochId,
-    accounts: &Vec<AccountId>,
+    accounts: Vec<AccountId>,
 ) {
-    let validator_to_info = get_current_validators(client, epoch_id);
-    let initial_validator_to_info = get_current_validators(client, initial_epoch_id);
+    let validator_to_info = get_validator_info(view_client, epoch_id);
+    let initial_validator_to_info = get_validator_info(view_client, initial_epoch_id);
 
     // Check that block/chunk producers generate blocks/chunks and also endorse chunk witnesses.
     for idx in 0..NUM_BLOCK_AND_CHUNK_PRODUCERS {

@@ -50,7 +50,7 @@ use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMes
 use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, GenesisId};
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -85,7 +85,6 @@ pub fn setup(
     max_block_prod_time: u64,
     enable_doomslug: bool,
     archive: bool,
-    epoch_sync_enabled: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
@@ -128,7 +127,6 @@ pub fn setup(
             num_validator_seats,
             archive,
             true,
-            epoch_sync_enabled,
             state_sync_enabled,
         );
         base.chunk_distribution_network = chunk_distribution_config;
@@ -221,7 +219,6 @@ pub fn setup_only_view(
     max_block_prod_time: u64,
     enable_doomslug: bool,
     archive: bool,
-    epoch_sync_enabled: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
@@ -282,7 +279,6 @@ pub fn setup_only_view(
         num_validator_seats,
         archive,
         true,
-        epoch_sync_enabled,
         state_sync_enabled,
     );
 
@@ -316,7 +312,7 @@ pub fn setup_mock(
         ) -> PeerManagerMessageResponse,
     >,
 ) -> ActorHandlesForTesting {
-    setup_mock_with_validity_period_and_no_epoch_sync(
+    setup_mock_with_validity_period(
         clock,
         validators,
         account_id,
@@ -327,7 +323,7 @@ pub fn setup_mock(
     )
 }
 
-pub fn setup_mock_with_validity_period_and_no_epoch_sync(
+pub fn setup_mock_with_validity_period(
     clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
@@ -353,7 +349,6 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
         MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         enable_doomslug,
-        false,
         false,
         true,
         network_adapter.as_multi_sender(),
@@ -821,7 +816,6 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: Vec<bool>,
-    epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
     peer_manager_mock: Box<
@@ -868,7 +862,6 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
-        let epoch_sync_enabled1 = epoch_sync_enabled.clone();
         let chunk_distribution_config1 = chunk_distribution_config.clone();
         let client_sender = LateBoundSender::new();
         let client_sender1 = client_sender.clone();
@@ -914,7 +907,6 @@ pub fn setup_mock_all_validators(
             block_prod_time * 3,
             enable_doomslug,
             archive1[index],
-            epoch_sync_enabled1[index],
             false,
             pm.into_multi_sender(),
             10000,
@@ -944,7 +936,7 @@ pub fn setup_no_network(
     skip_sync_wait: bool,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
-    setup_no_network_with_validity_period_and_no_epoch_sync(
+    setup_no_network_with_validity_period(
         clock,
         validators,
         account_id,
@@ -954,7 +946,7 @@ pub fn setup_no_network(
     )
 }
 
-pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
+pub fn setup_no_network_with_validity_period(
     clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
@@ -962,7 +954,7 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
-    setup_mock_with_validity_period_and_no_epoch_sync(
+    setup_mock_with_validity_period(
         clock,
         validators,
         account_id,
@@ -992,16 +984,8 @@ pub fn setup_client_with_runtime(
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: Arc<ValidatorSigner>,
 ) -> Client {
-    let mut config = ClientConfig::test(
-        true,
-        10,
-        20,
-        num_validator_seats,
-        archive,
-        save_trie_changes,
-        true,
-        true,
-    );
+    let mut config =
+        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         noop().into_sender(),

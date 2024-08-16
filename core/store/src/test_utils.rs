@@ -38,7 +38,8 @@ pub fn create_test_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeSto
 
 /// Creates an in-memory node storage.
 ///
-/// In tests you’ll often want to use [`create_test_store`] instead.
+/// In tests you’ll often want to use [`create_test_store`] or
+/// [`create_test_split_store`] (for archival nodes) instead.
 /// It initializes the db version and db kind to sensible defaults -
 /// the current version and rpc kind.
 pub fn create_test_node_storage_default() -> NodeStorage {
@@ -65,6 +66,13 @@ pub fn create_test_node_storage_with_cold(
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
     create_test_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
+}
+
+/// Returns a pair of (Hot, Split) store to be used for setting up archival clients.
+/// Note that the Split store contains both Hot and Cold stores.
+pub fn create_test_split_store() -> (Store, Store) {
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    (storage.get_hot_store(), storage.get_split_store().unwrap())
 }
 
 pub struct TestTriesBuilder {

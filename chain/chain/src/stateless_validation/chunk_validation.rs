@@ -23,7 +23,9 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
-use near_primitives::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, EncodedChunkStateWitness,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ProtocolVersion, ShardId};

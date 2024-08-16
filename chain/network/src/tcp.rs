@@ -2,7 +2,6 @@ use crate::config::SocketOptions;
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Mutex;
@@ -11,9 +10,9 @@ const LISTENER_BACKLOG: u32 = 128;
 
 /// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
 /// this OS process is terminated.
-pub(crate) static RESERVED_LISTENER_ADDRS: Lazy<
+pub(crate) static RESERVED_LISTENER_ADDRS: std::sync::LazyLock<
     Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>,
-> = Lazy::new(|| Mutex::new(HashMap::new()));
+> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.

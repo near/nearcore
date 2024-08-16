@@ -73,12 +73,6 @@ test_features = [
 ]
 shadow_chunk_validation = []
 no_cache = ["near-store/no_cache"]
-new_epoch_sync = [
-  "near-store/new_epoch_sync",
-  "near-primitives/new_epoch_sync",
-  "near-epoch-manager/new_epoch_sync",
-  "near-chain-primitives/new_epoch_sync",
-]
 
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
@@ -115,10 +109,6 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-vm-runner/nightly_protocol",
   "node-runtime/nightly_protocol",
-]
-statelessnet_protocol = [
-  "near-store/statelessnet_protocol",
-  "near-primitives/statelessnet_protocol",
 ]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]
 testloop = []

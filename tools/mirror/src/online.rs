@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
-    GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome, GetReceipt, Query,
+    GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
 };
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
@@ -122,7 +122,7 @@ impl crate::ChainAccess for ChainAccess {
         for c in block.chunks {
             let chunk = match self
                 .view_client
-                .send(GetChunk::ChunkHash(ChunkHash(c.chunk_hash)).with_span_context())
+                .send(GetShardChunk::ChunkHash(ChunkHash(c.chunk_hash)).with_span_context())
                 .await
                 .unwrap()
             {
@@ -138,11 +138,11 @@ impl crate::ChainAccess for ChainAccess {
                     _ => return Err(e.into()),
                 },
             };
-            if chunk.header.height_included == height {
+            if chunk.height_included() == height {
                 chunks.push(SourceChunk {
-                    shard_id: chunk.header.shard_id,
-                    transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                    receipts: chunk.receipts.into_iter().map(|r| r.try_into().unwrap()).collect(),
+                    shard_id: chunk.shard_id(),
+                    transactions: chunk.transactions().to_vec(),
+                    receipts: chunk.prev_outgoing_receipts().to_vec(),
                 })
             }
         }

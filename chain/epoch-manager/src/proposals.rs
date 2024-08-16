@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use near_primitives::checked_feature;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, RngSeed};
+use near_primitives::epoch_info::{EpochInfo, RngSeed};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -85,7 +85,7 @@ mod old_validator_selection {
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     use std::iter;
 
-    use near_primitives::epoch_manager::epoch_info::EpochInfo;
+    use near_primitives::epoch_info::EpochInfo;
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::errors::EpochError;
     use near_primitives::types::validator_stake::ValidatorStake;

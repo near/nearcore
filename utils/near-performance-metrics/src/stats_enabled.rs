@@ -1,11 +1,11 @@
 use bytesize::ByteSize;
 use futures;
 use futures::task::Context;
-use once_cell::sync::Lazy;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -15,9 +15,10 @@ pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
 const MIN_OCCUPANCY_RATIO_THRESHOLD: f64 = 0.02;
 
-pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::new(Stats::new())));
-pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+pub(crate) static STATS: LazyLock<Arc<Mutex<Stats>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(Stats::new())));
+pub(crate) static REF_COUNTER: LazyLock<Mutex<HashMap<(&'static str, u32), u128>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn get_thread_stats_logger() -> Arc<Mutex<ThreadStats>> {
     thread_local! {

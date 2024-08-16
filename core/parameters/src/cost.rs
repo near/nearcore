@@ -2,6 +2,7 @@ use crate::parameter::Parameter;
 use enum_map::{enum_map, EnumMap};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
+use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -130,41 +131,23 @@ impl ExtCostsConfig {
             ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
             ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
             ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_sum_base => SAFETY_MULTIPLIER * 5_500_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_sum_element => SAFETY_MULTIPLIER * 2_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_sum_base => SAFETY_MULTIPLIER * 6_200_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_sum_element => SAFETY_MULTIPLIER * 5_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g1_multiexp_base => SAFETY_MULTIPLIER * 5_500_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g1_multiexp_element => SAFETY_MULTIPLIER * 310_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g2_multiexp_base => SAFETY_MULTIPLIER * 6_200_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g2_multiexp_element => SAFETY_MULTIPLIER * 665_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp_to_g1_base => SAFETY_MULTIPLIER * 500_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp_to_g1_element => SAFETY_MULTIPLIER * 84_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp2_to_g2_base => SAFETY_MULTIPLIER * 500_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp2_to_g2_element => SAFETY_MULTIPLIER * 300_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_pairing_base => SAFETY_MULTIPLIER * 710_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_pairing_element => SAFETY_MULTIPLIER * 710_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_decompress_base => SAFETY_MULTIPLIER * 500_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_decompress_element => SAFETY_MULTIPLIER * 27_000_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_decompress_base => SAFETY_MULTIPLIER * 500_000_000,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_decompress_element => SAFETY_MULTIPLIER * 55_000_000_000,
             // TODO(yield/resume): replicate fees here after estimation
             ExtCosts::yield_create_base => 300_000_000_000_000,
@@ -198,6 +181,7 @@ impl ExtCostsConfig {
     strum::Display,
     strum::EnumIter,
     enum_map::Enum,
+    ProtocolSchema,
 )]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
@@ -266,41 +250,23 @@ pub enum ExtCosts {
     yield_create_byte = 62,
     yield_resume_base = 63,
     yield_resume_byte = 64,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p1_sum_base = 65,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p1_sum_element = 66,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p2_sum_base = 67,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p2_sum_element = 68,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_g1_multiexp_base = 69,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_g1_multiexp_element = 70,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_g2_multiexp_base = 71,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_g2_multiexp_element = 72,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_map_fp_to_g1_base = 73,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_map_fp_to_g1_element = 74,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_map_fp2_to_g2_base = 75,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_map_fp2_to_g2_element = 76,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_pairing_base = 77,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_pairing_element = 78,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p1_decompress_base = 79,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p1_decompress_element = 80,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p2_decompress_base = 81,
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_p2_decompress_element = 82,
 }
 
@@ -317,6 +283,7 @@ pub enum ExtCosts {
     strum::Display,
     strum::EnumIter,
     enum_map::Enum,
+    ProtocolSchema,
 )]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
@@ -414,41 +381,23 @@ impl ExtCosts {
             ExtCosts::yield_create_byte => Parameter::WasmYieldCreateByte,
             ExtCosts::yield_resume_base => Parameter::WasmYieldResumeBase,
             ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_sum_base => Parameter::WasmBls12381P1SumBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_sum_element => Parameter::WasmBls12381P1SumElement,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_sum_base => Parameter::WasmBls12381P2SumBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_sum_element => Parameter::WasmBls12381P2SumElement,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g1_multiexp_base => Parameter::WasmBls12381G1MultiexpBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g1_multiexp_element => Parameter::WasmBls12381G1MultiexpElement,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g2_multiexp_base => Parameter::WasmBls12381G2MultiexpBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g2_multiexp_element => Parameter::WasmBls12381G2MultiexpElement,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp_to_g1_base => Parameter::WasmBls12381MapFpToG1Base,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp_to_g1_element => Parameter::WasmBls12381MapFpToG1Element,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp2_to_g2_base => Parameter::WasmBls12381MapFp2ToG2Base,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_map_fp2_to_g2_element => Parameter::WasmBls12381MapFp2ToG2Element,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_pairing_base => Parameter::WasmBls12381PairingBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_pairing_element => Parameter::WasmBls12381PairingElement,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_decompress_base => Parameter::WasmBls12381P1DecompressBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p1_decompress_element => Parameter::WasmBls12381P1DecompressElement,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_decompress_base => Parameter::WasmBls12381P2DecompressBase,
-            #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_decompress_element => Parameter::WasmBls12381P2DecompressElement,
         }
     }

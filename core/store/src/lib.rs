@@ -1,3 +1,5 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 extern crate core;
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
@@ -12,7 +14,7 @@ pub use crate::trie::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
-use db::GENESIS_CONGESTION_INFO_KEY;
+use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -33,17 +35,18 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
-use once_cell::sync::Lazy;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
 
 pub mod cold_storage;
 mod columns;
 pub mod config;
+pub mod contract;
 pub mod db;
 pub mod flat;
 pub mod genesis;
@@ -147,7 +150,7 @@ impl NodeStorage {
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
+        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
         let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
         (dir, opener)
@@ -199,6 +202,19 @@ impl NodeStorage {
         }
     }
 
+    /// Returns an instance of recovery store. The recovery store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// Recovery store should be use only to perform data recovery on archival nodes.
+    pub fn get_recovery_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => {
+                Some(Store { storage: Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())) })
+            }
+            None => None,
+        }
+    }
+
     /// Returns the split store. The split store is only available in archival
     /// nodes with split storage configured.
     ///
@@ -207,12 +223,13 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        match &self.cold_storage {
-            Some(cold_storage) => Some(Store {
-                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
-            }),
-            None => None,
-        }
+        self.get_split_db().map(|split_db| Store { storage: split_db })
+    }
+
+    pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
+        self.cold_storage
+            .as_ref()
+            .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
     }
 
     /// Returns underlying database for given temperature.
@@ -267,6 +284,10 @@ impl NodeStorage {
 }
 
 impl Store {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        Self { storage }
+    }
+
     /// Fetches value from given column.
     ///
     /// If the key does not exist in the column returns `None`.  Otherwise
@@ -948,15 +969,6 @@ pub fn get_access_key_raw(
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
