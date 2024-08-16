@@ -1,16 +1,14 @@
-use crate::challenge::SlashedValidator;
 use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
-use crate::types::validator_stake::{ValidatorStake, ValidatorStakeV1};
+use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeightDelta, EpochId, NumSeats,
-    ProtocolVersion, ValidatorKickoutReason,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeightDelta, NumSeats, ProtocolVersion,
+    ValidatorKickoutReason,
 };
 use crate::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
@@ -182,6 +180,8 @@ impl AllEpochConfig {
 
         Self::config_max_kickout_stake(&mut config, protocol_version);
 
+        Self::config_fix_min_stake_ratio(&mut config, protocol_version);
+
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
@@ -299,6 +299,12 @@ impl AllEpochConfig {
         }
     }
 
+    fn config_fix_min_stake_ratio(config: &mut EpochConfig, protocol_version: u32) {
+        if checked_feature!("stable", FixMinStakeRatio, protocol_version) {
+            config.validator_selection_config.minimum_stake_ratio = Rational32::new(1, 62_500);
+        }
+    }
+
     fn config_test_overrides(
         config: &mut EpochConfig,
         test_overrides: &AllEpochConfigTestOverrides,
@@ -342,467 +348,6 @@ pub struct ValidatorSelectionConfig {
     pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
-pub mod block_info {
-    use super::SlashState;
-    use crate::challenge::SlashedValidator;
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-    use crate::types::EpochId;
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{AccountId, Balance, BlockHeight, ProtocolVersion};
-    use std::collections::HashMap;
-
-    pub use super::BlockInfoV1;
-
-    /// Information per each block.
-    #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize)]
-    pub enum BlockInfo {
-        V1(BlockInfoV1),
-        V2(BlockInfoV2),
-    }
-
-    impl Default for BlockInfo {
-        fn default() -> Self {
-            Self::V2(BlockInfoV2::default())
-        }
-    }
-
-    impl BlockInfo {
-        pub fn new(
-            hash: CryptoHash,
-            height: BlockHeight,
-            last_finalized_height: BlockHeight,
-            last_final_block_hash: CryptoHash,
-            prev_hash: CryptoHash,
-            proposals: Vec<ValidatorStake>,
-            validator_mask: Vec<bool>,
-            slashed: Vec<SlashedValidator>,
-            total_supply: Balance,
-            latest_protocol_version: ProtocolVersion,
-            timestamp_nanosec: u64,
-        ) -> Self {
-            Self::V2(BlockInfoV2 {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                slashed: slashed
-                    .into_iter()
-                    .map(|s| {
-                        let slash_state = if s.is_double_sign {
-                            SlashState::DoubleSign
-                        } else {
-                            SlashState::Other
-                        };
-                        (s.account_id, slash_state)
-                    })
-                    .collect(),
-                total_supply,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                timestamp_nanosec,
-            })
-        }
-
-        #[inline]
-        pub fn proposals_iter(&self) -> ValidatorStakeIter {
-            match self {
-                Self::V1(v1) => ValidatorStakeIter::v1(&v1.proposals),
-                Self::V2(v2) => ValidatorStakeIter::new(&v2.proposals),
-            }
-        }
-
-        #[inline]
-        pub fn hash(&self) -> &CryptoHash {
-            match self {
-                Self::V1(v1) => &v1.hash,
-                Self::V2(v2) => &v2.hash,
-            }
-        }
-
-        #[inline]
-        pub fn height(&self) -> BlockHeight {
-            match self {
-                Self::V1(v1) => v1.height,
-                Self::V2(v2) => v2.height,
-            }
-        }
-
-        #[inline]
-        pub fn last_finalized_height(&self) -> BlockHeight {
-            match self {
-                Self::V1(v1) => v1.last_finalized_height,
-                Self::V2(v2) => v2.last_finalized_height,
-            }
-        }
-
-        #[inline]
-        pub fn last_final_block_hash(&self) -> &CryptoHash {
-            match self {
-                Self::V1(v1) => &v1.last_final_block_hash,
-                Self::V2(v2) => &v2.last_final_block_hash,
-            }
-        }
-
-        #[inline]
-        pub fn prev_hash(&self) -> &CryptoHash {
-            match self {
-                Self::V1(v1) => &v1.prev_hash,
-                Self::V2(v2) => &v2.prev_hash,
-            }
-        }
-
-        #[inline]
-        pub fn is_genesis(&self) -> bool {
-            self.prev_hash() == &CryptoHash::default()
-        }
-
-        #[inline]
-        pub fn epoch_first_block(&self) -> &CryptoHash {
-            match self {
-                Self::V1(v1) => &v1.epoch_first_block,
-                Self::V2(v2) => &v2.epoch_first_block,
-            }
-        }
-
-        #[inline]
-        pub fn epoch_first_block_mut(&mut self) -> &mut CryptoHash {
-            match self {
-                Self::V1(v1) => &mut v1.epoch_first_block,
-                Self::V2(v2) => &mut v2.epoch_first_block,
-            }
-        }
-
-        #[inline]
-        pub fn epoch_id(&self) -> &EpochId {
-            match self {
-                Self::V1(v1) => &v1.epoch_id,
-                Self::V2(v2) => &v2.epoch_id,
-            }
-        }
-
-        #[inline]
-        pub fn epoch_id_mut(&mut self) -> &mut EpochId {
-            match self {
-                Self::V1(v1) => &mut v1.epoch_id,
-                Self::V2(v2) => &mut v2.epoch_id,
-            }
-        }
-
-        #[inline]
-        pub fn chunk_mask(&self) -> &[bool] {
-            match self {
-                Self::V1(v1) => &v1.chunk_mask,
-                Self::V2(v2) => &v2.chunk_mask,
-            }
-        }
-
-        #[inline]
-        pub fn latest_protocol_version(&self) -> &ProtocolVersion {
-            match self {
-                Self::V1(v1) => &v1.latest_protocol_version,
-                Self::V2(v2) => &v2.latest_protocol_version,
-            }
-        }
-
-        #[inline]
-        pub fn slashed(&self) -> &HashMap<AccountId, SlashState> {
-            match self {
-                Self::V1(v1) => &v1.slashed,
-                Self::V2(v2) => &v2.slashed,
-            }
-        }
-
-        #[inline]
-        pub fn slashed_mut(&mut self) -> &mut HashMap<AccountId, SlashState> {
-            match self {
-                Self::V1(v1) => &mut v1.slashed,
-                Self::V2(v2) => &mut v2.slashed,
-            }
-        }
-
-        #[inline]
-        pub fn total_supply(&self) -> &Balance {
-            match self {
-                Self::V1(v1) => &v1.total_supply,
-                Self::V2(v2) => &v2.total_supply,
-            }
-        }
-
-        #[inline]
-        pub fn timestamp_nanosec(&self) -> &u64 {
-            match self {
-                Self::V1(v1) => &v1.timestamp_nanosec,
-                Self::V2(v2) => &v2.timestamp_nanosec,
-            }
-        }
-    }
-
-    // V1 -> V2: Use versioned ValidatorStake structure in proposals
-    #[derive(
-        Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
-    )]
-    pub struct BlockInfoV2 {
-        pub hash: CryptoHash,
-        pub height: BlockHeight,
-        pub last_finalized_height: BlockHeight,
-        pub last_final_block_hash: CryptoHash,
-        pub prev_hash: CryptoHash,
-        pub epoch_first_block: CryptoHash,
-        pub epoch_id: EpochId,
-        pub proposals: Vec<ValidatorStake>,
-        pub chunk_mask: Vec<bool>,
-        /// Latest protocol version this validator observes.
-        pub latest_protocol_version: ProtocolVersion,
-        /// Validators slashed since the start of epoch or in previous epoch.
-        pub slashed: HashMap<AccountId, SlashState>,
-        /// Total supply at this block.
-        pub total_supply: Balance,
-        pub timestamp_nanosec: u64,
-    }
-}
-
-/// Information per each block.
-#[derive(
-    Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
-)]
-pub struct BlockInfoV1 {
-    pub hash: CryptoHash,
-    pub height: BlockHeight,
-    pub last_finalized_height: BlockHeight,
-    pub last_final_block_hash: CryptoHash,
-    pub prev_hash: CryptoHash,
-    pub epoch_first_block: CryptoHash,
-    pub epoch_id: EpochId,
-    pub proposals: Vec<ValidatorStakeV1>,
-    pub chunk_mask: Vec<bool>,
-    /// Latest protocol version this validator observes.
-    pub latest_protocol_version: ProtocolVersion,
-    /// Validators slashed since the start of epoch or in previous epoch.
-    pub slashed: HashMap<AccountId, SlashState>,
-    /// Total supply at this block.
-    pub total_supply: Balance,
-    pub timestamp_nanosec: u64,
-}
-
-impl BlockInfoV1 {
-    pub fn new(
-        hash: CryptoHash,
-        height: BlockHeight,
-        last_finalized_height: BlockHeight,
-        last_final_block_hash: CryptoHash,
-        prev_hash: CryptoHash,
-        proposals: Vec<ValidatorStakeV1>,
-        validator_mask: Vec<bool>,
-        slashed: Vec<SlashedValidator>,
-        total_supply: Balance,
-        latest_protocol_version: ProtocolVersion,
-        timestamp_nanosec: u64,
-    ) -> Self {
-        Self {
-            hash,
-            height,
-            last_finalized_height,
-            last_final_block_hash,
-            prev_hash,
-            proposals,
-            chunk_mask: validator_mask,
-            latest_protocol_version,
-            slashed: slashed
-                .into_iter()
-                .map(|s| {
-                    let slash_state =
-                        if s.is_double_sign { SlashState::DoubleSign } else { SlashState::Other };
-                    (s.account_id, slash_state)
-                })
-                .collect(),
-            total_supply,
-            epoch_first_block: Default::default(),
-            epoch_id: Default::default(),
-            timestamp_nanosec,
-        }
-    }
-}
-
-/// State that a slashed validator can be in.
-#[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
-)]
-pub enum SlashState {
-    /// Double Sign, will be partially slashed.
-    DoubleSign,
-    /// Malicious behavior but is already slashed (tokens taken away from account).
-    AlreadySlashed,
-    /// All other cases (tokens should be entirely slashed),
-    Other,
-}
-
-#[cfg(feature = "new_epoch_sync")]
-pub mod epoch_sync {
-    use crate::block_header::BlockHeader;
-    use crate::epoch_info::EpochInfo;
-    use crate::epoch_manager::block_info::BlockInfo;
-    use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
-    use crate::types::EpochId;
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use near_primitives_core::hash::CryptoHash;
-    use std::collections::{HashMap, HashSet};
-
-    /// Struct to keep all the info that is transferred for one epoch during Epoch Sync.
-    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
-    pub struct EpochSyncInfo {
-        /// All block hashes of this epoch. In order of production.
-        pub all_block_hashes: Vec<CryptoHash>,
-        /// All headers relevant to epoch sync.
-        /// Contains epoch headers that need to be saved + supporting headers needed for validation.
-        /// Probably contains one header from the previous epoch.
-        /// It refers to `last_final_block` of the first block of the epoch.
-        /// Also contains first header from the next epoch.
-        /// It refers to `next_epoch_first_hash`.
-        pub headers: HashMap<CryptoHash, BlockHeader>,
-        /// Hashes of headers that need to be validated and saved.
-        pub headers_to_save: HashSet<CryptoHash>,
-        /// Hash of the first block of the next epoch.
-        /// Header of this block contains `epoch_sync_data_hash`.
-        pub next_epoch_first_hash: CryptoHash,
-        pub epoch_info: EpochInfo,
-        pub next_epoch_info: EpochInfo,
-        pub next_next_epoch_info: EpochInfo,
-    }
-
-    impl EpochSyncInfo {
-        pub fn get_epoch_id(&self) -> Result<&EpochId, EpochSyncInfoError> {
-            Ok(self.get_epoch_first_header()?.epoch_id())
-        }
-
-        pub fn get_next_epoch_id(&self) -> Result<&EpochId, EpochSyncInfoError> {
-            Ok(self
-                .get_header(self.next_epoch_first_hash, EpochSyncHashType::NextEpochFirstBlock)?
-                .epoch_id())
-        }
-
-        pub fn get_next_next_epoch_id(&self) -> Result<EpochId, EpochSyncInfoError> {
-            Ok(EpochId(*self.get_epoch_last_hash()?))
-        }
-
-        pub fn get_epoch_last_hash(&self) -> Result<&CryptoHash, EpochSyncInfoError> {
-            let epoch_height = self.epoch_info.epoch_height();
-
-            self.all_block_hashes.last().ok_or(EpochSyncInfoError::ShortEpoch { epoch_height })
-        }
-
-        pub fn get_epoch_last_header(&self) -> Result<&BlockHeader, EpochSyncInfoError> {
-            self.get_header(*self.get_epoch_last_hash()?, EpochSyncHashType::LastEpochBlock)
-        }
-
-        pub fn get_epoch_last_finalised_hash(&self) -> Result<&CryptoHash, EpochSyncInfoError> {
-            Ok(self.get_epoch_last_header()?.last_final_block())
-        }
-
-        pub fn get_epoch_last_finalised_header(&self) -> Result<&BlockHeader, EpochSyncInfoError> {
-            self.get_header(
-                *self.get_epoch_last_finalised_hash()?,
-                EpochSyncHashType::LastFinalBlock,
-            )
-        }
-
-        pub fn get_epoch_first_hash(&self) -> Result<&CryptoHash, EpochSyncInfoError> {
-            let epoch_height = self.epoch_info.epoch_height();
-
-            self.all_block_hashes.first().ok_or(EpochSyncInfoError::ShortEpoch { epoch_height })
-        }
-
-        pub fn get_epoch_first_header(&self) -> Result<&BlockHeader, EpochSyncInfoError> {
-            self.get_header(*self.get_epoch_first_hash()?, EpochSyncHashType::FirstEpochBlock)
-        }
-
-        /// Reconstruct BlockInfo for `hash` from information in EpochSyncInfo.
-        pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochSyncInfoError> {
-            let epoch_first_header = self.get_epoch_first_header()?;
-            let header = self.get_header(*hash, EpochSyncHashType::Other)?;
-
-            if epoch_first_header.epoch_id() != header.epoch_id() {
-                let msg = "We can only correctly reconstruct headers from this epoch";
-                debug_assert!(false, "{}", msg);
-                tracing::error!(message = msg);
-            }
-
-            let last_finalized_height = if *header.last_final_block() == CryptoHash::default() {
-                0
-            } else {
-                let last_finalized_header =
-                    self.get_header(*header.last_final_block(), EpochSyncHashType::LastFinalBlock)?;
-                last_finalized_header.height()
-            };
-            let mut block_info = BlockInfo::new(
-                *header.hash(),
-                header.height(),
-                last_finalized_height,
-                *header.last_final_block(),
-                *header.prev_hash(),
-                header.prev_validator_proposals().collect(),
-                header.chunk_mask().to_vec(),
-                vec![],
-                header.total_supply(),
-                header.latest_protocol_version(),
-                header.raw_timestamp(),
-            );
-
-            *block_info.epoch_id_mut() = *epoch_first_header.epoch_id();
-            *block_info.epoch_first_block_mut() = *epoch_first_header.hash();
-            Ok(block_info)
-        }
-
-        /// Reconstruct legacy `epoch_sync_data_hash` from `EpochSyncInfo`.
-        /// `epoch_sync_data_hash` was introduced in `BlockHeaderInnerRestV3`.
-        /// Using this hash we can verify that `EpochInfo` data provided in `EpochSyncInfo` is correct.
-        pub fn calculate_epoch_sync_data_hash(&self) -> Result<CryptoHash, EpochSyncInfoError> {
-            let epoch_height = self.epoch_info.epoch_height();
-
-            if self.all_block_hashes.len() < 2 {
-                return Err(EpochSyncInfoError::ShortEpoch { epoch_height });
-            }
-            let epoch_first_block = self.all_block_hashes[0];
-            let epoch_prev_last_block = self.all_block_hashes[self.all_block_hashes.len() - 2];
-            let epoch_last_block = self.all_block_hashes[self.all_block_hashes.len() - 1];
-
-            Ok(CryptoHash::hash_borsh(&(
-                self.get_block_info(&epoch_first_block)?,
-                self.get_block_info(&epoch_prev_last_block)?,
-                self.get_block_info(&epoch_last_block)?,
-                &self.epoch_info,
-                &self.next_epoch_info,
-                &self.next_next_epoch_info,
-            )))
-        }
-
-        /// Read legacy `epoch_sync_data_hash` from next epoch first header.
-        /// `epoch_sync_data_hash` was introduced in `BlockHeaderInnerRestV3`.
-        /// Using this hash we can verify that `EpochInfo` data provided in `EpochSyncInfo` is correct.
-        pub fn get_epoch_sync_data_hash(&self) -> Result<Option<CryptoHash>, EpochSyncInfoError> {
-            let next_epoch_first_header =
-                self.get_header(self.next_epoch_first_hash, EpochSyncHashType::Other)?;
-            Ok(next_epoch_first_header.epoch_sync_data_hash())
-        }
-
-        pub fn get_header(
-            &self,
-            hash: CryptoHash,
-            hash_type: EpochSyncHashType,
-        ) -> Result<&BlockHeader, EpochSyncInfoError> {
-            self.headers.get(&hash).ok_or(EpochSyncInfoError::HashNotFound {
-                hash,
-                hash_type,
-                epoch_height: self.epoch_info.epoch_height(),
-            })
-        }
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
@@ -843,6 +388,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 65, "65.json"),
     include_config!("mainnet", 69, "69.json"),
     include_config!("mainnet", 70, "70.json"),
+    include_config!("mainnet", 71, "71.json"),
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
@@ -854,6 +400,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 65, "65.json"),
     include_config!("testnet", 69, "69.json"),
     include_config!("testnet", 70, "70.json"),
+    include_config!("testnet", 71, "71.json"),
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
@@ -865,6 +412,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     // include_config!("mocknet", 65, "65.json"),
     // include_config!("mocknet", 69, "69.json"),
     // include_config!("mocknet", 70, "70.json"),
+    // include_config!("mocknet", 71, "71.json"),
     // include_config!("mocknet", 100, "100.json"),
     // include_config!("mocknet", 101, "101.json"),
 ];
@@ -939,7 +487,11 @@ mod tests {
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);
-            assert_eq!(*stored_config.as_ref(), expected_config);
+            assert_eq!(
+                *stored_config.as_ref(),
+                expected_config,
+                "Mismatch for protocol version {protocol_version}"
+            );
         }
     }
 

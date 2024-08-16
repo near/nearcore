@@ -4,11 +4,11 @@ use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
+use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::{
     AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, EpochSummary, ShardConfig,
-    SlashState, AGGREGATOR_KEY,
+    AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -430,12 +430,13 @@ impl EpochManager {
                                 stats.block_stats.expected as i64,
                             )) / 2
                         };
-                    (account, production_ratio)
+                    (production_ratio, account)
                 })
                 .collect::<Vec<_>>();
-            sorted_validators.sort_by_key(|a| a.1);
+            sorted_validators.sort();
+
             let mut exempted_stake: Balance = 0;
-            for (account_id, _) in sorted_validators.into_iter().rev() {
+            for (_, account_id) in sorted_validators.into_iter().rev() {
                 if exempted_stake >= min_keep_stake {
                     break;
                 }
@@ -2091,63 +2092,5 @@ impl EpochManager {
 
         // The height doesn't belong to any of the epochs around the tip, return an empty Vec.
         Ok(vec![])
-    }
-
-    #[cfg(feature = "new_epoch_sync")]
-    pub fn get_all_epoch_hashes_from_db(
-        &self,
-        last_block_info: &BlockInfo,
-    ) -> Result<Vec<CryptoHash>, EpochError> {
-        let _span =
-            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_db", ?last_block_info)
-                .entered();
-
-        let mut result = vec![];
-        let first_epoch_block_height =
-            self.get_block_info(last_block_info.epoch_first_block())?.height();
-        let mut current_block_info = last_block_info.clone();
-        while current_block_info.hash() != last_block_info.epoch_first_block() {
-            // Check that we didn't reach previous epoch.
-            // This only should happen if BlockInfo data is incorrect.
-            // Without this assert same BlockInfo will cause infinite loop instead of crash with a message.
-            assert!(
-                current_block_info.height() > first_epoch_block_height,
-                "Reached {:?} from {:?} when first epoch height is {:?}",
-                current_block_info,
-                last_block_info,
-                first_epoch_block_height
-            );
-
-            result.push(*current_block_info.hash());
-            current_block_info = (*self.get_block_info(current_block_info.prev_hash())?).clone();
-        }
-        // First block of an epoch is not covered by the while loop.
-        result.push(*current_block_info.hash());
-
-        Ok(result)
-    }
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn get_all_epoch_hashes_from_cache(
-        &self,
-        last_block_info: &BlockInfo,
-        hash_to_prev_hash: &HashMap<CryptoHash, CryptoHash>,
-    ) -> Result<Vec<CryptoHash>, EpochError> {
-        let _span =
-            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_cache", ?last_block_info)
-                .entered();
-
-        let mut result = vec![];
-        let mut current_hash = *last_block_info.hash();
-        while current_hash != *last_block_info.epoch_first_block() {
-            result.push(current_hash);
-            current_hash = *hash_to_prev_hash
-                .get(&current_hash)
-                .ok_or(EpochError::MissingBlock(current_hash))?;
-        }
-        // First block of an epoch is not covered by the while loop.
-        result.push(current_hash);
-
-        Ok(result)
     }
 }

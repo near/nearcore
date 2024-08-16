@@ -20,8 +20,8 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
@@ -1042,18 +1042,6 @@ impl EpochManagerAdapter for MockEpochManager {
         let vec = all_epochs.into_iter().collect_vec();
         Ok(vec)
     }
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn get_all_epoch_hashes(
-        &self,
-        _last_block_info: &BlockInfo,
-        _hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
-    ) -> Result<Vec<CryptoHash>, EpochError> {
-        Ok(vec![])
-    }
-
-    #[cfg(feature = "new_epoch_sync")]
-    fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
 
     fn get_epoch_all_validators(
         &self,

@@ -88,7 +88,6 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 
-new_epoch_sync = []
 default = ["near-primitives/rand"]
 calimero_zero_storage = []
 

@@ -40,5 +40,5 @@ If it turns out that some limits weren't respected, the validators will generate
 
 ### Missing chunks
 
-When a chunk is mising on a shard, this shard will receive receipts from more than one block height. This could lead to large `source_receipt_proofs` so a mechanism is added to reduce the impact. If there are two or more missing chunks in a row,
+When a chunk is missing on a shard, this shard will receive receipts from more than one block height. This could lead to large `source_receipt_proofs` so a mechanism is added to reduce the impact. If there are two or more missing chunks in a row,
 the shard is considered fully congested and no new receipts will be sent to it (unless it's the `allowed_shard` to avoid deadlocks).
