@@ -1,5 +1,5 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
-use crate::commands::maybe_save_trie_changes;
+use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
 use crate::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -248,6 +248,7 @@ fn apply_block_from_range(
                 println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             }
             if !smart_equals(&existing_chunk_extra, &chunk_extra) {
+                maybe_print_db_stats(write_store);
                 panic!("Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(read_store, &apply_result.outcomes));
             }
         }

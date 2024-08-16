@@ -485,7 +485,6 @@ fn produce_block_with_approvals_arrived_early() {
         "test4".parse().unwrap(),
     ]]);
     let archive = vec![false; vs.all_block_producers().count()];
-    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
@@ -502,7 +501,6 @@ fn produce_block_with_approvals_arrived_early() {
             100,
             true,
             archive,
-            epoch_sync_enabled,
             false,
             None,
             Box::new(
@@ -785,7 +783,6 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             100,
             true,
             vec![false; validators.len()],
-            vec![true; validators.len()],
             false,
             None,
             Box::new(
