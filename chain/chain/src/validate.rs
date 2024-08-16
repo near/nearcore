@@ -154,10 +154,6 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidValidatorProposals);
     }
 
-    if prev_chunk_extra.gas_limit() != chunk_header.gas_limit() {
-        return Err(Error::InvalidGasLimit);
-    }
-
     if prev_chunk_extra.gas_used() != chunk_header.prev_gas_used() {
         return Err(Error::InvalidGasUsed);
     }
