@@ -94,6 +94,9 @@ impl<'c> EstimatorContext<'c> {
         // Create ShardTries with relevant settings adjusted for estimator.
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
+        if self.config.memtrie {
+            trie_config.load_mem_tries_for_shards = vec![shard_uid];
+        }
         let tries = ShardTries::new(
             store,
             trie_config,
@@ -101,6 +104,9 @@ impl<'c> EstimatorContext<'c> {
             flat_storage_manager,
             StateSnapshotConfig::default(),
         );
+        if self.config.memtrie {
+            tries.load_mem_trie(&shard_uid, Some(root), false).unwrap();
+        }
         let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
             .expect("create contract cache");
 
@@ -349,6 +355,14 @@ impl Testbed<'_> {
         let mut store_update = self.tries.store_update();
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+        // TODO: Find a way to combine apply_all and apply_memtrie_changes into a single apply function.
+        if self.config.memtrie {
+            self.tries.apply_memtrie_changes(
+                &apply_result.trie_changes,
+                shard_uid,
+                self.apply_state.block_height,
+            );
+        }
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
@@ -449,6 +463,7 @@ impl Testbed<'_> {
     fn trie(&mut self) -> near_store::Trie {
         // We generated `finality_lag` fake blocks earlier, so the fake height
         // will be at the same number.
+        println!("Creating trie with root {:?}", self.root);
         let tip_height = self.config.finality_lag;
         let tip = fs_fake_block_height_to_hash(tip_height as u64);
         self.tries.get_trie_with_block_hash_for_shard(
