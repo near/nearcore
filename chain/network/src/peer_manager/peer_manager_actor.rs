@@ -1044,7 +1044,6 @@ impl PeerManagerActor {
                         },
                     ),
                 ) {
-                    tracing::info!("Sending EpochSyncResponse to {}", route_back);
                     NetworkResponses::NoResponse
                 } else {
                     tracing::info!(

@@ -209,8 +209,6 @@ impl EpochSync {
                 merkle_proof_for_first_block: merkle_proof_for_first_block_of_current_epoch,
             },
         };
-        let serialized = borsh::to_vec(&proof).unwrap();
-        tracing::info!("Size of epoch sync proof: {}", serialized.len());
 
         Ok(proof)
     }
@@ -274,7 +272,6 @@ impl EpochSync {
         epoch_ids.reverse();
 
         // Now that we have all epochs, we can fetch the data needed for each epoch.
-        tracing::info!("Fetching data for {} past epochs", epoch_ids.len() - 2);
         let epochs = (0..epoch_ids.len() - 2)
             .into_par_iter()
             .map(|index| -> Result<EpochSyncProofPastEpochData, Error> {
