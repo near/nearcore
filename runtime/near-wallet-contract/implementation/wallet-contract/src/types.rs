@@ -7,8 +7,8 @@ use crate::{
 };
 use ethabi::{Address, ParamType};
 use near_sdk::{AccountId, Gas, NearToken, PublicKey};
-use std::sync::LazyLock;
 use std::num::NonZeroU128;
+use std::sync::LazyLock;
 
 pub const FUNCTION_CALL_SELECTOR: &[u8] = &[0x61, 0x79, 0xb7, 0x07];
 pub const FUNCTION_CALL_SIGNATURE: [ParamType; 5] = [
