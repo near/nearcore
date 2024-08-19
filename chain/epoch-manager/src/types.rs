@@ -54,7 +54,7 @@ impl BlockHeaderInfo {
 }
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
-#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default, serde::Serialize)]
 pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,

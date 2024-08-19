@@ -755,14 +755,14 @@ pub mod chunk_extra {
     pub use super::ChunkExtraV1;
 
     /// Information after chunk was processed, used to produce or check next chunk.
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
         V2(ChunkExtraV2),
         V3(ChunkExtraV3),
     }
 
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
     pub struct ChunkExtraV2 {
         /// Post state root after applying give chunk.
         pub state_root: StateRoot,
@@ -779,7 +779,7 @@ pub mod chunk_extra {
     }
 
     /// V2 -> V3: add congestion info fields.
-    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
     pub struct ChunkExtraV3 {
         /// Post state root after applying give chunk.
         pub state_root: StateRoot,
@@ -930,7 +930,9 @@ pub mod chunk_extra {
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
+#[derive(
+    Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema, serde::Serialize,
+)]
 pub struct ChunkExtraV1 {
     /// Post state root after applying give chunk.
     pub state_root: StateRoot,
@@ -995,7 +997,15 @@ impl From<Finality> for BlockReference {
 }
 
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
 )]
 pub struct ValidatorStats {
     pub produced: NumBlocks,
