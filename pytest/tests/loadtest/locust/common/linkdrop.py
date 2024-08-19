@@ -6,7 +6,6 @@ import typing
 from locust import events
 import time
 import json
-import ed25519
 import base58
 import logging
 
