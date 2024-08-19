@@ -49,11 +49,27 @@ impl EpochSync {
         Self { clock, network_adapter, genesis, async_computation_spawner, config }
     }
 
+    /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
+    /// a new node or bring a far-behind node to a recent epoch.
+    #[instrument(skip(store))]
     fn derive_epoch_sync_proof(store: Store) -> Result<EpochSyncProof, Error> {
+        // Epoch sync initializes a new node with the first block of some epoch; we call that
+        // epoch the "target epoch". In the context of talking about the proof or the newly
+        // bootstrapped node, it is also called the "current epoch".
+        //
+        // The basic requirement for picking the target epoch is that its first block must be
+        // final. That's just so that we don't have to deal with any forks. Therefore, it is
+        // sufficient to pick whatever epoch the current final block is in. However, because
+        // state sync also requires some previous headers to be available (depending on how
+        // many chunks were missing), it is more convenient to just pick the prior epoch, so
+        // that by the time the new node does state sync, it would have a whole epoch of headers
+        // available via header sync.
+        //
+        // In other words, we pick the target epoch to be the previous epoch of the final tip.
         let tip = store
             .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
             .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
-        let next_next_epoch_id = tip.next_epoch_id;
+        let next_next_epoch_id = tip.next_epoch_id; // for finding last block of target epoch
         let target_epoch_last_block_header = store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, next_next_epoch_id.0.as_bytes())?
             .ok_or_else(|| Error::Other("Could not find last block of target epoch".to_string()))?;
@@ -69,7 +85,9 @@ impl EpochSync {
         Self::derive_epoch_sync_proof_from_final_block(store, target_epoch_second_last_block_header)
     }
 
-    #[instrument(skip(store), level = "info")]
+    /// Derives an epoch sync proof using a target epoch which the given block header is in.
+    /// The given block header must be some block in the epoch that is right after a final
+    /// block in the same epoch. But it doesn't matter which final block it is.
     fn derive_epoch_sync_proof_from_final_block(
         store: Store,
         next_block_header_after_final_block_in_current_epoch: BlockHeader,
@@ -200,7 +218,7 @@ impl EpochSync {
     /// Get all the past epoch data needed for epoch sync, between `after_epoch` and `next_epoch`
     /// (both exclusive). `current_epoch_any_header` is any block header in the current epoch,
     /// which is the epoch before `next_epoch`.
-    #[instrument(skip(store, current_epoch_any_header), level = "info")]
+    #[instrument(skip(store, current_epoch_any_header))]
     fn get_all_past_epochs(
         store: &Store,
         after_epoch: EpochId,
@@ -309,6 +327,8 @@ impl EpochSync {
         Ok(epochs)
     }
 
+    /// Performs the epoch sync logic if applicable in the current state of the blockchain.
+    /// This is periodically called by the client actor.
     pub fn run(
         &self,
         status: &mut SyncStatus,

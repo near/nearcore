@@ -172,6 +172,9 @@ impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
+            // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
+            // (Epoch sync should not be picking a target epoch more than 2 epochs old.)
             epoch_sync_horizon: 216000,
             epoch_sync_accept_proof_max_horizon: 86400,
             timeout_for_epoch_sync: Duration::seconds(60),
