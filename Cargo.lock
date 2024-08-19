@@ -4722,6 +4722,7 @@ dependencies = [
  "assert_matches",
  "base64 0.21.0",
  "bencher",
+ "bitvec",
  "bolero",
  "borsh 1.2.0",
  "bytes",
