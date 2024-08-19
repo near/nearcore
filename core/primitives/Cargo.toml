@@ -92,7 +92,7 @@ nightly_protocol = [
 statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
 
 new_epoch_sync = []
-default = ["near-primitives/rand"]
+default = ["rand", "clock"]
 calimero_zero_storage = []
 
 protocol_schema = [

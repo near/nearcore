@@ -1,5 +1,6 @@
 pub use crate::config::NightshadeRuntimeExt;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig};
+#[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
