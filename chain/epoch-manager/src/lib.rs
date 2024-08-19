@@ -1586,9 +1586,15 @@ impl EpochManager {
         block_info: BlockInfo,
         random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError> {
+        // Check that genesis block doesn't have any proposals.
+        let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
+        assert!(
+            block_info.height() > 0
+                || (prev_validator_proposals.is_empty() && block_info.slashed().is_empty())
+        );
         debug!(target: "epoch_manager",
             height = block_info.height(),
-            proposals = ?block_info.proposals_iter().collect::<Vec<_>>(),
+            proposals = ?prev_validator_proposals,
             "add_validator_proposals");
         // Deal with validator proposals and epoch finishing.
         let rng_seed = random_value.0;

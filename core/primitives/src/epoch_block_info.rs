@@ -62,16 +62,13 @@ impl BlockInfo {
     }
 
     pub fn from_header(header: &BlockHeader, last_finalized_height: BlockHeight) -> Self {
-        // Check that genesis block doesn't have any proposals.
-        let prev_validator_proposals: Vec<_> = header.prev_validator_proposals().collect();
-        assert!(header.height() > 0 || prev_validator_proposals.is_empty());
         BlockInfo::new(
             *header.hash(),
             header.height(),
             last_finalized_height,
             *header.last_final_block(),
             *header.prev_hash(),
-            prev_validator_proposals,
+            header.prev_validator_proposals().collect(),
             header.chunk_mask().to_vec(),
             vec![],
             header.total_supply(),
