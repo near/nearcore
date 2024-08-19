@@ -1,18 +1,40 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
-use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
-use crate::StorageError;
+use crate::{StorageError, TrieStorage};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot, TrieCacheMode,
 };
+use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 mod iterator;
+
+/// Reads contract code from the trie by its hash.
+/// Currently, uses `TrieStorage`. Consider implementing separate logic for
+/// requesting and compiling contracts, as any contract code read and
+/// compilation is a major bottleneck during chunk execution.
+struct ContractStorage {
+    storage: Arc<dyn TrieStorage>,
+}
+
+impl ContractStorage {
+    fn new(storage: Arc<dyn TrieStorage>) -> Self {
+        Self { storage }
+    }
+
+    pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        match self.storage.retrieve_raw_bytes(&code_hash) {
+            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
+            Err(_) => None,
+        }
+    }
+}
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -27,7 +49,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Trie,
-    pub contract_storage: ContractStorage,
+    contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }

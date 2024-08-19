@@ -6,7 +6,6 @@ import logging
 import pathlib
 import random
 import sys
-import ed25519
 import base58
 import string
 
