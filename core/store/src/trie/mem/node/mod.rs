@@ -72,7 +72,7 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
     }
 
     pub fn view(&self) -> MemTrieNodeView<'a, M> {
-        self.view_impl()
+        self.view_kind(self.get_kind())
     }
 
     pub fn id(&self) -> MemTrieNodeId {
