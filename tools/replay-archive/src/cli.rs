@@ -7,6 +7,7 @@ use near_chain::chain::{
     ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
@@ -15,12 +16,13 @@ use near_chain::validate::{
 };
 use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
@@ -28,6 +30,7 @@ use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_state_viewer::util::resulting_chunk_extra;
 use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -177,6 +180,7 @@ impl ReplayController {
         };
 
         let block = self.chain_store.get_block(&block_hash)?;
+        let block_hash = block.hash();
 
         let epoch_id = block.header().epoch_id();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
@@ -187,6 +191,9 @@ impl ReplayController {
         // initialize BlockInfo and EpochInfo, which are needed to collect the receipts from previous
         // chunks. Revisit the logic for collecting the receipts and call this to after applying the chunks.
         self.update_epoch_manager(&block)?;
+        if !block.header().is_genesis() {
+            self.update_incoming_receipts(&block)?;
+        }
 
         if block.header().is_genesis() {
             // Generate and save chunk extras for the genesis block so that we use them in the next block.
@@ -439,6 +446,42 @@ impl ReplayController {
             .epoch_manager
             .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
         let _ = store_update.commit()?;
+        Ok(())
+    }
+
+    pub fn update_incoming_receipts(&mut self, block: &Block) -> Result<()> {
+        let block_height = block.header().height();
+        let block_hash = block.header().hash();
+        let mut receipt_proofs_by_shard_id: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
+        for chunk_header in block.chunks().iter() {
+            if !chunk_header.is_new_chunk(block_height) {
+                continue;
+            }
+            let chunk_hash = chunk_header.chunk_hash();
+            let chunk = self
+                .chain_store
+                .get_chunk(&chunk_hash)
+                .context("Failed to get chunk from chunk hash")?;
+            for receipt in make_outgoing_receipts_proofs(
+                chunk_header,
+                chunk.prev_outgoing_receipts(),
+                self.epoch_manager.as_ref(),
+            )? {
+                let ReceiptProof(_, ref shard_proof) = receipt;
+                let ShardProof { to_shard_id, .. } = shard_proof;
+                receipt_proofs_by_shard_id
+                    .entry(*to_shard_id)
+                    .or_insert_with(Vec::new)
+                    .push(receipt.clone());
+            }
+        }
+
+        let mut store_update = self.chain_store.store_update();
+        for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
+            shuffle_receipt_proofs(&mut receipts, block_hash);
+            store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
+        }
+        store_update.commit().unwrap();
         Ok(())
     }
 

@@ -19,6 +19,7 @@ itertools.workspace = true
 
 near-chain.workspace = true
 near-chain-primitives.workspace = true
+near-chunks.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-chain-configs.workspace = true
