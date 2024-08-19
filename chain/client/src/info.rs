@@ -10,6 +10,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
@@ -141,22 +142,22 @@ impl InfoHelper {
         }
     }
 
-    /// Count which shards are tracked by the node in the epoch indicated by head parameter.
-    fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
+    /// Update metrics to record the shards tracked by the validator.
+    fn record_tracked_shards(
+        head: &Tip,
+        client: &crate::client::Client,
+        shard_layout: &ShardLayout,
+    ) {
         let validator_signer = client.validator_signer.get();
         let me = validator_signer.as_ref().map(|x| x.validator_id());
-        if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
-            for shard_id in shard_ids {
-                let tracked = client.shard_tracker.care_about_shard(
-                    me,
-                    &head.last_block_hash,
-                    shard_id,
-                    true,
-                );
-                metrics::TRACKED_SHARDS
-                    .with_label_values(&[&shard_id.to_string()])
-                    .set(if tracked { 1 } else { 0 });
-            }
+        for shard_id in shard_layout.shard_ids() {
+            let tracked =
+                client.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+            metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
+                1
+            } else {
+                0
+            });
         }
     }
 
@@ -174,7 +175,11 @@ impl InfoHelper {
         }
     }
 
-    fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
+    fn record_chunk_producers(
+        head: &Tip,
+        client: &crate::client::Client,
+        shard_layout: Option<&ShardLayout>,
+    ) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.get().map(|x| x.validator_id().clone()),
             client.epoch_manager.get_epoch_info(&head.epoch_id),
@@ -188,8 +193,8 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
-            for shard_id in shard_ids {
+        } else if let Some(shard_layout) = shard_layout {
+            for shard_id in shard_layout.shard_ids() {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
@@ -327,7 +332,7 @@ impl InfoHelper {
         };
 
         let header_head = unwrap_or_return!(client.chain.header_head());
-        let validator_epoch_stats = if is_syncing {
+        let validator_production_status = if is_syncing {
             // EpochManager::get_validator_info method (which is what runtime
             // adapter calls) is expensive when node is syncing so we’re simply
             // not collecting the statistics.  The statistics are used to update
@@ -342,13 +347,17 @@ impl InfoHelper {
             client
                 .epoch_manager
                 .get_validator_info(epoch_identifier)
-                .map(get_validator_epoch_stats)
+                .map(get_validator_production_status)
                 .unwrap_or_default()
         };
 
-        InfoHelper::record_tracked_shards(&head, &client);
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).ok();
+
+        if let Some(shard_layout) = shard_layout.as_ref() {
+            InfoHelper::record_tracked_shards(&head, &client, shard_layout);
+        }
         InfoHelper::record_block_producers(&head, &client);
-        InfoHelper::record_chunk_producers(&head, &client);
+        InfoHelper::record_chunk_producers(&head, &client, shard_layout.as_ref());
         let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
@@ -366,7 +375,8 @@ impl InfoHelper {
             node_id,
             network_info,
             validator_info,
-            validator_epoch_stats,
+            validator_production_status,
+            shard_layout.as_ref(),
             client
                 .epoch_manager
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
@@ -387,7 +397,8 @@ impl InfoHelper {
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
-        validator_epoch_stats: Vec<ValidatorProductionStats>,
+        validator_production_status: Vec<ValidatorProductionStatus>,
+        shard_layout: Option<&ShardLayout>,
         protocol_upgrade_block_height: BlockHeight,
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
@@ -461,7 +472,7 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
 
-        Self::update_validator_metrics(validator_epoch_stats);
+        Self::update_validator_metrics(validator_production_status, shard_layout);
 
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
@@ -485,38 +496,68 @@ impl InfoHelper {
     }
 
     /// Updates the prometheus metrics to track the block and chunk production and endorsement by validators.
-    fn update_validator_metrics(validator_epoch_stats: Vec<ValidatorProductionStats>) {
+    fn update_validator_metrics(
+        validator_status: Vec<ValidatorProductionStatus>,
+        shard_layout: Option<&ShardLayout>,
+    ) {
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
-        // Note that the metrics are set to 0 for previous epoch validators who are no longer
-        // validators.
-        for stats in validator_epoch_stats {
-            (metrics::VALIDATORS_BLOCKS_PRODUCED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_produced_blocks as i64));
-            (metrics::VALIDATORS_BLOCKS_EXPECTED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_expected_blocks as i64));
-            (metrics::VALIDATORS_CHUNKS_PRODUCED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_produced_chunks as i64));
-            (metrics::VALIDATORS_CHUNKS_EXPECTED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_expected_chunks as i64));
-            for i in 0..stats.shards.len() {
-                let shard = stats.shards[i];
-                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(stats.num_expected_chunks_per_shard[i] as i64));
-                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(stats.num_produced_chunks_per_shard[i] as i64));
-                (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(stats.num_expected_endorsements_per_shard[i] as i64));
-                (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(stats.num_produced_endorsements_per_shard[i] as i64));
+        // Note that the metrics are removed for previous epoch validators who are no longer
+        // validators (with the status ValidatorProductionStatus::Kickout).
+        for status in validator_status {
+            match status {
+                ValidatorProductionStatus::Validator(stats) => {
+                    metrics::VALIDATORS_BLOCKS_PRODUCED
+                        .with_label_values(&[stats.account_id.as_str()])
+                        .set(stats.num_produced_blocks as i64);
+                    metrics::VALIDATORS_BLOCKS_EXPECTED
+                        .with_label_values(&[stats.account_id.as_str()])
+                        .set(stats.num_expected_blocks as i64);
+                    metrics::VALIDATORS_CHUNKS_PRODUCED
+                        .with_label_values(&[stats.account_id.as_str()])
+                        .set(stats.num_produced_chunks as i64);
+                    metrics::VALIDATORS_CHUNKS_EXPECTED
+                        .with_label_values(&[stats.account_id.as_str()])
+                        .set(stats.num_expected_chunks as i64);
+                    for i in 0..stats.shards.len() {
+                        let shard = stats.shards[i];
+                        metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                            .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                            .set(stats.num_expected_chunks_per_shard[i] as i64);
+                        metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                            .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                            .set(stats.num_produced_chunks_per_shard[i] as i64);
+                        metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                            .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                            .set(stats.num_expected_endorsements_per_shard[i] as i64);
+                        metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                            .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                            .set(stats.num_produced_endorsements_per_shard[i] as i64);
+                    }
+                }
+                // If the validator is kicked out, remove the stats for it and for all shards in the current epoch.
+                ValidatorProductionStatus::Kickout(account_id) => {
+                    let _ = metrics::VALIDATORS_BLOCKS_PRODUCED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_BLOCKS_EXPECTED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_CHUNKS_PRODUCED
+                        .remove_label_values(&[account_id.as_str()]);
+                    let _ = metrics::VALIDATORS_CHUNKS_EXPECTED
+                        .remove_label_values(&[account_id.as_str()]);
+                    if let Some(shard_layout) = shard_layout {
+                        for shard in shard_layout.shard_ids() {
+                            let _ = metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                            let _ = metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                            let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                            let _ = metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                                .remove_label_values(&[account_id.as_str(), &shard.to_string()]);
+                        }
+                    }
+                }
             }
         }
     }
@@ -837,37 +878,36 @@ impl std::fmt::Display for PrettyNumber {
     }
 }
 
-/// Number of blocks and chunks produced and expected by a certain validator.
-pub struct ValidatorProductionStats {
-    pub account_id: AccountId,
-    pub num_produced_blocks: NumBlocks,
-    pub num_expected_blocks: NumBlocks,
-    pub num_produced_chunks: NumBlocks,
-    pub num_expected_chunks: NumBlocks,
-    pub shards: Vec<ShardId>,
-    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
-    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
-    pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
-    pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
+/// Production status of a validator for the current epoch.
+/// Either it is an active validator with the number of blocks and chunks expected/produced by the validator,
+/// or it is kicked out in the previous epoch (so not expected to produce or validate a block/chunk).
+enum ValidatorProductionStatus {
+    /// This was an active validator in this epoch with some block/chunk production stats.
+    Validator(ValidatorProductionStats),
+    /// This validator was not active in this epoch, since it was kicked out in the previous epoch.
+    Kickout(AccountId),
 }
 
-impl ValidatorProductionStats {
+/// Contains block/chunk production and validation statistics for a validator that was active in the current epoch.
+struct ValidatorProductionStats {
+    account_id: AccountId,
+    num_produced_blocks: NumBlocks,
+    num_expected_blocks: NumBlocks,
+    num_produced_chunks: NumBlocks,
+    num_expected_chunks: NumBlocks,
+    shards: Vec<ShardId>,
+    num_produced_chunks_per_shard: Vec<NumBlocks>,
+    num_expected_chunks_per_shard: Vec<NumBlocks>,
+    num_produced_endorsements_per_shard: Vec<NumBlocks>,
+    num_expected_endorsements_per_shard: Vec<NumBlocks>,
+}
+
+impl ValidatorProductionStatus {
     pub fn kickout(kickout: ValidatorKickoutView) -> Self {
-        Self {
-            account_id: kickout.account_id,
-            num_produced_blocks: 0,
-            num_expected_blocks: 0,
-            num_produced_chunks: 0,
-            num_expected_chunks: 0,
-            shards: vec![],
-            num_produced_chunks_per_shard: vec![],
-            num_expected_chunks_per_shard: vec![],
-            num_produced_endorsements_per_shard: vec![],
-            num_expected_endorsements_per_shard: vec![],
-        }
+        Self::Kickout(kickout.account_id)
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
-        Self {
+        Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,
             num_expected_blocks: info.num_expected_blocks,
@@ -878,23 +918,23 @@ impl ValidatorProductionStats {
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
             num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,
             num_expected_endorsements_per_shard: info.num_expected_endorsements_per_shard,
-        }
+        })
     }
 }
 
-/// Converts EpochValidatorInfo into a vector of ValidatorProductionStats.
-fn get_validator_epoch_stats(
+/// Converts EpochValidatorInfo into a vector of ValidatorProductionStatus.
+fn get_validator_production_status(
     current_validator_epoch_info: EpochValidatorInfo,
-) -> Vec<ValidatorProductionStats> {
-    let mut stats = vec![];
+) -> Vec<ValidatorProductionStatus> {
+    let mut status = vec![];
     // Record kickouts to replace latest stats of kicked out validators with zeros.
     for kickout in current_validator_epoch_info.prev_epoch_kickout {
-        stats.push(ValidatorProductionStats::kickout(kickout));
+        status.push(ValidatorProductionStatus::kickout(kickout));
     }
     for validator in current_validator_epoch_info.current_validators {
-        stats.push(ValidatorProductionStats::validator(validator));
+        status.push(ValidatorProductionStatus::validator(validator));
     }
-    stats
+    status
 }
 
 #[cfg(test)]

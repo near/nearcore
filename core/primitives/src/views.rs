@@ -1336,6 +1336,10 @@ pub struct SignedTransactionView {
     pub nonce: Nonce,
     pub receiver_id: AccountId,
     pub actions: Vec<ActionView>,
+    // Default value used when deserializing SignedTransactionView which are missing the `priority_fee` field.
+    // Data which is missing this field was serialized before the introduction of priority_fee.
+    // priority_fee for Transaction::V0 => None, SignedTransactionView => 0
+    #[serde(default)]
     pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
@@ -1917,6 +1921,10 @@ pub struct ReceiptView {
     pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
+    // Default value used when deserializing ReceiptView which are missing the `priority` field.
+    // Data which is missing this field was serialized before the introduction of priority.
+    // For ReceiptV0 ReceiptPriority::NoPriority => 0
+    #[serde(default)]
     pub priority: u64,
 }
 
