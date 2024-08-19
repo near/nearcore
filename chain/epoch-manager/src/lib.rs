@@ -31,7 +31,6 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
-use types::BlockHeaderInfo;
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
@@ -1584,33 +1583,15 @@ impl EpochManager {
 
     pub fn add_validator_proposals(
         &mut self,
-        block_header_info: BlockHeaderInfo,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError> {
-        // Check that genesis block doesn't have any proposals.
-        assert!(
-            block_header_info.height > 0
-                || (block_header_info.proposals.is_empty()
-                    && block_header_info.slashed_validators.is_empty())
-        );
         debug!(target: "epoch_manager",
-            height = block_header_info.height,
-            proposals = ?block_header_info.proposals,
+            height = block_info.height(),
+            proposals = ?block_info.proposals_iter().collect::<Vec<_>>(),
             "add_validator_proposals");
         // Deal with validator proposals and epoch finishing.
-        let block_info = BlockInfo::new(
-            block_header_info.hash,
-            block_header_info.height,
-            block_header_info.last_finalized_height,
-            block_header_info.last_finalized_block_hash,
-            block_header_info.prev_hash,
-            block_header_info.proposals,
-            block_header_info.chunk_mask,
-            block_header_info.slashed_validators,
-            block_header_info.total_supply,
-            block_header_info.latest_protocol_version,
-            block_header_info.timestamp_nanosec,
-        );
-        let rng_seed = block_header_info.random_value.0;
+        let rng_seed = random_value.0;
         self.record_block_info(block_info, rng_seed)
     }
 

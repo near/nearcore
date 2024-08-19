@@ -23,11 +23,11 @@ use near_chain::types::{
 };
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -683,10 +683,13 @@ pub(crate) fn replay_chain(
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             println!("Height: {}, header: {:#?}", height, header);
             epoch_manager
-                .add_validator_proposals(BlockHeaderInfo::new(
-                    &header,
-                    chain_store.get_block_height(header.last_final_block()).unwrap(),
-                ))
+                .add_validator_proposals(
+                    BlockInfo::from_header(
+                        &header,
+                        chain_store.get_block_height(header.last_final_block()).unwrap(),
+                    ),
+                    *header.random_value(),
+                )
                 .unwrap()
                 .commit()
                 .unwrap();

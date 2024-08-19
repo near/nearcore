@@ -15,9 +15,9 @@ use near_chain::validate::{
 };
 use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
@@ -426,9 +426,10 @@ impl ReplayController {
     fn update_epoch_manager(&mut self, block: &Block) -> Result<()> {
         let last_finalized_height =
             self.chain_store.get_block_height(block.header().last_final_block())?;
-        let store_update = self
-            .epoch_manager
-            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
+        let store_update = self.epoch_manager.add_validator_proposals(
+            BlockInfo::from_header(block.header(), last_finalized_height),
+            *block.header().random_value(),
+        )?;
         let _ = store_update.commit()?;
         Ok(())
     }
