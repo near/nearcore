@@ -9,7 +9,7 @@ use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, PrefetchApi};
+use crate::{metrics, DBCol, PrefetchApi, TrieDBStorage, TrieStorage};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -116,39 +116,42 @@ impl ShardTries {
         // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
         // and also this can introduce lock contention on memtries.
         let memtries = if is_view { None } else { self.get_mem_tries(shard_uid) };
-        let cache = self.get_trie_cache_for(shard_uid, is_view);
-        // Do not enable prefetching on view caches.
-        // 1) Performance of view calls is not crucial.
-        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
-        //    If you want to enable it for view calls, at least make sure they don't share
-        //    the `PrefetchApi` instances with the normal calls.
-        let prefetch_enabled =
-            !is_view && memtries.is_none() && self.0.trie_config.prefetch_enabled();
-        let prefetch_api = prefetch_enabled.then(|| {
-            self.0
-                .prefetchers
-                .write()
-                .expect(POISONED_LOCK_ERR)
-                .entry(shard_uid)
-                .or_insert_with(|| {
-                    PrefetchApi::new(
-                        self.0.store.clone(),
-                        cache.clone(),
-                        shard_uid,
-                        &self.0.trie_config,
-                    )
-                })
-                .0
-                .clone()
-        });
+        let storage: Arc<dyn TrieStorage> = if memtries.is_some() {
+            Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
+        } else {
+            let cache = self.get_trie_cache_for(shard_uid, is_view);
+            // Do not enable prefetching on view caches.
+            // 1) Performance of view calls is not crucial.
+            // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
+            //    If you want to enable it for view calls, at least make sure they don't share
+            //    the `PrefetchApi` instances with the normal calls.
+            let prefetch_enabled = !is_view && self.0.trie_config.prefetch_enabled();
+            let prefetch_api = prefetch_enabled.then(|| {
+                self.0
+                    .prefetchers
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .entry(shard_uid)
+                    .or_insert_with(|| {
+                        PrefetchApi::new(
+                            self.0.store.clone(),
+                            cache.clone(),
+                            shard_uid,
+                            &self.0.trie_config,
+                        )
+                    })
+                    .0
+                    .clone()
+            });
+            Arc::new(TrieCachingStorage::new(
+                self.0.store.clone(),
+                cache,
+                shard_uid,
+                is_view,
+                prefetch_api,
+            ))
+        };
 
-        let storage = Arc::new(TrieCachingStorage::new(
-            self.0.store.clone(),
-            cache,
-            shard_uid,
-            is_view,
-            prefetch_api,
-        ));
         let flat_storage_chunk_view = block_hash
             .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
         Trie::new_with_memtries(storage, memtries, state_root, flat_storage_chunk_view)
@@ -218,8 +221,10 @@ impl ShardTries {
         fields(ops.len = ops.len()),
     )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
-        let cache = self.get_trie_cache_for(shard_uid, false);
-        cache.update_cache(ops);
+        if self.get_mem_tries(shard_uid).is_none() {
+            let cache = self.get_trie_cache_for(shard_uid, false);
+            cache.update_cache(ops);
+        }
     }
 
     fn apply_deletions_inner(
