@@ -5289,6 +5289,7 @@ dependencies = [
  "anyhow",
  "near-primitives-core",
  "near-vm-runner",
+ "once_cell",
 ]
 
 [[package]]

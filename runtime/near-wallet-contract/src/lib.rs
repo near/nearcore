@@ -1,7 +1,11 @@
 #![doc = include_str!("../README.md")]
-use near_primitives_core::chains;
+use near_primitives_core::{chains, hash::CryptoHash};
 use near_vm_runner::ContractCode;
-use std::sync::{Arc, OnceLock};
+use once_cell::sync::Lazy;
+use std::{
+    str::FromStr,
+    sync::{Arc, OnceLock},
+};
 
 static MAINNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_mainnet.wasm"));
@@ -11,6 +15,12 @@ static TESTNET: WalletContract =
 
 static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));
+
+/// Old version of the wallet contract on testet. We still support it for
+/// backwards compatibility. Example account:
+/// https://testnet.nearblocks.io/address/0xcc5a584f545b2ca3ebacc1346556d1f5b82b8fc6
+static ALT_TESTNET_CODE_HASH: Lazy<CryptoHash> =
+    Lazy::new(|| CryptoHash::from_str("4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ").unwrap());
 
 /// Get wallet contract code for different Near chains.
 pub fn wallet_contract(chain_id: &str) -> Arc<ContractCode> {
@@ -28,6 +38,27 @@ pub fn wallet_contract_magic_bytes(chain_id: &str) -> Arc<ContractCode> {
         chains::TESTNET => TESTNET.magic_bytes(),
         _ => LOCALNET.magic_bytes(),
     }
+}
+
+/// Checks if the given code hash corresponds to the wallet contract (signalling
+/// the runtime should treat the wallet contract as the code for the account).
+pub fn code_hash_matches_wallet_contract(chain_id: &str, code_hash: &CryptoHash) -> bool {
+    let magic_bytes = wallet_contract_magic_bytes(&chain_id);
+
+    if code_hash == magic_bytes.hash() {
+        return true;
+    }
+
+    // Extra check needed for an old version of the wallet contract
+    // that was on testnet. Accounts with that hash are still intentionally
+    // made to run the current version of the wallet contract because
+    // the previous version had a bug in its implementation.
+    if chain_id == chains::TESTNET {
+        let alt_testnet_code_hash: &CryptoHash = &ALT_TESTNET_CODE_HASH;
+        return code_hash == alt_testnet_code_hash;
+    }
+
+    false
 }
 
 struct WalletContract {
@@ -58,7 +89,10 @@ impl WalletContract {
 
 #[cfg(test)]
 mod tests {
-    use crate::{wallet_contract, wallet_contract_magic_bytes};
+    use crate::{
+        code_hash_matches_wallet_contract, wallet_contract, wallet_contract_magic_bytes,
+        ALT_TESTNET_CODE_HASH,
+    };
     use near_primitives_core::{
         chains::{MAINNET, TESTNET},
         hash::CryptoHash,
@@ -66,25 +100,47 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    fn test_code_hash_matches_wallet_contract() {
+        let chain_ids = [MAINNET, TESTNET, "localnet"];
+        let other_code_hash =
+            CryptoHash::from_str("9rmLr4dmrg5M6Ts6tbJyPpbCrNtbL9FCdNv24FcuWP5a").unwrap();
+        for id in chain_ids {
+            assert!(
+                code_hash_matches_wallet_contract(id, wallet_contract_magic_bytes(id).hash()),
+                "Wallet contract magic bytes matches wallet contract"
+            );
+            assert_eq!(
+                code_hash_matches_wallet_contract(id, &ALT_TESTNET_CODE_HASH),
+                id == TESTNET,
+                "Special case only matches on testnet"
+            );
+            assert!(
+                !code_hash_matches_wallet_contract(id, &other_code_hash),
+                "Other code hashes do not match wallet contract"
+            );
+        }
+    }
+
+    #[test]
     fn check_mainnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "83PPBGX9KNgC2TRJgX7mvZfFPx92bFkdYvZNARQjRt8G";
-        const MAGIC_BYTES_HASH: &'static str = "34E1b7f2S3XjvjZv4RXiQ3GM9ioJtCoECT3CiyWwmxAQ";
+        const WALLET_CONTRACT_HASH: &'static str = "5j8XPMMKMn5cojVs4qQ65dViGtgMHgrfNtJgrC18X8Qw";
+        const MAGIC_BYTES_HASH: &'static str = "77CJrGB4MNcG2fJXr87m3HCZngUMxZQYwhqGqcHSd7BB";
         check_wallet_contract(MAINNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(MAINNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
     }
 
     #[test]
     fn check_testnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "3Za8tfLX6nKa2k4u2Aq5CRrM7EmTVSL9EERxymfnSFKd";
-        const MAGIC_BYTES_HASH: &'static str = "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ";
+        const WALLET_CONTRACT_HASH: &'static str = "BL1PtbXR6CeP39LXZTVfTNap2dxruEdaWZVxptW6NufU";
+        const MAGIC_BYTES_HASH: &'static str = "DBV2KeAR8iaEy6aGpmvAm5HAh1WiZRQ6Tsira4UM83S9";
         check_wallet_contract(TESTNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(TESTNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
     }
 
     #[test]
     fn check_localnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "2dQzuvePVCmkXwe1oF3AgY9pZvqtDtq43nFHph928CU4";
-        const MAGIC_BYTES_HASH: &'static str = "EGfMEySfUgt9cti4TENBLk9mMK3t8SFXr8YowJ7G5pXK";
+        const WALLET_CONTRACT_HASH: &'static str = "FAq9tQRbwJPTV3PQLn2F7AUD3FW2Fw1V8ZeZuazfeu1v";
+        const MAGIC_BYTES_HASH: &'static str = "5Ch7WN9GVGHY6rneCsHDHwiC6RPSXjRkXo3sA3c6TT1B";
         const LOCALNET: &str = "localnet";
         check_wallet_contract(LOCALNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(LOCALNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);

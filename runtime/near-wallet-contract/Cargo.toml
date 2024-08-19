@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 near-primitives-core.workspace = true
 near-vm-runner.workspace = true
+once_cell.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
