@@ -21,3 +21,4 @@ toml
 tqdm
 urllib3<2
 datetime
+jmespath
