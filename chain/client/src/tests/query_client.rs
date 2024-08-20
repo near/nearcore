@@ -232,7 +232,6 @@ fn test_state_request() {
             400,
             false,
             true,
-            false,
             true,
             MockPeerManagerAdapter::default().into_multi_sender(),
             100,

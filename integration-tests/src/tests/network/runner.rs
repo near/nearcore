@@ -73,8 +73,7 @@ fn setup_network_node(
         ActixWrapper::new(TelemetryActor::new(TelemetryConfig::default())).start();
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
-    let mut client_config =
-        ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
+    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())

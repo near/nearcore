@@ -63,7 +63,6 @@ pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
-use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -77,7 +76,6 @@ mod congestion_control;
 mod conversions;
 pub mod ext;
 mod metrics;
-mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
 pub mod state_viewer;
@@ -369,7 +367,6 @@ impl Runtime {
         action: &Action,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        preparation_pipeline: &ReceiptPreparationPipeline,
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
         receipt: &Receipt,
@@ -435,16 +432,19 @@ impl Runtime {
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     account_id,
                     deploy_contract,
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.cache.as_deref(),
+                    apply_state,
                 )?;
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let contract = preparation_pipeline.get_contract(
-                    receipt,
-                    account.code_hash(),
-                    action_index,
+                let contract = prepare_function_call(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    function_call,
+                    &apply_state.config,
+                    epoch_info_provider,
                     None,
                 );
                 let is_last_action = action_index + 1 == actions.len();
@@ -559,7 +559,6 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -630,7 +629,6 @@ impl Runtime {
                 action,
                 state_update,
                 apply_state,
-                preparation_pipeline,
                 &mut account,
                 &mut actor_id,
                 receipt,
@@ -978,19 +976,14 @@ impl Runtime {
 
     fn process_receipt(
         &self,
-        processing_state: &mut ApplyProcessingReceiptState,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ApplyStats,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let ApplyProcessingReceiptState {
-            ref mut state_update,
-            apply_state,
-            epoch_info_provider,
-            ref pipeline_manager,
-            ref mut stats,
-            ..
-        } = *processing_state;
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1053,7 +1046,6 @@ impl Runtime {
                             .apply_action_receipt(
                                 state_update,
                                 apply_state,
-                                pipeline_manager,
                                 &ready_receipt,
                                 receipt_sink,
                                 validator_proposals,
@@ -1108,7 +1100,6 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
-                            pipeline_manager,
                             receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1160,7 +1151,6 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
-                            pipeline_manager,
                             &yield_receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1586,22 +1576,24 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
+        let total = &mut processing_state.total;
         let state_update = &mut processing_state.state_update;
         let node_counter_before = state_update.trie().get_trie_nodes_count();
         let recorded_storage_size_before = state_update.trie().recorded_storage_size();
         let storage_proof_size_upper_bound_before =
             state_update.trie().recorded_storage_size_upper_bound();
         let result = self.process_receipt(
-            processing_state,
+            state_update,
+            processing_state.apply_state,
             receipt,
             &mut receipt_sink,
             &mut validator_proposals,
+            &mut processing_state.stats,
+            processing_state.epoch_info_provider,
         );
-
-        let total = &mut processing_state.total;
-        let state_update = &mut processing_state.state_update;
         let node_counter_after = state_update.trie().get_trie_nodes_count();
         tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
         let recorded_storage_diff = state_update
             .trie()
             .recorded_storage_size()
@@ -1646,11 +1638,6 @@ impl Runtime {
         Ok(())
     }
 
-    #[instrument(target = "runtime", level = "debug", "process_local_receipts", skip_all, fields(
-        num_receipts = processing_state.local_receipts.len(),
-        gas_burnt = tracing::field::Empty,
-        compute_usage = tracing::field::Empty,
-    ))]
     fn process_local_receipts<'a>(
         &self,
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
@@ -1660,25 +1647,14 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
-        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
         let local_receipt_count = processing_state.local_receipts.len();
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            let (front, back) = local_receipts.as_slices();
+            let (front, back) = processing_state.local_receipts.as_slices();
             _ = prefetcher.prefetch_receipts_data(front);
             _ = prefetcher.prefetch_receipts_data(back);
         }
-
-        let mut prep_lookahead_iter = local_receipts.iter();
-        // Advance the preparation by one step (stagger it) so that we're preparing one interesting
-        // receipt in advance.
-        let mut next_schedule_after = schedule_contract_preparation(
-            &mut processing_state.pipeline_manager,
-            &processing_state.state_update,
-            &mut prep_lookahead_iter,
-        );
-
-        for receipt in local_receipts.iter() {
+        while let Some(receipt) = processing_state.next_local_receipt() {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1690,19 +1666,6 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
-                if let Some(nsi) = &mut next_schedule_after {
-                    *nsi = nsi.saturating_sub(1);
-                    if *nsi == 0 {
-                        // We're about to process a receipt that has been submitted for
-                        // preparation, so lets submit the next one in anticipation that it might
-                        // be processed too (it might also be not if we run out of gas/compute.)
-                        next_schedule_after = schedule_contract_preparation(
-                            &mut processing_state.pipeline_manager,
-                            &processing_state.state_update,
-                            &mut prep_lookahead_iter,
-                        );
-                    }
-                }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 self.process_receipt_with_metrics(
@@ -1713,10 +1676,6 @@ impl Runtime {
                 )?
             }
         }
-
-        let span = tracing::Span::current();
-        span.record("gas_burnt", processing_state.total.gas);
-        span.record("compute_usage", processing_state.total.compute);
         processing_state.metrics.local_receipts_done(
             local_receipt_count as u64,
             local_processing_start.elapsed(),
@@ -1726,11 +1685,6 @@ impl Runtime {
         Ok(())
     }
 
-    #[instrument(target = "runtime", level = "debug", "process_delayed_receipts", skip_all, fields(
-        num_receipts = processing_state.delayed_receipts.len(),
-        gas_burnt = tracing::field::Empty,
-        compute_usage = tracing::field::Empty,
-    ))]
     fn process_delayed_receipts<'a>(
         &self,
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
@@ -1743,17 +1697,6 @@ impl Runtime {
         let protocol_version = processing_state.protocol_version;
         let mut delayed_receipt_count = 0;
         let mut processed_delayed_receipts = vec![];
-
-        let mut prep_lookahead_iter = processing_state
-            .delayed_receipts
-            .peek_iter(&processing_state.state_update)
-            .map_while(Result::ok);
-        let mut next_schedule_after = schedule_contract_preparation(
-            &mut processing_state.pipeline_manager,
-            &processing_state.state_update,
-            &mut prep_lookahead_iter,
-        );
-
         while processing_state.delayed_receipts.len() > 0 {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
@@ -1762,26 +1705,11 @@ impl Runtime {
             {
                 break;
             }
-
             delayed_receipt_count += 1;
             let receipt = processing_state
                 .delayed_receipts
                 .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
                 .expect("queue is not empty");
-            if let Some(nsi) = &mut next_schedule_after {
-                *nsi = nsi.saturating_sub(1);
-                if *nsi == 0 {
-                    let mut prep_lookahead_iter = processing_state
-                        .delayed_receipts
-                        .peek_iter(&processing_state.state_update)
-                        .map_while(Result::ok);
-                    next_schedule_after = schedule_contract_preparation(
-                        &mut processing_state.pipeline_manager,
-                        &processing_state.state_update,
-                        &mut prep_lookahead_iter,
-                    );
-                }
-            }
 
             if let Some(prefetcher) = &mut processing_state.prefetcher {
                 // Prefetcher is allowed to fail
@@ -1809,9 +1737,6 @@ impl Runtime {
             )?;
             processed_delayed_receipts.push(receipt);
         }
-        let span = tracing::Span::current();
-        span.record("gas_burnt", processing_state.total.gas);
-        span.record("compute_usage", processing_state.total.compute);
         processing_state.metrics.delayed_receipts_done(
             delayed_receipt_count,
             delayed_processing_start.elapsed(),
@@ -1822,11 +1747,6 @@ impl Runtime {
         Ok(processed_delayed_receipts)
     }
 
-    #[instrument(target = "runtime", level = "debug", "process_incoming_receipts", skip_all, fields(
-        num_receipts = processing_state.incoming_receipts.len(),
-        gas_burnt = tracing::field::Empty,
-        compute_usage = tracing::field::Empty,
-    ))]
     fn process_incoming_receipts<'a>(
         &self,
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
@@ -1841,16 +1761,6 @@ impl Runtime {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
         }
-
-        let mut prep_lookahead_iter = processing_state.incoming_receipts.iter();
-        // Advance the preparation by one step (stagger it) so that we're preparing one interesting
-        // receipt in advance.
-        let mut next_schedule_after = schedule_contract_preparation(
-            &mut processing_state.pipeline_manager,
-            &processing_state.state_update,
-            &mut prep_lookahead_iter,
-        );
-
         for receipt in processing_state.incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
@@ -1871,20 +1781,6 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
-                if let Some(nsi) = &mut next_schedule_after {
-                    *nsi = nsi.saturating_sub(1);
-                    if *nsi == 0 {
-                        // We're about to process a receipt that has been submitted for
-                        // preparation, so lets submit the next one in anticipation that it might
-                        // be processed too (it might also be not if we run out of gas/compute.)
-                        next_schedule_after = schedule_contract_preparation(
-                            &mut processing_state.pipeline_manager,
-                            &processing_state.state_update,
-                            &mut prep_lookahead_iter,
-                        );
-                    }
-                }
-
                 self.process_receipt_with_metrics(
                     &receipt,
                     &mut processing_state,
@@ -1893,9 +1789,6 @@ impl Runtime {
                 )?;
             }
         }
-        let span = tracing::Span::current();
-        span.record("gas_burnt", processing_state.total.gas);
-        span.record("compute_usage", processing_state.total.compute);
         processing_state.metrics.incoming_receipts_done(
             processing_state.incoming_receipts.len() as u64,
             incoming_processing_start.elapsed(),
@@ -2397,15 +2290,7 @@ impl<'a> ApplyProcessingState<'a> {
         incoming_receipts: &'a [Receipt],
         delayed_receipts: DelayedReceiptQueueWrapper,
     ) -> ApplyProcessingReceiptState<'a> {
-        let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
-            Arc::clone(&self.apply_state.config),
-            self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.epoch_info_provider.chain_id(),
-            self.apply_state.current_protocol_version,
-            self.state_update.contract_storage.clone(),
-        );
         ApplyProcessingReceiptState {
-            pipeline_manager,
             protocol_version: self.protocol_version,
             apply_state: self.apply_state,
             prefetcher: self.prefetcher,
@@ -2439,104 +2324,19 @@ struct ApplyProcessingReceiptState<'a> {
     local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
-    pipeline_manager: pipelining::ReceiptPreparationPipeline,
 }
 
-trait MaybeRefReceipt {
-    fn as_ref(&self) -> &Receipt;
-}
-
-impl MaybeRefReceipt for Receipt {
-    fn as_ref(&self) -> &Receipt {
-        self
+impl<'a> ApplyProcessingReceiptState<'a> {
+    /// Obtain the next receipt that should be executed.
+    fn next_local_receipt(&mut self) -> Option<Receipt> {
+        self.local_receipts.pop_front()
     }
-}
-
-impl<'a> MaybeRefReceipt for &'a Receipt {
-    fn as_ref(&self) -> &Receipt {
-        *self
-    }
-}
-
-/// Schedule a one receipt for contract preparation.
-///
-/// The caller should call this method again after the returned number of receipts from `iterator`
-/// are processed.
-fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
-    pipeline_manager: &mut pipelining::ReceiptPreparationPipeline,
-    state_update: &TrieUpdate,
-    mut iterator: impl Iterator<Item = R>,
-) -> Option<usize> {
-    let scheduled_receipt_offset = iterator.position(|peek| {
-        let peek = peek.as_ref();
-        let account_id = peek.receiver_id();
-        let receiver = get_account(state_update, account_id);
-        let Ok(Some(receiver)) = receiver else {
-            // Most likely reason this can happen is because the receipt is for an account that
-            // does not yet exist. This is a routine occurrence as accounts are created by sending
-            // some NEAR to a name that's about to be created.
-            return false;
-        };
-
-        // We need to inspect each receipt recursively in case these are data receipts, thus a
-        // function.
-        fn handle_receipt(
-            mgr: &mut ReceiptPreparationPipeline,
-            state_update: &TrieUpdate,
-            receiver: &Account,
-            account_id: &AccountId,
-            receipt: &Receipt,
-        ) -> bool {
-            match receipt.receipt() {
-                ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => {
-                    // This returns `true` if work may have been scheduled (thus we currently
-                    // prepare actions in at most 2 "interesting" receipts in parallel due to
-                    // staggering.)
-                    mgr.submit(receipt, &receiver, None)
-                }
-                ReceiptEnum::Data(dr) => {
-                    let key = TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: dr.data_id,
-                    };
-                    let Ok(Some(rid)) = get::<CryptoHash>(state_update, &key) else {
-                        return false;
-                    };
-                    let key = TrieKey::PendingDataCount {
-                        receiver_id: account_id.clone(),
-                        receipt_id: rid,
-                    };
-                    let Ok(Some(data_count)) = get::<u32>(state_update, &key) else {
-                        return false;
-                    };
-                    if data_count > 1 {
-                        return false;
-                    }
-                    let Ok(Some(pr)) = get_postponed_receipt(state_update, account_id, rid) else {
-                        return false;
-                    };
-                    return handle_receipt(mgr, state_update, receiver, account_id, &pr);
-                }
-                ReceiptEnum::PromiseResume(dr) => {
-                    let Ok(Some(yr)) =
-                        get_promise_yield_receipt(state_update, account_id, dr.data_id)
-                    else {
-                        return false;
-                    };
-                    return handle_receipt(mgr, state_update, receiver, account_id, &yr);
-                }
-            }
-        }
-        handle_receipt(pipeline_manager, state_update, &receiver, account_id, peek)
-    })?;
-    Some(scheduled_receipt_offset.saturating_add(1))
 }
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
-    use crate::pipelining::ReceiptPreparationPipeline;
     use crate::{ApplyState, ApplyStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
@@ -2568,17 +2368,9 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });
-        let empty_pipeline = ReceiptPreparationPipeline::new(
-            std::sync::Arc::clone(&apply_state.config),
-            apply_state.cache.as_ref().map(|c| c.handle()),
-            epoch_info_provider.chain_id(),
-            apply_state.current_protocol_version,
-            state_update.contract_storage.clone(),
-        );
         Runtime {}.apply_action_receipt(
             state_update,
             apply_state,
-            &empty_pipeline,
             receipt,
             &mut receipt_sink,
             validator_proposals,

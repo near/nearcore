@@ -38,7 +38,6 @@ fn test_client_with_simple_test_loop() {
         false,
         true,
         false,
-        false,
     );
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =

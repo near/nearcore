@@ -3,7 +3,6 @@ base58
 cachetools
 cython
 deepdiff
-ed25519
 json-rpc
 locust>=2.28
 geventhttpclient>=2.3.1
@@ -22,3 +21,4 @@ toml
 tqdm
 urllib3<2
 datetime
+jmespath

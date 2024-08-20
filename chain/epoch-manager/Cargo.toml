@@ -54,7 +54,6 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 no_cache = []
-new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",
   "near-crypto/protocol_schema",

@@ -121,9 +121,6 @@ protocol_feature_fix_contract_loading_cost = [
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
 ]
-new_epoch_sync = [
-  "near-client/new_epoch_sync"
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
