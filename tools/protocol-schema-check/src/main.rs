@@ -13,8 +13,8 @@ use near_epoch_manager::*;
 use near_parameters::*;
 use near_primitives::*;
 use near_store::*;
+use near_vm_runner::*;
 
-use near_chain::types::LatestKnown;
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
@@ -93,7 +93,6 @@ const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
     let _: EpochInfoAggregator = Default::default();
-    let _: LatestKnown = LatestKnown { height: 0, seen: 0 };
 
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")

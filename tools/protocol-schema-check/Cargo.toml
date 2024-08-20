@@ -15,6 +15,7 @@ near-schema-checker-lib = { workspace = true, features = ["protocol_schema"] }
 near-primitives-core = { workspace = true, features = ["protocol_schema"] }
 near-primitives = { workspace = true, features = ["protocol_schema"] }
 near-parameters = { workspace = true, features = ["protocol_schema"] }
+near-vm-runner = { workspace = true, features = ["protocol_schema"] }
 near-crypto = { workspace = true, features = ["protocol_schema"] }
 near-store = { workspace = true, features = ["protocol_schema"] }
 near-epoch-manager = { workspace = true, features = ["protocol_schema"] }
@@ -31,6 +32,7 @@ default = [
     "near-primitives-core/protocol_schema",
     "near-primitives/protocol_schema",
     "near-parameters/protocol_schema",
+    "near-vm-runner/protocol_schema",
     "near-crypto/protocol_schema",
     "near-store/protocol_schema",
     "near-epoch-manager/protocol_schema",

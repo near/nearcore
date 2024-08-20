@@ -1,5 +1,4 @@
 use crate::metrics;
-use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use lru::LruCache;
 use near_async::time::Clock;

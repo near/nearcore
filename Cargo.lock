@@ -5138,6 +5138,7 @@ dependencies = [
  "near-o11y",
  "near-parameters",
  "near-primitives-core",
+ "near-schema-checker-lib",
  "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",
@@ -6353,6 +6354,7 @@ dependencies = [
  "near-schema-checker-lib",
  "near-stable-hasher",
  "near-store",
+ "near-vm-runner",
  "serde_json",
  "toml",
 ]
