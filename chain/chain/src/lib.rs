@@ -1,3 +1,5 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{check_known, collect_receipts, Chain};
 pub use chain_update::ChainUpdate;
@@ -7,7 +9,7 @@ pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use store_validator::{ErrorMessage, StoreValidator};
-pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance};
+pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
 
 mod block_processing_utils;
 pub mod blocks_delay_tracker;

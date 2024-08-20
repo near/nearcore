@@ -9,6 +9,8 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
+use near_schema_checker_lib::ProtocolSchema;
+
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, debug_span};
 
@@ -54,7 +56,7 @@ impl BlockHeaderInfo {
 }
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
-#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default, ProtocolSchema)]
 pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,

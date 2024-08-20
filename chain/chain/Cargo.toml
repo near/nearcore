@@ -53,6 +53,7 @@ node-runtime.workspace = true
 near-parameters.workspace = true
 near-vm-runner.workspace = true
 near-mainnet-res.workspace = true
+near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 near-primitives = { workspace = true, features = ["clock"] }
@@ -118,3 +119,11 @@ nightly_protocol = [
 ]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]
 testloop = []
+protocol_schema = [
+  "near-schema-checker-lib/protocol_schema",
+  "near-crypto/protocol_schema",
+  "near-parameters/protocol_schema",
+  "near-primitives/protocol_schema",
+  "near-store/protocol_schema",
+  "near-epoch-manager/protocol_schema",
+]

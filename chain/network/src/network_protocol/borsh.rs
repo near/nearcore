@@ -13,10 +13,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
+use near_schema_checker_lib::ProtocolSchema;
+
 use std::fmt;
 use std::fmt::Formatter;
 
-#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 /// Structure representing handshake between peers.
 /// This replaces deprecated handshake `HandshakeV2`.
 pub struct Handshake {
@@ -38,7 +40,7 @@ pub struct Handshake {
 
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 struct HandshakeAutoDes {
     /// Protocol version.
     protocol_version: u32,
@@ -78,26 +80,28 @@ impl From<HandshakeAutoDes> for Handshake {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    Default, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
+)]
 pub(super) struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct AdvertisedPeerDistance {
     pub destination: PeerId,
     pub distance: u32,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub(super) struct DistanceVector {
     pub root: PeerId,
     pub distances: Vec<AdvertisedPeerDistance>,
     pub edges: Vec<Edge>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
     GenesisMismatch(GenesisId),
@@ -119,7 +123,9 @@ impl std::error::Error for HandshakeFailureReason {}
 /// Warning, position of each message type in this enum defines the protocol due to serialization.
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
+#[derive(
+    BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr, ProtocolSchema,
+)]
 // TODO(#1313): Use Box
 pub(super) enum PeerMessage {
     Handshake(Handshake),

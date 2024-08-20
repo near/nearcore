@@ -455,7 +455,9 @@ impl StateChanges {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, serde::Serialize)]
+#[derive(
+    PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, serde::Serialize, ProtocolSchema,
+)]
 pub struct StateRootNode {
     /// In Nightshade, data is the serialized TrieNodeWithSize.
     ///

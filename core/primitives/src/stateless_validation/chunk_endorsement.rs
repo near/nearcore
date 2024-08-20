@@ -13,7 +13,7 @@ use super::SignatureDifferentiator;
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ChunkEndorsement {
     V1(ChunkEndorsementV1),
     V2(ChunkEndorsementV2),
@@ -58,7 +58,7 @@ impl ChunkEndorsement {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV1 {
     inner: ChunkEndorsementInner,
     pub account_id: AccountId,
@@ -83,7 +83,7 @@ impl ChunkEndorsementV1 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV2 {
     // This is the part of the chunk endorsement that signed and included in the block header
     inner: ChunkEndorsementInner,
@@ -123,7 +123,7 @@ impl ChunkEndorsementV2 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementMetadata {
     account_id: AccountId,
     shard_id: ShardId,

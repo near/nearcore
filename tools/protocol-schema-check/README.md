@@ -34,8 +34,21 @@ If the tool fails, it indicates that you've made changes to the protocol schema.
 
    a. For structures stored only locally in the database:
       - Implement a database migration for the affected structure.
+   
+        Otherwise, newly deployed nodes have a risk to not recognise the old data format and fail to start. 
 
-   b. For structures stored in the protocol:
+   b. For structures involved in the protocol or network communication:
       - Add a new version to the structure that maintains backward compatibility with the previous version.
+   
+    Otherwise, old and new nodes have a risk to not recognise the messaging format of each other and fail to communicate.
 
-4. Run the tool to make `res/protocol_schema.toml` reflect your changes.
+4. Copy the newly generated file to `res/protocol_schema.toml` to reflect your changes.
+
+Note that the tool can provide a false positive, including the cases when
+- only the field names have changed
+- type name changed but serialization remained the same
+- Borsh-compatible changes were made, such as adding a new enum variant.
+
+This is done to strengthen the check and ensure that no changes are missed.
+The real failure case was when we accidentally swapped the enum variants. 
+If both are units, serialisation don't break, but the impacted logic will be broken.
