@@ -15,11 +15,13 @@ use near_primitives::account::id::AccountIdRef;
 use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
@@ -1527,7 +1529,7 @@ fn test_chunk_producer_kickout() {
 /// Test when all blocks are produced and all chunks are skipped, chunk
 /// validator is not kicked out.
 #[test]
-fn test_chunk_validator_kickout() {
+fn test_chunk_validator_kickout_using_production_stats() {
     let stake_amount = 1_000_000;
     let validators: Vec<(AccountId, Balance)> =
         (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
@@ -1580,6 +1582,97 @@ fn test_chunk_validator_kickout() {
     let total_produced_chunks = total_expected_chunks / 2;
 
     // Chunk producers skip only every second chunk and pass the threshold.
+    // Chunk validator validates all chunks, so its performance is determined
+    // by the chunk production ratio, which is not enough.
+    assert_eq!(
+        last_epoch_info.unwrap().validator_kickout(),
+        &[(
+            "test2".parse().unwrap(),
+            NotEnoughChunkEndorsements {
+                produced: total_produced_chunks,
+                expected: total_expected_chunks
+            }
+        )]
+        .into_iter()
+        .collect::<HashMap<_, _>>(),
+    );
+}
+
+/// Similar to test_chunk_validator_kickout_using_production_stats, however all chunks are produced but
+/// but some validators miss chunks and got kicked out.
+#[test]
+fn test_chunk_validator_kickout_using_endorsement_stats() {
+    let stake_amount = 1_000_000;
+    let validators: Vec<(AccountId, Balance)> =
+        (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
+    let epoch_length = 10;
+    let total_supply = stake_amount * validators.len() as u128;
+    let num_shards = 2;
+    let epoch_config =
+        epoch_config_with_production_config(epoch_length, num_shards, 2, 2, 90, 40, 75, false);
+    let mut em = EpochManager::new(
+        create_test_store(),
+        epoch_config,
+        PROTOCOL_VERSION,
+        default_reward_calculator(),
+        validators
+            .iter()
+            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
+            .collect(),
+    )
+    .unwrap();
+    let rng_seed = [0; 32];
+    let hashes = hash_range((epoch_length + 2) as usize);
+    record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+    for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
+        let height = height as u64;
+        let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
+        // All chunks are produced.
+        let chunk_mask = vec![true; num_shards as usize];
+        // Prepare the chunk endorsements so that "test2" misses some of the endorsements.
+        let mut bitmap = ChunkEndorsementsBitmap::new(num_shards as usize);
+        for shard_id in 0..num_shards {
+            let chunk_validators = em
+                .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                .unwrap()
+                .ordered_chunk_validators();
+            bitmap.add_endorsements(
+                shard_id,
+                chunk_validators
+                    .iter()
+                    .map(|account| account.as_str() != "test2" || (height + shard_id) % 2 == 0)
+                    .collect(),
+            )
+        }
+        em.record_block_info(
+            BlockInfo::V3(BlockInfoV3 {
+                hash: *curr_block,
+                height,
+                last_finalized_height: height - 1,
+                last_final_block_hash: *prev_block,
+                prev_hash: *prev_block,
+                epoch_id: Default::default(),
+                epoch_first_block: epoch_id.0,
+                proposals: vec![],
+                chunk_mask,
+                latest_protocol_version: PROTOCOL_VERSION,
+                slashed: Default::default(),
+                total_supply,
+                timestamp_nanosec: height * NUM_NS_IN_SECOND,
+                chunk_endorsements: bitmap,
+            }),
+            rng_seed,
+        )
+        .unwrap();
+    }
+
+    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let total_expected_chunks = num_shards * (epoch_length - 1);
+    // Every second chunk is skipped.
+    let total_produced_chunks = total_expected_chunks / 2;
+
+    // Chunk producers produce all chunks, but the chuink validator skips
+    // sending endorsements for every second chunk and does not pass the threshold.
     // Chunk validator validates all chunks, so its performance is determined
     // by the chunk production ratio, which is not enough.
     assert_eq!(
@@ -2101,6 +2194,7 @@ fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: Proto
     match info {
         BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
         BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
+        BlockInfo::V3(v2) => v2.latest_protocol_version = protocol_version,
     }
 }
 

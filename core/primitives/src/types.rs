@@ -1048,7 +1048,7 @@ impl serde::Serialize for EpochReference {
 /// be hash of the latest block in the current epoch.  Using current epoch id
 /// with `EpochId` or arbitrary block hash in past or present epochs will result
 /// in errors.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ValidatorInfoIdentifier {
     EpochId(EpochId),
     BlockHash(CryptoHash),

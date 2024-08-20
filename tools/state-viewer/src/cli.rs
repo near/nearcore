@@ -1,6 +1,7 @@
 use crate::commands::*;
 use crate::congestion_control::CongestionControlCmd;
 use crate::contract_accounts::ContractAccountFilter;
+use crate::replay_headers::replay_headers;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
@@ -76,8 +77,8 @@ pub enum StateViewerSubCommand {
     PartialChunks(PartialChunksCmd),
     /// Looks up a certain receipt.
     Receipts(ReceiptsCmd),
-    /// Replay headers from chain.
-    Replay(ReplayCmd),
+    /// Replay block headers from chain.
+    ReplayHeaders(ReplayHeadersCmd),
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
@@ -170,7 +171,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::EpochAnalysis(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Replay(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ReplayHeaders(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -616,16 +617,16 @@ impl ReceiptsCmd {
 }
 
 #[derive(clap::Parser)]
-pub struct ReplayCmd {
+pub struct ReplayHeadersCmd {
     #[clap(long)]
-    start_index: BlockHeight,
+    start_index: Option<BlockHeight>,
     #[clap(long)]
-    end_index: BlockHeight,
+    end_index: Option<BlockHeight>,
 }
 
-impl ReplayCmd {
-    pub fn run(self, near_config: NearConfig, store: Store) {
-        replay_chain(self.start_index, self.end_index, near_config, store);
+impl ReplayHeadersCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        replay_headers(self.start_index, self.end_index, home_dir, near_config, store);
     }
 }
 

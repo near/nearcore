@@ -326,6 +326,7 @@ pub fn record_block_with_final_block_hash(
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                None,
             ),
             [0; 32],
         )
@@ -356,6 +357,7 @@ pub fn record_block_with_slashes(
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                None,
             ),
             [0; 32],
         )
@@ -364,6 +366,7 @@ pub fn record_block_with_slashes(
         .unwrap();
 }
 
+// TODO(#11900): Start using BlockInfoV3 in the tests.
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -374,6 +377,7 @@ pub fn record_block(
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }
 
+// TODO(#11900): Start using BlockInfoV3 in the tests.
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,
