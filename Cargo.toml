@@ -145,6 +145,7 @@ backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
+bitvec = "1.0.1"
 blake2 = { version = "0.10.6", features = ["reset"] }
 blst = { version = "0.3.11", features = ["portable"] }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }

@@ -1609,6 +1609,7 @@ impl EpochManager {
             block_header_info.total_supply,
             block_header_info.latest_protocol_version,
             block_header_info.timestamp_nanosec,
+            block_header_info.chunk_endorsements,
         );
         let rng_seed = block_header_info.random_value.0;
         self.record_block_info(block_info, rng_seed)

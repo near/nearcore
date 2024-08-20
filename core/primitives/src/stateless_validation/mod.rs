@@ -3,6 +3,7 @@ use near_primitives_core::types::{BlockHeight, ShardId};
 use crate::types::EpochId;
 
 pub mod chunk_endorsement;
+pub mod chunk_endorsements_bitmap;
 pub mod partial_witness;
 pub mod state_witness;
 pub mod stored_chunk_state_transition_data;
