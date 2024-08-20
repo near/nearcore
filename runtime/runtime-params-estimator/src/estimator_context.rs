@@ -109,7 +109,7 @@ impl<'c> EstimatorContext<'c> {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
             // instead of  letting the the loader code to locate it from the ChunkExtra (which is missing from the store).
             tries
-                .load_mem_trie(&shard_uid, Some(root), false)
+                .load_mem_trie(&shard_uid, Some(root), true)
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
