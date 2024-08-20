@@ -4228,6 +4228,7 @@ dependencies = [
  "near-schema-checker-lib",
  "near-stdx",
  "primitive-types 0.10.1",
+ "rand",
  "secp256k1",
  "serde",
  "serde_json",
