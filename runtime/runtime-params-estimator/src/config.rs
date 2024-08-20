@@ -44,6 +44,6 @@ pub struct Config {
     pub in_memory_db: bool,
     /// If false, only runs a minimal check that's faster than trying to get accurate results.
     pub accurate: bool,
-    /// If true, uses memtrie to access the trie.
+    /// If true, uses memtrie to access the state.
     pub memtrie: bool,
 }

@@ -1,6 +1,7 @@
 use super::transaction_builder::TransactionBuilder;
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
+use anyhow::Context;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
 use near_parameters::config::CongestionControlConfig;
@@ -105,7 +106,12 @@ impl<'c> EstimatorContext<'c> {
             StateSnapshotConfig::default(),
         );
         if self.config.memtrie {
-            tries.load_mem_trie(&shard_uid, Some(root), false).unwrap();
+            // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
+            // instead of  letting the the loader code to locate it from the ChunkExtra (which is missing from the store).
+            tries
+                .load_mem_trie(&shard_uid, Some(root), false)
+                .context("Failed load memtries for single shard")
+                .unwrap();
         }
         let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
             .expect("create contract cache");
@@ -355,13 +361,18 @@ impl Testbed<'_> {
         let mut store_update = self.tries.store_update();
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-        // TODO: Find a way to combine apply_all and apply_memtrie_changes into a single apply function.
         if self.config.memtrie {
-            self.tries.apply_memtrie_changes(
-                &apply_result.trie_changes,
-                shard_uid,
-                self.apply_state.block_height,
-            );
+            let memtrie_root = self
+                .tries
+                .apply_memtrie_changes(
+                    &apply_result.trie_changes,
+                    shard_uid,
+                    self.apply_state.block_height,
+                )
+                .unwrap_or_else(|| {
+                    panic!("Memtrie is enabled but failed to apply memtrie changes")
+                });
+            assert_eq!(self.root, memtrie_root);
         }
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut store_update, shard_uid);

@@ -105,6 +105,7 @@ struct CliArgs {
     db_test_config: RocksDBTestConfig,
     #[clap(subcommand)]
     sub_cmd: Option<CliSubCmd>,
+    /// If true, uses memtrie to access the state.
     #[clap(long)]
     pub memtrie: bool,
 }
