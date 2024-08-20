@@ -138,7 +138,6 @@ pub(crate) fn open_storage_for_replay(
 ) -> anyhow::Result<Arc<ReplayDB>> {
     let archival_columns = HashSet::from([
         DBCol::BlockMisc,
-        DBCol::IncomingReceipts,
         DBCol::Chunks,
         DBCol::BlockHeight,
         DBCol::BlockHeader,
