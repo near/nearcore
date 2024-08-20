@@ -175,10 +175,11 @@ impl EpochInfoAggregator {
                 .iter()
                 .map(|(id, _)| *id)
                 .collect_vec();
-            // The following iterates over the chunk validator assignments and gives true (if endorsement received) or false (if endorsement missed).
+            // The following iterates over the chunk validator assignments and yields true if the endorsement from the validator
+            // assigned the respective position was received or false if the endorsement was missed.
             // NOTE:(#11900): If the chunk endorsements received from the chunk validators are not recorded in the block header,
             // we use the chunk production stats as the endorsements stats, ie. if the chunk is produced then we assume that
-            // the endorsements from all the chunk validators assigned to that chunk are received.
+            // the endorsements from all the chunk validators assigned to that chunk are received (hence the `else` branch below).
             let chunk_endorsements =
                 if let Some(chunk_endorsements) = block_info.chunk_endorsements() {
                     chunk_endorsements.iter(shard_id)

@@ -91,12 +91,12 @@ fn get_block_header_info(
         chain_store.get_block_height(header.last_final_block()).unwrap(),
     );
 
-    // Note(#11900): If chunk endorsements in block header is enabled but we have not yet populated the endorsements bitmap
-    // in the header yet, we generate chunk endorsement bitmap from the chunk endorsement signatures in the block body.
+    // Note(#11900): Until the chunk endorsements in block header are enabled, we generate the chunk endorsement bitmap
+    // in the following from the chunk endorsement signatures in the block body.
     // TODO(#11900): Remove this code after ChunkEndorsementsInBlockHeader is stabilized.
     let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-    if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version)
-        && header.chunk_endorsements().is_none()
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
+        && !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version)
     {
         let block = chain_store.get_block(header.hash())?;
         let chunks = block.chunks();
