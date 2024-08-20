@@ -9,7 +9,9 @@ use near_schema_checker_lib::ProtocolSchema;
 use std::collections::HashMap;
 
 /// Information per each block.
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize, ProtocolSchema,
+)]
 pub enum BlockInfo {
     V1(BlockInfoV1),
     V2(BlockInfoV2),
@@ -254,7 +256,15 @@ impl BlockInfo {
 
 // V2 -> V3: Add chunk_endorsements bitmap
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct BlockInfoV3 {
     pub hash: CryptoHash,
@@ -278,7 +288,15 @@ pub struct BlockInfoV3 {
 
 // V1 -> V2: Use versioned ValidatorStake structure in proposals
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct BlockInfoV2 {
     pub hash: CryptoHash,
@@ -301,7 +319,15 @@ pub struct BlockInfoV2 {
 
 /// Information per each block.
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Eq,
+    PartialEq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct BlockInfoV1 {
     pub hash: CryptoHash,
