@@ -21,4 +21,4 @@ near-primitives.workspace = true
 near-crypto.workspace = true
 
 [features]
-new_epoch_sync = []
+new_epoch_sync = ["near-primitives/new_epoch_sync"]
