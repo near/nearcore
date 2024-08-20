@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # Spins up four nodes, and alternates [test1, test2] and [test3, test4] as block producers every epoch
 # Makes sure that before the epoch switch each block is signed by all four
+# We are not focusing on state sync in this test, so the nodes will continuously monitor the shard.
 
 import sys, time, base58, random, datetime
 import pathlib
+import jmespath
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -16,67 +18,28 @@ HEIGHT_GOAL = int(EPOCH_LENGTH * 7.5)
 TIMEOUT = HEIGHT_GOAL * 3
 
 config = None
+config_overrides = {
+    "tracked_shards": [0],
+    "view_client_throttle_period": {
+        "secs": 0,
+        "nanos": 0
+    },
+    "consensus": {
+        "state_sync_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        }
+    }
+}
+
 nodes = start_cluster(
     2, 2, 1, config,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 40]],
     {
-        0: {
-            "view_client_throttle_period": {
-                "secs": 0,
-                "nanos": 0
-            },
-            "state_sync_enabled": True,
-            "store.state_snapshot_enabled": True,
-            "consensus": {
-                "state_sync_timeout": {
-                    "secs": 0,
-                    "nanos": 500000000
-                }
-            }
-        },
-        1: {
-            "view_client_throttle_period": {
-                "secs": 0,
-                "nanos": 0
-            },
-            "state_sync_enabled": True,
-            "store.state_snapshot_enabled": True,
-            "consensus": {
-                "state_sync_timeout": {
-                    "secs": 0,
-                    "nanos": 500000000
-                }
-            }
-        },
-        2: {
-            "tracked_shards": [0],
-            "view_client_throttle_period": {
-                "secs": 0,
-                "nanos": 0
-            },
-            "state_sync_enabled": True,
-            "store.state_snapshot_enabled": True,
-            "consensus": {
-                "state_sync_timeout": {
-                    "secs": 0,
-                    "nanos": 500000000
-                }
-            }
-        },
-        3: {
-            "view_client_throttle_period": {
-                "secs": 0,
-                "nanos": 0
-            },
-            "state_sync_enabled": True,
-            "store.state_snapshot_enabled": True,
-            "consensus": {
-                "state_sync_timeout": {
-                    "secs": 0,
-                    "nanos": 500000000
-                }
-            }
-        }
+        0: config_overrides,
+        1: config_overrides,
+        2: config_overrides,
+        3: config_overrides
     })
 
 started = time.time()
@@ -107,13 +70,33 @@ epoch_switch_height = -2
 
 blocks_by_height = {}
 
+# JMESPath query
+BLOCK_QUERY = '''
+  "author": result.author,
+  "chunks": result.chunks[*].{
+    "height_created": height_created,
+    "height_included": height_included,
+    "shard_id": shard_id,
+    "validator_proposals": validator_proposals[*].account_id
+  },
+  "header.approvals": result.header.approvals,
+  "header.epoch_id": result.header.epoch_id,
+  "header.height": result.header.height,
+  "header.validator_proposals": result.header.validator_proposals[*].account_id
+'''
 
-def wait_until_available(get_fn):
+
+def wait_until_available(get_fn, fields):
+    printed_ts = time.time()
+    expression = jmespath.compile(f"{{{fields}}}")
     while True:
         res = get_fn()
-        logger.info(f"res: {res}")
         if 'result' in res:
+            logger.info(f"\nres: {expression.search(res)}")
             return res
+        if printed_ts + 10 < time.time():
+            logger.info(f"Still waiting. res: {res}")
+            printed_ts = time.time()
         time.sleep(0.1)
 
 
@@ -121,16 +104,14 @@ for largest_height in range(2, HEIGHT_GOAL + 1):
     assert time.time() - started < TIMEOUT
 
     block = wait_until_available(
-        lambda: nodes[0].get_block_by_height(largest_height, timeout=5))
+        lambda: nodes[0].get_block_by_height(largest_height, timeout=5),
+        BLOCK_QUERY)
     assert block is not None
     hash_ = block['result']['header']['hash']
     epoch_id = block['result']['header']['epoch_id']
     height = block['result']['header']['height']
     assert height == largest_height
     blocks_by_height[height] = block
-
-    logger.info("... %s" % height)
-    logger.info(block['result']['header']['approvals'])
 
     # we expect no skipped heights
     height_to_num_approvals[height] = len(
@@ -200,3 +181,5 @@ for largest_height in range(2, HEIGHT_GOAL + 1):
         epoch_switch_height = height
 
 assert len(seen_epochs) > 3
+
+logger.info("SUCCESS!")

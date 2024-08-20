@@ -285,6 +285,7 @@ impl<'a, Memory: ArenaMemory> ArenaSlice<'a, Memory> {
 
     /// Reads an usize at the given offset in the slice (bounds checked),
     /// and returns it as a pointer.
+    #[inline]
     pub fn read_ptr_at(&self, pos: usize) -> ArenaPtr<'a, Memory> {
         let pos = ArenaPos::try_from_slice(&self.raw_slice()[pos..][..size_of::<usize>()]).unwrap();
         ArenaPtr { arena: self.arena, pos }
