@@ -105,6 +105,9 @@ struct CliArgs {
     db_test_config: RocksDBTestConfig,
     #[clap(subcommand)]
     sub_cmd: Option<CliSubCmd>,
+    /// If true, uses memtrie to access the state.
+    #[clap(long)]
+    pub memtrie: bool,
 }
 
 #[derive(clap::Subcommand)]
@@ -299,6 +302,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         drop_os_cache: cli_args.drop_os_cache,
         in_memory_db: cli_args.in_memory_db,
         accurate: cli_args.accurate,
+        memtrie: cli_args.memtrie,
     };
     let cost_table = runtime_params_estimator::run(config);
     Ok(Some(cost_table))
@@ -549,6 +553,7 @@ mod tests {
             db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
             sub_cmd: None,
             accurate: true, // we run a small number of estimations, no need to take more shortcuts
+            memtrie: false,
         };
         run_estimation(args).unwrap();
     }
