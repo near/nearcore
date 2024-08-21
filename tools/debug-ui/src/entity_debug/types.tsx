@@ -21,8 +21,13 @@ export type EntityType =
     | 'Block'
     | 'BlockHash'
     | 'BlockHeader'
+    | 'BlockInfo'
+    | 'BlockMerkleTree'
+    | 'BlockMiscData'
     | 'Chunk'
+    | 'ChunkExtra'
     | 'EpochInfo'
+    | 'EpochInfoAggregator'
     | 'ExecutionOutcome'
     | 'FlatState'
     | 'FlatStateChanges'
@@ -57,7 +62,7 @@ export class EntityDataRootNode {
         public query: EntityQuery,
         /// A promise that resolves to the result data.
         public entry: Promise<EntityDataValueNode>
-    ) {}
+    ) { }
 }
 
 /// A struct node.
@@ -68,26 +73,26 @@ export class EntityDataStructNode {
 /// The semantics of a field that enhances its display.
 export type FieldSemantic =
     | {
-          /// Customizes how the field should be displayed.
-          display?: CustomFieldDisplay;
-          /// If present, this field represents one or more entity keys,
-          /// and the parser provides the logic for parsing these keys out
-          /// of the field name and value. Typically it's just one key.
-          parser?: (key: string, value: string) => EntityKey[];
-          /// If present, this field should be a struct, and we specify the
-          /// semantic of each of its fields. Fields can be missing if it doesn't
-          /// have any customizations.
-          struct?: Record<string, FieldSemantic>;
-          /// If present, this field should be an array, and we specify the
-          /// semantic for each element of the array.
-          array?: FieldSemantic;
-          /// For struct or array fields, when displaying a node for the struct, if
-          /// titleKey is present then display the value of that child field as the
-          /// title of the struct node. This is useful for visualizing arrays where
-          /// otherwise each element of the array would have to be separately expanded
-          /// to know which element that is (for example an array of ValidatorStake).
-          titleKey?: string;
-      }
+        /// Customizes how the field should be displayed.
+        display?: CustomFieldDisplay;
+        /// If present, this field represents one or more entity keys,
+        /// and the parser provides the logic for parsing these keys out
+        /// of the field name and value. Typically it's just one key.
+        parser?: (key: string, value: string) => EntityKey[];
+        /// If present, this field should be a struct, and we specify the
+        /// semantic of each of its fields. Fields can be missing if it doesn't
+        /// have any customizations.
+        struct?: Record<string, FieldSemantic>;
+        /// If present, this field should be an array, and we specify the
+        /// semantic for each element of the array.
+        array?: FieldSemantic;
+        /// For struct or array fields, when displaying a node for the struct, if
+        /// titleKey is present then display the value of that child field as the
+        /// title of the struct node. This is useful for visualizing arrays where
+        /// otherwise each element of the array would have to be separately expanded
+        /// to know which element that is (for example an array of ValidatorStake).
+        titleKey?: string;
+    }
     /// Undefined means there's no special customization for this field.
     | undefined;
 
@@ -124,12 +129,19 @@ export type EntityQuery = {
     BlockByHash?: { block_hash: string };
     BlockHashByHeight?: { block_height: number };
     BlockHeaderByHash?: { block_hash: string };
+    BlockInfoByHash?: { block_hash: string };
+    BlockMerkleTreeByHash?: { block_hash: string };
+    BlockMisc?: null;
     ChunkByHash?: { chunk_hash: string };
+    ChunkExtraByBlockHashShardUId?: { block_hash: string; shard_uid: string };
+    ChunkExtraByChunkHash?: { chunk_hash: string };
+    EpochInfoAggregator?: null,
     EpochInfoByEpochId?: { epoch_id: string };
     FlatStateByTrieKey?: { trie_key: string };
     FlatStateChangesByBlockHash?: { block_hash: string };
     FlatStateDeltaMetadataByBlockHash?: { block_hash: string };
     FlatStorageStatusByShardUId?: { shard_uid: string };
+    NextBlockHashByHash?: { block_hash: string };
     OutcomeByReceiptId?: { receipt_id: string };
     OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
     OutcomeByTransactionHash?: { transaction_hash: string };
@@ -160,12 +172,19 @@ export const entityQueryTypes: EntityQueryType[] = [
     'BlockByHash',
     'BlockHashByHeight',
     'BlockHeaderByHash',
+    'BlockInfoByHash',
+    'BlockMerkleTreeByHash',
+    'BlockMisc',
     'ChunkByHash',
+    'ChunkExtraByBlockHashShardUId',
+    'ChunkExtraByChunkHash',
+    'EpochInfoAggregator',
     'EpochInfoByEpochId',
     'FlatStateByTrieKey',
     'FlatStateChangesByBlockHash',
     'FlatStateDeltaMetadataByBlockHash',
     'FlatStorageStatusByShardUId',
+    'NextBlockHashByHash',
     'OutcomeByReceiptId',
     'OutcomeByReceiptIdAndBlockHash',
     'OutcomeByTransactionHash',
@@ -220,12 +239,19 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     BlockByHash: [queryKey('block_hash')],
     BlockHashByHeight: [queryKey('block_height')],
     BlockHeaderByHash: [queryKey('block_hash')],
+    BlockInfoByHash: [queryKey('block_hash')],
+    BlockMerkleTreeByHash: [queryKey('block_hash')],
+    BlockMisc: [],
     ChunkByHash: [queryKey('chunk_hash')],
+    ChunkExtraByBlockHashShardUId: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
+    ChunkExtraByChunkHash: [queryKey('chunk_hash')],
+    EpochInfoAggregator: [],
     EpochInfoByEpochId: [queryKey('epoch_id')],
     FlatStateByTrieKey: [queryKey('trie_key'), implicitQueryKey('shard_uid')],
     FlatStateChangesByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
     FlatStateDeltaMetadataByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
     FlatStorageStatusByShardUId: [queryKey('shard_uid')],
+    NextBlockHashByHash: [queryKey('block_hash')],
     OutcomeByReceiptId: [queryKey('receipt_id')],
     OutcomeByReceiptIdAndBlockHash: [queryKey('receipt_id'), implicitQueryKey('block_hash')],
     OutcomeByTransactionHash: [queryKey('transaction_hash')],
@@ -254,12 +280,19 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     BlockByHash: 'Block',
     BlockHashByHeight: 'BlockHash',
     BlockHeaderByHash: 'BlockHeader',
+    BlockInfoByHash: 'BlockInfo',
+    BlockMerkleTreeByHash: 'BlockMerkleTree',
+    BlockMisc: 'BlockMiscData',
     ChunkByHash: 'Chunk',
+    ChunkExtraByBlockHashShardUId: 'ChunkExtra',
+    ChunkExtraByChunkHash: 'ChunkExtra',
+    EpochInfoAggregator: 'EpochInfoAggregator',
     EpochInfoByEpochId: 'EpochInfo',
     FlatStateByTrieKey: 'FlatState',
     FlatStateChangesByBlockHash: 'FlatStateChanges',
     FlatStateDeltaMetadataByBlockHash: 'FlatStateDeltaMetadata',
     FlatStorageStatusByShardUId: 'FlatStorageStatus',
+    NextBlockHashByHash: 'BlockHash',
     OutcomeByReceiptId: 'ExecutionOutcome',
     OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
     OutcomeByTransactionHash: 'ExecutionOutcome',

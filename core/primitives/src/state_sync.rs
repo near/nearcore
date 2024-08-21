@@ -256,7 +256,7 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     (memory_usage + STATE_PART_MEMORY_LIMIT.as_u64() - 1) / STATE_PART_MEMORY_LIMIT.as_u64()
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, serde::Serialize)]
 /// Represents the progress of dumps state of a shard.
 pub enum StateSyncDumpProgress {
     /// Represents two cases:
