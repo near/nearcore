@@ -975,11 +975,11 @@ impl PeerActor {
                 .flatten()
                 .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
+                network_state.client.send(TxStatusResponse(tx_result.into()));
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.send_async(BlockApproval(approval, peer_id)).await.ok();
+                network_state.client.send(BlockApproval(approval, peer_id));
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
@@ -1030,7 +1030,7 @@ impl PeerActor {
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
                 let endorsement = ChunkEndorsement::V1(endorsement);
-                network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                network_state.client.send(ChunkEndorsementMessage(endorsement));
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {
@@ -1046,7 +1046,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                network_state.client.send(ChunkEndorsementMessage(endorsement));
                 None
             }
             body => {
@@ -1127,11 +1127,7 @@ impl PeerActor {
                     .flatten()
                     .map(PeerMessage::BlockHeaders),
                 PeerMessage::Block(block) => {
-                    network_state
-                        .client
-                        .send_async(BlockResponse { block, peer_id, was_requested })
-                        .await
-                        .ok();
+                    network_state.client.send(BlockResponse { block, peer_id, was_requested });
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
@@ -1157,7 +1153,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.send_async(RecvChallenge(challenge)).await.ok();
+                    network_state.client.send(RecvChallenge(challenge));
                     None
                 }
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -1176,7 +1172,7 @@ impl PeerActor {
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
                     //TODO: Route to state sync actor.
-                    network_state.client.send_async(StateResponse(info.into())).await.ok();
+                    network_state.client.send(StateResponse(info.into()));
                     None
                 }
                 msg => {

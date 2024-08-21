@@ -238,7 +238,7 @@ impl Network {
             transaction: noop().into_sender(),
             block_request: Sender::from_async_fn(|_| None),
             block_headers_request: Sender::from_async_fn(|_| None),
-            block: Sender::from_async_fn(move |block: BlockResponse| {
+            block: Sender::from_fn(move |block: BlockResponse| {
                 blocks.get(&block.block.hash().clone()).map(|p| p.set(block.block));
             }),
             block_headers: Sender::from_async_fn(move |headers: BlockHeadersResponse| {
@@ -249,7 +249,7 @@ impl Network {
                 Ok(())
             }),
             challenge: noop().into_sender(),
-            network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
+            network_info: Sender::from_fn(move |info: SetNetworkInfo| {
                 let mut n = data.lock().unwrap();
                 n.info_ = Arc::new(info.0);
                 if n.info_.num_connected_peers < min_peers {

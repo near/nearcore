@@ -27,11 +27,11 @@ use near_primitives::types::AccountId;
 /// We skip over the message handlers from view client.
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForTestLoopNetwork {
-    pub block: AsyncSender<BlockResponse, ()>,
+    pub block: Sender<BlockResponse>,
     pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub block_approval: Sender<BlockApproval>,
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub chunk_endorsement: Sender<ChunkEndorsementMessage>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -215,15 +215,13 @@ fn network_message_to_client_handler(
         NetworkRequests::Block { block } => {
             for account_id in shared_state.accounts() {
                 if account_id != &my_account_id {
-                    let future = shared_state
-                        .senders_for_account(account_id)
-                        .client_sender
-                        .send_async(BlockResponse {
+                    shared_state.senders_for_account(account_id).client_sender.send(
+                        BlockResponse {
                             block: block.clone(),
                             peer_id: PeerId::random(),
                             was_requested: false,
-                        });
-                    drop(future);
+                        },
+                    );
                 }
             }
             None
@@ -233,11 +231,10 @@ fn network_message_to_client_handler(
                 approval_message.target, my_account_id,
                 "Sending message to self not supported."
             );
-            let future = shared_state
+            shared_state
                 .senders_for_account(&approval_message.target)
                 .client_sender
-                .send_async(BlockApproval(approval_message.approval, PeerId::random()));
-            drop(future);
+                .send(BlockApproval(approval_message.approval, PeerId::random()));
             None
         }
         NetworkRequests::ForwardTx(account, transaction) => {
@@ -250,11 +247,10 @@ fn network_message_to_client_handler(
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             assert_ne!(target, my_account_id, "Sending message to self not supported.");
-            let future = shared_state
+            shared_state
                 .senders_for_account(&target)
                 .client_sender
-                .send_async(ChunkEndorsementMessage(endorsement));
-            drop(future);
+                .send(ChunkEndorsementMessage(endorsement));
             None
         }
         _ => Some(request),
@@ -288,12 +284,7 @@ fn network_message_to_view_client_handler(
                 .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
                 let response = *future.await.unwrap().unwrap();
-                let future = responder.send_async(BlockResponse {
-                    block: response,
-                    peer_id,
-                    was_requested: true,
-                });
-                drop(future);
+                responder.send(BlockResponse { block: response, peer_id, was_requested: true });
             });
             None
         }

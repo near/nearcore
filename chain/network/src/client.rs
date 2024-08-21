@@ -1,6 +1,6 @@
 use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
-use near_async::messaging::AsyncSender;
+use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -122,19 +122,19 @@ pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
-    pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
+    pub tx_status_response: Sender<TxStatusResponse>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
-    pub state_response: AsyncSender<StateResponse, ()>,
-    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub state_response: Sender<StateResponse>,
+    pub block_approval: Sender<BlockApproval>,
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<BlockHeader>>>,
-    pub block: AsyncSender<BlockResponse, ()>,
+    pub block: Sender<BlockResponse>,
     pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
-    pub challenge: AsyncSender<RecvChallenge, ()>,
-    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub challenge: Sender<RecvChallenge>,
+    pub network_info: Sender<SetNetworkInfo>,
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub chunk_endorsement: Sender<ChunkEndorsementMessage>,
 }

@@ -24,7 +24,7 @@ use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
-use near_async::messaging::{SendAsync, Sender};
+use near_async::messaging::{CanSend, Sender};
 use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
@@ -715,16 +715,7 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
             .start_timer();
-        // TODO(gprusak): just spawn a loop.
-        let state = self.state.clone();
-        ctx.spawn(wrap_future(
-            async move {
-                state.client.send_async(SetNetworkInfo(network_info)).await.ok();
-            }
-            .instrument(
-                tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
-            ),
-        ));
+        self.state.client.send(SetNetworkInfo(network_info));
 
         near_performance_metrics::actix::run_later(
             ctx,
