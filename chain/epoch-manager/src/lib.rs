@@ -27,15 +27,14 @@ use near_primitives::views::{
 };
 use near_store::{DBCol, Store, StoreUpdate};
 use primitive_types::U256;
-use production_stats::{
-    get_sortable_validator_production_ratio,
-    get_sortable_validator_production_ratio_without_endorsements,
-};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
 use types::BlockHeaderInfo;
+use validator_stats::{
+    get_sortable_validator_online_ratio, get_sortable_validator_online_ratio_without_endorsements,
+};
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
@@ -45,7 +44,6 @@ pub use crate::types::RngSeed;
 
 mod adapter;
 mod metrics;
-mod production_stats;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -55,6 +53,7 @@ pub mod test_utils;
 mod tests;
 pub mod types;
 mod validator_selection;
+mod validator_stats;
 
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
 const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 5 } else { 1000 }; // TODO(#5080): fix this
@@ -415,9 +414,7 @@ impl EpochManager {
             {
                 let mut sorted_validators = validator_block_chunk_stats
                     .iter()
-                    .map(|(account, stats)| {
-                        (get_sortable_validator_production_ratio(stats), account)
-                    })
+                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
                     .collect::<Vec<_>>();
                 sorted_validators.sort();
                 sorted_validators.into_iter().map(|(_, account)| account).collect::<Vec<_>>()
@@ -425,10 +422,7 @@ impl EpochManager {
                 let mut sorted_validators = validator_block_chunk_stats
                     .iter()
                     .map(|(account, stats)| {
-                        (
-                            get_sortable_validator_production_ratio_without_endorsements(stats),
-                            account,
-                        )
+                        (get_sortable_validator_online_ratio_without_endorsements(stats), account)
                     })
                     .collect::<Vec<_>>();
                 sorted_validators.sort();

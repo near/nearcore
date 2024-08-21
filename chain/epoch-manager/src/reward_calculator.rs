@@ -8,7 +8,7 @@ use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
 
-use crate::production_stats::get_validator_production_ratio;
+use crate::validator_stats::get_validator_online_ratio;
 
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
@@ -90,7 +90,7 @@ impl RewardCalculator {
         let mut epoch_actual_reward = epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
-            let production_ratio = get_validator_production_ratio(&stats);
+            let production_ratio = get_validator_online_ratio(&stats);
             let average_produced_numer = production_ratio.numer();
             let average_produced_denom = production_ratio.denom();
 

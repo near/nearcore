@@ -3,9 +3,11 @@ use num_bigint::BigUint;
 use num_rational::{BigRational, Ratio, Rational64};
 use primitive_types::U256;
 
-// Uptime is an average of block produced / expected, chunk produced / expected,
-// and chunk endorsed produced / expected.
-pub(crate) fn get_validator_production_ratio(stats: &BlockChunkValidatorStats) -> Ratio<U256> {
+/// Computes the overall online (uptime) ratio of the validator.
+/// This is an average of block produced / expected, chunk produced / expected,
+/// and chunk endorsed produced / expected.
+/// Note that it returns `Ratio<U256>` in raw form (not reduced).
+pub(crate) fn get_validator_online_ratio(stats: &BlockChunkValidatorStats) -> Ratio<U256> {
     let expected_blocks = stats.block_stats.expected;
     let expected_chunks = stats.chunk_stats.expected();
     let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
@@ -81,10 +83,14 @@ pub(crate) fn get_validator_production_ratio(stats: &BlockChunkValidatorStats) -
     Ratio::<U256>::new_raw(average_produced_numer, average_produced_denom)
 }
 
-pub(crate) fn get_sortable_validator_production_ratio(
-    stats: &BlockChunkValidatorStats,
-) -> BigRational {
-    let ratio = get_validator_production_ratio(stats);
+/// Computes the overall online (uptime) ratio of the validator for sorting.
+/// The reason for this function is that U256 used in the core implementation
+/// cannot be used with `Ratio<U256>` for sorting since it does not implement `num_integer::Integer`.
+/// Instead of having a full-blown implementation of `U256`` for `num_integer::Integer`
+/// we wrap the value in a `BigInt` for now.
+/// TODO: Implement `num_integer::Integer` for `U256` and remove this function.
+pub(crate) fn get_sortable_validator_online_ratio(stats: &BlockChunkValidatorStats) -> BigRational {
+    let ratio = get_validator_online_ratio(stats);
     let mut bytes: [u8; size_of::<U256>()] = [0; size_of::<U256>()];
     ratio.numer().to_little_endian(&mut bytes);
     let bignumer = BigUint::from_bytes_le(&bytes);
@@ -93,7 +99,8 @@ pub(crate) fn get_sortable_validator_production_ratio(
     BigRational::new(bignumer.try_into().unwrap(), bigdenom.try_into().unwrap())
 }
 
-pub(crate) fn get_sortable_validator_production_ratio_without_endorsements(
+/// Computes the overall online (uptime) ratio of the validator for sorting, ignoring the chunk endorsement stats.
+pub(crate) fn get_sortable_validator_online_ratio_without_endorsements(
     stats: &BlockChunkValidatorStats,
 ) -> Rational64 {
     if stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0 {
