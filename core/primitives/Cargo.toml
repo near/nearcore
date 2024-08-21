@@ -89,7 +89,7 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 
-default = ["rand", "clock"]
+default = ["near-crypto/rand", "clock"]
 calimero_zero_storage = []
 
 protocol_schema = [
