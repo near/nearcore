@@ -3,7 +3,6 @@ use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::Tip;
-use near_primitives::checked_feature;
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
@@ -20,13 +19,18 @@ use near_primitives::types::{
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION,
+};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate};
-use num_rational::Rational64;
 use primitive_types::U256;
+use production_stats::{
+    get_sortable_validator_production_ratio,
+    get_sortable_validator_production_ratio_without_endorsements,
+};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -41,6 +45,7 @@ pub use crate::types::RngSeed;
 
 mod adapter;
 mod metrics;
+mod production_stats;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -403,40 +408,35 @@ impl EpochManager {
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
         let mut exempted_validators = HashSet::new();
-        if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
+        if ProtocolFeature::MaxKickoutStake.enabled(epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
-            let mut sorted_validators = validator_block_chunk_stats
-                .iter()
-                .map(|(account, stats)| {
-                    let production_ratio =
-                        if stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0 {
-                            Rational64::from_integer(1)
-                        } else if stats.block_stats.expected == 0 {
-                            Rational64::new(
-                                stats.chunk_stats.produced() as i64,
-                                stats.chunk_stats.expected() as i64,
-                            )
-                        } else if stats.chunk_stats.expected() == 0 {
-                            Rational64::new(
-                                stats.block_stats.produced as i64,
-                                stats.block_stats.expected as i64,
-                            )
-                        } else {
-                            (Rational64::new(
-                                stats.chunk_stats.produced() as i64,
-                                stats.chunk_stats.expected() as i64,
-                            ) + Rational64::new(
-                                stats.block_stats.produced as i64,
-                                stats.block_stats.expected as i64,
-                            )) / 2
-                        };
-                    (production_ratio, account)
-                })
-                .collect::<Vec<_>>();
-            sorted_validators.sort();
+            let sorted_accounts = if ProtocolFeature::ChunkEndorsementsInBlockHeader
+                .enabled(epoch_info.protocol_version())
+            {
+                let mut sorted_validators = validator_block_chunk_stats
+                    .iter()
+                    .map(|(account, stats)| {
+                        (get_sortable_validator_production_ratio(stats), account)
+                    })
+                    .collect::<Vec<_>>();
+                sorted_validators.sort();
+                sorted_validators.into_iter().map(|(_, account)| account).collect::<Vec<_>>()
+            } else {
+                let mut sorted_validators = validator_block_chunk_stats
+                    .iter()
+                    .map(|(account, stats)| {
+                        (
+                            get_sortable_validator_production_ratio_without_endorsements(stats),
+                            account,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                sorted_validators.sort();
+                sorted_validators.into_iter().map(|(_, account)| account).collect::<Vec<_>>()
+            };
 
             let mut exempted_stake: Balance = 0;
-            for (_, account_id) in sorted_validators.into_iter().rev() {
+            for account_id in sorted_accounts.into_iter().rev() {
                 if exempted_stake >= min_keep_stake {
                     break;
                 }

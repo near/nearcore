@@ -4297,6 +4297,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-store",
+ "num-bigint 0.3.3",
  "num-rational 0.3.2",
  "primitive-types 0.10.1",
  "rand",
