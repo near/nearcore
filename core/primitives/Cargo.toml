@@ -55,7 +55,7 @@ sandbox = []
 test_features = []
 solomon = ["reed-solomon-erasure", "itertools"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand", "itertools"]
-clock = ["near-time/clock"]
+clock = ["near-time/clock", "near-time/serde"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = [
   "near-primitives-core/protocol_feature_fix_staking_threshold",

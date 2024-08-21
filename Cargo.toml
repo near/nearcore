@@ -277,9 +277,7 @@ near-structs-checker-lib = { path = "core/structs-checker/structs-checker-lib" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
-near-time = { path = "core/time", default-features = false, features = [
-    "serde",
-] }
+near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }

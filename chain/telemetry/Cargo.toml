@@ -20,6 +20,7 @@ openssl.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+near-time = {workspace = true, features = ["serde"]}
 
 near-async.workspace = true
 near-o11y.workspace = true
