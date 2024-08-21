@@ -3,10 +3,7 @@ use near_primitives_core::{
     chains, hash::CryptoHash, types::ProtocolVersion, version::ProtocolFeature,
 };
 use near_vm_runner::ContractCode;
-use std::{
-    str::FromStr,
-    sync::{Arc, LazyLock, OnceLock},
-};
+use std::sync::{Arc, OnceLock};
 
 static MAINNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_mainnet.wasm"));
@@ -16,6 +13,8 @@ static TESTNET: WalletContract =
 
 /// Initial version of WalletContract. It was released to testnet, but not mainnet.
 /// We still use this one on testnet protocol version 70 for consistency.
+/// Example account:
+/// https://testnet.nearblocks.io/address/0xcc5a584f545b2ca3ebacc1346556d1f5b82b8fc6
 static OLD_TESTNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_testnet_pv70.wasm"));
 
@@ -25,12 +24,6 @@ const NEW_WALLET_CONTRACT_VERSION: ProtocolVersion =
 
 static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));
-
-/// Old version of the wallet contract on testet. We still support it for
-/// backwards compatibility. Example account:
-/// https://testnet.nearblocks.io/address/0xcc5a584f545b2ca3ebacc1346556d1f5b82b8fc6
-static ALT_TESTNET_CODE_HASH: LazyLock<CryptoHash> =
-    LazyLock::new(|| CryptoHash::from_str("4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ").unwrap());
 
 /// Get wallet contract code for different Near chains.
 pub fn wallet_contract(chain_id: &str, protocol_version: ProtocolVersion) -> Arc<ContractCode> {
@@ -83,8 +76,8 @@ pub fn code_hash_matches_wallet_contract(
     // made to run the current version of the wallet contract because
     // the previous version had a bug in its implementation.
     if chain_id == chains::TESTNET {
-        let alt_testnet_code_hash: &CryptoHash = &ALT_TESTNET_CODE_HASH;
-        return code_hash == alt_testnet_code_hash;
+        let alt_testnet_code = OLD_TESTNET.magic_bytes();
+        return code_hash == alt_testnet_code.hash();
     }
 
     false
@@ -120,7 +113,7 @@ impl WalletContract {
 mod tests {
     use crate::{
         code_hash_matches_wallet_contract, wallet_contract, wallet_contract_magic_bytes,
-        ALT_TESTNET_CODE_HASH,
+        OLD_TESTNET,
     };
     use near_primitives_core::{
         chains::{MAINNET, TESTNET},
@@ -132,6 +125,7 @@ mod tests {
     #[test]
     fn test_code_hash_matches_wallet_contract() {
         let chain_ids = [MAINNET, TESTNET, "localnet"];
+        let testnet_code_v70 = OLD_TESTNET.magic_bytes();
         let other_code_hash =
             CryptoHash::from_str("9rmLr4dmrg5M6Ts6tbJyPpbCrNtbL9FCdNv24FcuWP5a").unwrap();
         for id in chain_ids {
@@ -144,7 +138,7 @@ mod tests {
                 "Wallet contract magic bytes matches wallet contract"
             );
             assert_eq!(
-                code_hash_matches_wallet_contract(id, &ALT_TESTNET_CODE_HASH, PROTOCOL_VERSION),
+                code_hash_matches_wallet_contract(id, testnet_code_v70.hash(), PROTOCOL_VERSION),
                 id == TESTNET,
                 "Special case only matches on testnet"
             );
@@ -182,10 +176,11 @@ mod tests {
         let expected_hash = CryptoHash::from_str(WALLET_CONTRACT_HASH).unwrap();
         assert_eq!(*contract.hash(), expected_hash, "wallet contract hash mismatch");
 
+        const MAGIC_BYTES_HASH: &'static str = "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ";
         let magic_bytes = wallet_contract_magic_bytes(TESTNET, protocol_version);
         assert!(!magic_bytes.code().is_empty());
-        let expected_hash: &CryptoHash = &ALT_TESTNET_CODE_HASH;
-        assert_eq!(magic_bytes.hash(), expected_hash, "magic bytes hash mismatch");
+        let expected_hash = CryptoHash::from_str(MAGIC_BYTES_HASH).unwrap();
+        assert_eq!(magic_bytes.hash(), &expected_hash, "magic bytes hash mismatch");
     }
 
     #[test]
