@@ -13,10 +13,9 @@ from cluster import start_cluster
 import state_sync_lib
 from utils import wait_for_blocks
 
-
 EPOCH_LENGTH = 10
 # Should only keep last 30 blocks.
-NUM_GC_EPOCHS = 3 
+NUM_GC_EPOCHS = 3
 
 
 class GcAfterNodeOffline(unittest.TestCase):
@@ -31,26 +30,25 @@ class GcAfterNodeOffline(unittest.TestCase):
         # Let node0 tracks shard 0 only, regardless of their assignment.
         configs[0]['tracked_shard_schedule'] = [[0]]
 
-        nodes = start_cluster(
-            4, 1, 2, None,
-            [["epoch_length", EPOCH_LENGTH],
-             ["block_producer_kickout_threshold", 0],
-             ["chunk_producer_kickout_threshold", 0]], configs)
+        nodes = start_cluster(4, 1, 2, None,
+                              [["epoch_length", EPOCH_LENGTH],
+                               ["block_producer_kickout_threshold", 0],
+                               ["chunk_producer_kickout_threshold", 0]],
+                              configs)
 
         for node in nodes:
             node.stop_checking_store()
-        
+
         node0 = nodes[0]
         rpc_node = nodes[-1]
         return node0, rpc_node
-    
+
     def _has_block(self, node, block_height):
         result = node.json_rpc('block', [block_height], timeout=10)
         if 'error' in result:
             return False, result
         self.assertIn('result', result, result)
         return True, result
-
 
     def test_gc_after_node_offline(self):
         node0, rpc_node = self._prepare_cluster()

@@ -13,10 +13,9 @@ from cluster import start_cluster
 import state_sync_lib
 from utils import wait_for_blocks
 
-
 EPOCH_LENGTH = 10
 NUM_GC_EPOCHS = 3
-NUM_BLOCKS_TO_KEEP = EPOCH_LENGTH * NUM_GC_EPOCHS 
+NUM_BLOCKS_TO_KEEP = EPOCH_LENGTH * NUM_GC_EPOCHS
 
 
 class GcAfterShardSwitch(unittest.TestCase):
@@ -31,26 +30,26 @@ class GcAfterShardSwitch(unittest.TestCase):
         # Let node0 tracks shard 0 only, regardless of their assignment.
         configs[0]['tracked_shard_schedule'] = [[0]]
 
-        nodes = start_cluster(
-            4, 1, 2, None,
-            [["epoch_length", EPOCH_LENGTH],
-             ["block_producer_kickout_threshold", 0],
-             ["chunk_producer_kickout_threshold", 0]], configs)
+        nodes = start_cluster(4, 1, 2, None,
+                              [["epoch_length", EPOCH_LENGTH],
+                               ["block_producer_kickout_threshold", 0],
+                               ["chunk_producer_kickout_threshold", 0]],
+                              configs)
 
         for node in nodes:
             node.stop_checking_store()
-        
+
         node0 = nodes[0]
         rpc_node = nodes[-1]
         return node0, rpc_node
-    
+
     def _has_block(self, node, block_height):
         result = node.json_rpc('block', [block_height], timeout=10)
         if 'error' in result:
             return False, result
         self.assertIn('result', result, result)
         return True, result
-    
+
     # A wrapper for `wait_for_blocks` function that saves info about recent blocks hashes.
     def _wait_for_blocks(self, node, block_height_to_hash, target):
         wait_for_blocks(node, target=target)
@@ -71,7 +70,6 @@ class GcAfterShardSwitch(unittest.TestCase):
         self.assertIn('result', result, result)
         return True, result
 
-
     def test_gc_after_shard_switch(self):
         node0, rpc_node = self._prepare_cluster()
         block_height_to_hash = {}
@@ -85,7 +83,8 @@ class GcAfterShardSwitch(unittest.TestCase):
         self._wait_for_blocks(rpc_node, block_height_to_hash, target=60)
 
         # Most of the blocks should be known.
-        self.assertGreater(len(block_height_to_hash), 45, block_height_to_hash.keys())
+        self.assertGreater(len(block_height_to_hash), 45,
+                           block_height_to_hash.keys())
 
         # New data is not garbage collected.
         for height in range(31, 60):
@@ -93,7 +92,7 @@ class GcAfterShardSwitch(unittest.TestCase):
                 continue
             has_block, res = self._has_block(node0, height)
             self.assertTrue(has_block, f'height {height}: {res}')
-            
+
             has_chunk, res = self._has_chunk(node0, 1, height)
             self.assertTrue(has_chunk, f'height {height}, shard 1: {res}')
 
@@ -107,11 +106,11 @@ class GcAfterShardSwitch(unittest.TestCase):
                 continue
             has_block, res = self._has_block(node0, height)
             self.assertFalse(has_block, f'height {height}: {res}')
-            
+
             for shard_id in [0, 1]:
                 has_chunk, res = self._has_chunk(node0, shard_id, height)
-                self.assertFalse(has_chunk, f'height {height}, shard {shard_id}: {res}')
-        
+                self.assertFalse(has_chunk,
+                                 f'height {height}, shard {shard_id}: {res}')
 
 
 if __name__ == '__main__':
