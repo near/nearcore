@@ -474,7 +474,6 @@ impl Testbed<'_> {
     fn trie(&mut self) -> near_store::Trie {
         // We generated `finality_lag` fake blocks earlier, so the fake height
         // will be at the same number.
-        println!("Creating trie with root {:?}", self.root);
         let tip_height = self.config.finality_lag;
         let tip = fs_fake_block_height_to_hash(tip_height as u64);
         self.tries.get_trie_with_block_hash_for_shard(
