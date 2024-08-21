@@ -42,14 +42,14 @@ impl Client {
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
         // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
-        let chunk_header = if let ChunkEndorsement::V2(endorsement) = &endorsement {
-            match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
-                Ok(chunk) => Some(chunk.cloned_header()),
-                Err(Error::ChunkMissing(_)) => None,
-                Err(error) => return Err(error),
-            }
-        } else {
-            None
+        let chunk_hash = match &endorsement {
+            ChunkEndorsement::V1(endorsement) => endorsement.chunk_hash(),
+            ChunkEndorsement::V2(endorsement) => endorsement.chunk_hash(),
+        };
+        let chunk_header = match self.chain.chain_store().get_partial_chunk(chunk_hash) {
+            Ok(chunk) => Some(chunk.cloned_header()),
+            Err(Error::ChunkMissing(_)) => None,
+            Err(error) => return Err(error),
         };
         self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, chunk_header)
     }
