@@ -17,7 +17,7 @@ static TESTNET: WalletContract =
 /// Initial version of WalletContract. It was released to testnet, but not mainnet.
 /// We still use this one on testnet protocol version 70 for consistency.
 static OLD_TESTNET: WalletContract =
-    WalletContract::new(include_bytes!("../res/wallet_contract_testnet_old.wasm"));
+    WalletContract::new(include_bytes!("../res/wallet_contract_testnet_pv70.wasm"));
 
 /// The protocol version on testnet where it is safe to start using the new wallet contract.
 const NEW_WALLET_CONTRACT_VERSION: ProtocolVersion =
