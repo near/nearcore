@@ -97,13 +97,19 @@ impl ShardTries {
         skip_all,
         fields(is_view)
     )]
-    fn get_trie_cache_for(&self, shard_uid: ShardUId, is_view: bool) -> TrieCache {
-        let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
-        let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
-        caches
-            .entry(shard_uid)
-            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
-            .clone()
+    fn get_trie_cache_for(&self, shard_uid: ShardUId, is_view: bool) -> Option<TrieCache> {
+        self.trie_cache_enabled(shard_uid, is_view).then(|| {
+            let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
+            let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
+            caches
+                .entry(shard_uid)
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
+                .clone()
+        })
+    }
+
+    fn trie_cache_enabled(&self, shard_uid: ShardUId, is_view: bool) -> bool {
+        is_view || self.get_mem_tries(shard_uid).is_none()
     }
 
     fn get_trie_for_shard_internal(
@@ -116,11 +122,12 @@ impl ShardTries {
         // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
         // and also this can introduce lock contention on memtries.
         let memtries = if is_view { None } else { self.get_mem_tries(shard_uid) };
-        let storage: Arc<dyn TrieStorage> = if memtries.is_some() {
-            Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
-        } else {
-            Arc::new(self.create_caching_storage(shard_uid, is_view))
-        };
+        let storage: Arc<dyn TrieStorage> =
+            if let Some(cache) = self.get_trie_cache_for(shard_uid, is_view) {
+                Arc::new(self.create_caching_storage(cache, shard_uid, is_view))
+            } else {
+                Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
+            };
 
         let flat_storage_chunk_view = block_hash
             .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
@@ -138,7 +145,9 @@ impl ShardTries {
         block_hash: &CryptoHash,
     ) -> Result<Trie, StorageError> {
         let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
-        let cache = self.get_trie_cache_for(shard_uid, true);
+        let cache = self
+            .get_trie_cache_for(shard_uid, true)
+            .expect("trie cache should be enabled for view calls");
         let storage = Arc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
@@ -191,14 +200,17 @@ impl ShardTries {
         fields(ops.len = ops.len()),
     )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
-        if self.get_mem_tries(shard_uid).is_none() {
-            let cache = self.get_trie_cache_for(shard_uid, false);
+        if let Some(cache) = self.get_trie_cache_for(shard_uid, false) {
             cache.update_cache(ops);
         }
     }
 
-    fn create_caching_storage(&self, shard_uid: ShardUId, is_view: bool) -> TrieCachingStorage {
-        let cache = self.get_trie_cache_for(shard_uid, is_view);
+    fn create_caching_storage(
+        &self,
+        cache: TrieCache,
+        shard_uid: ShardUId,
+        is_view: bool,
+    ) -> TrieCachingStorage {
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
         // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
