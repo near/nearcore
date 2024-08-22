@@ -246,15 +246,25 @@ impl AllEpochConfig {
             || chain_id == near_primitives_core::chains::MOCKNET)
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
-            let shard_ids = config.shard_layout.shard_ids();
             // Decrease the number of block and chunk producers from 100 to 20.
             config.num_block_producer_seats = 15;
             // Checking feature NoChunkOnlyProducers in stateless validation
             if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
                 config.validator_selection_config.num_chunk_producer_seats = 15;
             }
+
             config.num_block_producer_seats_per_shard =
-                shard_ids.map(|_| config.num_block_producer_seats).collect();
+                config.shard_layout.shard_ids().map(|_| 1).collect();
+            'outer: loop {
+                for i in 0..config.num_block_producer_seats_per_shard.len() {
+                    if config.num_block_producer_seats_per_shard.iter().sum::<u64>()
+                        >= config.num_block_producer_seats
+                    {
+                        break 'outer;
+                    }
+                    config.num_block_producer_seats_per_shard[i] += 1;
+                }
+            }
             // Decrease the number of chunk producers.
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
         }
