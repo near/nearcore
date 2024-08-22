@@ -69,7 +69,9 @@ impl EpochSync {
         let tip = store
             .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
             .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
-        let next_next_epoch_id = tip.next_epoch_id; // for finding last block of target epoch
+        let next_next_epoch_id = tip.next_epoch_id;
+        // Last block hash of the target epoch is the same as the next next EpochId.
+        // That's a general property for Near's epochs.
         let target_epoch_last_block_header = store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, next_next_epoch_id.0.as_bytes())?
             .ok_or_else(|| Error::Other("Could not find last block of target epoch".to_string()))?;
@@ -354,6 +356,7 @@ impl EpochSync {
             _ => {}
         }
 
+        // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
         let peer = highest_height_peers
             .choose(&mut rand::thread_rng())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;

@@ -15,6 +15,8 @@ use near_client::SetNetworkInfo;
 use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
 use near_primitives::block::GenesisId;
 use near_store::test_utils::create_test_store;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const NUM_CLIENTS: usize = 4;
 
@@ -151,17 +153,26 @@ fn test_epoch_sync_from_genesis() {
 
     // Check that the new node will reach a high height as well.
     let new_node = node_datas.last().unwrap().client_sender.actor_handle();
-    test_loop.set_every_event_callback(move |test_loop_data| {
-        let client = &test_loop_data.get(&new_node).client;
-        let header_head_height = client.chain.header_head().unwrap().height;
-        let head_height = client.chain.head().unwrap().height;
-        tracing::info!(
-            "New node sync status: {:?}, header head height: {:?}, head height: {:?}",
-            client.sync_status,
-            header_head_height,
-            head_height
-        );
-    });
+    let sync_status_history = Rc::new(RefCell::new(Vec::new()));
+    {
+        let sync_status_history = sync_status_history.clone();
+        test_loop.set_every_event_callback(move |test_loop_data| {
+            let client = &test_loop_data.get(&new_node).client;
+            let header_head_height = client.chain.header_head().unwrap().height;
+            let head_height = client.chain.head().unwrap().height;
+            tracing::info!(
+                "New node sync status: {:?}, header head height: {:?}, head height: {:?}",
+                client.sync_status,
+                header_head_height,
+                head_height
+            );
+            let sync_status = client.sync_status.as_variant_name();
+            let mut history = sync_status_history.borrow_mut();
+            if history.last().map(|s| s as &str) != Some(sync_status) {
+                history.push(sync_status.to_string());
+            }
+        });
+    }
     let new_node = node_datas.last().unwrap().client_sender.actor_handle();
     let node0 = node_datas[0].client_sender.actor_handle();
     test_loop.run_until(
@@ -185,4 +196,29 @@ fn test_epoch_sync_from_genesis() {
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
+
+    assert_eq!(
+        sync_status_history.borrow().as_slice(),
+        &[
+            // Initial state.
+            "AwaitingPeers",
+            // State after having enough peers.
+            "NoSync",
+            // EpochSync should be entered first.
+            "EpochSync",
+            // EpochSync should succeed.
+            "EpochSyncDone",
+            // Header sync happens next to bring forward HEADER_HEAD.
+            "HeaderSync",
+            // State sync downloads the state from state dumps.
+            "StateSync",
+            // Block sync picks up from where StateSync left off, and finishes the sync.
+            "BlockSync",
+            // NoSync means we're up to date.
+            "NoSync"
+        ]
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+    );
 }
