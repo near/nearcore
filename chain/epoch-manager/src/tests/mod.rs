@@ -2905,7 +2905,7 @@ fn test_max_kickout_stake_ratio() {
         ),
     ]);
     assert_eq!(validator_stats, wanted_validator_stats,);
-    // At most 50% of total stake can be kicked out
+    // At most 40% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
     let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2975,7 +2975,8 @@ fn test_chunk_validator_exempted() {
 
     let prev_validator_kickout =
         HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
-    epoch_config.validator_max_kickout_stake_perc = 100;
+    // At most 40% of total stake can be kicked out
+    epoch_config.validator_max_kickout_stake_perc = 40;
     let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
@@ -3035,7 +3036,8 @@ fn test_chunk_validator_kicked_out_for_low_endorsement() {
 
     let prev_validator_kickout =
         HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
-    epoch_config.validator_max_kickout_stake_perc = 100;
+    // At most 40% of total stake can be kicked out
+    epoch_config.validator_max_kickout_stake_perc = 40;
     let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
@@ -3054,7 +3056,7 @@ fn test_chunk_validator_kicked_out_for_low_endorsement() {
 }
 
 #[test]
-/// Tests that a validator is not kicked out due to low endorsement if it produces blocks and chunks right.
+/// Tests that a validator is not kicked out due to low endorsement only (as long as it produces most of its blocks and chunks).
 fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
     if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
@@ -3090,7 +3092,8 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
         ),
     ]);
 
-    epoch_config.validator_max_kickout_stake_perc = 100;
+    // At most 40% of total stake can be kicked out
+    epoch_config.validator_max_kickout_stake_perc = 40;
     let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
