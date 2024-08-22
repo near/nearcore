@@ -553,6 +553,20 @@ impl RoutedMessageBody {
             _ => 1,
         }
     }
+
+    // Return true if we allow the message sent to our own account_id to be redirected back to us.
+    // The default behavior is to drop all messages sent to our own account_id.
+    // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where
+    // we may be the block_producer.
+    pub fn allow_sending_to_self(&self) -> bool {
+        match self {
+            RoutedMessageBody::ChunkEndorsement(_)
+            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Debug for RoutedMessageBody {

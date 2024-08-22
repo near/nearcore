@@ -1,6 +1,9 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
-use crate::client::ClientSenderForNetwork;
+use crate::client::{
+    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
+    TxStatusRequest, TxStatusResponse,
+};
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
@@ -18,18 +21,22 @@ use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
-use crate::state_witness::PartialWitnessSenderForNetwork;
+use crate::state_witness::{
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
+};
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use near_async::messaging::Sender;
+use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
@@ -563,6 +570,14 @@ impl NetworkState {
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
+        // If the message is allowed to be sent to self, we handle it directly.
+        if self.config.validator.account_id().is_some_and(|id| &id == account_id)
+            && msg.allow_sending_to_self()
+        {
+            self.receive_routed_message_maybe_to_self(msg);
+            return true;
+        }
+
         let accounts_data = self.accounts_data.load();
         if tcp::Tier::T1.is_allowed_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
@@ -625,6 +640,104 @@ impl NetworkState {
             success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
         }
         success
+    }
+
+    pub async fn receive_routed_message(
+        &self,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        msg_hash: CryptoHash,
+        body: RoutedMessageBody,
+    ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
+        // Handler for all other messages that can not be sent to self.
+        debug_assert!(!body.allow_sending_to_self());
+        Ok(match body {
+            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => self
+                .client
+                .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
+                .await
+                .ok()
+                .flatten()
+                .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
+            RoutedMessageBody::TxStatusResponse(tx_result) => {
+                self.client.send(TxStatusResponse(tx_result.into()));
+                None
+            }
+            RoutedMessageBody::BlockApproval(approval) => {
+                self.client.send(BlockApproval(approval, peer_id));
+                None
+            }
+            RoutedMessageBody::ForwardTx(transaction) => {
+                self.client
+                    .send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: true,
+                        check_only: false,
+                    })
+                    .await
+                    .ok();
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                self.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                        partial_encoded_chunk_request: request,
+                        route_back: msg_hash,
+                    },
+                );
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                self.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                        partial_encoded_chunk_response: response,
+                        received_time: clock.now().into(),
+                    },
+                );
+                None
+            }
+            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                self.shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
+                self.shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
+                None
+            }
+            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
+                self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                None
+            }
+            body => {
+                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                None
+            }
+        })
+    }
+
+    pub fn receive_routed_message_maybe_to_self(&self, body: RoutedMessageBody) {
+        // Handler for only messages that are allowed to be sent to self.
+        debug_assert!(body.allow_sending_to_self());
+        match body {
+            RoutedMessageBody::ChunkEndorsement(endorsement) => {
+                let endorsement = ChunkEndorsement::V1(endorsement);
+                self.client.send(ChunkEndorsementMessage(endorsement))
+            }
+            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness))
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                self.partial_witness_adapter.send(PartialEncodedStateWitnessForwardMessage(witness))
+            }
+            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
+                self.client.send(ChunkEndorsementMessage(endorsement))
+            }
+            body => {
+                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body)
+            }
+        }
     }
 
     pub async fn add_accounts_data(

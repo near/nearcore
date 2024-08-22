@@ -1,8 +1,7 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ProcessTxRequest, RecvChallenge, StateRequestHeader,
-    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -24,12 +23,7 @@ use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
-use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostInfoError;
-use crate::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage,
-};
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -45,7 +39,6 @@ use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
@@ -966,94 +959,12 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        Ok(match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
-                .client
-                .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
-                .await
-                .ok()
-                .flatten()
-                .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
-            RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.send(TxStatusResponse(tx_result.into()));
-                None
-            }
-            RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.send(BlockApproval(approval, peer_id));
-                None
-            }
-            RoutedMessageBody::ForwardTx(transaction) => {
-                network_state
-                    .client
-                    .send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    })
-                    .await
-                    .ok();
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                        partial_encoded_chunk_request: request,
-                        route_back: msg_hash,
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                        partial_encoded_chunk_response: response,
-                        received_time: clock.now().into(),
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state
-                    .shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state
-                    .shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                network_state.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
-                None
-            }
-            RoutedMessageBody::ChunkEndorsement(endorsement) => {
-                let endorsement = ChunkEndorsement::V1(endorsement);
-                network_state.client.send(ChunkEndorsementMessage(endorsement));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                network_state
-                    .partial_witness_adapter
-                    .send(PartialEncodedStateWitnessMessage(witness));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                network_state
-                    .partial_witness_adapter
-                    .send(PartialEncodedStateWitnessForwardMessage(witness));
-                None
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                network_state.client.send(ChunkEndorsementMessage(endorsement));
-                None
-            }
-            body => {
-                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
-                None
-            }
-        })
+        if body.allow_sending_to_self() {
+            network_state.receive_routed_message_maybe_to_self(body);
+            Ok(None)
+        } else {
+            network_state.receive_routed_message(clock, peer_id, msg_hash, body).await
+        }
     }
 
     fn receive_message(
