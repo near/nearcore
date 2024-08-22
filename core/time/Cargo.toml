@@ -13,12 +13,13 @@ workspace = true
 
 [dependencies]
 time = { workspace = true, features = ["formatting", "parsing"] }
-tokio = { workspace = true, features = ["time", "sync"], optional = true }
+tokio = { workspace = true, default-features = false, features = ["time", "sync"], optional = true }
 serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
 
 [features]
-clock = ["tokio"]
+default = ["serde"]
+clock = ["tokio/sync"]
 serde = ["dep:serde", "time/serde"]

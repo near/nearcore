@@ -4998,6 +4998,7 @@ dependencies = [
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "near-time",
  "openssl",
  "serde",
  "serde_json",
