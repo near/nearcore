@@ -269,12 +269,8 @@ impl PartialWitnessActor {
             .get()
             .ok_or(Error::NotAValidator(format!("handle partial encoded state witness")))?;
 
-        // Validate the partial encoded state witness.
+        // Validate the partial encoded state witness and forward the part to all the chunk validators.
         if self.validate_partial_encoded_state_witness(&partial_witness, &signer)? {
-            // Store the partial encoded state witness for self.
-            self.partial_witness_tracker
-                .store_partial_encoded_state_witness(partial_witness.clone())?;
-            // Forward the part to all the chunk validators.
             self.forward_state_witness_part(partial_witness)?;
         }
 
@@ -295,9 +291,8 @@ impl PartialWitnessActor {
             }
         };
 
-        // Validate the partial encoded state witness.
+        // Validate the partial encoded state witness and store the partial encoded state witness.
         if self.validate_partial_encoded_state_witness(&partial_witness, &signer)? {
-            // Store the partial encoded state witness for self.
             self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
         }
 
