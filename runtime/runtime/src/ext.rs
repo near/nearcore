@@ -381,9 +381,9 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         let chain_id = self.chain_id;
         if checked_feature!("stable", EthImplicitAccounts, version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
-            && code_hash_matches_wallet_contract(chain_id, &code_hash)
+            && code_hash_matches_wallet_contract(chain_id, &code_hash, version)
         {
-            return Some(wallet_contract(&chain_id));
+            return Some(wallet_contract(&chain_id, version));
         }
         let mode = match checked_feature!("stable", ChunkNodesCache, version) {
             true => Some(TrieCacheMode::CachingShard),

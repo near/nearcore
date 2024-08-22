@@ -7,7 +7,9 @@ use near_chain::chain::{
     ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
+use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use near_chain::validate::{
@@ -20,14 +22,14 @@ use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
-use near_state_viewer::util::resulting_chunk_extra;
 use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -85,6 +87,7 @@ enum ReplayBlockOutput {
 /// Result of replaying a chunk.
 struct ReplayChunkOutput {
     chunk_extra: ChunkExtra,
+    outgoing_receipts: Vec<Receipt>,
 }
 
 struct ReplayController {
@@ -94,6 +97,7 @@ struct ReplayController {
     runtime: Arc<NightshadeRuntime>,
     epoch_manager: Arc<EpochManagerHandle>,
     progress_reporter: ProgressReporter,
+    start_height: BlockHeight,
     next_height: BlockHeight,
     end_height: BlockHeight,
 }
@@ -139,9 +143,26 @@ impl ReplayController {
             runtime,
             epoch_manager,
             progress_reporter,
+            start_height,
             next_height: start_height,
             end_height,
         })
+    }
+
+    fn init_start_block(&mut self) -> Result<()> {
+        let block_hash =
+            self.chain_store.get_block_hash_by_height(self.start_height).map_err(|e| {
+                anyhow!("Failed to get block hash for start height {}: {:#}", self.start_height, e)
+            })?;
+        let block = self
+            .chain_store
+            .get_block(&block_hash)
+            .context("Failed to get block for start height")?;
+        if block.header().is_genesis() {
+            // Generate and save chunk extras for the genesis block so that we use them in the next block.
+            self.save_genesis_chunk_extras(&block)?;
+        }
+        Ok(())
     }
 
     /// Replays the next block if any. Returns true if there are still blocks to replay
@@ -149,6 +170,10 @@ impl ReplayController {
     fn replay_next_block(&mut self) -> Result<bool> {
         if self.next_height > self.end_height {
             bail!("End height is reached");
+        }
+        if self.next_height == self.start_height {
+            // Initialize the DB columns that are not archival but need to be there for the replay.
+            self.init_start_block().context("Failed to initialize store")?;
         }
         let mut total_gas_burnt: Option<Gas> = None;
         match self.replay_block(self.next_height)? {
@@ -182,14 +207,12 @@ impl ReplayController {
 
         self.validate_block(&block, protocol_version)?;
 
-        // TODO: This should be done after applying the chunks. However, running it before helps to
-        // initialize BlockInfo and EpochInfo, which are needed to collect the receipts from previous
-        // chunks. Revisit the logic for collecting the receipts and call this to after applying the chunks.
         self.update_epoch_manager(&block)?;
+        if !block.header().is_genesis() {
+            self.update_incoming_receipts(&block)?;
+        }
 
         if block.header().is_genesis() {
-            // Generate and save chunk extras for the genesis block so that we use them in the next block.
-            self.save_genesis_chunk_extras(&block)?;
             return Ok(ReplayBlockOutput::Genesis(block));
         }
 
@@ -208,17 +231,33 @@ impl ReplayController {
         for shard_id in 0..chunks.len() {
             let chunk_header = &chunks[shard_id];
             let prev_chunk_header = &prev_chunk_headers[shard_id];
+            let epoch_id = block.header().epoch_id();
+            let shard_id: ShardId = shard_id.try_into()?;
+            let shard_uid = self
+                .epoch_manager
+                .shard_id_to_uid(shard_id, epoch_id)
+                .context("Failed to get shard UID from shard id")?;
             let replay_output = self
                 .replay_chunk(
                     &block,
                     &prev_block,
-                    shard_id.try_into()?,
+                    shard_uid,
                     chunk_header,
                     prev_chunk_header,
                     protocol_version,
                 )
                 .context("Failed to replay the chunk")?;
             total_gas_burnt += replay_output.chunk_extra.gas_used();
+
+            // Save chunk extra and outgoing receipts for future reads.
+            let mut store_update = self.chain_store.store_update();
+            store_update.save_chunk_extra(&block_hash, &shard_uid, replay_output.chunk_extra);
+            store_update.save_outgoing_receipt(
+                &block_hash,
+                shard_id,
+                replay_output.outgoing_receipts,
+            );
+            let _ = store_update.commit()?;
         }
 
         Ok(ReplayBlockOutput::Replayed(block, total_gas_burnt))
@@ -228,7 +267,7 @@ impl ReplayController {
         &mut self,
         block: &Block,
         prev_block: &Block,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
         protocol_version: ProtocolVersion,
@@ -243,16 +282,10 @@ impl ReplayController {
             .context("Failed to get chunk from chunk hash")?;
 
         let block_header = block.header();
-        let block_hash = block_header.hash();
 
         let prev_block_header = prev_block.header();
         let prev_block_hash = prev_block_header.hash();
 
-        let epoch_id = block_header.epoch_id();
-        let shard_uid = self
-            .epoch_manager
-            .shard_id_to_uid(shard_id, epoch_id)
-            .context("Failed to get shard UID from shard id")?;
         let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_block_hash, &shard_uid)?;
 
         let height = block_header.height();
@@ -267,6 +300,7 @@ impl ReplayController {
             prev_chunk_extra.as_ref(),
         )?;
 
+        let shard_id = shard_uid.shard_id();
         let shard_context = self.get_shard_context(block_header, shard_uid)?;
         let resharding_state_roots = if shard_context.need_to_reshard {
             Some(Chain::get_resharding_state_roots(
@@ -334,13 +368,15 @@ impl ReplayController {
 
         let output = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult {
-                gas_limit,
+                gas_limit: _,
                 shard_uid: _,
                 apply_result,
                 resharding_results: _,
             }) => {
-                let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
-                ReplayChunkOutput { chunk_extra }
+                let outgoing_receipts = apply_result.outgoing_receipts.clone();
+                let chunk_extra =
+                    apply_result_to_chunk_extra(protocol_version, apply_result, &chunk_header);
+                ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult {
                 shard_uid: _,
@@ -349,15 +385,11 @@ impl ReplayController {
             }) => {
                 let mut chunk_extra = ChunkExtra::clone(&prev_chunk_extra.as_ref());
                 *chunk_extra.state_root_mut() = apply_result.new_root;
-                ReplayChunkOutput { chunk_extra }
+                let outgoing_receipts = apply_result.outgoing_receipts;
+                ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::Resharding(_) => bail!("Unexpected apply result for resharding"),
         };
-
-        // Save chunk extra.
-        let mut store_update = self.chain_store.store_update();
-        store_update.save_chunk_extra(&block_hash, &shard_uid, output.chunk_extra.clone());
-        let _ = store_update.commit()?;
 
         Ok(output)
     }
@@ -431,6 +463,42 @@ impl ReplayController {
             *block.header().random_value(),
         )?;
         let _ = store_update.commit()?;
+        Ok(())
+    }
+
+    pub fn update_incoming_receipts(&mut self, block: &Block) -> Result<()> {
+        let block_height = block.header().height();
+        let block_hash = block.header().hash();
+        let mut receipt_proofs_by_shard_id: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
+        for chunk_header in block.chunks().iter() {
+            if !chunk_header.is_new_chunk(block_height) {
+                continue;
+            }
+            let chunk_hash = chunk_header.chunk_hash();
+            let chunk = self
+                .chain_store
+                .get_chunk(&chunk_hash)
+                .context("Failed to get chunk from chunk hash")?;
+            for receipt in make_outgoing_receipts_proofs(
+                chunk_header,
+                chunk.prev_outgoing_receipts(),
+                self.epoch_manager.as_ref(),
+            )? {
+                let ReceiptProof(_, ref shard_proof) = receipt;
+                let ShardProof { to_shard_id, .. } = shard_proof;
+                receipt_proofs_by_shard_id
+                    .entry(*to_shard_id)
+                    .or_insert_with(Vec::new)
+                    .push(receipt.clone());
+            }
+        }
+
+        let mut store_update = self.chain_store.store_update();
+        for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
+            shuffle_receipt_proofs(&mut receipts, block_hash);
+            store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
+        }
+        store_update.commit().unwrap();
         Ok(())
     }
 

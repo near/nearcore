@@ -7,7 +7,7 @@ use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap, TRIE_COSTS};
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -857,7 +857,7 @@ pub fn apply_memtrie_changes(
     memtries: &mut MemTries,
     changes: &MemTrieChanges,
     block_height: BlockHeight,
-) -> CryptoHash {
+) -> StateRoot {
     memtries
         .construct_root(block_height, |arena| {
             let mut last_node_id: Option<MemTrieNodeId> = None;
@@ -923,9 +923,9 @@ mod tests {
     use crate::trie::mem::MemTries;
     use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
-    use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
+    use near_primitives::types::StateRoot;
     use rand::Rng;
     use std::collections::{HashMap, HashSet};
 
@@ -933,7 +933,7 @@ mod tests {
         mem: MemTries,
         disk: ShardTries,
         truth: HashMap<Vec<u8>, Option<ValueRef>>,
-        state_root: CryptoHash,
+        state_root: StateRoot,
         check_deleted_keys: bool,
     }
 
@@ -945,7 +945,7 @@ mod tests {
                 mem,
                 disk,
                 truth: HashMap::new(),
-                state_root: CryptoHash::default(),
+                state_root: StateRoot::default(),
                 check_deleted_keys,
             }
         }
@@ -1027,7 +1027,7 @@ mod tests {
 
             // Check the truth against both memtrie and on-disk trie.
             for (key, value_ref) in &self.truth {
-                let memtrie_root = if self.state_root == CryptoHash::default() {
+                let memtrie_root = if self.state_root == StateRoot::default() {
                     None
                 } else {
                     Some(self.mem.get_root(&self.state_root).unwrap())
@@ -1263,7 +1263,7 @@ mod tests {
             ",
         ));
 
-        assert_eq!(tries.state_root, CryptoHash::default());
+        assert_eq!(tries.state_root, StateRoot::default());
         // Garbage collect all roots we've added. This checks that the refcounts
         // maintained by the in-memory tries are correct, because if any
         // refcounts are too low this would panic, and if any refcounts are too

@@ -554,7 +554,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, serde::Serialize)]
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,

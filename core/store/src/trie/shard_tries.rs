@@ -340,6 +340,8 @@ impl ShardTries {
         )
     }
 
+    /// NOTE: This method does not update memtries, thus if memtries could be enabled, also call `apply_memtrie_changes`.
+    /// TODO: Consider calling apply_memtrie_changes in this function or adding a new function to call both.
     pub fn apply_all(
         &self,
         trie_changes: &TrieChanges,
@@ -354,21 +356,22 @@ impl ShardTries {
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
         block_height: BlockHeight,
-    ) {
+    ) -> Option<StateRoot> {
         if let Some(memtries) = self.get_mem_tries(shard_uid) {
-            apply_memtrie_changes(
+            Some(apply_memtrie_changes(
                 &mut memtries.write().unwrap(),
                 trie_changes
                     .mem_trie_changes
                     .as_ref()
                     .expect("Memtrie changes must be present if memtrie is loaded"),
                 block_height,
-            );
+            ))
         } else {
             assert!(
                 trie_changes.mem_trie_changes.is_none(),
                 "Memtrie changes must not be present if memtrie is not loaded"
             );
+            None
         }
     }
 
