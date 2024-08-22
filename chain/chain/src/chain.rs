@@ -45,7 +45,6 @@ use near_chain_configs::{
 };
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
@@ -56,6 +55,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
@@ -450,11 +450,14 @@ impl Chain {
                 for chunk in genesis_chunks {
                     store_update.save_chunk(chunk.clone());
                 }
-                store_update.merge(epoch_manager.add_validator_proposals(BlockHeaderInfo::new(
-                    genesis.header(),
-                    // genesis height is considered final
-                    chain_genesis.height,
-                ))?);
+                store_update.merge(epoch_manager.add_validator_proposals(
+                    BlockInfo::from_header(
+                        genesis.header(),
+                        // genesis height is considered final
+                        chain_genesis.height,
+                    ),
+                    *genesis.header().random_value(),
+                )?);
                 store_update.save_block_header(genesis.header().clone())?;
                 store_update.save_block(genesis.clone());
                 store_update
@@ -1564,9 +1567,10 @@ impl Chain {
             // Add validator proposals for given header.
             let last_finalized_height =
                 chain_store_update.get_block_height(header.last_final_block())?;
-            let epoch_manager_update = self
-                .epoch_manager
-                .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
+            let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+                BlockInfo::from_header(header, last_finalized_height),
+                *header.random_value(),
+            )?;
             chain_store_update.merge(epoch_manager_update);
             chain_store_update.commit()?;
         }

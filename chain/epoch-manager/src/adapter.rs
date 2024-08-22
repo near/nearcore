@@ -1,4 +1,3 @@
-use crate::types::BlockHeaderInfo;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -244,7 +243,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn add_validator_proposals(
         &self,
-        block_header_info: BlockHeaderInfo,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError>;
 
     /// Amount of tokens minted in given epoch.
@@ -770,10 +770,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn add_validator_proposals(
         &self,
-        block_header_info: BlockHeaderInfo,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError> {
         let mut epoch_manager = self.write();
-        epoch_manager.add_validator_proposals(block_header_info)
+        epoch_manager.add_validator_proposals(block_info, random_value)
     }
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {

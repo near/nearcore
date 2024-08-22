@@ -1,14 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives::block_header::BlockHeader;
-use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
@@ -17,45 +14,6 @@ use tracing::{debug, debug_span};
 use crate::EpochManager;
 
 pub type RngSeed = [u8; 32];
-
-/// Compressed information about block.
-/// Useful for epoch manager.
-#[derive(Default, Clone, Debug)]
-pub struct BlockHeaderInfo {
-    pub hash: CryptoHash,
-    pub prev_hash: CryptoHash,
-    pub height: BlockHeight,
-    pub random_value: CryptoHash,
-    pub last_finalized_height: BlockHeight,
-    pub last_finalized_block_hash: CryptoHash,
-    pub proposals: Vec<ValidatorStake>,
-    pub slashed_validators: Vec<SlashedValidator>,
-    pub chunk_mask: Vec<bool>,
-    pub total_supply: Balance,
-    pub latest_protocol_version: ProtocolVersion,
-    pub timestamp_nanosec: u64,
-    pub chunk_endorsements: Option<ChunkEndorsementsBitmap>,
-}
-
-impl BlockHeaderInfo {
-    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
-        Self {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
-            height: header.height(),
-            random_value: *header.random_value(),
-            last_finalized_height,
-            last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.prev_validator_proposals().collect(),
-            slashed_validators: vec![],
-            chunk_mask: header.chunk_mask().to_vec(),
-            total_supply: header.total_supply(),
-            latest_protocol_version: header.latest_protocol_version(),
-            timestamp_nanosec: header.raw_timestamp(),
-            chunk_endorsements: header.chunk_endorsements().cloned(),
-        }
-    }
-}
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default, serde::Serialize)]
