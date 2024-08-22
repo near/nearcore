@@ -1,12 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::block_header::BlockHeader;
-use near_primitives::challenge::SlashedValidator;
+use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
@@ -16,45 +15,8 @@ use crate::EpochManager;
 
 pub type RngSeed = [u8; 32];
 
-/// Compressed information about block.
-/// Useful for epoch manager.
-#[derive(Default, Clone, Debug)]
-pub struct BlockHeaderInfo {
-    pub hash: CryptoHash,
-    pub prev_hash: CryptoHash,
-    pub height: BlockHeight,
-    pub random_value: CryptoHash,
-    pub last_finalized_height: BlockHeight,
-    pub last_finalized_block_hash: CryptoHash,
-    pub proposals: Vec<ValidatorStake>,
-    pub slashed_validators: Vec<SlashedValidator>,
-    pub chunk_mask: Vec<bool>,
-    pub total_supply: Balance,
-    pub latest_protocol_version: ProtocolVersion,
-    pub timestamp_nanosec: u64,
-}
-
-impl BlockHeaderInfo {
-    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
-        Self {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
-            height: header.height(),
-            random_value: *header.random_value(),
-            last_finalized_height,
-            last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.prev_validator_proposals().collect(),
-            slashed_validators: vec![],
-            chunk_mask: header.chunk_mask().to_vec(),
-            total_supply: header.total_supply(),
-            latest_protocol_version: header.latest_protocol_version(),
-            timestamp_nanosec: header.raw_timestamp(),
-        }
-    }
-}
-
 /// Aggregator of information needed for validator computation at the end of the epoch.
-#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default, serde::Serialize)]
 pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
@@ -107,7 +69,9 @@ impl EpochInfoAggregator {
     ) {
         let _span =
             debug_span!(target: "epoch_tracker", "update_tail", prev_block_height).entered();
-        // Step 1: update block tracer
+
+        // Step 1: update block tracer (block-production stats)
+
         let block_info_height = block_info.height();
         for height in prev_block_height + 1..=block_info_height {
             let block_producer_id = EpochManager::block_producer_from_info(epoch_info, height);
@@ -132,19 +96,20 @@ impl EpochInfoAggregator {
             }
         }
 
-        // Step 2: update shard tracker
+        // Step 2: update shard tracker (chunk production/endorsement stats)
 
-        // Note: a possible optimization is to access the epoch_manager cache of this value.
+        // TODO(#11900): Call EpochManager::get_chunk_validator_assignments to access the cached validator assignments.
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
 
         for (i, mask) in block_info.chunk_mask().iter().enumerate() {
+            let shard_id: ShardId = i as ShardId;
             let chunk_producer_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 prev_block_height + 1,
                 i as ShardId,
             )
             .unwrap();
-            let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
+            let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)
                 .and_modify(|stats| {
@@ -166,18 +131,34 @@ impl EpochInfoAggregator {
                 .get(i)
                 .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
                 .iter()
-                .map(|(id, _)| *id);
-            for chunk_validator_id in chunk_validators {
+                .map(|(id, _)| *id)
+                .collect_vec();
+            // The following iterates over the chunk validator assignments and yields true if the endorsement from the validator
+            // assigned the respective position was received or false if the endorsement was missed.
+            // NOTE:(#11900): If the chunk endorsements received from the chunk validators are not recorded in the block header,
+            // we use the chunk production stats as the endorsements stats, ie. if the chunk is produced then we assume that
+            // the endorsements from all the chunk validators assigned to that chunk are received (hence the `else` branch below).
+            let chunk_endorsements =
+                if let Some(chunk_endorsements) = block_info.chunk_endorsements() {
+                    chunk_endorsements.iter(shard_id)
+                } else {
+                    Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
+                };
+            for (chunk_validator_id, endorsement_produced) in
+                chunk_validators.iter().zip(chunk_endorsements)
+            {
                 tracker
-                    .entry(chunk_validator_id)
+                    .entry(*chunk_validator_id)
                     .and_modify(|stats| {
                         let endorsement_stats = stats.endorsement_stats_mut();
-                        if *mask {
+                        if endorsement_produced {
                             endorsement_stats.produced += 1;
                         }
                         endorsement_stats.expected += 1;
                     })
-                    .or_insert_with(|| ChunkStats::new_with_endorsement(u64::from(*mask), 1));
+                    .or_insert_with(|| {
+                        ChunkStats::new_with_endorsement(u64::from(endorsement_produced), 1)
+                    });
             }
         }
 

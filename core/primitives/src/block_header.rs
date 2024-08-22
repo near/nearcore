@@ -2,6 +2,7 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
+use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
 use crate::validator_signer::ValidatorSigner;
@@ -1183,5 +1184,10 @@ impl BlockHeader {
                 borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
         }
+    }
+
+    pub fn chunk_endorsements(&self) -> Option<&ChunkEndorsementsBitmap> {
+        // TODO(#11900): Implement saving chunk endorsements bitmap in the block header.
+        None
     }
 }

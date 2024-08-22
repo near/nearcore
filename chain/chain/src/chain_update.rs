@@ -11,11 +11,11 @@ use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, Shar
 use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
 use near_chain_primitives::error::Error;
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
 use near_primitives::sharding::ShardChunk;
@@ -445,9 +445,10 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
 
-        let epoch_manager_update = self
-            .epoch_manager
-            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
+        let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+            BlockInfo::from_header(block.header(), last_finalized_height),
+            *block.header().random_value(),
+        )?;
         self.chain_store_update.merge(epoch_manager_update);
 
         // Add validated block to the db, even if it's not the canonical fork.
