@@ -6,8 +6,14 @@ with_macos_excludes := if os() == "macos" {
 } else {
     ""
 }
+# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that. 
+# See https://github.com/dtolnay/inventory/issues/52.
+with_macos_incremental := if os() == "macos" {
+    "CARGO_INCREMENTAL=0"
+} else {
+    ""
+}
 nightly_flags := "--features nightly,test_features"
-statelessnet_flags := "--features statelessnet_protocol"
 public_libraries := "-p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
@@ -26,12 +32,9 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
-                (nextest "statelessnet" FLAGS) \
                 doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
-# remove statelessnet everywhere once the program is finished, see
-# https://github.com/near/near-one-project-tracking/issues/20
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -50,7 +53,6 @@ nextest-unit TYPE *FLAGS:
         {{ ci_hack_nextest_profile }} \
         {{ with_macos_excludes }} \
         {{ if TYPE == "nightly" { nightly_flags } \
-           else if TYPE == "statelessnet" { statelessnet_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
@@ -65,7 +67,6 @@ nextest-integration TYPE *FLAGS:
         --cargo-profile dev-release \
         {{ ci_hack_nextest_profile }} \
         {{ if TYPE == "nightly" { nightly_flags } \
-           else if TYPE == "statelessnet" { statelessnet_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
@@ -158,6 +159,17 @@ check-lychee:
     git ls-files | grep 'md$\|mkd$\|html\?$' | xargs lychee {{ if env("GITHUB_TOKEN", "") != "" { "" } else { "-a 429" } }}
     @echo {{ if env("GITHUB_TOKEN", "") != "" { "" } \
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
+
+# check tools/protocol-schema-check/res/protocol_schema.toml
+check-protocol-schema:
+    rustup toolchain install nightly
+    rustup target add wasm32-unknown-unknown --toolchain nightly
+    # Test that checker is not broken
+    env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
+    # Run the checker
+    env RUSTFLAGS="--cfg enable_const_type_id" \
+        {{ with_macos_incremental }} \
+        cargo +nightly run -p protocol-schema-check
 
 # build target/rpc_errors_schema.json
 build-rpc-errors-schema:

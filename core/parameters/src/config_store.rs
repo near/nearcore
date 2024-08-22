@@ -145,6 +145,8 @@ impl RuntimeConfigStore {
                 config.congestion_control_config.max_tx_gas = 10u64.pow(16);
                 config.congestion_control_config.min_tx_gas = 10u64.pow(16);
                 config.witness_config.main_storage_proof_size_soft_limit = 999_999_999_999_999;
+                config.witness_config.new_transactions_validation_state_size_soft_limit =
+                    999_999_999_999_999;
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
                 config.wasm_config = Arc::new(wasm_config);
@@ -366,7 +368,6 @@ mod tests {
     /// Alternatively, add --accept to the first command so that it automatically does step 2.
     #[test]
     #[cfg(not(feature = "nightly"))]
-    #[cfg(not(feature = "statelessnet_protocol"))]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::view::RuntimeConfigView;

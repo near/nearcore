@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_structs_checker_lib::ProtocolStruct;
+use near_schema_checker_lib::ProtocolSchema;
 use serde::{Deserializer, Serializer};
 use sha2::Digest;
 use std::fmt;
@@ -18,7 +18,7 @@ use std::io::Write;
     arbitrary::Arbitrary,
     borsh::BorshDeserialize,
     borsh::BorshSerialize,
-    ProtocolStruct,
+    ProtocolSchema,
 )]
 #[as_ref(forward)]
 #[as_mut(forward)]

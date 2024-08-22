@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.79.0"
+rust-version = "1.80.1"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -47,9 +47,9 @@ members = [
     "core/primitives",
     "core/primitives-core",
     "core/store",
-    "core/structs-checker/structs-checker-core",
-    "core/structs-checker/structs-checker-macro",
-    "core/structs-checker/structs-checker-lib",
+    "core/schema-checker/schema-checker-core",
+    "core/schema-checker/schema-checker-macro",
+    "core/schema-checker/schema-checker-lib",
     "core/time",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
@@ -145,6 +145,7 @@ backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
+bitvec = "1.0.1"
 blake2 = { version = "0.10.6", features = ["reset"] }
 blst = { version = "0.3.11", features = ["portable"] }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
@@ -209,7 +210,6 @@ inventory = "0.3.15"
 itertools = "0.10.0"
 itoa = "1.0"
 json_comments = "0.2.1"
-lazy_static = "1.4"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
@@ -240,7 +240,6 @@ nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
-near-epoch-sync-tool = { path = "tools/epoch-sync" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
@@ -264,6 +263,7 @@ near-ping = { path = "tools/ping" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
+near-replay-archive-tool = { path = "tools/replay-archive" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
@@ -271,9 +271,9 @@ near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
-near-structs-checker-macro = { path = "core/structs-checker/structs-checker-macro" }
-near-structs-checker-core = { path = "core/structs-checker/structs-checker-core" }
-near-structs-checker-lib = { path = "core/structs-checker/structs-checker-lib" }
+near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" }
+near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
+near-schema-checker-lib = { path = "core/schema-checker/schema-checker-lib" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }

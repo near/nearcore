@@ -1,6 +1,7 @@
 use near_async::messaging::Sender;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
-use near_primitives::stateless_validation::{ChunkStateWitnessAck, PartialEncodedStateWitness};
+use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]

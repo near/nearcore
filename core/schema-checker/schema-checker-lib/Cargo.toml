@@ -1,0 +1,25 @@
+[package]
+name = "near-schema-checker-lib"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "ProtocolSchema macro allowing to check sanity of all protocol structs"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+near-schema-checker-core.workspace = true
+near-schema-checker-macro.workspace = true
+inventory = { workspace = true, optional = true }
+
+[features]
+protocol_schema = [
+  "inventory",
+  "near-schema-checker-core/protocol_schema",
+  "near-schema-checker-macro/protocol_schema",
+]
+

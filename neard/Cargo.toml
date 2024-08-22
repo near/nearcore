@@ -20,7 +20,6 @@ actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
-once_cell.workspace = true
 openssl-probe.workspace = true
 opentelemetry.workspace = true
 rayon.workspace = true
@@ -42,7 +41,6 @@ near-config-utils.workspace = true
 near-crypto.workspace = true
 near-database-tool.workspace = true
 near-dyn-configs.workspace = true
-near-epoch-sync-tool = { workspace = true, optional = true }
 near-flat-storage.workspace = true
 near-fork-network.workspace = true
 near-jsonrpc-primitives.workspace = true
@@ -52,6 +50,7 @@ near-o11y.workspace = true
 near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
+near-replay-archive-tool.workspace = true
 near-state-parts.workspace = true
 near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
@@ -74,7 +73,6 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
-new_epoch_sync = ["nearcore/new_epoch_sync", "near-epoch-sync-tool/new_epoch_sync"]
 
 nightly = [
   "near-chain-configs/nightly",
@@ -114,10 +112,6 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-undo-block/nightly_protocol",
   "nearcore/nightly_protocol",
-]
-statelessnet_protocol = [
-  "nearcore/statelessnet_protocol",
-  "near-primitives/statelessnet_protocol",
 ]
 shadow_chunk_validation = [
   "near-client/shadow_chunk_validation",

@@ -45,7 +45,6 @@ fn sync_state_nodes() {
         let mut near1 = load_test_config("test1", port1, genesis.clone());
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
-        near1.client_config.epoch_sync_enabled = false;
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -77,7 +76,6 @@ fn sync_state_nodes() {
                                         near2.client_config.min_num_peers = 1;
                                         near2.network_config.peer_store.boot_nodes =
                                             convert_boot_nodes(vec![("test1", *port1)]);
-                                        near2.client_config.epoch_sync_enabled = false;
 
                                         let dir2 = tempfile::Builder::new()
                                             .prefix("sync_nodes_2")
@@ -163,7 +161,6 @@ fn sync_state_nodes_multishard() {
             near1.client_config.min_num_peers = 2;
             near1.client_config.min_block_production_delay = Duration::milliseconds(200);
             near1.client_config.max_block_production_delay = Duration::milliseconds(400);
-            near1.client_config.epoch_sync_enabled = false;
 
             let mut near3 = load_test_config("test3", port3, genesis.clone());
             near3.network_config.peer_store.boot_nodes =
@@ -173,7 +170,6 @@ fn sync_state_nodes_multishard() {
                 near1.client_config.min_block_production_delay;
             near3.client_config.max_block_production_delay =
                 near1.client_config.max_block_production_delay;
-            near3.client_config.epoch_sync_enabled = false;
 
             let mut near4 = load_test_config("test4", port4, genesis.clone());
             near4.network_config.peer_store.boot_nodes =
@@ -183,7 +179,6 @@ fn sync_state_nodes_multishard() {
                 near1.client_config.min_block_production_delay;
             near4.client_config.max_block_production_delay =
                 near1.client_config.max_block_production_delay;
-            near4.client_config.epoch_sync_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -228,7 +223,6 @@ fn sync_state_nodes_multishard() {
                                                 ("test3", *port3),
                                                 ("test4", *port4),
                                             ]);
-                                        near2.client_config.epoch_sync_enabled = false;
 
                                         let dir2 = tempfile::Builder::new()
                                             .prefix("sync_nodes_2")
@@ -316,7 +310,6 @@ fn sync_empty_state() {
             near1.client_config.min_num_peers = 0;
             near1.client_config.min_block_production_delay = Duration::milliseconds(200);
             near1.client_config.max_block_production_delay = Duration::milliseconds(400);
-            near1.client_config.epoch_sync_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -357,7 +350,6 @@ fn sync_empty_state() {
                                         near2.client_config.block_fetch_horizon =
                                             block_fetch_horizon;
                                         near2.client_config.tracked_shards = vec![0, 1, 2, 3];
-                                        near2.client_config.epoch_sync_enabled = false;
 
                                         let nearcore::NearNode {
                                             view_client: view_client2,
@@ -446,7 +438,6 @@ fn sync_state_dump() {
             // An epoch passes in about 9 seconds.
             near1.client_config.min_block_production_delay = Duration::milliseconds(300);
             near1.client_config.max_block_production_delay = Duration::milliseconds(600);
-            near1.client_config.epoch_sync_enabled = false;
             near1.client_config.tracked_shards = vec![0]; // Track all shards.
             let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
             near1.client_config.state_sync.dump = Some(DumpConfig {
@@ -494,7 +485,6 @@ fn sync_state_dump() {
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                 near2.client_config.tracked_shards = vec![0]; // Track all shards.
-                                near2.client_config.epoch_sync_enabled = false;
                                 near2.client_config.state_sync_enabled = true;
                                 near2.client_config.state_sync_timeout = Duration::seconds(2);
                                 near2.client_config.state_sync.sync =
@@ -754,7 +744,6 @@ fn test_state_sync_headers() {
             let mut near1 =
                 load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.epoch_sync_enabled = false;
             near1.client_config.tracked_shards = vec![0]; // Track all shards.
             let dir1 =
                 tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap();
@@ -948,7 +937,6 @@ fn test_state_sync_headers_no_tracked_shards() {
             let port1 = tcp::ListenerAddr::reserve_for_test();
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.epoch_sync_enabled = false;
             near1.client_config.tracked_shards = vec![0]; // Track all shards, it is a validator.
             let dir1 = tempfile::Builder::new()
                 .prefix("test_state_sync_headers_no_tracked_shards_1")
@@ -965,7 +953,6 @@ fn test_state_sync_headers_no_tracked_shards() {
             near2.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test1", *port1)]);
             near2.client_config.min_num_peers = 0;
-            near2.client_config.epoch_sync_enabled = false;
             near2.client_config.tracked_shards = vec![]; // Track no shards.
             let dir2 = tempfile::Builder::new()
                 .prefix("test_state_sync_headers_no_tracked_shards_2")

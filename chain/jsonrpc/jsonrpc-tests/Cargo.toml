@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 actix.workspace = true
 awc.workspace = true
-once_cell.workspace = true
 futures.workspace = true
 borsh.workspace = true
 serde.workspace = true
@@ -62,5 +61,4 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
 ]
-statelessnet_protocol = ["near-primitives/statelessnet_protocol"]
 sandbox = ["near-jsonrpc/sandbox", "near-o11y/sandbox"]

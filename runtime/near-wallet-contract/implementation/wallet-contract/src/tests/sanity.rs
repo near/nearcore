@@ -32,6 +32,52 @@ async fn test_function_call_action_success() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_insufficient_gas() -> anyhow::Result<()> {
+    let TestContext { worker, wallet_contract, wallet_sk, .. } = TestContext::new().await?;
+
+    // If not enough gas is attached to the `rlp_execute` call then the action fails.
+    let target = "some.account.near".to_string();
+    let action = Action::FunctionCall {
+        receiver_id: target.clone(),
+        method_name: "greet".into(),
+        args: br#"{"name": "Aurora"}"#.to_vec(),
+        gas: 5_000_000_000_000,
+        yocto_near: 0,
+    };
+    let signed_transaction = utils::create_signed_transaction(
+        0,
+        &target.parse().unwrap(),
+        Wei::zero(),
+        action,
+        &wallet_sk,
+    );
+
+    let error = wallet_contract
+        .inner
+        .call(crate::tests::RLP_EXECUTE)
+        .args_json(serde_json::json!({
+            "target": target,
+            "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
+        }))
+        .gas(near_gas::NearGas::from_tgas(7))
+        .transact()
+        .await
+        .unwrap()
+        .raw_bytes()
+        .unwrap_err();
+
+    assert!(
+        error.to_string().contains("Exceeded the prepaid gas."),
+        "Error should be that there was not enough gas"
+    );
+
+    // But the contract is still usable afterwards.
+    utils::deploy_and_call_hello(&worker, &wallet_contract, &wallet_sk, 0).await?;
+
+    Ok(())
+}
+
 // The Wallet Contract should be able to send $NEAR to other Near accounts.
 #[tokio::test]
 async fn test_base_token_transfer_success() -> anyhow::Result<()> {

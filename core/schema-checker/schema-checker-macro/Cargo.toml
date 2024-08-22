@@ -1,0 +1,32 @@
+[package]
+name = "near-schema-checker-macro"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "ProtocolSchema macro implementation to check integrity of the protocol structs"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true, optional = true }
+quote = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+
+[features]
+
+protocol_schema = [
+  "proc-macro2",
+  "syn",
+  "quote"
+]
+
+[package.metadata.cargo-udeps.ignore]
+# Protocol schema checks require external dependencies for sanity checker tool.
+normal = ["proc-macro2", "syn", "quote"]

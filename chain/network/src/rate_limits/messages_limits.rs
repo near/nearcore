@@ -252,7 +252,6 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
             RoutedMessageBody::TxStatusRequest(_, _) => Some((TxStatusRequest, 1)),
             RoutedMessageBody::TxStatusResponse(_) => Some((TxStatusResponse, 1)),
-            RoutedMessageBody::StateResponse(_) => Some((StateResponse, 1)),
             RoutedMessageBody::PartialEncodedChunkRequest(inner) => {
                 // Pay one token per part.
                 Some((PartialEncodedChunkRequest, safe_add_into_u32!(inner.part_ords.len())))
@@ -277,6 +276,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
                 Some((PartialEncodedStateWitnessForward, 1))
             }
+            RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
             | RoutedMessageBody::_UnusedChunkStateWitness
@@ -287,7 +287,8 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
             | RoutedMessageBody::_UnusedReceiptOutcomeResponse
             | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart => None,
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse => None,
         },
         PeerMessage::SyncSnapshotHosts(inner) => {
             // Pay one token for each host.

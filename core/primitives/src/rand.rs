@@ -1,9 +1,18 @@
 use crate::types::Balance;
 use aliases::Aliases;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, serde::Serialize, Clone, Debug, PartialEq, Eq,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
 )]
 pub struct WeightedIndex {
     weight_sum: Balance,

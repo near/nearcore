@@ -1,15 +1,20 @@
 use crate::test_loop::env::TestData;
+use assert_matches::assert_matches;
 use itertools::Itertools;
-use near_async::messaging::SendAsync;
+use near_async::messaging::{CanSend, MessageWithCallback, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
+use near_client::ProcessTxResponse;
 use near_network::client::ProcessTxRequest;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use super::{ONE_NEAR, TGAS};
 
@@ -118,7 +123,7 @@ pub fn deploy_contract(
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
 
     let rpc_node_data = get_node_data(node_datas, rpc_id);
-    let rpc_node_data_sender = &rpc_node_data.client_sender.clone();
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
 
     let future = rpc_node_data_sender.send_async(process_tx_request);
     drop(future);
@@ -167,7 +172,7 @@ pub fn call_contract(
 
     let process_tx_request =
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-    let future = node_datas[0].client_sender.clone().send_async(process_tx_request);
+    let future = node_datas[0].client_sender.send_async(process_tx_request);
     drop(future);
 
     tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
@@ -175,7 +180,7 @@ pub fn call_contract(
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
-fn get_shared_block_hash(node_datas: &[TestData], test_loop: &mut TestLoopV2) -> CryptoHash {
+pub fn get_shared_block_hash(node_datas: &[TestData], test_loop: &TestLoopV2) -> CryptoHash {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -200,4 +205,93 @@ pub fn get_node_data<'a>(node_datas: &'a [TestData], account_id: &AccountId) -> 
         }
     }
     panic!("RPC client not found");
+}
+
+/// Run a transaction until completion and assert that the result is "success".
+/// Returns the transaction result.
+pub fn run_tx(
+    test_loop: &mut TestLoopV2,
+    tx: SignedTransaction,
+    node_datas: &[TestData],
+    maximum_duration: Duration,
+) -> Vec<u8> {
+    let tx_res = execute_tx(test_loop, tx, node_datas, maximum_duration).unwrap();
+    assert_matches!(tx_res.status, FinalExecutionStatus::SuccessValue(_));
+    match tx_res.status {
+        FinalExecutionStatus::SuccessValue(res) => res,
+        _ => unreachable!(),
+    }
+}
+
+/// Submit a transaction and wait for the execution result.
+/// For invalid transactions returns an error.
+/// For valid transactions returns the execution result (which could have an execution error inside, check it!).
+pub fn execute_tx(
+    test_loop: &mut TestLoopV2,
+    tx: SignedTransaction,
+    node_datas: &[TestData],
+    maximum_duration: Duration,
+) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+    // Last node is usually the rpc node
+    let rpc_node_id = node_datas.len().checked_sub(1).unwrap();
+
+    let tx_hash = tx.get_hash();
+
+    let process_result = Arc::new(Mutex::new(None));
+    let process_result_clone = process_result.clone();
+
+    node_datas[rpc_node_id].client_sender.send(MessageWithCallback {
+        message: ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false },
+        callback: Box::new(move |process_res| {
+            *process_result_clone.lock().unwrap() = Some(process_res);
+        }),
+    });
+
+    test_loop.run_until(
+        |tl_data| {
+            let mut processing_done = false;
+            if let Some(processing_outcome) = &*process_result.lock().unwrap() {
+                match processing_outcome.as_ref().unwrap() {
+                    ProcessTxResponse::NoResponse
+                    | ProcessTxResponse::RequestRouted
+                    | ProcessTxResponse::ValidTx => processing_done = true,
+                    ProcessTxResponse::InvalidTx(_err) => {
+                        // Invalid transaction, stop run_until immediately, there won't be a transaction result.
+                        return true;
+                    }
+                    ProcessTxResponse::DoesNotTrackShard => {
+                        panic!("Transaction submitted to a node that doesn't track the shard")
+                    }
+                }
+            }
+
+            let tx_result_available = tl_data
+                .get(&node_datas[rpc_node_id].client_sender.actor_handle())
+                .client
+                .chain
+                .get_final_transaction_result(&tx_hash)
+                .is_ok();
+
+            processing_done && tx_result_available
+        },
+        maximum_duration,
+    );
+
+    match process_result.lock().unwrap().take().unwrap().unwrap() {
+        ProcessTxResponse::NoResponse
+        | ProcessTxResponse::RequestRouted
+        | ProcessTxResponse::ValidTx => {}
+        ProcessTxResponse::InvalidTx(e) => return Err(e),
+        ProcessTxResponse::DoesNotTrackShard => {
+            panic!("Transaction submitted to a node that doesn't track the shard")
+        }
+    };
+
+    Ok(test_loop
+        .data
+        .get(&node_datas.last().unwrap().client_sender.actor_handle())
+        .client
+        .chain
+        .get_final_transaction_result(&tx_hash)
+        .unwrap())
 }

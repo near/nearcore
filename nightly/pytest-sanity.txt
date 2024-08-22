@@ -157,9 +157,6 @@ pytest sanity/rosetta.py --features nightly
 # Make sure Docker image can be build and run
 pytest --skip-build --timeout=1h sanity/docker.py
 
-pytest sanity/recompress_storage.py
-pytest sanity/recompress_storage.py --features nightly
-
 # This is the test for meta transactions.
 pytest sanity/meta_tx.py --features nightly
 
@@ -202,3 +199,7 @@ pytest sanity/rpc_view_history.py --features nightly
 # Tests switching between memtries and disktries.
 pytest sanity/memtrie_disktrie_switch.py
 pytest sanity/memtrie_disktrie_switch.py --features nightly
+
+# Tests the replay of chain blocks on an archival node.
+pytest sanity/replay_chain_from_archive.py
+pytest sanity/replay_chain_from_archive.py --features nightly

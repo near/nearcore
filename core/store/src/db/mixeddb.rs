@@ -65,7 +65,7 @@ impl MixedDB {
 
 impl Database for MixedDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        if let Some(first_result) = self.first_db().get_raw_bytes(col, key)? {
+        if let Ok(Some(first_result)) = self.first_db().get_raw_bytes(col, key) {
             return Ok(Some(first_result));
         }
         self.second_db().get_raw_bytes(col, key)
@@ -74,7 +74,7 @@ impl Database for MixedDB {
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
 
-        if let Some(first_result) = self.first_db().get_with_rc_stripped(col, key)? {
+        if let Ok(Some(first_result)) = self.first_db().get_with_rc_stripped(col, key) {
             return Ok(Some(first_result));
         }
         self.second_db().get_with_rc_stripped(col, key)

@@ -138,12 +138,9 @@ pub fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
 }
 
 pub fn decode_flat_state_db_key(key: &[u8]) -> io::Result<(ShardUId, Vec<u8>)> {
-    if key.len() < 8 {
-        return Err(io::Error::other(format!(
-            "expected FlatState key length to be at least 8: {key:?}"
-        )));
-    }
-    let (shard_uid_bytes, trie_key) = key.split_at(8);
+    let (shard_uid_bytes, trie_key) = key.split_at_checked(8).ok_or_else(|| {
+        io::Error::other(format!("expected FlatState key length to be at least 8: {key:?}"))
+    })?;
     let shard_uid = shard_uid_bytes.try_into().map_err(|err| {
         io::Error::other(format!("failed to decode shard_uid as part of FlatState key: {err}"))
     })?;

@@ -1,7 +1,7 @@
 pub mod orphan_witness_handling;
 pub mod orphan_witness_pool;
 
-use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::Client;
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
@@ -16,8 +16,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::state_witness::{
+    ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use orphan_witness_pool::OrphanStateWitnessPool;
@@ -226,12 +227,13 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
     );
 
-    let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+    let endorsement = ChunkEndorsement::new(epoch_id, chunk_header, signer, protocol_version);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
             // Our own endorsements are not always valid (see issue #11750).
             if let Err(err) = chunk_endorsement_tracker
-                .process_chunk_endorsement(chunk_header, endorsement.clone())
+                .process_chunk_endorsement(endorsement.clone(), Some(chunk_header.clone()))
             {
                 tracing::warn!(
                     target: "client",

@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 arbitrary.workspace = true
 base64.workspace = true
+bitvec.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 bytes.workspace = true
@@ -24,7 +25,6 @@ easy-ext.workspace = true
 hex.workspace = true
 itertools = { workspace = true, optional = true }
 num-rational.workspace = true
-once_cell.workspace = true
 ordered-float.workspace = true
 primitive-types.workspace = true
 rand = { workspace = true, optional = true }
@@ -48,7 +48,7 @@ near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
-near-structs-checker-lib.workspace = true
+near-schema-checker-lib.workspace = true
 
 [features]
 sandbox = []
@@ -89,14 +89,11 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 
-statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
-
-new_epoch_sync = []
 default = ["near-primitives/rand"]
 calimero_zero_storage = []
 
 protocol_schema = [
-  "near-structs-checker-lib/protocol_schema",
+  "near-schema-checker-lib/protocol_schema",
 ]
 
 [dev-dependencies]

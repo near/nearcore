@@ -120,7 +120,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     run_actix(async {
-        let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
+        let (_, addr) = test_utils::start_all_with_validity_period(
             Clock::real(),
             test_utils::NodeType::Validator,
             1,

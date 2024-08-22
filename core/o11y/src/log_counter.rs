@@ -1,11 +1,11 @@
 use crate::metrics::try_create_int_counter_vec;
-use once_cell::sync::Lazy;
 use prometheus::{IntCounter, IntCounterVec};
+use std::sync::LazyLock;
 use tracing_subscriber::layer::{Context, Layered};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
-pub(crate) static LOG_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static LOG_COUNTER: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_log_msg_total",
         "Number of messages logged at various log levels",
@@ -14,7 +14,7 @@ pub(crate) static LOG_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static LOG_WITH_LOCATION_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static LOG_WITH_LOCATION_COUNTER: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_log_msg_with_loc_total",
         "Number of messages logged at various log levels wth target and location",

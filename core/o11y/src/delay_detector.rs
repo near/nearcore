@@ -1,5 +1,5 @@
 use crate::metrics::try_create_histogram_vec;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use prometheus::{exponential_buckets, HistogramVec};
 use std::time::Instant;
 use tracing::span::Attributes;
@@ -13,7 +13,7 @@ pub(crate) struct DelayDetectorLayer {}
 
 const MAX_BUSY_DURATION_NS: u64 = 500000000; // 0.5 sec
 
-pub(crate) static LONG_SPAN_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static LONG_SPAN_HISTOGRAM: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_long_span_elapsed",
         "Distribution of the duration of spans wth long duration",

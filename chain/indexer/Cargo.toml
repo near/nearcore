@@ -15,13 +15,11 @@ workspace = true
 actix.workspace = true
 anyhow.workspace = true
 futures.workspace = true
-once_cell.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-lazy_static.workspace = true
 
 nearcore.workspace = true
 near-client.workspace = true
@@ -61,9 +59,4 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
-]
-statelessnet_protocol = [
-  "near-client/statelessnet_protocol",
-  "near-primitives/statelessnet_protocol",
-  "nearcore/statelessnet_protocol",
 ]

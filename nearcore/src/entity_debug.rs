@@ -2,8 +2,9 @@ use crate::entity_debug_serializer::serialize_entity;
 use anyhow::{anyhow, Context};
 
 use borsh::BorshDeserialize;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
+use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -11,23 +12,33 @@ use near_jsonrpc_primitives::types::entity_debug::{
 };
 use near_primitives::block::Tip;
 use near_primitives::challenge::{PartialState, TrieValue};
+use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
-use near_primitives::stateless_validation::StoredChunkStateTransitionData;
+use near_primitives::state_sync::StateSyncDumpProgress;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
+use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::store_helper::encode_flat_state_db_key;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
     DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, TrieCachingStorage,
-    FINAL_HEAD_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -84,6 +95,27 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Block header not found"))?;
                 Ok(serialize_entity(&BlockHeaderView::from(block_header)))
             }
+            EntityQuery::BlockInfoByHash { block_hash } => {
+                let block_info = self
+                    .store
+                    .get_ser::<BlockInfo>(DBCol::BlockInfo, &borsh::to_vec(&block_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("BlockInfo not found"))?;
+                Ok(serialize_entity(&block_info))
+            }
+            EntityQuery::BlockMerkleTreeByHash { block_hash } => {
+                let block_merkle_tree = self
+                    .store
+                    .get_ser::<PartialMerkleTree>(
+                        DBCol::BlockMerkleTree,
+                        &borsh::to_vec(&block_hash).unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Block merkle tree not found"))?;
+                Ok(serialize_entity(&block_merkle_tree))
+            }
+            EntityQuery::BlockMisc(()) => {
+                let block_misc = BlockMiscData::from_store(&self.store)?;
+                Ok(serialize_entity(&block_misc))
+            }
             EntityQuery::ChunkByHash { chunk_hash } => {
                 let chunk = self
                     .store
@@ -97,6 +129,48 @@ impl EntityDebugHandlerImpl {
                     chunk.shard_id(),
                 )?;
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
+            }
+            EntityQuery::ChunkExtraByBlockHashShardUId { block_hash, shard_uid } => {
+                let chunk_extra = self
+                    .store
+                    .get_ser::<ChunkExtra>(
+                        DBCol::ChunkExtra,
+                        &get_block_shard_uid(&block_hash, &shard_uid),
+                    )?
+                    .ok_or_else(|| anyhow!("Chunk extra not found"))?;
+                Ok(serialize_entity(&chunk_extra))
+            }
+            EntityQuery::ChunkExtraByChunkHash { chunk_hash } => {
+                let chunk = self
+                    .store
+                    .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("Chunk not found"))?;
+                let block_hash = self
+                    .store
+                    .get_ser::<CryptoHash>(
+                        DBCol::BlockHeight,
+                        &borsh::to_vec(&chunk.height_included()).unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Cannot find block at chunk's height"))?;
+                let epoch_id =
+                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
+                let shard_id = chunk.shard_id();
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                let chunk_extra = self
+                    .store
+                    .get_ser::<ChunkExtra>(
+                        DBCol::ChunkExtra,
+                        &get_block_shard_uid(&block_hash, &shard_uid),
+                    )?
+                    .ok_or_else(|| anyhow!("Chunk extra not found"))?;
+                Ok(serialize_entity(&chunk_extra))
+            }
+            EntityQuery::EpochInfoAggregator(()) => {
+                let aggregator = self
+                    .store
+                    .get_ser::<EpochInfoAggregator>(DBCol::EpochInfo, AGGREGATOR_KEY)?
+                    .ok_or_else(|| anyhow!("Aggregator not found"))?;
+                Ok(serialize_entity(&aggregator))
             }
             EntityQuery::EpochInfoByEpochId { epoch_id } => {
                 let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
@@ -151,6 +225,16 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Flat storage status not found"))?;
                 Ok(serialize_entity(&status))
+            }
+            EntityQuery::NextBlockHashByHash { block_hash } => {
+                let next_block_hash = self
+                    .store
+                    .get_ser::<CryptoHash>(
+                        DBCol::NextBlockHashes,
+                        &borsh::to_vec(&block_hash).unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Next block hash not found"))?;
+                Ok(serialize_entity(&next_block_hash))
             }
             EntityQuery::OutcomeByTransactionHash { transaction_hash: outcome_id }
             | EntityQuery::OutcomeByReceiptId { receipt_id: outcome_id } => {
@@ -654,4 +738,44 @@ struct ValidatorAssignmentsAtHeight {
 struct OneValidatorAssignment {
     account_id: AccountId,
     stake: Balance,
+}
+
+#[derive(serde::Serialize)]
+struct BlockMiscData {
+    head: Option<Tip>,
+    tail: Option<BlockHeight>,
+    chunk_tail: Option<BlockHeight>,
+    fork_tail: Option<BlockHeight>,
+    header_head: Option<Tip>,
+    final_head: Option<Tip>,
+    latest_known: Option<LatestKnown>,
+    largest_target_height: Option<BlockHeight>,
+    genesis_json_hash: Option<CryptoHash>,
+    genesis_state_roots: Option<Vec<StateRoot>>,
+    genesis_congestion_info: Option<Vec<CongestionInfo>>,
+    cold_head: Option<Tip>,
+    state_sync_dump: Option<StateSyncDumpProgress>,
+    state_snapshot: Option<CryptoHash>,
+}
+
+impl BlockMiscData {
+    pub fn from_store(store: &Store) -> anyhow::Result<BlockMiscData> {
+        Ok(BlockMiscData {
+            head: store.get_ser(DBCol::BlockMisc, HEAD_KEY)?,
+            tail: store.get_ser(DBCol::BlockMisc, TAIL_KEY)?,
+            chunk_tail: store.get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY)?,
+            fork_tail: store.get_ser(DBCol::BlockMisc, FORK_TAIL_KEY)?,
+            header_head: store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY)?,
+            final_head: store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY)?,
+            latest_known: store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)?,
+            largest_target_height: store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY)?,
+            genesis_json_hash: store.get_ser(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)?,
+            genesis_state_roots: store.get_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)?,
+            genesis_congestion_info: store
+                .get_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)?,
+            cold_head: store.get_ser(DBCol::BlockMisc, COLD_HEAD_KEY)?,
+            state_sync_dump: store.get_ser(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)?,
+            state_snapshot: store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)?,
+        })
+    }
 }

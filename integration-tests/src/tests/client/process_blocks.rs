@@ -48,7 +48,7 @@ use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -485,7 +485,6 @@ fn produce_block_with_approvals_arrived_early() {
         "test4".parse().unwrap(),
     ]]);
     let archive = vec![false; vs.all_block_producers().count()];
-    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
@@ -502,7 +501,6 @@ fn produce_block_with_approvals_arrived_early() {
             100,
             true,
             archive,
-            epoch_sync_enabled,
             false,
             None,
             Box::new(
@@ -785,7 +783,6 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             100,
             true,
             vec![false; validators.len()],
-            vec![true; validators.len()],
             false,
             None,
             Box::new(
@@ -2274,7 +2271,7 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().get_mut().inner_lite.prev_outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
-        let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), &validator_signer);
+        let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), &validator_signer);
         block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature))]]);
         block.mut_header().get_mut().inner_rest.block_body_hash =
             block.compute_block_body_hash().unwrap();

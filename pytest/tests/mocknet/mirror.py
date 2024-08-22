@@ -196,7 +196,7 @@ def new_genesis_timestamp(node):
     result = version.get('result')
     if result is not None:
         if result.get('node_setup_version') == '1':
-            genesis_time = str(datetime.datetime.now(tz=datetime.UTC))
+            genesis_time = str(datetime.datetime.now(tz=datetime.timezone.utc))
     return genesis_time
 
 
@@ -268,6 +268,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             boot_nodes,
             args.epoch_length,
             args.num_seats,
+            args.new_chain_id,
             args.genesis_protocol_version,
             genesis_time=genesis_time), targeted)
 
@@ -586,6 +587,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--epoch-length', type=int)
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
+    new_test_parser.add_argument('--new-chain-id', type=str)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument('--gcs-state-sync', action='store_true')

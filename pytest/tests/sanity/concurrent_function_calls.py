@@ -5,12 +5,15 @@
 import sys, time
 import base58
 import base64
+import json
 import multiprocessing
 import pathlib
+import requests
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from configured_logger import logger
+from requests.adapters import HTTPAdapter, Retry
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
@@ -50,9 +53,30 @@ def process():
     for i in range(100):
         key = bytearray(8)
         key[0] = i % 10
-        res = nodes[4].call_function(
-            acc_id, 'read_value',
-            base64.b64encode(bytes(key)).decode("ascii"))
+        data = {
+            'method': 'query',
+            'params': {
+                "request_type": "call_function",
+                "account_id": acc_id,
+                "method_name": "read_value",
+                "finality": "optimistic",
+                "args_base64": base64.b64encode(bytes(key)).decode("ascii")
+            },
+            'id': 'dontcare',
+            'jsonrpc': '2.0'
+        }
+
+        session = requests.Session()
+        retries = Retry(total=5, backoff_factor=0.1)
+
+        session.mount('http://', HTTPAdapter(max_retries=retries))
+
+        res = session.post("http://%s:%s" % nodes[4].rpc_addr(),
+                           json=data,
+                           timeout=2)
+
+        assert res.status_code == 200
+        res = json.loads(res.text)
         res = int.from_bytes(res["result"]["result"], byteorder='little')
         assert res == (i % 10)
     logger.info("all done")

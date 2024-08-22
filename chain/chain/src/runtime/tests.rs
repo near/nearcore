@@ -11,12 +11,10 @@ use near_pool::{
 };
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use num_rational::Ratio;
@@ -180,6 +178,7 @@ impl TestEnv {
                 total_supply: genesis_total_supply,
                 latest_protocol_version: genesis_protocol_version,
                 timestamp_nanosec: 0,
+                chunk_endorsements: None,
             })
             .unwrap()
             .commit()
@@ -346,6 +345,7 @@ impl TestEnv {
                 total_supply: self.runtime.genesis_config.total_supply,
                 latest_protocol_version: self.runtime.genesis_config.protocol_version,
                 timestamp_nanosec: self.time + 10u64.pow(9),
+                chunk_endorsements: None,
             })
             .unwrap()
             .commit()
@@ -754,6 +754,7 @@ fn test_state_sync() {
                 total_supply: new_env.runtime.genesis_config.total_supply,
                 latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
                 timestamp_nanosec: new_env.time,
+                chunk_endorsements: None,
             })
             .unwrap()
             .commit()
@@ -1679,11 +1680,6 @@ fn prepare_transactions(
 /// Check that transactions validation works the same when using recorded storage proof instead of db.
 #[test]
 fn test_prepare_transactions_storage_proof() {
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
-
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1728,11 +1724,6 @@ fn test_prepare_transactions_storage_proof() {
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
-
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1776,9 +1767,6 @@ fn test_prepare_transactions_empty_storage_proof() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        return;
-    }
     let shard_id = 0;
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);

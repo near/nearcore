@@ -4,6 +4,7 @@ use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
 use near_primitives_core::types::{Gas, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
 use ordered_float::NotNan;
 
 /// This class combines the congestion control config, congestion info and
@@ -176,6 +177,7 @@ pub enum RejectTransactionReason {
     Copy,
     PartialEq,
     Eq,
+    ProtocolSchema,
 )]
 pub enum CongestionInfo {
     V1(CongestionInfoV1),
@@ -435,6 +437,7 @@ impl ExtendedCongestionInfo {
     Copy,
     PartialEq,
     Eq,
+    ProtocolSchema,
 )]
 pub struct CongestionInfoV1 {
     /// Sum of gas in currently delayed receipts.
