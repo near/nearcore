@@ -2310,10 +2310,7 @@ fn test_validate_chunk_extra() {
     // Validate that result of chunk execution in `block1` is legit.
     client
         .chunk_inclusion_tracker
-        .prepare_chunk_headers_ready_for_inclusion(
-            block1.hash(),
-            client.chunk_endorsement_tracker.as_ref(),
-        )
+        .prepare_chunk_headers_ready_for_inclusion(block1.hash(), &client.chunk_endorsement_tracker)
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();

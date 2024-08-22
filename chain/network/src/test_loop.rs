@@ -246,7 +246,6 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
-            assert_ne!(target, my_account_id, "Sending message to self not supported.");
             shared_state
                 .senders_for_account(&target)
                 .client_sender
@@ -309,7 +308,6 @@ fn network_message_to_partial_witness_handler(
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
             for (target, partial_witness) in validator_witness_tuple.into_iter() {
-                assert_ne!(target, my_account_id, "Sending message to self not supported.");
                 shared_state
                     .senders_for_account(&target)
                     .partial_witness_sender
@@ -319,7 +317,6 @@ fn network_message_to_partial_witness_handler(
         }
         NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
             for target in chunk_validators {
-                assert_ne!(target, my_account_id, "Sending message to self not supported.");
                 shared_state
                     .senders_for_account(&target)
                     .partial_witness_sender
