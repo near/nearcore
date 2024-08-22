@@ -122,18 +122,18 @@ impl HeaderSync {
         let enable_header_sync = match sync_status {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BlockSync { .. }
+            | SyncStatus::EpochSyncDone
             | SyncStatus::StateSyncDone => {
                 // TODO: Transitioning from BlockSync to HeaderSync is fine if the highest height of peers gets too far from our header_head_height. However it's currently unconditional.
                 true
             }
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSync { .. } => {
-                // TODO: How can it get to EpochSync if it's hardcoded to go from NoSync to HeaderSync?
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
                 true
             }
-            SyncStatus::StateSync { .. } => false,
+            SyncStatus::EpochSync { .. } | SyncStatus::StateSync { .. } => false,
         };
 
         if !enable_header_sync {
@@ -157,7 +157,8 @@ impl HeaderSync {
             let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
             let highest_height = peer.highest_block_height.min(shutdown_height);
             if highest_height > header_head.height {
-                self.syncing_peer = self.request_headers(chain, peer);
+                self.request_headers(chain, &peer)?;
+                self.syncing_peer = Some(peer);
             }
         }
         Ok(())
@@ -203,13 +204,9 @@ impl HeaderSync {
         // This can be either the initial timeout, or any of the progress timeouts after the initial timeout.
         let stalling = header_head.height <= old_expected_height && now > timeout;
 
-        // Always enable header sync on initial state transition from
-        // * NoSync
-        // * AwaitingPeers.
-        // TODO: Will this remain correct with the introduction of EpochSync?
-        // TODO: Shouldn't a node transition to EpochSync from these states?
+        // Always enable header sync if we're able to do header sync but are not doing it already.
         let force_sync = match sync_status {
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => true,
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSyncDone => true,
             _ => false,
         };
 
@@ -317,19 +314,17 @@ impl HeaderSync {
     fn request_headers(
         &mut self,
         chain: &Chain,
-        peer: HighestHeightPeerInfo,
-    ) -> Option<HighestHeightPeerInfo> {
-        if let Ok(locator) = self.get_locator(chain) {
-            debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::BlockHeadersRequest {
-                    hashes: locator,
-                    peer_id: peer.peer_info.id.clone(),
-                },
-            ));
-            return Some(peer);
-        }
-        None
+        peer: &HighestHeightPeerInfo,
+    ) -> Result<(), near_chain::Error> {
+        let locator = self.get_locator(chain)?;
+        debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::BlockHeadersRequest {
+                hashes: locator,
+                peer_id: peer.peer_info.id.clone(),
+            },
+        ));
+        Ok(())
     }
 
     // The remote side will return MAX_BLOCK_HEADERS headers, starting from the first hash in
@@ -352,8 +347,20 @@ impl HeaderSync {
         let ordinals = get_locator_ordinals(final_head_ordinal, tip_ordinal);
         let mut locator: Vec<CryptoHash> = vec![];
         for ordinal in &ordinals {
-            let block_hash = store.get_block_hash_from_ordinal(*ordinal)?;
-            locator.push(block_hash);
+            match store.get_block_hash_from_ordinal(*ordinal) {
+                Ok(block_hash) => {
+                    locator.push(block_hash);
+                }
+                Err(e) => {
+                    // In the case of epoch sync, it is normal and expected that we will not have
+                    // many headers before the tip, so that case is fine.
+                    if *ordinal == tip_ordinal {
+                        return Err(e);
+                    }
+                    debug!(target: "sync", "Sync: failed to get block hash from ordinal {}; \
+                        this is normal if we just finished epoch sync. Error: {:?}", ordinal, e);
+                }
+            }
         }
         debug!(target: "sync", "Sync: locator: {:?} ordinals: {:?}", locator, ordinals);
         Ok(locator)

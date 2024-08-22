@@ -104,6 +104,9 @@ pub struct TestLoopV2 {
     /// Shutdown flag. When this flag is true, delayed action runners will no
     /// longer post any new events to the event loop.
     shutting_down: Arc<AtomicBool>,
+    /// If present, a function to call to print something every time an event is
+    /// handled. Intended only for debugging.
+    every_event_callback: Option<Box<dyn FnMut(&TestLoopData)>>,
 }
 
 /// An event waiting to be executed, ordered by the due time and then by ID.
@@ -208,6 +211,7 @@ impl TestLoopV2 {
             current_time: Duration::ZERO,
             clock: FakeClock::default(),
             shutting_down,
+            every_event_callback: None,
         }
     }
 
@@ -266,6 +270,10 @@ impl TestLoopV2 {
         A: Actor + 'static,
     {
         self.data.register_actor_for_index(index, actor, adapter)
+    }
+
+    pub fn set_every_event_callback(&mut self, callback: impl FnMut(&TestLoopData) + 'static) {
+        self.every_event_callback = Some(Box::new(callback));
     }
 
     /// Helper to push events we have just received into the heap.
@@ -350,6 +358,10 @@ impl TestLoopV2 {
         .unwrap();
         tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
         assert_eq!(self.current_time, event.due);
+
+        if let Some(callback) = &mut self.every_event_callback {
+            callback(&self.data);
+        }
 
         let callback = event.event.callback;
         callback(&mut self.data);

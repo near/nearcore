@@ -264,6 +264,8 @@ impl Network {
                 Ok(accounts.0.into_iter().map(|a| a.0).collect::<Vec<_>>())
             }),
             chunk_endorsement: noop().into_sender(),
+            epoch_sync_request: noop().into_sender(),
+            epoch_sync_response: noop().into_sender(),
         }
     }
 }

@@ -829,8 +829,9 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(Default::default())
     }
 
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        _store_update: &mut StoreUpdate,
         _prev_epoch_first_block_info: BlockInfo,
         _prev_epoch_last_block_info: BlockInfo,
         _prev_epoch_prev_last_block_info: BlockInfo,

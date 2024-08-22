@@ -308,8 +308,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        store_update: &mut StoreUpdate,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -820,8 +821,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         ))
     }
 
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        store_update: &mut StoreUpdate,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -833,20 +835,18 @@ impl EpochManagerAdapter for EpochManagerHandle {
         next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
         let mut epoch_manager = self.write();
-        epoch_manager
-            .init_after_epoch_sync(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                prev_epoch_last_block_info,
-                prev_epoch_id,
-                prev_epoch_info,
-                epoch_id,
-                epoch_info,
-                next_epoch_id,
-                next_epoch_info,
-            )?
-            .commit()
-            .map_err(|err| err.into())
+        epoch_manager.init_after_epoch_sync(
+            store_update,
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_id,
+            prev_epoch_info,
+            epoch_id,
+            epoch_info,
+            next_epoch_id,
+            next_epoch_info,
+        )
     }
 
     fn verify_block_vrf(

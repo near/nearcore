@@ -1,9 +1,10 @@
 use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
-use near_async::messaging::AsyncSender;
+use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -117,6 +118,19 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 #[rtype(result = "()")]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct EpochSyncRequestMessage {
+    pub route_back: CryptoHash,
+}
+
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct EpochSyncResponseMessage {
+    pub from_peer: PeerId,
+    pub proof: EpochSyncProof,
+}
+
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
@@ -137,4 +151,6 @@ pub struct ClientSenderForNetwork {
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
+    pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
 }

@@ -271,6 +271,13 @@ impl std::fmt::Debug for StateSyncStatus {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct EpochSyncStatus {
+    pub source_peer_height: BlockHeight,
+    pub source_peer_id: PeerId,
+    pub attempt_time: near_time::Utc,
+}
+
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
@@ -279,9 +286,8 @@ pub enum SyncStatus {
     /// Not syncing / Done syncing.
     NoSync,
     /// Syncing using light-client headers to a recent epoch
-    // TODO #3488
-    // Bowen: why do we use epoch ordinal instead of epoch id?
-    EpochSync { epoch_ord: u64 },
+    EpochSync(EpochSyncStatus),
+    EpochSyncDone,
     /// Downloading block headers for fast sync.
     HeaderSync {
         /// Head height at the beginning. Not the header head height!
@@ -328,10 +334,11 @@ impl SyncStatus {
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { .. } => 2,
-            SyncStatus::HeaderSync { .. } => 3,
-            SyncStatus::StateSync(_) => 4,
-            SyncStatus::StateSyncDone => 5,
-            SyncStatus::BlockSync { .. } => 6,
+            SyncStatus::EpochSyncDone { .. } => 3,
+            SyncStatus::HeaderSync { .. } => 4,
+            SyncStatus::StateSync(_) => 5,
+            SyncStatus::StateSyncDone => 6,
+            SyncStatus::BlockSync { .. } => 7,
         }
     }
 
@@ -356,7 +363,12 @@ impl From<SyncStatus> for SyncStatusView {
         match status {
             SyncStatus::AwaitingPeers => SyncStatusView::AwaitingPeers,
             SyncStatus::NoSync => SyncStatusView::NoSync,
-            SyncStatus::EpochSync { epoch_ord } => SyncStatusView::EpochSync { epoch_ord },
+            SyncStatus::EpochSync(status) => SyncStatusView::EpochSync {
+                source_peer_height: status.source_peer_height,
+                source_peer_id: status.source_peer_id.to_string(),
+                attempt_time: status.attempt_time.to_string(),
+            },
+            SyncStatus::EpochSyncDone => SyncStatusView::EpochSyncDone,
             SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
