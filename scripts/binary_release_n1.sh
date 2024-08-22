@@ -5,7 +5,7 @@ release="${1:-release}"
 
 
 touch test_file
-aws s3 ls s3://n1.build.nearprotocol.com/nearcore/testfolder/
+aws s3 ls s3://n1.build.nearprotocol.com/nearcore/
 aws s3 cp test_file s3://n1.build.nearprotocol.com/nearcore/testfolder/
 aws s3 ls s3://n1.build.nearprotocol.com/nearcore/testfolder/
 aws s3 cp --acl public-read test_file s3://n1.build.nearprotocol.com/nearcore/testfolder2/
