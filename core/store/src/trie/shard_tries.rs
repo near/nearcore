@@ -119,37 +119,7 @@ impl ShardTries {
         let storage: Arc<dyn TrieStorage> = if memtries.is_some() {
             Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
         } else {
-            let cache = self.get_trie_cache_for(shard_uid, is_view);
-            // Do not enable prefetching on view caches.
-            // 1) Performance of view calls is not crucial.
-            // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
-            //    If you want to enable it for view calls, at least make sure they don't share
-            //    the `PrefetchApi` instances with the normal calls.
-            let prefetch_enabled = !is_view && self.0.trie_config.prefetch_enabled();
-            let prefetch_api = prefetch_enabled.then(|| {
-                self.0
-                    .prefetchers
-                    .write()
-                    .expect(POISONED_LOCK_ERR)
-                    .entry(shard_uid)
-                    .or_insert_with(|| {
-                        PrefetchApi::new(
-                            self.0.store.clone(),
-                            cache.clone(),
-                            shard_uid,
-                            &self.0.trie_config,
-                        )
-                    })
-                    .0
-                    .clone()
-            });
-            Arc::new(TrieCachingStorage::new(
-                self.0.store.clone(),
-                cache,
-                shard_uid,
-                is_view,
-                prefetch_api,
-            ))
+            Arc::new(self.create_caching_storage(shard_uid, is_view))
         };
 
         let flat_storage_chunk_view = block_hash
@@ -225,6 +195,34 @@ impl ShardTries {
             let cache = self.get_trie_cache_for(shard_uid, false);
             cache.update_cache(ops);
         }
+    }
+
+    fn create_caching_storage(&self, shard_uid: ShardUId, is_view: bool) -> TrieCachingStorage {
+        let cache = self.get_trie_cache_for(shard_uid, is_view);
+        // Do not enable prefetching on view caches.
+        // 1) Performance of view calls is not crucial.
+        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
+        //    If you want to enable it for view calls, at least make sure they don't share
+        //    the `PrefetchApi` instances with the normal calls.
+        let prefetch_enabled = !is_view && self.0.trie_config.prefetch_enabled();
+        let prefetch_api = prefetch_enabled.then(|| {
+            self.0
+                .prefetchers
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(shard_uid)
+                .or_insert_with(|| {
+                    PrefetchApi::new(
+                        self.0.store.clone(),
+                        cache.clone(),
+                        shard_uid,
+                        &self.0.trie_config,
+                    )
+                })
+                .0
+                .clone()
+        });
+        TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view, prefetch_api)
     }
 
     fn apply_deletions_inner(
