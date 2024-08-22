@@ -20,5 +20,6 @@ serde = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
+default = ["serde"]
 clock = ["tokio/sync"]
 serde = ["dep:serde", "time/serde"]
