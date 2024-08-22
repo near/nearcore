@@ -76,4 +76,4 @@ upload_binary neard
 if [ "$release" = "release" ]
 then
   upload_binary near-sandbox
-# fi
+fi
