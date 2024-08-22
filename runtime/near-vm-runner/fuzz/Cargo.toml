@@ -23,7 +23,7 @@ wasmprinter.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-test-contracts.workspace = true
-near-vm-runner.workspace = true
+near-vm-runner = { workspace = true, features = ["prepare"] }
 
 [[bin]]
 name = "runner"
