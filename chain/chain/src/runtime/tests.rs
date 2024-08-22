@@ -178,6 +178,7 @@ impl TestEnv {
                     genesis_total_supply,
                     genesis_protocol_version,
                     0,
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -346,6 +347,7 @@ impl TestEnv {
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -756,6 +758,7 @@ fn test_state_sync() {
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )

@@ -17,6 +17,7 @@ use near_chain::validate::{
 };
 use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;

@@ -1,8 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,

@@ -27,7 +27,6 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
-use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
