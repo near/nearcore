@@ -9,6 +9,9 @@ on:
 jobs:
   build_binary:
     runs-on: macos-latest-xlarge
+    environment: deploy
+    permissions:
+      id-token: write # required to use OIDC authentication
 
     steps:
       - name: Configure AWS Credentials
@@ -16,6 +19,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
+          
       - name: Checkout  repository for master branch
         # In case of master branch we want to checkout with depth 1
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
