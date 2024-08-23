@@ -1,6 +1,9 @@
-name: Neard Nightly binary release
+name: Neard Assertion binary release N1
 
 on:
+  schedule:
+    - cron: '23 */8 * * *'
+
   workflow_dispatch:
     inputs:
       branch:
@@ -30,11 +33,15 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
+      - name: Checkout nearcore repository
+        if: ${{ github.event_name != 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release_n1.sh nightly-release
+        run: ./scripts/binary_release_n1.sh assertions-release
 
       - name: Update latest version metadata in S3
         run: |
           echo $(git rev-parse HEAD) > latest
           BRANCH=$(git branch --show-current)
-          aws s3 cp --acl public-read latest s3://n1.build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest-nightly
+          aws s3 cp --acl public-read latest s3://n1.build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest-assertions
