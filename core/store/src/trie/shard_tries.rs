@@ -119,18 +119,17 @@ impl ShardTries {
         is_view: bool,
         block_hash: Option<CryptoHash>,
     ) -> Trie {
-        // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
-        // and also this can introduce lock contention on memtries.
-        let memtries = if is_view { None } else { self.get_mem_tries(shard_uid) };
         let storage: Arc<dyn TrieStorage> =
             if let Some(cache) = self.get_trie_cache_for(shard_uid, is_view) {
                 Arc::new(self.create_caching_storage(cache, shard_uid, is_view))
             } else {
                 Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
             };
-
         let flat_storage_chunk_view = block_hash
             .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
+        // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
+        // and also this can introduce lock contention on memtries.
+        let memtries = if is_view { None } else { self.get_mem_tries(shard_uid) };
         Trie::new_with_memtries(storage, memtries, state_root, flat_storage_chunk_view)
     }
 
