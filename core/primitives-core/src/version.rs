@@ -151,6 +151,8 @@ pub enum ProtocolFeature {
     /// Fixes increase to 100K NEAR in the previous protocol version.
     /// See #11953 for more details.
     FixMinStakeRatio,
+    /// Increases main_storage_proof_size_soft_limit parameter from 3mb to 4mb
+    IncreaseStorageProofSizeSoftLimit,
 
     /// Protocol version reserved for use in resharding tests.
     SimpleNightshadeTestonly,
@@ -221,6 +223,7 @@ impl ProtocolFeature {
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
+            ProtocolFeature::IncreaseStorageProofSizeSoftLimit => 72,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
