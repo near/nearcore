@@ -31,10 +31,10 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
 
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release_n1.sh nightly-release
+        run: ./scripts/binary_release.sh nightly-release
 
       - name: Update latest version metadata in S3
         run: |
           echo $(git rev-parse HEAD) > latest
           BRANCH=$(git branch --show-current)
-          aws s3 cp --acl public-read latest s3://n1.build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest-nightly
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest-nightly
