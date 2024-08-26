@@ -49,7 +49,9 @@ mod helper {
                 #info_name
             }
 
-            impl near_schema_checker_lib::ProtocolSchema for #name {}
+            impl near_schema_checker_lib::ProtocolSchema for #name {
+                fn ensure_registration() {}
+            }
         };
 
         TokenStream::from(expanded)

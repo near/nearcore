@@ -92,7 +92,9 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
-    let _: EpochInfoAggregator = Default::default();
+    LatestKnown::ensure_registration();
+    LatestWitnessesInfo::ensure_registration();
+    EpochInfoAggregator::ensure_registration();
 
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")

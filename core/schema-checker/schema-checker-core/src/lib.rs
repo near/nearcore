@@ -42,7 +42,9 @@ impl ProtocolSchemaInfo {
 #[cfg(feature = "protocol_schema")]
 inventory::collect!(ProtocolSchemaInfo);
 
-pub trait ProtocolSchema {}
+pub trait ProtocolSchema {
+    fn ensure_registration() {}
+}
 
 /// Implementation for primitive types.
 macro_rules! primitive_impl {
