@@ -14,7 +14,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 
 near-chain-configs.workspace = true

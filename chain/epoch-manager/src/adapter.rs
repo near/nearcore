@@ -1,4 +1,3 @@
-use crate::types::BlockHeaderInfo;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -244,7 +243,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn add_validator_proposals(
         &self,
-        block_header_info: BlockHeaderInfo,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError>;
 
     /// Amount of tokens minted in given epoch.
@@ -308,8 +308,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        store_update: &mut StoreUpdate,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -770,10 +771,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn add_validator_proposals(
         &self,
-        block_header_info: BlockHeaderInfo,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError> {
         let mut epoch_manager = self.write();
-        epoch_manager.add_validator_proposals(block_header_info)
+        epoch_manager.add_validator_proposals(block_info, random_value)
     }
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
@@ -819,8 +821,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         ))
     }
 
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        store_update: &mut StoreUpdate,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -832,20 +835,18 @@ impl EpochManagerAdapter for EpochManagerHandle {
         next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
         let mut epoch_manager = self.write();
-        epoch_manager
-            .init_after_epoch_sync(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                prev_epoch_last_block_info,
-                prev_epoch_id,
-                prev_epoch_info,
-                epoch_id,
-                epoch_info,
-                next_epoch_id,
-                next_epoch_info,
-            )?
-            .commit()
-            .map_err(|err| err.into())
+        epoch_manager.init_after_epoch_sync(
+            store_update,
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_id,
+            prev_epoch_info,
+            epoch_id,
+            epoch_info,
+            next_epoch_id,
+            next_epoch_info,
+        )
     }
 
     fn verify_block_vrf(

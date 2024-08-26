@@ -164,6 +164,9 @@ pub enum ProtocolFeature {
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
     /// instead of chunk_hash
     ChunkEndorsementV2,
+    // Include a bitmap of endorsements from chunk validator in the block header
+    // in order to calculate the rewards and kickouts for the chunk validators.
+    ChunkEndorsementsInBlockHeader,
 }
 
 impl ProtocolFeature {
@@ -237,6 +240,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ChunkEndorsementV2 => 144,
+            ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
         }
     }
 
@@ -249,7 +253,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

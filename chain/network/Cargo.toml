@@ -58,7 +58,7 @@ near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
-near-primitives.workspace = true
+near-primitives = { workspace = true, features = ["rand"] }
 near-store.workspace = true
 near-schema-checker-lib.workspace = true
 

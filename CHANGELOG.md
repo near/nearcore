@@ -8,6 +8,17 @@
 ### Non-protocol Changes
 **No Changes**
 
+### 2.2.0
+
+### Protocol Changes
+* The minimum validator stake has been set to a lower value. The small-stake validators that were kicked out during the shift to stateless validation will be able to rejoin the network.
+* Better algorithm for validator kickouts
+* (Testnet only) update the eth-implicit accounts contract on testnet to match the one on mainnet.
+
+### Non-protocol Changes
+* Fix spammy messages about calculating gas for PromiseYield receipts.
+* Don't crash when the CPU doesn't have SHA-NI instructions. It's still a hardware requirement, there is no guarantee that nodes without this instruction will be able to keep up with the network, but `neard` will now be able to run (slowly) on CPUs without this instruction.
+
 ## 2.1.0
 
 ### Protocol Changes

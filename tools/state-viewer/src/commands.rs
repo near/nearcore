@@ -23,7 +23,6 @@ use near_chain::types::{
 };
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
@@ -43,7 +42,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
-use near_store::test_utils::create_test_store;
 use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
@@ -661,35 +659,6 @@ pub(crate) fn print_chain(
             );
         } else {
             println!("{: >3} {}", height, Red.style().bold().paint("MISSING"));
-        }
-    }
-}
-
-pub(crate) fn replay_chain(
-    start_height: BlockHeight,
-    end_height: BlockHeight,
-    near_config: NearConfig,
-    store: Store,
-) {
-    let chain_store = ChainStore::new(
-        store,
-        near_config.genesis.config.genesis_height,
-        near_config.client_config.save_trie_changes,
-    );
-    let new_store = create_test_store();
-    let epoch_manager = EpochManager::new_arc_handle(new_store, &near_config.genesis.config);
-    for height in start_height..=end_height {
-        if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
-            println!("Height: {}, header: {:#?}", height, header);
-            epoch_manager
-                .add_validator_proposals(BlockHeaderInfo::new(
-                    &header,
-                    chain_store.get_block_height(header.last_final_block()).unwrap(),
-                ))
-                .unwrap()
-                .commit()
-                .unwrap();
         }
     }
 }

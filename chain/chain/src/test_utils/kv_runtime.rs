@@ -11,7 +11,6 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
@@ -794,7 +793,8 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn add_validator_proposals(
         &self,
-        _block_header_info: BlockHeaderInfo,
+        _block_info: BlockInfo,
+        _random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError> {
         Ok(self.store.store_update())
     }
@@ -829,8 +829,9 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(Default::default())
     }
 
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        _store_update: &mut StoreUpdate,
         _prev_epoch_first_block_info: BlockInfo,
         _prev_epoch_last_block_info: BlockInfo,
         _prev_epoch_prev_last_block_info: BlockInfo,
