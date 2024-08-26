@@ -53,6 +53,7 @@ use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
 mod latest_witnesses;
+pub use latest_witnesses::LatestWitnessesInfo;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]

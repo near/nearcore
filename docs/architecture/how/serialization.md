@@ -11,10 +11,12 @@ All structs which need to be persisted or sent over the network must derive the
 ProtocolSchema trait:
 
 ```rust
-// put in lib.rs:
+// First, the schema checksums (hashes) are calculated at compile time and
+// require `TypeId` for cross-navigation. However, it is a nightly feature,
+// so we enable it manually by putting this in lib.rs:
 // #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 //
-// put in Cargo.toml:
+// Then, import schema calculation functionality by putting in Cargo.toml:
 // near-schema-checker-lib.workspace = true
 // [features]
 // protocol_schema = [
@@ -22,7 +24,7 @@ ProtocolSchema trait:
 //   ...the same feature in all dependent crates...
 // ]
 // 
-// mark your crate in `tools/protocol-schema-check/Cargo.toml`
+// Lastly, mark your crate in `tools/protocol-schema-check/Cargo.toml`
 // as dependency with `protocol_schema` feature enabled
 
 use near_schema_checker_lib::ProtocolSchema;

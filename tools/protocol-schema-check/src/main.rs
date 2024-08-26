@@ -16,7 +16,7 @@ use near_store::*;
 use near_vm_runner::*;
 
 use near_epoch_manager::types::EpochInfoAggregator;
-use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
+use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchema, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
@@ -92,9 +92,12 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
-    LatestKnown::ensure_registration();
-    LatestWitnessesInfo::ensure_registration();
-    EpochInfoAggregator::ensure_registration();
+    #[cfg(enable_const_type_id)]
+    {
+        LatestKnown::ensure_registration();
+        LatestWitnessesInfo::ensure_registration();
+        EpochInfoAggregator::ensure_registration();
+    }
 
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")

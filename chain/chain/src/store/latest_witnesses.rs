@@ -85,7 +85,7 @@ impl LatestWitnessesKey {
 #[derive(
     Debug, Clone, Copy, BorshSerialize, BorshDeserialize, PartialEq, Eq, Default, ProtocolSchema,
 )]
-struct LatestWitnessesInfo {
+pub struct LatestWitnessesInfo {
     pub count: u64,
     pub total_size: u64,
     pub lowest_index: u64,
