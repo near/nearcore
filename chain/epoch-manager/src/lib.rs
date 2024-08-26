@@ -1,5 +1,6 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
-use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{BlockHeader, Tip};
@@ -36,7 +37,7 @@ pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-pub use crate::types::RngSeed;
+pub use crate::types::{EpochInfoAggregator, RngSeed};
 
 mod adapter;
 mod metrics;

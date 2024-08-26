@@ -25,6 +25,7 @@ use near_primitives::stateless_validation::partial_witness::PartialEncodedStateW
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -53,7 +54,16 @@ pub struct KnownProducer {
 }
 
 /// Ban reason.
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Copy,
+    ProtocolSchema,
+)]
 #[borsh(use_discriminant = false)]
 pub enum ReasonForBan {
     None = 0,

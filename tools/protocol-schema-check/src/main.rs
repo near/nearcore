@@ -7,18 +7,16 @@
 
 /// Needed because otherwise tool doesn't notice `ProtocolSchemaInfo`s from
 /// other crates.
+use near_chain::*;
 use near_crypto::*;
+use near_epoch_manager::*;
 use near_parameters::*;
 use near_primitives::*;
 use near_store::*;
+use near_vm_runner::*;
 
-use near_primitives::sharding::ShardChunkHeaderV3;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
-use near_primitives::types::{ChunkStats, EpochId};
-use near_primitives::validator_signer::EmptyValidatorSigner;
-use near_primitives_core::types::NumBlocks;
-use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
+use near_epoch_manager::types::EpochInfoAggregator;
+use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchema, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
@@ -94,6 +92,20 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
+    #[cfg(enable_const_type_id)]
+    {
+        // For some reason, `EpochInfoAggregator` is not picked up by `inventory`
+        // crate at all. In addition to that, `Latest*` structs are not picked up
+        // on macos. This is a workaround around that. It is enough to put only
+        // `LatestKnown` here but I don't know why as well.
+        // The issue may be related to the large size of crates. Other workaround
+        // is to move these types to smaller crates.
+        // TODO (#11755): find the reason and remove this workaround.
+        LatestKnown::ensure_registration();
+        LatestWitnessesInfo::ensure_registration();
+        EpochInfoAggregator::ensure_registration();
+    }
+
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")
         .map(std::path::PathBuf::from)
