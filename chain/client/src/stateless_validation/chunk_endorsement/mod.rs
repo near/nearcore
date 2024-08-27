@@ -80,7 +80,7 @@ impl ChunkEndorsementTracker {
         }
     }
 
-    pub fn compute_chunk_endorsements(
+    pub fn collect_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
@@ -88,9 +88,9 @@ impl ChunkEndorsementTracker {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::ChunkEndorsementV2.enabled(protocol_version) {
-            self.tracker_v1.compute_chunk_endorsements(chunk_header)
+            self.tracker_v1.collect_chunk_endorsements(chunk_header)
         } else {
-            self.tracker_v2.compute_chunk_endorsements(chunk_header)
+            self.tracker_v2.collect_chunk_endorsements(chunk_header)
         }
     }
 }

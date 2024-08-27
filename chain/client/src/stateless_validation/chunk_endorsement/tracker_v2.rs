@@ -63,18 +63,19 @@ impl ChunkEndorsementTracker {
         // Validate the chunk endorsement and store it in the cache.
         if validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
             let mut chunk_endorsements = self.chunk_endorsements.lock().unwrap();
-            let entry = chunk_endorsements.get_or_insert_mut(key, || HashMap::new());
-            entry.insert(account_id.clone(), endorsement);
+            chunk_endorsements
+                .get_or_insert_mut(key, || HashMap::new())
+                .insert(account_id.clone(), endorsement);
         };
         Ok(())
     }
 
-    /// Called by block producer.
-    /// Returns ChunkEndorsementsState::Endorsed if node has enough signed stake for the chunk
-    /// represented by chunk_header.
-    /// Signatures have the same order as ordered_chunk_validators, thus ready to be included in a block as is.
-    /// Returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
-    pub(crate) fn compute_chunk_endorsements(
+    /// This function is called by block producer potentially multiple times if there's not enough stake.
+    /// We return ChunkEndorsementsState::Endorsed if node has enough signed stake for the chunk represented
+    /// by chunk_header. Signatures have the same order as ordered_chunk_validators, thus ready to be included
+    /// in a block as is.
+    /// We returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
+    pub(crate) fn collect_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
