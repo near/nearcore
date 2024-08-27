@@ -62,8 +62,9 @@ impl ChunkEndorsementTracker {
 
         // Validate the chunk endorsement and store it in the cache.
         if validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
-            let mut chunk_endorsements = self.chunk_endorsements.lock().unwrap();
-            chunk_endorsements
+            self.chunk_endorsements
+                .lock()
+                .unwrap()
                 .get_or_insert_mut(key, || HashMap::new())
                 .insert(account_id.clone(), endorsement);
         };
