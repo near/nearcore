@@ -437,7 +437,7 @@ pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: LazyLock<IntCounterVec> = LazyLock:
     try_create_int_counter_vec(
         "near_chunk_receipts_limited_by",
         "Number of chunks where the number of processed receipts was limited by a certain factor.",
-        &["shard_id", "limited_by"],
+        &["shard_id", "apply_reason", "limited_by"],
     )
     .unwrap()
 });

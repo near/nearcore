@@ -3789,15 +3789,25 @@ impl Chain {
 
         let runtime = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
+
         Ok(Some((
             shard_id,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
+                let _ = process_shard_update(
+                    parent_span,
+                    runtime.as_ref(),
+                    epoch_manager.as_ref(),
+                    shard_update_reason.clone(),
+                    shard_context.clone(),
+                    near_primitives::apply::ApplyChunkReason::Experiment,
+                );
                 Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    near_primitives::apply::ApplyChunkReason::UpdateTrackedShard,
                 )?)
             }),
         )))

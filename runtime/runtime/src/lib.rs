@@ -1808,12 +1808,17 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let protocol_version = processing_state.protocol_version;
         let apply_state = &processing_state.apply_state;
+        let apply_reason = apply_state.apply_reason.clone();
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+            if matches!(apply_reason, Some(ApplyChunkReason::Experiment)) {
+                Some(4_000_000)
+            } else {
+                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+            }
         } else {
             None
         };
@@ -1854,19 +1859,24 @@ impl Runtime {
         )?;
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        let apply_reason = apply_reason.map_or("unknown".to_owned(), |reason| reason.to_string());
         if processing_state.total.compute >= compute_limit {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
-                .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
+                .with_label_values(&[shard_id_str.as_str(), &apply_reason, "compute_limit"])
                 .inc();
         } else if proof_size_limit.is_some_and(|limit| {
             processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
         }) {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
-                .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
+                .with_label_values(&[
+                    shard_id_str.as_str(),
+                    &apply_reason,
+                    "storage_proof_size_limit",
+                ])
                 .inc();
         } else {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
-                .with_label_values(&[shard_id_str.as_str(), "unlimited"])
+                .with_label_values(&[shard_id_str.as_str(), &apply_reason, "unlimited"])
                 .inc();
         }
 
