@@ -102,18 +102,6 @@ impl TrieUpdate {
         self.trie.contains_key(&key)
     }
 
-    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_ref().map(<Vec<u8>>::clone));
-            }
-        }
-        self.trie.get(&key)
-    }
-
     /// Gets code from trie updates or directly from contract storage,
     /// bypassing the trie.
     pub fn get_code(
@@ -257,7 +245,27 @@ impl TrieUpdate {
 
 impl crate::TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        TrieUpdate::get(self, key)
+        let key = key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
+            }
+        }
+        self.trie.get(&key)
+    }
+
+    fn get_no_side_effects(&self, orig_key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = orig_key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
+            }
+        }
+        self.trie.get_no_side_effects(orig_key)
     }
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
@@ -276,7 +284,7 @@ impl Drop for TrieCacheModeGuard {
 mod tests {
     use super::*;
     use crate::test_utils::TestTriesBuilder;
-    use crate::ShardUId;
+    use crate::{ShardUId, TrieAccess as _};
     use near_primitives::hash::CryptoHash;
     const SHARD_VERSION: u32 = 1;
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };

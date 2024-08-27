@@ -52,10 +52,11 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
-    get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
-    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_code, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
+    get_received_data, has_received_data, remove_account, remove_postponed_receipt,
+    remove_promise_yield_receipt, set, set_access_key, set_account, set_code,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data, PartialStorage,
+    StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -2470,7 +2471,8 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
-        let receiver = get_account(state_update, account_id);
+        let key = TrieKey::Account { account_id: account_id.clone() };
+        let receiver = get_pure::<Account>(state_update, &key);
         let Ok(Some(receiver)) = receiver else {
             // Most likely reason this can happen is because the receipt is for an account that
             // does not yet exist. This is a routine occurrence as accounts are created by sending
@@ -2499,28 +2501,34 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                         receiver_id: account_id.clone(),
                         data_id: dr.data_id,
                     };
-                    let Ok(Some(rid)) = get::<CryptoHash>(state_update, &key) else {
+                    let Ok(Some(rid)) = get_pure::<CryptoHash>(state_update, &key) else {
                         return false;
                     };
                     let key = TrieKey::PendingDataCount {
                         receiver_id: account_id.clone(),
                         receipt_id: rid,
                     };
-                    let Ok(Some(data_count)) = get::<u32>(state_update, &key) else {
+                    let Ok(Some(data_count)) = get_pure::<u32>(state_update, &key) else {
                         return false;
                     };
                     if data_count > 1 {
                         return false;
                     }
-                    let Ok(Some(pr)) = get_postponed_receipt(state_update, account_id, rid) else {
+                    let key = TrieKey::PostponedReceipt {
+                        receiver_id: account_id.clone(),
+                        receipt_id: rid,
+                    };
+                    let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
                         return false;
                     };
                     return handle_receipt(mgr, state_update, receiver, account_id, &pr);
                 }
                 ReceiptEnum::PromiseResume(dr) => {
-                    let Ok(Some(yr)) =
-                        get_promise_yield_receipt(state_update, account_id, dr.data_id)
-                    else {
+                    let key = TrieKey::PromiseYieldReceipt {
+                        receiver_id: account_id.clone(),
+                        data_id: dr.data_id,
+                    };
+                    let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
                         return false;
                     };
                     return handle_receipt(mgr, state_update, receiver, account_id, &yr);

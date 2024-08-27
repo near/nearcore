@@ -762,6 +762,22 @@ pub fn get<T: BorshDeserialize>(
     }
 }
 
+/// [`get`] without incurring side effects.
+pub fn get_pure<T: BorshDeserialize>(
+    trie: &dyn TrieAccess,
+    key: &TrieKey,
+) -> Result<Option<T>, StorageError> {
+    match trie.get_no_side_effects(key)? {
+        None => Ok(None),
+        Some(data) => match T::try_from_slice(&data) {
+            Err(_err) => {
+                Err(StorageError::StorageInconsistentState("Failed to deserialize".to_string()))
+            }
+            Ok(value) => Ok(Some(value)),
+        },
+    }
+}
+
 /// Writes an object into Trie.
 pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: TrieKey, value: &T) {
     let data = borsh::to_vec(&value).expect("Borsh serializer is not expected to ever fail");
