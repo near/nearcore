@@ -11,24 +11,24 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::{types, views};
 
-use super::errors::FailedToFetchData;
+use super::errors::IndexerError;
 use super::INDEXER;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
-) -> Result<near_primitives::views::StatusResponse, FailedToFetchData> {
+) -> Result<near_primitives::views::StatusResponse, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching status");
     client
         .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 /// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch
 /// entire block or we already fetched this block.
 pub(crate) async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
-) -> Result<views::BlockView, FailedToFetchData> {
+) -> Result<views::BlockView, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching latest block");
     client
         .send(
@@ -38,14 +38,14 @@ pub(crate) async fn fetch_latest_block(
             .with_span_context(),
         )
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 /// Fetches specific block by it's height
 pub(crate) async fn fetch_block_by_height(
     client: &Addr<near_client::ViewClientActor>,
     height: u64,
-) -> Result<views::BlockView, FailedToFetchData> {
+) -> Result<views::BlockView, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching block by height: {}", height);
     client
         .send(
@@ -53,14 +53,14 @@ pub(crate) async fn fetch_block_by_height(
                 .with_span_context(),
         )
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 /// Fetches specific block by it's hash
 pub(crate) async fn fetch_block(
     client: &Addr<near_client::ViewClientActor>,
     hash: CryptoHash,
-) -> Result<views::BlockView, FailedToFetchData> {
+) -> Result<views::BlockView, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching block by hash: {}", hash);
     client
         .send(
@@ -68,14 +68,14 @@ pub(crate) async fn fetch_block(
                 .with_span_context(),
         )
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 pub(crate) async fn fetch_state_changes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
     epoch_id: near_primitives::types::EpochId,
-) -> Result<HashMap<near_primitives::types::ShardId, views::StateChangesView>, FailedToFetchData> {
+) -> Result<HashMap<near_primitives::types::ShardId, views::StateChangesView>, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching state changes for block: {}, epoch_id: {:?}", block_hash, epoch_id);
     client
         .send(
@@ -83,7 +83,7 @@ pub(crate) async fn fetch_state_changes(
                 .with_span_context(),
         )
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
@@ -93,13 +93,13 @@ pub(crate) async fn fetch_outcomes(
     block_hash: CryptoHash,
 ) -> Result<
     HashMap<near_primitives::types::ShardId, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>,
-    FailedToFetchData,
+    IndexerError,
 > {
     tracing::debug!(target: INDEXER, "Fetching outcomes for block: {}", block_hash);
     let outcomes = client
         .send(near_client::GetExecutionOutcomesForBlock { block_hash }.with_span_context())
         .await?
-        .map_err(FailedToFetchData::String)?;
+        .map_err(IndexerError::FailedToFetchData)?;
 
     let mut shard_execution_outcomes_with_receipts: HashMap<
         near_primitives::types::ShardId,
@@ -135,12 +135,12 @@ pub(crate) async fn fetch_outcomes(
 async fn fetch_receipt_by_id(
     client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
-) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
+) -> Result<Option<views::ReceiptView>, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching receipt by id: {}", receipt_id);
     client
         .send(near_client::GetReceipt { receipt_id }.with_span_context())
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided
@@ -148,12 +148,12 @@ async fn fetch_receipt_by_id(
 async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     chunk_hash: near_primitives::hash::CryptoHash,
-) -> Result<views::ChunkView, FailedToFetchData> {
+) -> Result<views::ChunkView, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching chunk by hash: {}", chunk_hash);
     client
         .send(near_client::GetChunk::ChunkHash(chunk_hash.into()).with_span_context())
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
 /// Fetches all chunks belonging to given block.
@@ -161,7 +161,7 @@ async fn fetch_single_chunk(
 pub(crate) async fn fetch_block_chunks(
     client: &Addr<near_client::ViewClientActor>,
     block: &views::BlockView,
-) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
+) -> Result<Vec<views::ChunkView>, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching chunks for block #{}", block.header.height);
     let mut futures: futures::stream::FuturesUnordered<_> = block
         .chunks
@@ -179,7 +179,7 @@ pub(crate) async fn fetch_block_chunks(
 pub(crate) async fn fetch_protocol_config(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: near_primitives::hash::CryptoHash,
-) -> Result<near_chain_configs::ProtocolConfigView, FailedToFetchData> {
+) -> Result<near_chain_configs::ProtocolConfigView, IndexerError> {
     tracing::debug!(target: INDEXER, "Fetching protocol config for block: {}", block_hash);
     Ok(client
         .send(
@@ -189,5 +189,5 @@ pub(crate) async fn fetch_protocol_config(
             .with_span_context(),
         )
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))?)
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))?)
 }
