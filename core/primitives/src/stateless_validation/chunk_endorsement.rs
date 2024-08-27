@@ -9,7 +9,7 @@ use near_primitives_core::types::{AccountId, BlockHeight, ProtocolVersion, Shard
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
-use super::SignatureDifferentiator;
+use super::{ChunkProductionKey, SignatureDifferentiator};
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
@@ -30,20 +30,6 @@ impl ChunkEndorsement {
             ChunkEndorsement::V2(ChunkEndorsementV2::new(epoch_id, chunk_header, signer))
         } else {
             ChunkEndorsement::V1(ChunkEndorsementV1::new(chunk_header.chunk_hash(), signer))
-        }
-    }
-
-    pub fn chunk_hash(&self) -> &ChunkHash {
-        match self {
-            ChunkEndorsement::V1(endorsement) => &endorsement.inner.chunk_hash,
-            ChunkEndorsement::V2(endorsement) => &endorsement.inner.chunk_hash,
-        }
-    }
-
-    pub fn signature(&self) -> Signature {
-        match self {
-            ChunkEndorsement::V1(endorsement) => endorsement.signature.clone(),
-            ChunkEndorsement::V2(endorsement) => endorsement.signature.clone(),
         }
     }
 
@@ -113,13 +99,31 @@ impl ChunkEndorsementV2 {
         Self { inner, signature, metadata, metadata_signature }
     }
 
-    // TODO(ChunkEndorsementV2): Remove this once we implement tracker_v2
-    pub fn into_v1(self) -> ChunkEndorsementV1 {
-        ChunkEndorsementV1 {
-            inner: self.inner,
-            account_id: self.metadata.account_id,
-            signature: self.signature,
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.metadata.shard_id,
+            epoch_id: self.metadata.epoch_id,
+            height_created: self.metadata.height_created,
         }
+    }
+
+    pub fn account_id(&self) -> &AccountId {
+        &self.metadata.account_id
+    }
+
+    pub fn chunk_hash(&self) -> &ChunkHash {
+        &self.inner.chunk_hash
+    }
+
+    pub fn signature(&self) -> Signature {
+        self.signature.clone()
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        let inner = borsh::to_vec(&self.inner).unwrap();
+        let metadata = borsh::to_vec(&self.metadata).unwrap();
+        self.signature.verify(&inner, public_key)
+            && self.metadata_signature.verify(&metadata, public_key)
     }
 }
 

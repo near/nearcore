@@ -10,9 +10,12 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsement::{
+    ChunkEndorsementV1, ChunkEndorsementV2,
+};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, ShardId,
@@ -416,6 +419,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         chunk_header: &ShardChunkHeader,
         endorsement: &ChunkEndorsementV1,
+    ) -> Result<bool, Error>;
+
+    fn verify_chunk_endorsement_signature(
+        &self,
+        endorsement: &ChunkEndorsementV2,
     ) -> Result<bool, Error>;
 
     fn verify_partial_witness_signature(
@@ -1030,6 +1038,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
+    // TODO(ChunkEndorsementV2): Deprecate this after shifting to ChunkEndorsementV2
     fn verify_chunk_endorsement(
         &self,
         chunk_header: &ShardChunkHeader,
@@ -1056,17 +1065,27 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(endorsement.verify(validator.public_key()))
     }
 
+    fn verify_chunk_endorsement_signature(
+        &self,
+        endorsement: &ChunkEndorsementV2,
+    ) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        let epoch_id = endorsement.chunk_production_key().epoch_id;
+        let validator =
+            epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id())?;
+        Ok(endorsement.verify(validator.public_key()))
+    }
+
     fn verify_partial_witness_signature(
         &self,
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error> {
         // Get the chunk producer from the epoch_id, height_created and shard_id, verify if signature is correct
         let epoch_manager = self.read();
-        let chunk_producer = epoch_manager.get_chunk_producer_info(
-            &partial_witness.epoch_id(),
-            partial_witness.height_created(),
-            partial_witness.shard_id(),
-        )?;
+        let ChunkProductionKey { shard_id, epoch_id, height_created } =
+            partial_witness.chunk_production_key();
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)?;
         Ok(partial_witness.verify(chunk_producer.public_key()))
     }
 
