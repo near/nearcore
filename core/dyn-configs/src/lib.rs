@@ -1,8 +1,7 @@
 #![doc = include_str!("../README.md")]
 
-use near_chain_configs::UpdateableClientConfig;
+use near_chain_configs::{UpdateableClientConfig, UpdateableValidatorSigner};
 use near_o11y::log_config::LogConfig;
-use near_primitives::validator_signer::ValidatorSigner;
 use near_time::Clock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,7 +19,7 @@ pub struct UpdateableConfigs {
     /// Validator key hot loaded from file.
     /// `None` means that the validator key existence could not be determined.
     /// `Some(None)` means that it was determined that the validator key does not exist.
-    pub validator_signer: Option<Option<Arc<ValidatorSigner>>>,
+    pub validator_signer: Option<UpdateableValidatorSigner>,
 }
 
 /// Pushes the updates to listeners.
