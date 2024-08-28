@@ -1,3 +1,4 @@
+pub mod client;
 pub mod network;
 pub mod setups;
 pub mod transactions;
