@@ -24,7 +24,8 @@ class ValidatorRemoveKeyQuickTest(unittest.TestCase):
 
     def test_validator_remove_key_quick(self):
         logger.info("Validator remove key quick test")
-        validator_config, rpc_config = state_sync_lib.get_state_sync_configs_pair()
+        validator_config, rpc_config = state_sync_lib.get_state_sync_configs_pair(
+        )
 
         validator_config.update({
             "tracked_shards": [0],
@@ -35,13 +36,14 @@ class ValidatorRemoveKeyQuickTest(unittest.TestCase):
             "tracked_shards": [0],
         })
 
-        [validator, rpc] = start_cluster(
-            1, 1, 1, None,
-            [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 80],
-            ["chunk_producer_kickout_threshold", 80]], {
-                0: validator_config,
-                1: rpc_config
-            })
+        [validator,
+         rpc] = start_cluster(1, 1, 1, None,
+                              [["epoch_length", EPOCH_LENGTH],
+                               ["block_producer_kickout_threshold", 80],
+                               ["chunk_producer_kickout_threshold", 80]], {
+                                   0: validator_config,
+                                   1: rpc_config
+                               })
 
         wait_for_blocks(rpc, target=EPOCH_LENGTH)
         validator_key = validator.validator_key
@@ -59,7 +61,8 @@ class ValidatorRemoveKeyQuickTest(unittest.TestCase):
         validator.reset_validator_key(validator_key)
         validator.reload_updateable_config()
         validator.stop_checking_store()
-        wait_for_blocks(rpc, count=EPOCH_LENGTH*2)
+        wait_for_blocks(rpc, count=EPOCH_LENGTH * 2)
+
 
 if __name__ == '__main__':
     unittest.main()
