@@ -1941,13 +1941,33 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+
+        let apply_reason_label = apply_state.apply_reason.as_ref().unwrap().to_string();
+        let shard_id_str = apply_state.shard_id.to_string();
+
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
-        let shard_id_str = apply_state.shard_id.to_string();
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
-            .with_label_values(&[shard_id_str.as_str()])
+            .with_label_values(&[shard_id_str.as_str(), &apply_reason_label])
             .observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
+
+        if let Some(partial_storage) = trie.recorded_storage() {
+            let bytes = borsh::to_vec(&partial_storage.nodes).unwrap();
+            metrics::CHUNK_STATE_WITNESS_STORAGE_PROOF_SIZE
+                .with_label_values(&[
+                    &shard_id_str,
+                    &apply_reason_label,
+                ])
+                .observe(bytes.len() as f64);
+            let compressed = zstd::encode_all(bytes.as_slice(), 3).unwrap();
+            metrics::CHUNK_STATE_WITNESS_COMPRESSED_STORAGE_PROOF_SIZE
+                .with_label_values(&[
+                    &shard_id_str,
+                    &apply_reason_label,
+                ])
+                .observe(compressed.len() as f64);
+        }
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -1979,7 +1999,7 @@ impl Runtime {
         let state_root = trie_changes.new_root;
         let chunk_recorded_size = trie.recorded_storage_size() as f64;
         metrics::CHUNK_RECORDED_SIZE
-            .with_label_values(&[shard_id_str.as_str()])
+            .with_label_values(&[shard_id_str.as_str(), &apply_reason_label])
             .observe(chunk_recorded_size);
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .with_label_values(&[shard_id_str.as_str()])

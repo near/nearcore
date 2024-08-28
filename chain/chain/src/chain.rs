@@ -3542,7 +3542,8 @@ impl Chain {
         }
         let Some(account_id) = me.as_ref() else { return Ok(false) };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
-            || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
+            || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?
+            || true)
     }
 
     /// Creates jobs which will update shards for the given block and incoming
