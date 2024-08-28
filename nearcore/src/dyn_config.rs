@@ -34,10 +34,13 @@ pub fn read_updateable_configs(
     let updateable_client_config = config.as_ref().map(get_updateable_client_config);
 
     let validator_signer = if let Some(config) = config {
-        read_validator_key(home_dir, &config).unwrap_or_else(|err| {
-            errs.push(err);
-            None
-        })
+        match read_validator_key(home_dir, &config) {
+            Ok(validator_key) => Some(validator_key),
+            Err(err) => {
+                errs.push(err);
+                None
+            }
+        }
     } else {
         None
     };

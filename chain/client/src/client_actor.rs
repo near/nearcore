@@ -1208,11 +1208,10 @@ impl ClientActorInner {
             );
 
             if update_result.validator_signer_updated {
-                let validator_signer =
-                    self.client.validator_signer.get().expect("Validator signer just updated");
-
-                check_validator_tracked_shards(&self.client, validator_signer.validator_id())
-                    .expect("Could not check validator tracked shards");
+                if let Some(validator_signer) = self.client.validator_signer.get() {
+                    check_validator_tracked_shards(&self.client, validator_signer.validator_id())
+                        .expect("Could not check validator tracked shards");
+                }
 
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
