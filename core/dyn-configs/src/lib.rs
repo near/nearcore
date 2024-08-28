@@ -18,7 +18,9 @@ pub struct UpdateableConfigs {
     /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
     pub client_config: Option<UpdateableClientConfig>,
     /// Validator key hot loaded from file.
-    pub validator_signer: Option<Arc<ValidatorSigner>>,
+    /// `None` means that the validator key existence could not be determined.
+    /// `Some(None)` means that it was determined that the validator key does not exist.
+    pub validator_signer: Option<Option<Arc<ValidatorSigner>>>,
 }
 
 /// Pushes the updates to listeners.

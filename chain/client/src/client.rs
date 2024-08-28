@@ -218,8 +218,8 @@ impl Client {
 
     /// Updates client's mutable validator signer.
     /// It will update all validator signers that synchronize with it.
-    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
-        self.validator_signer.update(Some(signer))
+    pub(crate) fn update_validator_signer(&self, signer: Option<Arc<ValidatorSigner>>) -> bool {
+        self.validator_signer.update(signer)
     }
 }
 

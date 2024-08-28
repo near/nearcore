@@ -112,6 +112,8 @@ pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly
 pytest --timeout=120 sanity/validator_switch_key_quick.py
 pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
+pytest --timeout=120 sanity/validator_remove_key_quick.py
+pytest --timeout=120 sanity/validator_remove_key_quick.py --features nightly
 pytest --timeout=60 sanity/shadow_tracking.py
 pytest --timeout=60 sanity/shadow_tracking.py --features nightly
 pytest sanity/proxy_simple.py

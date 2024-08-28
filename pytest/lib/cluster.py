@@ -608,6 +608,13 @@ class LocalNode(BaseNode):
         with open(os.path.join(self.node_dir, "validator_key.json"), 'w+') as f:
             json.dump(new_key.to_json(), f)
 
+    def remove_validator_key(self):
+        logger.info(f"Removing validator_key.json file for node {self.ordinal}.")
+        self.validator_key = None
+        file_path = os.path.join(self.node_dir, "validator_key.json")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
     def reset_node_key(self, new_key):
         self.node_key = new_key
         with open(os.path.join(self.node_dir, "node_key.json"), 'w+') as f:

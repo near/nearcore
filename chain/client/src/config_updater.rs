@@ -33,7 +33,7 @@ impl ConfigUpdater {
     pub fn try_update(
         &mut self,
         update_client_config_fn: &dyn Fn(UpdateableClientConfig) -> bool,
-        update_validator_signer_fn: &dyn Fn(Arc<ValidatorSigner>) -> bool,
+        update_validator_signer_fn: &dyn Fn(Option<Arc<ValidatorSigner>>) -> bool,
     ) -> ConfigUpdaterResult {
         let mut update_result = ConfigUpdaterResult::default();
         while let Ok(maybe_updateable_configs) = self.rx_config_update.try_recv() {
