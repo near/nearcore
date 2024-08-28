@@ -34,7 +34,7 @@ fn test_fix_min_stake_ratio() {
 
     // Total stake is 62_500 NEAR - 1 unit, which is just enough for everyone
     // to join the validator set after protocol upgrade.
-    let validators = vec ![
+    let validators = vec![
         near_primitives::types::AccountInfo {
             account_id: accounts[0].clone(),
             public_key: near_primitives::test_utils::create_test_signer(accounts[0].as_str())
