@@ -4915,9 +4915,11 @@ to debug write performance is naturally lacking.</p>
 <h2 id="sampling-performance-profiling"><a class="header" href="#sampling-performance-profiling">Sampling performance profiling</a></h2>
 <p>It is a common task to need to look where <code>neard</code> is spending time. Outside of instrumentation
 we've also been successfully using sampling profilers to gain an intuition over how the code works
-and where it spends time.</p>
-<p>Linux's <code>perf</code> has been a tool of choice in most cases. In order to use it, first prepare your
-system:</p>
+and where it spends time. It is a very quick way to get some baseline understanding of the
+performance characteristics, but due to its probablistic nature it is also not particularly precise
+when it comes to small details.</p>
+<p>Linux's <code>perf</code> has been a tool of choice in most cases, although tools like Intel VTune could be
+used to. In order to use either, first prepare your system:</p>
 <pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
 $ sudo sysctl kernel.restrict_kptr=0
 </code></pre>
@@ -4929,16 +4931,64 @@ better yet, reboot.</p>
 </blockquote>
 <p>Then collect a profile as such:</p>
 <pre><code class="language-command">$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 YOUR_COMMAND_HERE
+# or attach to a running process:
+$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 -p NEARD_PID
 </code></pre>
-<p>(you may omit <code>-e cpu-clock</code> in certain environments for a more precise sampling timer.)</p>
-<p>This will produce a profile file in the current working directory. Although you can inspect the
-profile already with <code>perf report</code>, we've had much better experience with using <a href="https://profiler.firefox.com/">Firefox
-Profiler</a> as the viewer. Although Firefox Profiler supports <code>perf</code>
-and many other different data formats, for <code>perf</code> in particular a conversion step is necessary:</p>
+<p>This command will use the CPU time clock to determine when to trigger a sampling process and will
+do such sampling roughly 1000 times (the <code>-F</code> argument) every CPU second.</p>
+<p>Once terminated, this command will produce a profile file in the current working directory.
+Although you can inspect the profile already with <code>perf report</code>, we've had much better experience
+with using <a href="https://profiler.firefox.com/">Firefox Profiler</a> as the viewer. Although Firefox
+Profiler supports <code>perf</code> and many other different data formats, for <code>perf</code> in particular a
+conversion step is necessary:</p>
 <pre><code class="language-command">$ perf script -F +pid &gt; mylittleprofile.script
 </code></pre>
-<p>Then, load this <code>mylittleprofile.script</code> with the tool.</p>
-<h2 id="memory-profiling"><a class="header" href="#memory-profiling">Memory profiling</a></h2>
+<p>Then, load this <code>mylittleprofile.script</code> file with the profiler.</p>
+<h3 id="low-overhead-stack-frame-collection"><a class="header" href="#low-overhead-stack-frame-collection">Low overhead stack frame collection</a></h3>
+<p>The command above uses <code>-g --call-graph dwarf,65528</code> parameter to instruct <code>perf</code> to collect
+stack trace for each sample using DWARF unwinding metadata. This will work no matter how <code>neard</code> is
+built, but is expensive and not super precise (e.g. it has trouble with JIT code.) If you have an
+ability to build a profiling-tuned build of <code>neard</code>, you can use higher quality stack frame
+collection.</p>
+<pre><code class="language-command">$ cargo build --release --config .cargo/config.profiling.toml -p neard
+</code></pre>
+<p>Then, replace the <code>--call-graph dwarf</code> with <code>--call-graph fp</code>:</p>
+<pre><code class="language-command">$ perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
+</code></pre>
+<h3 id="profiling-with-hardware-counters"><a class="header" href="#profiling-with-hardware-counters">Profiling with hardware counters</a></h3>
+<p>As mentioned earlier, sampling profiler is probablistic and the data it produces is only really
+suitable for a broad overview. Any attempt to analyze the performance of the code at the
+microarchitectural level (which you might want to do if investigating how to speed up a small but
+frequently invoked function) will be severely hampered by the low quality of data.</p>
+<p>For a long time now, CPUs are able to expose information about how it operates on the code at a
+very fine grained level: how many cycles have passed, how many instructions have been processed,
+how many branches have been taken, how many predictions were incorrect, how many cycles were spent
+waiting of a memory accesses and many more. These allow a much better look at how the code behaves.</p>
+<p>Until recently, use of these detailed counters was still sampling based -- the CPU would produce
+some information at a certain cadence of these counters (e.g. every 1000 instructions or cycles)
+which still shares a fair number of the same downsides as sampling <code>cpu-clock</code>. In order to address
+this downside, recent CPUs from both Intel and AMD have implemented a list of recent branches taken
+-- <a href="https://lwn.net/Articles/680985/">Last Branch Record</a> or LBR. This is available on reasonably
+recent Intel architectures as well as starting with Zen 4 on the side of AMD. With LBRs profilers
+are able to gather information about the cycle counts between each branch, giving an accurate and
+precise evaluation of the performance at a <a href="https://en.wikipedia.org/wiki/Basic_block">basic block</a>
+or function call level.</p>
+<p>It all sounds really nice, so why are we not using these mechanisms all the time? That's because
+GCP VMs don't allow access to these counters! In order to access them the code has to be run on
+your own hardware, or a VM instance that provides direct access to the hardware, such as the (quite
+expensive) <code>c3-highcpu-192-metal</code> type.</p>
+<p>Once everything is set up, though, the following command can gather some interesting information
+for you.</p>
+<pre><code class="language-command">$ perf record -e cycles:u -b -g --call-graph fp,65528 YOUR_COMMAND_HERE
+</code></pre>
+<p>Analyzing this data is, unfortunately, not as easy as chucking it away to Firefox Profiler. I'm not
+aware of any other ways to inspect the data other than using <code>perf report</code>:</p>
+<pre><code class="language-command">$ perf report -g --branch-history
+$ perf report -g --branch-stack
+</code></pre>
+<p>You may also be able to gather some interesting results if you use <code>--call-graph lbr</code> and the
+relevant reporting options as well.</p>
+<h2 id="memory-usage-profiling"><a class="header" href="#memory-usage-profiling">Memory usage profiling</a></h2>
 <p><code>neard</code> is a pretty memory-intensive application with many allocations occurring constantly.
 Although Rust makes it pretty hard to introduce memory problems, it is still possible to leak
 memory or to inadvertently retain too much of it.</p>
