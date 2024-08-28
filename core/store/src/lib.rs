@@ -1142,6 +1142,18 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     }
 }
 
+/// Get the contract WASM code from The State.
+///
+/// Executing all the usual storage access side-effects.
+pub fn get_code(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
+) -> Result<Option<ContractCode>, StorageError> {
+    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+}
+
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;

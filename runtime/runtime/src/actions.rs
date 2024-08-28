@@ -30,8 +30,7 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
-    remove_account, set_access_key, set_code, set_promise_yield_indices, StorageError, TrieUpdate,
+    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices, remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices, StorageError, TrieUpdate
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -612,7 +611,7 @@ pub(crate) fn action_deploy_contract(
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = state_update.contract_storage.get(account.code_hash());
+    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
@@ -654,7 +653,7 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = state_update.contract_storage.get(account.code_hash());
+        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
         if let Some(code) = contract_code {
             // account storage usage should be larger than code size
             let code_len = code.code().len() as u64;
