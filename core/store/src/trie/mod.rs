@@ -1391,23 +1391,27 @@ impl Trie {
         if self.root == Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let mut accessed_nodes = Vec::new();
+
         let lock = self.memtries.as_ref().unwrap().read().unwrap();
-        let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
-        if charge_gas_for_trie_node_access {
-            for (node_hash, serialized_node) in &accessed_nodes {
-                self.accounting_cache
-                    .borrow_mut()
-                    .retroactively_account(*node_hash, serialized_node.clone());
+        let mem_value = if side_effects {
+            let mut accessed_nodes = Vec::new();
+            let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
+            if charge_gas_for_trie_node_access {
+                for (node_hash, serialized_node) in &accessed_nodes {
+                    self.accounting_cache
+                        .borrow_mut()
+                        .retroactively_account(*node_hash, serialized_node.clone());
+                }
             }
-        }
-        if side_effects {
             if let Some(recorder) = &self.recorder {
                 for (node_hash, serialized_node) in accessed_nodes {
                     recorder.borrow_mut().record(&node_hash, serialized_node);
                 }
             }
-        }
+            mem_value
+        } else {
+            lock.lookup(&self.root, key, None)?
+        };
         Ok(mem_value.map(map_result))
     }
 
