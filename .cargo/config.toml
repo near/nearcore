@@ -1,3 +1,5 @@
+# Make sure to apply changes to `config.profiling.toml` too, if appropriate!
+
 [build]
 # We compile with `panic=abort`, so we need `-Cforce-unwind-tables=y`
 # to get a useful backtrace on panic.
