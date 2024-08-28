@@ -15,7 +15,7 @@ pub use client_config::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
+    default_state_sync_enabled, default_state_sync_timeout,
     default_sync_check_period, default_sync_height_threshold, default_sync_max_block_requests,
     default_sync_step_period, default_transaction_pool_size_limit,
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
