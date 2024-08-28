@@ -1,3 +1,5 @@
+use near_schema_checker_lib::ProtocolSchema;
+
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError};
 use crate::logic::Config;
@@ -13,7 +15,7 @@ use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone, BorshSerialize)]
+#[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
 enum ContractCacheKey {
     _Version1,
     _Version2,

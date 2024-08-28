@@ -9,11 +9,11 @@ use near_primitives_core::types::{AccountId, BlockHeight, ProtocolVersion, Shard
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
-use super::SignatureDifferentiator;
+use super::{ChunkProductionKey, SignatureDifferentiator};
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ChunkEndorsement {
     V1(ChunkEndorsementV1),
     V2(ChunkEndorsementV2),
@@ -33,20 +33,6 @@ impl ChunkEndorsement {
         }
     }
 
-    pub fn chunk_hash(&self) -> &ChunkHash {
-        match self {
-            ChunkEndorsement::V1(endorsement) => &endorsement.inner.chunk_hash,
-            ChunkEndorsement::V2(endorsement) => &endorsement.inner.chunk_hash,
-        }
-    }
-
-    pub fn signature(&self) -> Signature {
-        match self {
-            ChunkEndorsement::V1(endorsement) => endorsement.signature.clone(),
-            ChunkEndorsement::V2(endorsement) => endorsement.signature.clone(),
-        }
-    }
-
     pub fn validate_signature(
         chunk_hash: ChunkHash,
         signature: &Signature,
@@ -58,7 +44,7 @@ impl ChunkEndorsement {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV1 {
     inner: ChunkEndorsementInner,
     pub account_id: AccountId,
@@ -83,7 +69,7 @@ impl ChunkEndorsementV1 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV2 {
     // This is the part of the chunk endorsement that signed and included in the block header
     inner: ChunkEndorsementInner,
@@ -113,17 +99,35 @@ impl ChunkEndorsementV2 {
         Self { inner, signature, metadata, metadata_signature }
     }
 
-    // TODO(ChunkEndorsementV2): Remove this once we implement tracker_v2
-    pub fn into_v1(self) -> ChunkEndorsementV1 {
-        ChunkEndorsementV1 {
-            inner: self.inner,
-            account_id: self.metadata.account_id,
-            signature: self.signature,
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.metadata.shard_id,
+            epoch_id: self.metadata.epoch_id,
+            height_created: self.metadata.height_created,
         }
+    }
+
+    pub fn account_id(&self) -> &AccountId {
+        &self.metadata.account_id
+    }
+
+    pub fn chunk_hash(&self) -> &ChunkHash {
+        &self.inner.chunk_hash
+    }
+
+    pub fn signature(&self) -> Signature {
+        self.signature.clone()
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        let inner = borsh::to_vec(&self.inner).unwrap();
+        let metadata = borsh::to_vec(&self.metadata).unwrap();
+        self.signature.verify(&inner, public_key)
+            && self.metadata_signature.verify(&metadata, public_key)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementMetadata {
     account_id: AccountId,
     shard_id: ShardId,

@@ -11,7 +11,6 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
@@ -32,7 +31,9 @@ use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsement::{
+    ChunkEndorsementV1, ChunkEndorsementV2,
+};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
@@ -794,7 +795,8 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn add_validator_proposals(
         &self,
-        _block_header_info: BlockHeaderInfo,
+        _block_info: BlockInfo,
+        _random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError> {
         Ok(self.store.store_update())
     }
@@ -829,8 +831,9 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(Default::default())
     }
 
-    fn epoch_sync_init_epoch_manager(
+    fn init_after_epoch_sync(
         &self,
+        _store_update: &mut StoreUpdate,
         _prev_epoch_first_block_info: BlockInfo,
         _prev_epoch_last_block_info: BlockInfo,
         _prev_epoch_prev_last_block_info: BlockInfo,
@@ -946,6 +949,13 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _chunk_header: &ShardChunkHeader,
         _endorsement: &ChunkEndorsementV1,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_chunk_endorsement_signature(
+        &self,
+        _endorsement: &ChunkEndorsementV2,
     ) -> Result<bool, Error> {
         Ok(true)
     }

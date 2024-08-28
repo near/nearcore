@@ -101,6 +101,11 @@ def main():
                         ["block_producer_kickout_threshold", 20],
                         ["chunk_producer_kickout_threshold", 20]], configs)
 
+    # The validator nodes do not track all shards.
+    # Always send tx to this node because it tracks all shards.
+    def rpc_node():
+        return nodes[4]
+
     for node in nodes:
         node.stop_checking_store()
 
@@ -118,28 +123,28 @@ def main():
         if blocks_seen >= 3:
             break
 
-    latest_block_hash = nodes[0].get_latest_block().hash_bytes
+    latest_block_hash = rpc_node().get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        nodes[0].signer_key, contract, 1, latest_block_hash)
-    result = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
+        rpc_node().signer_key, contract, 1, latest_block_hash)
+    result = rpc_node().send_tx_and_wait(deploy_contract_tx, 10)
     assert 'result' in result and 'error' not in result, (
         'Expected "result" and no "error" in response, got: {}'.format(result))
 
     nonce = 2
     keys = []
     nonce, keys = random_workload_until(EPOCH_LENGTH * 2, nonce, keys, nodes[0],
-                                        nodes[1], nodes[4])
+                                        nodes[1], rpc_node())
     for i in range(2, 6):
         print(f"iteration {i} starts")
         stop_height = random.randint(1, EPOCH_LENGTH)
         nonce, keys = random_workload_until(EPOCH_LENGTH * i + stop_height,
                                             nonce, keys, nodes[i // 5],
-                                            nodes[(i + 1) // 5], nodes[4])
+                                            nodes[(i + 1) // 5], rpc_node())
         for i in range(4):
             nodes[i].kill()
         time.sleep(2)
         for i in range(4):
-            nodes[i].start(boot_node=nodes[4])
+            nodes[i].start(boot_node=rpc_node())
 
 
 if __name__ == "__main__":

@@ -298,7 +298,19 @@ class ChunkEndorsement:
     pass
 
 
+class ChunkEndorsementV1:
+    pass
+
+
+class ChunkEndorsementV2:
+    pass
+
+
 class ChunkEndorsementInner:
+    pass
+
+
+class ChunkEndorsementMetadata:
     pass
 
 
@@ -902,6 +914,13 @@ block_schema = [
     ],
     [
         ChunkEndorsement, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ChunkEndorsementV1], ['V2', ChunkEndorsementV2]]
+        }
+    ],
+    [
+        ChunkEndorsementV1, {
             'kind':
                 'struct',
             'fields': [
@@ -912,12 +931,36 @@ block_schema = [
         }
     ],
     [
+        ChunkEndorsementV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkEndorsementInner],
+                ['signature', Signature],
+                ['metadata', ChunkEndorsementMetadata],
+                ['metadata_signature', Signature],
+            ]
+        }
+    ],
+    [
         ChunkEndorsementInner, {
             'kind':
                 'struct',
             'fields': [
                 ['chunk_hash', [32]],
                 ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkEndorsementMetadata, {
+            'kind':
+                'struct',
+            'fields': [
+                ['account_id', 'string'],
+                ['shard_id', 'u64'],
+                ['epoch_id', [32]],
+                ['height_created', 'u64'],
             ]
         }
     ],

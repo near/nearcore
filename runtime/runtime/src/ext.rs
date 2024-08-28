@@ -6,16 +6,15 @@ use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
-use near_store::contract::ContractStorage;
 use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
-use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use near_wallet_contract::{code_hash_matches_wallet_contract, wallet_contract};
 use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
@@ -363,28 +362,34 @@ impl<'a> External for RuntimeExt<'a> {
 }
 
 pub(crate) struct RuntimeContractExt<'a> {
-    pub(crate) storage: ContractStorage,
+    pub(crate) trie_update: &'a TrieUpdate,
     pub(crate) account_id: &'a AccountId,
-    pub(crate) code_hash: CryptoHash,
+    pub(crate) account: &'a Account,
     pub(crate) chain_id: &'a str,
     pub(crate) current_protocol_version: ProtocolVersion,
 }
 
 impl<'a> Contract for RuntimeContractExt<'a> {
     fn hash(&self) -> CryptoHash {
-        self.code_hash
+        self.account.code_hash()
     }
 
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         let account_id = self.account_id;
         let code_hash = self.hash();
+        let version = self.current_protocol_version;
         let chain_id = self.chain_id;
-        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+        if checked_feature!("stable", EthImplicitAccounts, version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
-            && &code_hash == wallet_contract_magic_bytes(&chain_id).hash()
+            && code_hash_matches_wallet_contract(chain_id, &code_hash, version)
         {
-            return Some(wallet_contract(&chain_id));
+            return Some(wallet_contract(&chain_id, version));
         }
-        self.storage.get(code_hash).map(Arc::new)
+        let mode = match checked_feature!("stable", ChunkNodesCache, version) {
+            true => Some(TrieCacheMode::CachingShard),
+            false => None,
+        };
+        let _guard = self.trie_update.with_trie_cache_mode(mode);
+        self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new)
     }
 }

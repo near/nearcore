@@ -1,3 +1,5 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
 pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
 

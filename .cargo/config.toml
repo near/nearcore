@@ -4,4 +4,4 @@
 rustflags = ["-Cforce-unwind-tables=y"]
 
 [target.'cfg(target_arch = "x86_64")']
-rustflags = ["-Ctarget-feature=+sse2,+ssse3,+sse4.1,+sse4.2,+sha", "-Cforce-unwind-tables=y"]
+rustflags = ["-Ctarget-feature=+sse2,+ssse3,+sse4.1,+sse4.2,+popcnt,+fma,+bmi1,+bmi2,+lzcnt,+movbe,+pclmulqdq", "-Cforce-unwind-tables=y"]

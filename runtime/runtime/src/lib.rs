@@ -63,7 +63,6 @@ pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
-use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -77,7 +76,6 @@ mod congestion_control;
 mod conversions;
 pub mod ext;
 mod metrics;
-mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
 pub mod state_viewer;
@@ -369,7 +367,6 @@ impl Runtime {
         action: &Action,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        preparation_pipeline: &ReceiptPreparationPipeline,
         account: &mut Option<Account>,
         actor_id: &mut AccountId,
         receipt: &Receipt,
@@ -435,16 +432,19 @@ impl Runtime {
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     account_id,
                     deploy_contract,
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.cache.as_deref(),
+                    apply_state,
                 )?;
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let contract = preparation_pipeline.get_contract(
-                    receipt,
-                    account.code_hash(),
-                    action_index,
+                let contract = prepare_function_call(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    function_call,
+                    &apply_state.config,
+                    epoch_info_provider,
                     None,
                 );
                 let is_last_action = action_index + 1 == actions.len();
@@ -559,7 +559,6 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -630,7 +629,6 @@ impl Runtime {
                 action,
                 state_update,
                 apply_state,
-                preparation_pipeline,
                 &mut account,
                 &mut actor_id,
                 receipt,
@@ -978,19 +976,14 @@ impl Runtime {
 
     fn process_receipt(
         &self,
-        processing_state: &mut ApplyProcessingReceiptState,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ApplyStats,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let ApplyProcessingReceiptState {
-            ref mut state_update,
-            apply_state,
-            epoch_info_provider,
-            ref pipeline_manager,
-            ref mut stats,
-            ..
-        } = *processing_state;
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1053,7 +1046,6 @@ impl Runtime {
                             .apply_action_receipt(
                                 state_update,
                                 apply_state,
-                                pipeline_manager,
                                 &ready_receipt,
                                 receipt_sink,
                                 validator_proposals,
@@ -1108,7 +1100,6 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
-                            pipeline_manager,
                             receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1160,7 +1151,6 @@ impl Runtime {
                         .apply_action_receipt(
                             state_update,
                             apply_state,
-                            pipeline_manager,
                             &yield_receipt,
                             receipt_sink,
                             validator_proposals,
@@ -1586,22 +1576,24 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
+        let total = &mut processing_state.total;
         let state_update = &mut processing_state.state_update;
         let node_counter_before = state_update.trie().get_trie_nodes_count();
         let recorded_storage_size_before = state_update.trie().recorded_storage_size();
         let storage_proof_size_upper_bound_before =
             state_update.trie().recorded_storage_size_upper_bound();
         let result = self.process_receipt(
-            processing_state,
+            state_update,
+            processing_state.apply_state,
             receipt,
             &mut receipt_sink,
             &mut validator_proposals,
+            &mut processing_state.stats,
+            processing_state.epoch_info_provider,
         );
-
-        let total = &mut processing_state.total;
-        let state_update = &mut processing_state.state_update;
         let node_counter_after = state_update.trie().get_trie_nodes_count();
         tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
         let recorded_storage_diff = state_update
             .trie()
             .recorded_storage_size()
@@ -1655,40 +1647,14 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
-        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
-        let local_receipt_count = local_receipts.len();
+        let local_receipt_count = processing_state.local_receipts.len();
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            let (front, back) = local_receipts.as_slices();
+            let (front, back) = processing_state.local_receipts.as_slices();
             _ = prefetcher.prefetch_receipts_data(front);
             _ = prefetcher.prefetch_receipts_data(back);
         }
-
-        let mut prep_lookahead_iter = local_receipts.iter();
-        let mut schedule_preparation = |pstate: &mut ApplyProcessingReceiptState| {
-            let scheduled_receipt_offset = prep_lookahead_iter.position(|peek| {
-                let account_id = peek.receiver_id();
-                let receiver = get_account(&pstate.state_update, account_id);
-                let Ok(Some(receiver)) = receiver else {
-                    tracing::error!(
-                        target: "runtime",
-                        message="unable to read receiver of an upcoming local receipt",
-                        ?account_id,
-                        receipt=%peek.get_hash()
-                    );
-                    return false;
-                };
-                // This returns `true` if work may have been scheduled (thus we currently prepare
-                // actions in at most 2 "interesting" receipts in parallel due to staggering.)
-                pstate.pipeline_manager.submit(peek, &receiver, None)
-            });
-            scheduled_receipt_offset
-        };
-        // Advance the preparation by one step (stagger it) so that we're preparing one interesting
-        // receipt in advance.
-        let mut next_schedule_index = schedule_preparation(&mut processing_state);
-
-        for (index, receipt) in local_receipts.iter().enumerate() {
+        while let Some(receipt) = processing_state.next_local_receipt() {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1700,15 +1666,6 @@ impl Runtime {
                     &processing_state.apply_state.config,
                 )?;
             } else {
-                if let Some(nsi) = next_schedule_index {
-                    if index >= nsi {
-                        // We're about to process a receipt that has been submitted for
-                        // preparation, so lets submit the next one in anticipation that it might
-                        // be processed too (it might also be not if we run out of gas/compute.)
-                        next_schedule_index = schedule_preparation(&mut processing_state)
-                            .and_then(|adv| nsi.checked_add(1)?.checked_add(adv));
-                    }
-                }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 self.process_receipt_with_metrics(
@@ -2333,15 +2290,7 @@ impl<'a> ApplyProcessingState<'a> {
         incoming_receipts: &'a [Receipt],
         delayed_receipts: DelayedReceiptQueueWrapper,
     ) -> ApplyProcessingReceiptState<'a> {
-        let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
-            Arc::clone(&self.apply_state.config),
-            self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.epoch_info_provider.chain_id(),
-            self.apply_state.current_protocol_version,
-            self.state_update.contract_storage.clone(),
-        );
         ApplyProcessingReceiptState {
-            pipeline_manager,
             protocol_version: self.protocol_version,
             apply_state: self.apply_state,
             prefetcher: self.prefetcher,
@@ -2375,14 +2324,19 @@ struct ApplyProcessingReceiptState<'a> {
     local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
-    pipeline_manager: pipelining::ReceiptPreparationPipeline,
+}
+
+impl<'a> ApplyProcessingReceiptState<'a> {
+    /// Obtain the next receipt that should be executed.
+    fn next_local_receipt(&mut self) -> Option<Receipt> {
+        self.local_receipts.pop_front()
+    }
 }
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
-    use crate::pipelining::ReceiptPreparationPipeline;
     use crate::{ApplyState, ApplyStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
@@ -2414,17 +2368,9 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });
-        let empty_pipeline = ReceiptPreparationPipeline::new(
-            std::sync::Arc::clone(&apply_state.config),
-            apply_state.cache.as_ref().map(|c| c.handle()),
-            epoch_info_provider.chain_id(),
-            apply_state.current_protocol_version,
-            state_update.contract_storage.clone(),
-        );
         Runtime {}.apply_action_receipt(
             state_update,
             apply_state,
-            &empty_pipeline,
             receipt,
             &mut receipt_sink,
             validator_proposals,

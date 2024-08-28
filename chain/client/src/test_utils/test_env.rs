@@ -27,9 +27,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, ChunkEndorsementV1,
-};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -438,31 +436,29 @@ impl TestEnv {
         &mut self,
         client_idx: usize,
         chunk_hash: &ChunkHash,
-    ) -> Result<ChunkEndorsementV1, TimeoutError> {
+    ) -> Result<(), TimeoutError> {
         let start_time = Instant::now();
         let network_adapter = self.network_adapters[client_idx].clone();
+        let mut endorsement_found = false;
         loop {
-            let mut endorsement_opt = None;
             network_adapter.handle_filtered(|request| {
                 match &request {
                     PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
+                        NetworkRequests::ChunkEndorsement(_, endorsement),
                     ) => {
-                        let endorsement = match endorsement.clone() {
-                            ChunkEndorsement::V1(endorsement) => endorsement,
-                            ChunkEndorsement::V2(endorsement) => endorsement.into_v1(),
+                        let endorsement_chunk_hash = match endorsement {
+                            ChunkEndorsement::V1(endorsement) => endorsement.chunk_hash(),
+                            ChunkEndorsement::V2(endorsement) => endorsement.chunk_hash(),
                         };
-                        if endorsement.chunk_hash() == chunk_hash {
-                            endorsement_opt = Some(endorsement);
-                        }
+                        endorsement_found = endorsement_chunk_hash == chunk_hash;
                     }
                     _ => {}
                 };
                 Some(request)
             });
 
-            if let Some(endorsement) = endorsement_opt {
-                return Ok(endorsement);
+            if endorsement_found {
+                return Ok(());
             }
 
             let elapsed_since_start = Instant::now().signed_duration_since(start_time);

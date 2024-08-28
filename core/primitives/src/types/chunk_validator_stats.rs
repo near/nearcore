@@ -7,7 +7,15 @@ use {
 /// An extension to `ValidatorStats` which also tracks endorsements
 /// coming from stateless validators.
 #[derive(
-    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema,
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
 )]
 pub struct ChunkStats {
     pub production: ValidatorStats,

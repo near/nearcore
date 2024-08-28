@@ -66,6 +66,30 @@ const blockHeader = {
     },
 };
 
+const validatorStake = {
+    titleKey: 'account_id',
+};
+
+const blockInfoV1V2 = {
+    struct: {
+        hash: blockHash,
+        height: blockHeight,
+        last_finalized_height: blockHeight,
+        last_final_block_hash: blockHash,
+        prev_hash: blockHash,
+        epoch_first_block: blockHash,
+        epoch_id: epochId,
+        proposals: { array: validatorStake },
+    }
+}
+
+const blockInfo = {
+    struct: {
+        V1: blockInfoV1V2,
+        V2: blockInfoV1V2,
+    },
+};
+
 const chunkHeader = {
     struct: {
         chunk_hash: chunkHash,
@@ -76,6 +100,21 @@ const chunkHeader = {
         shard_id: shardId,
     },
     titleKey: 'chunk_hash',
+};
+
+const chunkExtraV1V2V3 = {
+    struct: {
+        state_root: stateRoot,
+        validator_proposals: { array: validatorStake },
+    },
+};
+
+const chunkExtra = {
+    struct: {
+        V1: chunkExtraV1V2V3,
+        V2: chunkExtraV1V2V3,
+        V3: chunkExtraV1V2V3,
+    },
 };
 
 const transaction = {
@@ -118,19 +157,27 @@ const block = {
     },
 };
 
-const validatorStake = {
-    titleKey: 'account_id',
-};
+const epochInfoV1V2V3V4 = {
+    struct: {
+        validators: {
+            array: validatorStake,
+        },
+    },
+}
 
 const epochInfo = {
     struct: {
-        V3: {
-            struct: {
-                validators: {
-                    array: validatorStake,
-                },
-            },
-        },
+        V1: epochInfoV1V2V3V4,
+        V2: epochInfoV1V2V3V4,
+        V3: epochInfoV1V2V3V4,
+        V4: epochInfoV1V2V3V4,
+    },
+};
+
+const epochInfoAggregator = {
+    struct: {
+        epoch_id: epochId,
+        last_block_hash: blockHash,
     },
 };
 
@@ -170,12 +217,40 @@ const tip = {
     },
 };
 
-const blockInfo = {
+const stateSyncDumpProgress = {
     struct: {
-        hash: blockHash,
-        height: blockHeight,
-        prev_hash: blockHash,
-    },
+        AllDumped: {
+            struct: {
+                epoch_id: epochId,
+            }
+        },
+        Skipped: {
+            struct: {
+                epoch_id: epochId,
+            }
+        },
+        InProgress: {
+            struct: {
+                epoch_id: epochId,
+                sync_hash: blockHash,
+            }
+        }
+    }
+}
+
+const blockMiscData = {
+    struct: {
+        head: tip,
+        tail: blockHeight,
+        chunk_tail: blockHeight,
+        fork_tail: blockHeight,
+        header_head: tip,
+        final_head: tip,
+        largest_target_height: blockHeight,
+        genesis_state_roots: { array: stateRoot },
+        cold_head: tip,
+        state_sync_dump_progress: stateSyncDumpProgress,
+    }
 };
 
 const flatStorageStatus = {
@@ -263,8 +338,13 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     Block: block,
     BlockHash: blockHash,
     BlockHeader: blockHeader,
+    BlockInfo: blockInfo,
+    BlockMerkleTree: undefined,
+    BlockMiscData: blockMiscData,
     Chunk: chunk,
+    ChunkExtra: chunkExtra,
     EpochInfo: epochInfo,
+    EpochInfoAggregator: epochInfoAggregator,
     ExecutionOutcome: executionOutcome,
     FlatState: undefined,
     FlatStateChanges: flatStateChanges,

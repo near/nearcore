@@ -1015,6 +1015,44 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::EpochSyncRequest { peer_id } => {
+                if self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    self.state.sign_message(
+                        &self.clock,
+                        RawRoutedMessage {
+                            target: PeerIdOrHash::PeerId(peer_id),
+                            body: RoutedMessageBody::EpochSyncRequest,
+                        },
+                    ),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncResponse { route_back, proof } => {
+                if self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    self.state.sign_message(
+                        &self.clock,
+                        RawRoutedMessage {
+                            target: PeerIdOrHash::Hash(route_back),
+                            body: RoutedMessageBody::EpochSyncResponse(proof),
+                        },
+                    ),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    tracing::info!(
+                        "Failed to send EpochSyncResponse to {}, route not found",
+                        route_back
+                    );
+                    NetworkResponses::RouteNotFound
+                }
+            }
         }
     }
 

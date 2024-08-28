@@ -6,12 +6,22 @@
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
 /// Peer information.
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    ProtocolSchema,
+)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -98,7 +108,16 @@ impl FromStr for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
+)]
 pub struct PeerChainInfoV2 {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,

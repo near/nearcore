@@ -83,13 +83,13 @@ where
 {
     fn send(&self, msg: M) {
         let mut this = self.clone();
+        let description = format!("{}({:?})", pretty_type_name::<A>(), &msg);
         let callback = move |data: &mut TestLoopData| {
-            tracing::debug!(target: "test_loop", "Handling message: {:?}", msg);
             let actor = data.get_mut(&this.actor_handle);
             actor.handle(msg, &mut this);
         };
         self.pending_events_sender.send_with_delay(
-            format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>()),
+            description,
             Box::new(callback),
             self.sender_delay,
         );
@@ -104,15 +104,15 @@ where
 {
     fn send(&self, msg: MessageWithCallback<M, R>) {
         let mut this = self.clone();
+        let description = format!("{}({:?})", pretty_type_name::<A>(), &msg.message);
         let callback = move |data: &mut TestLoopData| {
-            tracing::debug!(target: "test_loop", "Handling message: {:?}", msg);
             let MessageWithCallback { message: msg, callback } = msg;
             let actor = data.get_mut(&this.actor_handle);
             let result = actor.handle(msg, &mut this);
             callback(Ok(result));
         };
         self.pending_events_sender.send_with_delay(
-            format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>()),
+            description,
             Box::new(callback),
             self.sender_delay,
         );

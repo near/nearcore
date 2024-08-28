@@ -34,6 +34,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
+use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use num_rational::Rational32;
@@ -554,7 +555,9 @@ pub trait RuntimeAdapter: Send + Sync {
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, Default, serde::Serialize, ProtocolSchema,
+)]
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,

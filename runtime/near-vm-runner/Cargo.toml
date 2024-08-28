@@ -46,6 +46,8 @@ near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
 near-primitives-core.workspace = true
+near-schema-checker-lib.workspace = true
+
 bytesize.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
@@ -147,6 +149,12 @@ nightly = [
 sandbox = ["near-o11y/sandbox"]
 io_trace = ["base64"]
 test_features = []
+protocol_schema = [
+  "near-crypto/protocol_schema",
+  "near-parameters/protocol_schema",
+  "near-primitives-core/protocol_schema",
+  "near-schema-checker-lib/protocol_schema",
+]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

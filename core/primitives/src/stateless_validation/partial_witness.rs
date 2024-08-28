@@ -61,27 +61,15 @@ impl PartialEncodedStateWitness {
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
         ChunkProductionKey {
-            shard_id: self.shard_id(),
-            epoch_id: *self.epoch_id(),
-            height_created: self.height_created(),
+            shard_id: self.inner.shard_id,
+            epoch_id: self.inner.epoch_id,
+            height_created: self.inner.height_created,
         }
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let data = borsh::to_vec(&self.inner).unwrap();
         self.signature.verify(&data, public_key)
-    }
-
-    pub fn epoch_id(&self) -> &EpochId {
-        &self.inner.epoch_id
-    }
-
-    pub fn shard_id(&self) -> ShardId {
-        self.inner.shard_id
-    }
-
-    pub fn height_created(&self) -> BlockHeight {
-        self.inner.height_created
     }
 
     pub fn part_ord(&self) -> usize {
