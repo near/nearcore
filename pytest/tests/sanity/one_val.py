@@ -20,7 +20,8 @@ nightly = len(sys.argv) > 1
 genesis_change = [
     ["num_block_producer_seats", 199],
     ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]],
-    ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
+    ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
+    ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
     ["block_producer_kickout_threshold", 60],
     ["chunk_producer_kickout_threshold", 60],
     ["validators", 0, "amount", "110000000000000000000000000000000"],
@@ -30,7 +31,7 @@ genesis_change = [
     ], ["total_supply", "4060000000000000000000000000000000"]
 ]
 nightly_genesis_change = [
-    ["minimum_validators_per_shard", 2], ["min_gas_price", 0],
+    ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
     ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
     ["block_producer_kickout_threshold", 60],
     ["chunk_producer_kickout_threshold", 60],
@@ -51,10 +52,8 @@ nodes = start_cluster(2, 1, 8, None,
                               "tracked_shards": [0]
                           }
                       })
-time.sleep(3)
+utils.wait_for_blocks(nodes[0], target=3)
 nodes[1].kill()
-
-started = time.time()
 
 act_to_val = [0, 0, 0]
 ctx = utils.TxContext(act_to_val, nodes)
@@ -63,6 +62,10 @@ last_balances = [x for x in ctx.expected_balances]
 
 sent_height = -1
 caught_up_times = 0
+
+# Wait for the killed validator be kicked out, otherwise we will keep missing
+# chunks due to being not validated by that validator.
+utils.wait_for_blocks(nodes[0], target=42)
 
 for height, hash_ in utils.poll_blocks(nodes[0],
                                        timeout=TIMEOUT,
