@@ -78,6 +78,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, ShardId, StateRoot,
@@ -586,13 +587,21 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = epoch_manager.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
+        let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect_vec();
+        Self::compute_bp_hash_from_validator_stakes(&validator_stakes, epoch_manager, prev_epoch_id)
+    }
+
+    pub fn compute_bp_hash_from_validator_stakes(
+        validator_stakes: &Vec<ValidatorStake>,
+        epoch_manager: &dyn EpochManagerAdapter,
+        prev_epoch_id: EpochId,
+    ) -> Result<CryptoHash, Error> {
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
             Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1());
-            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
+            let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
+            Ok(CryptoHash::hash_borsh_iter(stakes))
         }
     }
 

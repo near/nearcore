@@ -1,6 +1,7 @@
 use crate::client_actor::ClientActorInner;
 use crate::metrics;
 use borsh::BorshDeserialize;
+use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -21,6 +22,7 @@ use near_primitives::epoch_sync::{
     CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
     EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, EpochId};
@@ -479,7 +481,7 @@ impl EpochSync {
             return Ok(());
         }
 
-        // TODO(#11932): Verify the proof.
+        self.verify_proof(&proof, epoch_manager)?;
 
         let mut store_update = chain.chain_store.store().store_update();
 
@@ -548,6 +550,80 @@ impl EpochSync {
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "Bootstrapped from epoch sync");
+
+        Ok(())
+    }
+
+    fn verify_proof(
+        &self,
+        proof: &EpochSyncProof,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> Result<(), Error> {
+        let EpochSyncProof { past_epochs, last_epoch, current_epoch } = proof;
+        if past_epochs.is_empty() {
+            return Err(Error::InvalidEpochSyncProof("empty past_epochs".to_string()));
+        }
+
+        // Verify first epoch after genesis
+        self.verify_epoch_data(
+            past_epochs.first().unwrap(),
+            self.genesis.epoch_id(),
+            self.genesis.next_bp_hash(),
+            epoch_manager,
+        )?;
+
+        // Verify all past epochs
+        for epoch_index in 1..past_epochs.len() {
+            let epoch = &past_epochs[epoch_index];
+            let prev_epoch = &past_epochs[epoch_index - 1];
+            self.verify_epoch_data(
+                epoch,
+                prev_epoch.last_final_block_header.epoch_id(),
+                prev_epoch.last_final_block_header.next_bp_hash(),
+                epoch_manager,
+            )?;
+        }
+
+        // TODO
+
+        Ok(())
+    }
+
+    fn verify_epoch_data(
+        &self,
+        epoch: &EpochSyncProofPastEpochData,
+        prev_epoch_id: &EpochId,
+        prev_epoch_next_bp_hash: &CryptoHash,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> Result<(), Error> {
+        // Verify epoch.block_producers
+        let bp_hash = Chain::compute_bp_hash_from_validator_stakes(
+            &epoch.block_producers,
+            epoch_manager,
+            *prev_epoch_id,
+        )?;
+        if bp_hash != *prev_epoch_next_bp_hash {
+            return Err(Error::InvalidEpochSyncProof("invalid block_producers".to_string()));
+        }
+
+        // Verify epoch.last_final_block_header
+        let last_final_block_header = &epoch.last_final_block_header;
+        let approvers_info = epoch
+            .block_producers
+            .iter()
+            .map(|validator| (validator.get_approval_stake(false), false))
+            .collect_vec();
+        if !epoch_manager.verify_approval_with_approvers_info(
+            last_final_block_header.hash(),
+            last_final_block_header.height(),
+            last_final_block_header.height() + 1,
+            &epoch.approvals_for_last_final_block,
+            approvers_info,
+        )? {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid last_final_block_header".to_string(),
+            ));
+        }
 
         Ok(())
     }
