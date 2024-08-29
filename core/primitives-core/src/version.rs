@@ -253,7 +253,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 72;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
