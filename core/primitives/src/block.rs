@@ -300,7 +300,12 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
-        use crate::hash::hash;
+        use itertools::Itertools;
+        use near_primitives_core::version::ProtocolFeature;
+
+        use crate::{
+            hash::hash, stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+        };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
@@ -360,6 +365,23 @@ impl Block {
             }
         };
 
+        let chunk_endorsements_bitmap = if ProtocolFeature::ChunkEndorsementsInBlockHeader
+            .enabled(this_epoch_protocol_version)
+        {
+            // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
+            // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
+            Some(ChunkEndorsementsBitmap::from_endorsements(
+                chunk_endorsements
+                    .iter()
+                    .map(|endorsements_for_shard| {
+                        endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
+                    })
+                    .collect_vec(),
+            ))
+        } else {
+            None
+        };
+
         let body = BlockBody::new(
             this_epoch_protocol_version,
             chunks,
@@ -399,6 +421,7 @@ impl Block {
             block_merkle_root,
             prev.height(),
             clock,
+            chunk_endorsements_bitmap,
         );
 
         Self::block_from_protocol_version(

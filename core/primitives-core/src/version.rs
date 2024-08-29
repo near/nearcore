@@ -166,6 +166,7 @@ pub enum ProtocolFeature {
     ChunkEndorsementV2,
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
+    // This feature introduces BlockHeaderV5.
     ChunkEndorsementsInBlockHeader,
 }
 

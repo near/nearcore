@@ -9,6 +9,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use std::sync::Arc;
@@ -590,6 +591,7 @@ impl BlockHeader {
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
         clock: near_time::Clock,
+        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -604,8 +606,7 @@ impl BlockHeader {
         // This function still preserves code for old block header versions. These code are no longer
         // used in production, but we still have features tests in the code that uses them.
         // So we still keep the old code here.
-        let last_header_v2_version =
-            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
+        let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
         // to preserve this for archival nodes
         if next_epoch_protocol_version <= 29 {
@@ -674,7 +675,47 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if !crate::checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
+        } else if chunk_endorsements.is_some() {
+            debug_assert!(ProtocolFeature::ChunkEndorsementsInBlockHeader
+                .enabled(this_epoch_protocol_version));
+            let chunk_endorsements = chunk_endorsements.unwrap();
+            let inner_rest = BlockHeaderInnerRestV5 {
+                block_body_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                next_gas_price,
+                block_ordinal,
+                total_supply,
+                challenges_result,
+                last_final_block,
+                last_ds_final_block,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version: crate::version::get_protocol_version(
+                    next_epoch_protocol_version,
+                    clock,
+                ),
+                chunk_endorsements,
+            };
+            let (hash, signature) = signer.sign_block_header_parts(
+                prev_hash,
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            }))
+        } else if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV3 {
                 prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
@@ -774,8 +815,7 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };
-        let last_header_v2_version =
-            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
+        let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
                 prev_chunk_outgoing_receipts_root,
@@ -835,7 +875,7 @@ impl BlockHeader {
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
             }))
-        } else if !crate::checked_feature!("stable", BlockHeaderV4, genesis_protocol_version) {
+        } else if !ProtocolFeature::BlockHeaderV4.enabled(genesis_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV3 {
                 prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
