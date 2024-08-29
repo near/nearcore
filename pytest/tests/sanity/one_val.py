@@ -49,6 +49,9 @@ nodes = start_cluster(2, 1, 8, None,
                           },
                           1: {
                               "tracked_shards": [0]
+                          },
+                          2: {
+                              "tracked_shards": [0]
                           }
                       })
 time.sleep(3)
