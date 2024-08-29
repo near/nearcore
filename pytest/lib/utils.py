@@ -42,7 +42,6 @@ class TxContext:
         return [self.get_balance(i) for i in range(self.num_nodes)]
 
     def send_moar_txs(self, last_block_hash, num, use_routing):
-        last_balances = [x for x in self.expected_balances]
         for i in range(num):
             while True:
                 from_ = random.randint(0, self.num_nodes - 1)

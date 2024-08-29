@@ -69,6 +69,15 @@ export class EventItem {
                         afterFirstParens.length - 1
                     );
                 }
+
+                // Show type of the message for network messages
+                if (this.subtitle === "NetworkRequests") {
+                    const afterSecondBracket = afterFirstParens.substring(secondBracket.index + 1);
+                    const thirdBracket = /[({]/.exec(afterSecondBracket);
+                    if (thirdBracket !== null) {
+                        this.subtitle = "Network::" + afterSecondBracket.substring(0, thirdBracket.index);
+                    }
+                }
             } else {
                 this.subtitle = afterFirstParens;
             }

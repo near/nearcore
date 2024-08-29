@@ -111,7 +111,7 @@ impl ChunkEndorsementTracker {
     /// Returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
     /// For older protocol version, we return ChunkEndorsementsState::Endorsed with an empty array of
     /// chunk endorsements.
-    pub fn compute_chunk_endorsements(
+    pub fn collect_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {

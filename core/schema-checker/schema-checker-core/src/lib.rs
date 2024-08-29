@@ -42,7 +42,16 @@ impl ProtocolSchemaInfo {
 #[cfg(feature = "protocol_schema")]
 inventory::collect!(ProtocolSchemaInfo);
 
-pub trait ProtocolSchema {}
+pub trait ProtocolSchema {
+    /// Workaround to be called directly for the specific type, if this is not
+    /// included by collecting tool for some reason.
+    /// Perhaps a call to this function, which is overridden for each type,
+    /// ensures that linker doesn't optimise the type out, even if all
+    /// implementations are no-op.
+    /// TODO (#11755): understand cases where it may be needed and find a
+    /// proper solution for them.
+    fn ensure_registration() {}
+}
 
 /// Implementation for primitive types.
 macro_rules! primitive_impl {

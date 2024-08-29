@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 borsh.workspace = true
 chrono = { workspace = true, optional = true }
+num-bigint.workspace = true
 num-rational.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
@@ -32,6 +33,7 @@ near-store.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-cache.workspace = true
+near-schema-checker-lib.workspace = true
 
 [features]
 default = ["near-primitives/rand"]
@@ -54,3 +56,9 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 no_cache = []
+protocol_schema = [
+  "near-schema-checker-lib/protocol_schema",
+  "near-crypto/protocol_schema",
+  "near-primitives/protocol_schema",
+  "near-store/protocol_schema",
+]

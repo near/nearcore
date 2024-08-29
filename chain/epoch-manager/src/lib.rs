@@ -1,9 +1,9 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
-use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{BlockHeader, Tip};
-use near_primitives::checked_feature;
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
@@ -20,23 +20,27 @@ use near_primitives::types::{
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION,
+};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
-use num_rational::Rational64;
 use primitive_types::U256;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
+use validator_stats::{
+    get_sortable_validator_online_ratio, get_sortable_validator_online_ratio_without_endorsements,
+};
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-pub use crate::types::RngSeed;
+pub use crate::types::{EpochInfoAggregator, RngSeed};
 
 mod adapter;
 mod metrics;
@@ -49,6 +53,7 @@ pub mod test_utils;
 mod tests;
 pub mod types;
 mod validator_selection;
+mod validator_stats;
 
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
 const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 5 } else { 1000 }; // TODO(#5080): fix this
@@ -391,9 +396,11 @@ impl EpochManager {
     /// we don't kick out too many validators in case of network instability.
     /// We also make sure that these exempted validators were not kicked out in the last epoch,
     /// so it is guaranteed that they will stay as validators after this epoch.
+    ///
+    /// `accounts_sorted_by_online_ratio`: Validator accounts sorted by online ratio in ascending order.
     fn compute_exempted_kickout(
         epoch_info: &EpochInfo,
-        validator_block_chunk_stats: &HashMap<AccountId, BlockChunkValidatorStats>,
+        accounts_sorted_by_online_ratio: &Vec<AccountId>,
         total_stake: Balance,
         exempt_perc: u8,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
@@ -406,40 +413,10 @@ impl EpochManager {
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
         let mut exempted_validators = HashSet::new();
-        if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
+        if ProtocolFeature::MaxKickoutStake.enabled(epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
-            let mut sorted_validators = validator_block_chunk_stats
-                .iter()
-                .map(|(account, stats)| {
-                    let production_ratio =
-                        if stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0 {
-                            Rational64::from_integer(1)
-                        } else if stats.block_stats.expected == 0 {
-                            Rational64::new(
-                                stats.chunk_stats.produced() as i64,
-                                stats.chunk_stats.expected() as i64,
-                            )
-                        } else if stats.chunk_stats.expected() == 0 {
-                            Rational64::new(
-                                stats.block_stats.produced as i64,
-                                stats.block_stats.expected as i64,
-                            )
-                        } else {
-                            (Rational64::new(
-                                stats.chunk_stats.produced() as i64,
-                                stats.chunk_stats.expected() as i64,
-                            ) + Rational64::new(
-                                stats.block_stats.produced as i64,
-                                stats.block_stats.expected as i64,
-                            )) / 2
-                        };
-                    (production_ratio, account)
-                })
-                .collect::<Vec<_>>();
-            sorted_validators.sort();
-
             let mut exempted_stake: Balance = 0;
-            for (_, account_id) in sorted_validators.into_iter().rev() {
+            for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
                 if exempted_stake >= min_keep_stake {
                     break;
                 }
@@ -524,11 +501,38 @@ impl EpochManager {
                 .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
         }
 
+        let accounts_sorted_by_online_ratio: Vec<AccountId> =
+            if ProtocolFeature::ChunkEndorsementsInBlockHeader
+                .enabled(epoch_info.protocol_version())
+            {
+                let mut sorted_validators = validator_block_chunk_stats
+                    .iter()
+                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
+                    .collect::<Vec<_>>();
+                sorted_validators.sort();
+                sorted_validators
+                    .into_iter()
+                    .map(|(_, account)| account.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                let mut sorted_validators = validator_block_chunk_stats
+                    .iter()
+                    .map(|(account, stats)| {
+                        (get_sortable_validator_online_ratio_without_endorsements(stats), account)
+                    })
+                    .collect::<Vec<_>>();
+                sorted_validators.sort();
+                sorted_validators
+                    .into_iter()
+                    .map(|(_, account)| account.clone())
+                    .collect::<Vec<_>>()
+            };
+
         let exempt_perc =
             100_u8.checked_sub(config.validator_max_kickout_stake_perc).unwrap_or_default();
         let exempted_validators = Self::compute_exempted_kickout(
             epoch_info,
-            &validator_block_chunk_stats,
+            &accounts_sorted_by_online_ratio,
             total_stake,
             exempt_perc,
             prev_validator_kickout,

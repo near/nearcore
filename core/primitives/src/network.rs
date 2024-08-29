@@ -2,6 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use std::sync::Arc;
     Hash,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub struct PeerId(Arc<PublicKey>);
 
@@ -52,7 +54,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Account announcement information
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash, ProtocolSchema)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.
     pub account_id: AccountId,
