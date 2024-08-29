@@ -14,27 +14,12 @@ from configured_logger import logger
 import utils
 from transaction import sign_payment_tx
 
+EPOCH_LENGTH = 10
 TIMEOUT = 180
 
-nightly = len(sys.argv) > 1
 genesis_change = [
-    ["num_block_producer_seats", 199],
-    ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]],
     ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
-    ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-    ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
-    ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-    ["block_producer_kickout_threshold", 60],
-    ["chunk_producer_kickout_threshold", 60],
-    ["validators", 0, "amount", "110000000000000000000000000000000"],
-    [
-        "records", 0, "Account", "account", "locked",
-        "110000000000000000000000000000000"
-    ], ["total_supply", "4060000000000000000000000000000000"]
-]
-nightly_genesis_change = [
-    ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
-    ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
+    ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH],
     ["block_producer_kickout_threshold", 60],
     ["chunk_producer_kickout_threshold", 60],
     ["validators", 0, "amount", "110000000000000000000000000000000"],
@@ -45,29 +30,14 @@ nightly_genesis_change = [
 ]
 
 # give more stake to the bootnode so that it can produce the blocks alone
-nodes = start_cluster(2, 1, 8, None,
-                      nightly_genesis_change if nightly else genesis_change, {
-                          0: {
-                              "tracked_shards": [0]
-                          },
-                          1: {
-                              "tracked_shards": [0]
-                          }
-                      })
-utils.wait_for_blocks(nodes[0], target=3)
-nodes = start_cluster(
-    2,
-    1,
-    8,
-    None,
-    nightly_genesis_change if nightly else genesis_change, {
-        0: {
-            "tracked_shards": [0]
-        },
-        1: {
-            "tracked_shards": [0]
-        }
-    })
+nodes = start_cluster(2, 1, 8, None, genesis_change, {
+    0: {
+        "tracked_shards": [0]
+    },
+    1: {
+        "tracked_shards": [0]
+    }
+})
 utils.wait_for_blocks(nodes[0], target=3)
 nodes[1].kill()
 
@@ -81,11 +51,7 @@ caught_up_times = 0
 
 # Wait for the killed validator be kicked out, otherwise we will keep missing
 # chunks due to being not validated by that validator.
-utils.wait_for_blocks(nodes[0], target=42)
-
-# Wait for the killed validator be kicked out, otherwise we will keep missing
-# chunks due to being not validated by that validator.
-utils.wait_for_blocks(nodes[0], target=42)
+utils.wait_for_blocks(nodes[0], target=(EPOCH_LENGTH * 4) + 3)
 
 for height, hash_ in utils.poll_blocks(nodes[0],
                                        timeout=TIMEOUT,
