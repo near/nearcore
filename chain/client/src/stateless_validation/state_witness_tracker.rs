@@ -1,5 +1,4 @@
 use crate::metrics;
-use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use lru::LruCache;
 use near_async::time::Clock;
@@ -18,7 +17,7 @@ const CHUNK_STATE_WITNESS_MAX_RECORD_COUNT: usize = 50;
 ///
 /// Used to map the incoming acknowledgement messages back to the timing information of
 /// the originating witness record.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct ChunkStateWitnessKey {
     /// Hash of the chunk for which the state witness was generated.
     chunk_hash: ChunkHash,

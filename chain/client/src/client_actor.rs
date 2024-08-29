@@ -1208,11 +1208,10 @@ impl ClientActorInner {
             );
 
             if update_result.validator_signer_updated {
-                let validator_signer =
-                    self.client.validator_signer.get().expect("Validator signer just updated");
-
-                check_validator_tracked_shards(&self.client, validator_signer.validator_id())
-                    .expect("Could not check validator tracked shards");
+                if let Some(validator_signer) = self.client.validator_signer.get() {
+                    check_validator_tracked_shards(&self.client, validator_signer.validator_id())
+                        .expect("Could not check validator tracked shards");
+                }
 
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
@@ -1712,9 +1711,19 @@ impl ClientActorInner {
 
     /// Handle the SyncRequirement::SyncNeeded.
     ///
-    /// This method runs the header sync, the block sync
+    /// This method performs whatever syncing technique is needed (epoch sync, header sync,
+    /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64, signer: &Option<Arc<ValidatorSigner>>) {
-        // Run each step of syncing separately.
+        // Run epoch sync first; if this is applicable then nothing else is.
+        let epoch_sync_result = self.client.epoch_sync.run(
+            &mut self.client.sync_status,
+            &self.client.chain,
+            highest_height,
+            &self.network_info.highest_height_peers,
+        );
+        unwrap_and_report_state_sync_result!(epoch_sync_result);
+
+        // Run header sync as long as there are headers to catch up.
         let header_sync_result = self.client.header_sync.run(
             &mut self.client.sync_status,
             &mut self.client.chain,

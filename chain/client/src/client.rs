@@ -93,6 +93,7 @@ use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
+use crate::sync::epoch::EpochSync;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -151,6 +152,8 @@ pub struct Client {
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs:
         HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>, BlocksCatchUpState)>,
+    /// Keeps track of information needed to perform the initial Epoch Sync
+    pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
     pub header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -215,8 +218,8 @@ impl Client {
 
     /// Updates client's mutable validator signer.
     /// It will update all validator signers that synchronize with it.
-    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
-        self.validator_signer.update(Some(signer))
+    pub(crate) fn update_validator_signer(&self, signer: Option<Arc<ValidatorSigner>>) -> bool {
+        self.validator_signer.update(signer)
     }
 }
 
@@ -277,6 +280,13 @@ impl Client {
         let sharded_tx_pool =
             ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
+        let epoch_sync = EpochSync::new(
+            clock.clone(),
+            network_adapter.clone(),
+            chain.genesis().clone(),
+            async_computation_spawner.clone(),
+            config.epoch_sync.clone(),
+        );
         let header_sync = HeaderSync::new(
             clock.clone(),
             network_adapter.clone(),
@@ -329,8 +339,10 @@ impl Client {
             config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker =
-            Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
+        let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
+            epoch_manager.clone(),
+            chain.chain_store().store().clone(),
+        ));
         // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
         let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
             && config.chain_id != near_primitives::chains::TESTNET;
@@ -372,6 +384,7 @@ impl Client {
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
             catchup_state_syncs: HashMap::new(),
+            epoch_sync,
             header_sync,
             block_sync,
             state_sync,

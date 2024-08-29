@@ -60,6 +60,7 @@ near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
 near-primitives = { workspace = true, features = ["rand"] }
 near-store.workspace = true
+near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -95,3 +96,9 @@ performance_stats = [
     "near-performance-metrics/performance_stats",
 ]
 test_features = []
+protocol_schema = [
+  "near-schema-checker-lib/protocol_schema",
+  "near-crypto/protocol_schema",
+  "near-primitives/protocol_schema",
+  "near-store/protocol_schema",
+]

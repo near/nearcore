@@ -9,11 +9,11 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
-use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
@@ -251,7 +251,10 @@ impl GenesisBuilder {
 
         store_update.merge(
             self.epoch_manager
-                .add_validator_proposals(BlockHeaderInfo::new(genesis.header(), 0))
+                .add_validator_proposals(
+                    BlockInfo::from_header(genesis.header(), 0),
+                    *genesis.header().random_value(),
+                )
                 .unwrap(),
         );
         store_update

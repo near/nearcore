@@ -1,3 +1,4 @@
+use crate::block_header::BlockHeader;
 use crate::challenge::SlashedValidator;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -93,6 +94,45 @@ impl BlockInfo {
                 timestamp_nanosec,
             })
         }
+    }
+
+    pub fn from_header(header: &BlockHeader, last_finalized_height: BlockHeight) -> Self {
+        BlockInfo::new(
+            *header.hash(),
+            header.height(),
+            last_finalized_height,
+            *header.last_final_block(),
+            *header.prev_hash(),
+            header.prev_validator_proposals().collect(),
+            header.chunk_mask().to_vec(),
+            vec![],
+            header.total_supply(),
+            header.latest_protocol_version(),
+            header.raw_timestamp(),
+            header.chunk_endorsements().cloned(),
+        )
+    }
+
+    // TODO(#11900): Remove this and use `from_header` only, when endorsements bitmap is added to the BlockHeader.
+    pub fn from_header_and_endorsements(
+        header: &BlockHeader,
+        last_finalized_height: BlockHeight,
+        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
+    ) -> Self {
+        BlockInfo::new(
+            *header.hash(),
+            header.height(),
+            last_finalized_height,
+            *header.last_final_block(),
+            *header.prev_hash(),
+            header.prev_validator_proposals().collect(),
+            header.chunk_mask().to_vec(),
+            vec![],
+            header.total_supply(),
+            header.latest_protocol_version(),
+            header.raw_timestamp(),
+            header.chunk_endorsements().cloned().or(chunk_endorsements),
+        )
     }
 
     #[inline]

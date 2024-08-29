@@ -5,37 +5,42 @@ different methods of serializing structures into strings. So in this article,
 we’ll compare these different approaches, and explain how and where we’re using
 them.
 
-## JSON
+## ProtocolSchema
 
-JSON doesn’t need much introduction. We’re using it for external APIs (jsonrpc)
-and configuration. It is a very popular, flexible and human-readable format.
+All structs which need to be persisted or sent over the network must derive the
+ProtocolSchema trait:
 
-## Proto (Protocol Buffers)
+```rust
+// First, the schema checksums (hashes) are calculated at compile time and
+// require `TypeId` for cross-navigation. However, it is a nightly feature,
+// so we enable it manually by putting this in lib.rs:
+// #![cfg_attr(enable_const_type_id, feature(const_type_id))]
+//
+// Then, import schema calculation functionality by putting in Cargo.toml:
+// near-schema-checker-lib.workspace = true
+// [features]
+// protocol_schema = [
+//   "near-schema-checker-lib/protocol_schema",
+//   ...the same feature in all dependent crates...
+// ]
+// 
+// Lastly, mark your crate in `tools/protocol-schema-check/Cargo.toml`
+// as dependency with `protocol_schema` feature enabled
 
-We started using proto recently - and we plan to use it mostly for our network
-communication. Protocol buffers are strongly typed - they require you to create
-a .proto file, where you describe the contents of your message.
+use near_schema_checker_lib::ProtocolSchema;
 
-For example:
-
-```proto
-message HandshakeFailure {
-  // Reason for rejecting the Handshake.
-  Reason reason = 1;
-
-  // Data about the peer.
-  PeerInfo peer_info = 2;
-  // GenesisId of the NEAR chain that the peer belongs to.
-  GenesisId genesis_id = 3;
+#[derive(ProtocolSchema)]
+pub struct BlockHeader {
+  pub hash: CryptoHash,
+  pub height: BlockHeight,
 }
 ```
 
-Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
-auto-generated code (in our case Rust code) - that can be directly imported into
-your library.
+This is done to protect structures from accidental changes that could corrupt the 
+database or disrupt the protocol. Dedicated CI check is responsible to check the 
+consistency of the schema. See [README](../../../tools/protocol-schema-check/README.md) for more details.
 
-The main benefit of protocol buffers is their backwards compatibility (as long
-as you adhere to the rules and don’t reuse the same field ids).
+All these structures are likely to implement BorshSerialize and BorshDeserialize (see below).
 
 ## Borsh
 
@@ -86,6 +91,38 @@ Removing and adding fields to structures is also dangerous.
 
 Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
 value at the end.
+
+## JSON
+
+JSON doesn’t need much introduction. We’re using it for external APIs (jsonrpc)
+and configuration. It is a very popular, flexible and human-readable format.
+
+## Proto (Protocol Buffers)
+
+We started using proto recently - and we plan to use it mostly for our network
+communication. Protocol buffers are strongly typed - they require you to create
+a .proto file, where you describe the contents of your message.
+
+For example:
+
+```proto
+message HandshakeFailure {
+  // Reason for rejecting the Handshake.
+  Reason reason = 1;
+
+  // Data about the peer.
+  PeerInfo peer_info = 2;
+  // GenesisId of the NEAR chain that the peer belongs to.
+  GenesisId genesis_id = 3;
+}
+```
+
+Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
+auto-generated code (in our case Rust code) - that can be directly imported into
+your library.
+
+The main benefit of protocol buffers is their backwards compatibility (as long
+as you adhere to the rules and don’t reuse the same field ids).
 
 ## Summary
 

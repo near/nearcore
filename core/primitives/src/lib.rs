@@ -17,6 +17,7 @@ pub mod congestion_info;
 pub mod epoch_block_info;
 pub mod epoch_info;
 pub mod epoch_manager;
+pub mod epoch_sync;
 pub mod errors;
 pub mod merkle;
 pub mod network;

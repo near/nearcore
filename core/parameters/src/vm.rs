@@ -2,6 +2,7 @@ use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::types::Gas;
+use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -22,6 +23,7 @@ use std::hash::{Hash, Hasher};
     strum::EnumString,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum VMKind {

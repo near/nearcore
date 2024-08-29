@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ChunkEndorsementMessage, ProcessTxRequest, ProcessTxResponse,
+    ChunkEndorsementMessage, EpochSyncRequestMessage, EpochSyncResponseMessage, ProcessTxRequest,
+    ProcessTxResponse,
 };
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::state_witness::{
@@ -32,6 +33,8 @@ pub struct ClientSenderForTestLoopNetwork {
     pub block_approval: AsyncSender<BlockApproval, ()>,
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
+    pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -213,6 +216,7 @@ fn network_message_to_client_handler(
     let my_account_id = my_account_id.clone();
     Box::new(move |request| match request {
         NetworkRequests::Block { block } => {
+            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
             for account_id in shared_state.accounts() {
                 if account_id != &my_account_id {
                     let future = shared_state
@@ -220,7 +224,7 @@ fn network_message_to_client_handler(
                         .client_sender
                         .send_async(BlockResponse {
                             block: block.clone(),
-                            peer_id: PeerId::random(),
+                            peer_id: my_peer_id.clone(),
                             was_requested: false,
                         });
                     drop(future);
@@ -257,6 +261,23 @@ fn network_message_to_client_handler(
             drop(future);
             None
         }
+        NetworkRequests::EpochSyncRequest { peer_id } => {
+            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
+            assert_ne!(&peer_id, my_peer_id, "Sending message to self not supported.");
+            shared_state.senders_for_peer(&peer_id).client_sender.send(EpochSyncRequestMessage {
+                route_back: shared_state.generate_route_back(my_peer_id),
+            });
+            None
+        }
+        NetworkRequests::EpochSyncResponse { route_back, proof } => {
+            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
+            shared_state
+                .senders_for_route_back(&route_back)
+                .client_sender
+                .send(EpochSyncResponseMessage { from_peer: my_peer_id.clone(), proof });
+            None
+        }
+
         _ => Some(request),
     })
 }
