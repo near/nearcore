@@ -186,7 +186,6 @@ pytest sanity/slow_chunk.py --features nightly
 pytest sanity/large_witness.py --features nightly
 
 # Tests for congestion control
-# TODO(congestion_control) - enable pytest on stabilization
 pytest sanity/congestion_control.py
 pytest sanity/congestion_control.py --features nightly
 pytest sanity/congestion_control_genesis_bootstrap.py
