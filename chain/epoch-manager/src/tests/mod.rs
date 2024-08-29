@@ -2928,10 +2928,14 @@ fn test_max_kickout_stake_ratio() {
     assert_eq!(validator_stats, wanted_validator_stats,);
 }
 
-/// Tests the case where a chunk validator has low endorsement stats but is exempted from being kicked out.
-#[test]
-fn test_chunk_validator_exempted() {
-    if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+/// Common test scenario for a couple of tests exercising chunk validator kickouts.
+fn test_chunk_validator_kickout(
+    expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>,
+    expect_new_algorithm: bool,
+) {
+    if expect_new_algorithm
+        != ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION)
+    {
         return;
     }
     let mut epoch_config = epoch_config(5, 2, 4, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
@@ -2985,73 +2989,25 @@ fn test_chunk_validator_exempted() {
         &HashMap::new(),
         &prev_validator_kickout,
     );
-    assert_eq!(kickouts, HashMap::new());
+    assert_eq!(kickouts, expected_kickouts);
+}
+
+/// Tests the case where a chunk validator has low endorsement stats but is exempted from being kicked out.
+#[test]
+fn test_chunk_validator_exempted() {
+    test_chunk_validator_kickout(HashMap::new(), false);
 }
 
 #[test]
 /// Tests the case where a chunk validator has low endorsement stats and is kicked out (not exempted).
 /// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.  
 fn test_chunk_validator_kicked_out_for_low_endorsement() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-    let mut epoch_config = epoch_config(5, 2, 4, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
-    let accounts = vec![
-        ("test0".parse().unwrap(), 1000),
-        ("test1".parse().unwrap(), 1000),
-        ("test2".parse().unwrap(), 1000),
-        ("test3".parse().unwrap(), 1000),
-        ("test4".parse().unwrap(), 1000),
-        ("test5".parse().unwrap(), 1000),
-    ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1], vec![0, 2]]);
-    let block_stats = HashMap::from([
-        (0, ValidatorStats { produced: 90, expected: 100 }),
-        (1, ValidatorStats { produced: 90, expected: 100 }),
-        (2, ValidatorStats { produced: 90, expected: 100 }),
-        (3, ValidatorStats { produced: 0, expected: 0 }),
-    ]);
-    let chunk_stats = HashMap::from([
-        (
-            0,
-            HashMap::from([
-                (0, ChunkStats::new_with_production(90, 100)),
-                (1, ChunkStats::new_with_production(90, 100)),
-                (3, ChunkStats::new_with_endorsement(0, 0)),
-                (4, ChunkStats::new_with_endorsement(10, 100)),
-                (5, ChunkStats::new_with_endorsement(90, 100)),
-            ]),
-        ),
-        (
-            1,
-            HashMap::from([
-                (0, ChunkStats::new_with_production(90, 100)),
-                (2, ChunkStats::new_with_production(90, 100)),
-                (3, ChunkStats::new_with_endorsement(0, 0)),
-                (4, ChunkStats::new_with_endorsement(10, 100)),
-                (5, ChunkStats::new_with_endorsement(90, 100)),
-            ]),
-        ),
-    ]);
-
-    let prev_validator_kickout =
-        HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
-    // At most 40% of total stake can be kicked out
-    epoch_config.validator_max_kickout_stake_perc = 40;
-    let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
-        &epoch_config,
-        &epoch_info,
-        &block_stats,
-        &chunk_stats,
-        &HashMap::new(),
-        &prev_validator_kickout,
-    );
-    assert_eq!(
-        kickouts,
+    test_chunk_validator_kickout(
         HashMap::from([(
             "test4".parse().unwrap(),
-            NotEnoughChunkEndorsements { produced: 20, expected: 200 }
-        ),])
+            NotEnoughChunkEndorsements { produced: 20, expected: 200 },
+        )]),
+        true,
     );
 }
 

@@ -4,7 +4,6 @@ use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::block::{BlockHeader, Tip};
-use near_primitives::checked_feature;
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
@@ -28,13 +27,11 @@ use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
-use num_rational::Rational64;
 use primitive_types::U256;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
-use types::BlockHeaderInfo;
 use validator_stats::{
     get_sortable_validator_online_ratio, get_sortable_validator_online_ratio_without_endorsements,
 };
@@ -399,9 +396,11 @@ impl EpochManager {
     /// we don't kick out too many validators in case of network instability.
     /// We also make sure that these exempted validators were not kicked out in the last epoch,
     /// so it is guaranteed that they will stay as validators after this epoch.
+    ///
+    /// `accounts_sorted_by_online_ratio`: Validator accounts sorted by online ratio in ascending order.
     fn compute_exempted_kickout(
         epoch_info: &EpochInfo,
-        validator_block_chunk_stats: &HashMap<AccountId, BlockChunkValidatorStats>,
+        accounts_sorted_by_online_ratio: &Vec<AccountId>,
         total_stake: Balance,
         exempt_perc: u8,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
@@ -416,28 +415,8 @@ impl EpochManager {
         let mut exempted_validators = HashSet::new();
         if ProtocolFeature::MaxKickoutStake.enabled(epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
-            let sorted_accounts = if ProtocolFeature::ChunkEndorsementsInBlockHeader
-                .enabled(epoch_info.protocol_version())
-            {
-                let mut sorted_validators = validator_block_chunk_stats
-                    .iter()
-                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
-                    .collect::<Vec<_>>();
-                sorted_validators.sort();
-                sorted_validators.into_iter().map(|(_, account)| account).collect::<Vec<_>>()
-            } else {
-                let mut sorted_validators = validator_block_chunk_stats
-                    .iter()
-                    .map(|(account, stats)| {
-                        (get_sortable_validator_online_ratio_without_endorsements(stats), account)
-                    })
-                    .collect::<Vec<_>>();
-                sorted_validators.sort();
-                sorted_validators.into_iter().map(|(_, account)| account).collect::<Vec<_>>()
-            };
-
             let mut exempted_stake: Balance = 0;
-            for account_id in sorted_accounts.into_iter().rev() {
+            for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
                 if exempted_stake >= min_keep_stake {
                     break;
                 }
@@ -522,11 +501,38 @@ impl EpochManager {
                 .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
         }
 
+        let accounts_sorted_by_online_ratio: Vec<AccountId> =
+            if ProtocolFeature::ChunkEndorsementsInBlockHeader
+                .enabled(epoch_info.protocol_version())
+            {
+                let mut sorted_validators = validator_block_chunk_stats
+                    .iter()
+                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
+                    .collect::<Vec<_>>();
+                sorted_validators.sort();
+                sorted_validators
+                    .into_iter()
+                    .map(|(_, account)| account.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                let mut sorted_validators = validator_block_chunk_stats
+                    .iter()
+                    .map(|(account, stats)| {
+                        (get_sortable_validator_online_ratio_without_endorsements(stats), account)
+                    })
+                    .collect::<Vec<_>>();
+                sorted_validators.sort();
+                sorted_validators
+                    .into_iter()
+                    .map(|(_, account)| account.clone())
+                    .collect::<Vec<_>>()
+            };
+
         let exempt_perc =
             100_u8.checked_sub(config.validator_max_kickout_stake_perc).unwrap_or_default();
         let exempted_validators = Self::compute_exempted_kickout(
             epoch_info,
-            &validator_block_chunk_stats,
+            &accounts_sorted_by_online_ratio,
             total_stake,
             exempt_perc,
             prev_validator_kickout,
