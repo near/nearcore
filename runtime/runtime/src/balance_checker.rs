@@ -151,7 +151,7 @@ fn buffered_receipts(
         // in which case the final index can be 0 and the initial index larger.
         if let Some(num_forwarded) = after.first_index.checked_sub(before.first_index) {
             // The first n receipts were forwarded.
-            for receipt in initial_buffer.iter(initial_state).take(num_forwarded as usize) {
+            for receipt in initial_buffer.iter(initial_state, true).take(num_forwarded as usize) {
                 forwarded_receipts.push(receipt?)
             }
         }
@@ -159,7 +159,7 @@ fn buffered_receipts(
             after.next_available_index.checked_sub(before.next_available_index)
         {
             // The last n receipts are new. ("rev" to take from the back)
-            for receipt in final_buffer.iter(final_state).rev().take(num_buffered as usize) {
+            for receipt in final_buffer.iter(final_state, true).rev().take(num_buffered as usize) {
                 new_buffered_receipts.push(receipt?);
             }
         }
