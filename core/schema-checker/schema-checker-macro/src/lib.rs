@@ -16,7 +16,6 @@ mod helper {
         let input = parse_macro_input!(input as DeriveInput);
         let name = &input.ident;
         let info_name = quote::format_ident!("{}_INFO", name);
-
         let type_id = quote! { std::any::TypeId::of::<#name>() };
         let info = match &input.data {
             Data::Struct(data_struct) => {
@@ -50,7 +49,9 @@ mod helper {
                 #info_name
             }
 
-            impl near_schema_checker_lib::ProtocolSchema for #name {}
+            impl near_schema_checker_lib::ProtocolSchema for #name {
+                fn ensure_registration() {}
+            }
         };
 
         TokenStream::from(expanded)

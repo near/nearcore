@@ -10,7 +10,7 @@ pub mod test_utils;
 mod updateable_config;
 
 pub use client_config::{
-    default_enable_multiline_logging, default_epoch_sync_enabled,
+    default_enable_multiline_logging, default_epoch_sync,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
@@ -21,8 +21,8 @@ pub use client_config::{
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
     default_view_client_threads, default_view_client_throttle_period,
     ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, DumpConfig,
-    ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle, ReshardingConfig,
-    ReshardingHandle, StateSyncConfig, SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    EpochSyncConfig, ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
+    ReshardingConfig, ReshardingHandle, StateSyncConfig, SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, MIN_GC_NUM_EPOCHS_TO_KEEP,
     TEST_STATE_SYNC_TIMEOUT,
@@ -33,7 +33,9 @@ pub use genesis_config::{
 };
 use near_primitives::types::{Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use num_rational::Rational32;
-pub use updateable_config::{MutableConfigValue, MutableValidatorSigner, UpdateableClientConfig};
+pub use updateable_config::{
+    MutableConfigValue, MutableValidatorSigner, UpdateableClientConfig, UpdateableValidatorSigner,
+};
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 

@@ -119,7 +119,7 @@ impl ChunkInclusionTracker {
         for chunk_hash in entry.values() {
             let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
             chunk_info.endorsements =
-                endorsement_tracker.compute_chunk_endorsements(&chunk_info.chunk_header)?;
+                endorsement_tracker.collect_chunk_endorsements(&chunk_info.chunk_header)?;
         }
         Ok(())
     }

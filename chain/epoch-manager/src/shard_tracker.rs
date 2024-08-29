@@ -210,7 +210,7 @@ mod tests {
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives::epoch_manager::block_info::BlockInfo;
+    use near_primitives::epoch_block_info::BlockInfo;
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -301,6 +301,7 @@ mod tests {
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
                     height * 10u64.pow(9),
+                    None,
                 ),
                 [0; 32],
             )

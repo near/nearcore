@@ -6,21 +6,22 @@ use crate::sharding::{
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::EpochHeight;
+use near_schema_checker_lib::ProtocolSchema;
 use std::sync::Arc;
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV1 {
     pub chunk: ShardChunkV1,
     pub chunk_proof: MerklePath,
@@ -31,7 +32,7 @@ pub struct ShardStateSyncResponseHeaderV1 {
     pub state_root_node: StateRootNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV2 {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
@@ -42,7 +43,7 @@ pub struct ShardStateSyncResponseHeaderV2 {
     pub state_root_node: StateRootNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum CachedParts {
     AllParts,
     NoParts,
@@ -53,7 +54,7 @@ pub enum CachedParts {
 }
 
 /// Represents an array of boolean values in a compact form.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BitArray {
     data: Vec<u8>,
     capacity: u64,
@@ -163,19 +164,19 @@ impl ShardStateSyncResponseHeader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV2 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV3 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
@@ -187,7 +188,7 @@ pub struct ShardStateSyncResponseV3 {
     pub can_generate: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1),
     V2(ShardStateSyncResponseV2),
@@ -256,7 +257,7 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     (memory_usage + STATE_PART_MEMORY_LIMIT.as_u64() - 1) / STATE_PART_MEMORY_LIMIT.as_u64()
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, serde::Serialize, ProtocolSchema)]
 /// Represents the progress of dumps state of a shard.
 pub enum StateSyncDumpProgress {
     /// Represents two cases:

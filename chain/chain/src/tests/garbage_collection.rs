@@ -1,5 +1,4 @@
 use near_async::time::Clock;
-use near_epoch_manager::types::BlockHeaderInfo;
 use rand::Rng;
 use std::sync::Arc;
 
@@ -15,7 +14,7 @@ use crate::{ChainStoreAccess, StoreValidator};
 use near_chain_configs::{GCConfig, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
@@ -105,7 +104,10 @@ fn do_fork(
         let final_height =
             final_block_height.unwrap_or_else(|| block.header().height().saturating_sub(2));
         let epoch_manager_update = epoch_manager
-            .add_validator_proposals(BlockHeaderInfo::new(block.header(), final_height))
+            .add_validator_proposals(
+                BlockInfo::from_header(block.header(), final_height),
+                *block.header().random_value(),
+            )
             .unwrap();
         store_update.merge(epoch_manager_update);
 
@@ -763,10 +765,10 @@ fn add_block(
         .insert(height, Some(*block.header().hash()));
     store_update.save_next_block_hash(prev_block.hash(), *block.hash());
     let epoch_manager_update = epoch_manager
-        .add_validator_proposals(BlockHeaderInfo::new(
-            block.header(),
-            block.header().height().saturating_sub(2),
-        ))
+        .add_validator_proposals(
+            BlockInfo::from_header(block.header(), block.header().height().saturating_sub(2)),
+            *block.header().random_value(),
+        )
         .unwrap();
     store_update.merge(epoch_manager_update);
     store_update.commit().unwrap();

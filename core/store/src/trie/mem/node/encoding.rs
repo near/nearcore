@@ -12,11 +12,19 @@ use std::mem::size_of;
 use smallvec::SmallVec;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
 pub(crate) enum NodeKind {
-    Leaf,
-    Extension,
-    Branch,
-    BranchWithValue,
+    Leaf = 0,
+    Extension = 1,
+    Branch = 2,
+    BranchWithValue = 3,
+}
+
+impl NodeKind {
+    const DISCRIMINANT_LEAF: u8 = Self::Leaf as u8;
+    const DISCRIMINANT_EXTENSION: u8 = Self::Extension as u8;
+    const DISCRIMINANT_BRANCH: u8 = Self::Branch as u8;
+    const DISCRIMINANT_BRANCH_WITH_VALUE: u8 = Self::BranchWithValue as u8;
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -257,18 +265,23 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
         RawDecoder::new(self.ptr)
     }
 
+    #[inline]
+    pub(crate) fn get_kind(&self) -> u8 {
+        let header = self.ptr.slice(0, CommonHeader::SERIALIZED_SIZE).raw_slice();
+        header[CommonHeader::SERIALIZED_SIZE - 1]
+    }
+
     /// Decodes the data.
-    pub(crate) fn view_impl(&self) -> MemTrieNodeView<'a, M> {
+    pub(crate) fn view_kind(&self, kind: u8) -> MemTrieNodeView<'a, M> {
         let mut decoder = self.decoder();
-        let kind = decoder.peek::<CommonHeader>().kind;
         match kind {
-            NodeKind::Leaf => {
+            NodeKind::DISCRIMINANT_LEAF => {
                 let header = decoder.decode::<LeafHeader>();
                 let extension = decoder.decode_flexible(&header.extension);
                 let value = decoder.decode_flexible(&header.value);
                 MemTrieNodeView::Leaf { extension, value }
             }
-            NodeKind::Extension => {
+            NodeKind::DISCRIMINANT_EXTENSION => {
                 let header = decoder.decode::<ExtensionHeader>();
                 let extension = decoder.decode_flexible(&header.extension);
                 MemTrieNodeView::Extension {
@@ -278,7 +291,7 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
                     child: MemTrieNodePtr::from(self.ptr.arena().ptr(header.child)),
                 }
             }
-            NodeKind::Branch => {
+            NodeKind::DISCRIMINANT_BRANCH => {
                 let header = decoder.decode::<BranchHeader>();
                 let children = decoder.decode_flexible(&header.children);
                 MemTrieNodeView::Branch {
@@ -287,7 +300,7 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
                     children,
                 }
             }
-            NodeKind::BranchWithValue => {
+            NodeKind::DISCRIMINANT_BRANCH_WITH_VALUE => {
                 let header = decoder.decode::<BranchWithValueHeader>();
                 let children = decoder.decode_flexible(&header.children);
                 let value = decoder.decode_flexible(&header.value);
@@ -298,6 +311,7 @@ impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
                     value,
                 }
             }
+            _ => panic!("unknown node type"),
         }
     }
 

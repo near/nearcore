@@ -7,17 +7,16 @@
 
 /// Needed because otherwise tool doesn't notice `ProtocolSchemaInfo`s from
 /// other crates.
+use near_chain::*;
 use near_crypto::*;
+use near_epoch_manager::*;
 use near_parameters::*;
 use near_primitives::*;
+use near_store::*;
+use near_vm_runner::*;
 
-use near_primitives::sharding::ShardChunkHeaderV3;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
-use near_primitives::types::{ChunkStats, EpochId};
-use near_primitives::validator_signer::EmptyValidatorSigner;
-use near_primitives_core::types::NumBlocks;
-use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchemaInfo};
+use near_epoch_manager::types::EpochInfoAggregator;
+use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchema, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
@@ -28,13 +27,20 @@ use std::path::Path;
 fn compute_hash(
     info: &ProtocolSchemaInfo,
     structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
+    types_in_compute: &mut HashSet<TypeId>,
 ) -> u32 {
+    let type_id = info.type_id();
+    if types_in_compute.contains(&type_id) {
+        return 0;
+    }
+    types_in_compute.insert(type_id);
+
     let mut hasher = StableHasher::new();
     match info {
         ProtocolSchemaInfo::Struct { name, type_id: _, fields } => {
             "struct".hash(&mut hasher);
             name.hash(&mut hasher);
-            compute_fields_hash(fields, structs, &mut hasher);
+            compute_fields_hash(fields, structs, types_in_compute, &mut hasher);
         }
         ProtocolSchemaInfo::Enum { name, type_id: _, variants } => {
             "enum".hash(&mut hasher);
@@ -42,24 +48,28 @@ fn compute_hash(
             for (variant_name, variant_fields) in *variants {
                 variant_name.hash(&mut hasher);
                 if let Some(fields) = variant_fields {
-                    compute_fields_hash(fields, structs, &mut hasher);
+                    compute_fields_hash(fields, structs, types_in_compute, &mut hasher);
                 }
             }
         }
     }
+
+    types_in_compute.remove(&type_id);
+
     hasher.finish() as u32
 }
 
 fn compute_fields_hash(
     fields: &'static [(FieldName, FieldTypeInfo)],
     structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
+    types_in_compute: &mut HashSet<TypeId>,
     hasher: &mut StableHasher,
 ) {
     for (field_name, (type_name, generic_params)) in fields {
         field_name.hash(hasher);
         type_name.hash(hasher);
         for &param_type_id in generic_params.iter() {
-            compute_type_hash(param_type_id, structs, hasher);
+            compute_type_hash(param_type_id, structs, types_in_compute, hasher);
         }
     }
 }
@@ -67,10 +77,11 @@ fn compute_fields_hash(
 fn compute_type_hash(
     type_id: TypeId,
     structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
+    types_in_compute: &mut HashSet<TypeId>,
     hasher: &mut StableHasher,
 ) {
     if let Some(nested_info) = structs.get(&type_id) {
-        compute_hash(nested_info, structs).hash(hasher);
+        compute_hash(nested_info, structs, types_in_compute).hash(hasher);
     } else {
         // Unsupported type. Always assume that hash is 0 because we cannot
         // compute nontrivial deterministic hash in such cases.
@@ -81,6 +92,20 @@ fn compute_type_hash(
 const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 
 fn main() {
+    #[cfg(enable_const_type_id)]
+    {
+        // For some reason, `EpochInfoAggregator` is not picked up by `inventory`
+        // crate at all. In addition to that, `Latest*` structs are not picked up
+        // on macos. This is a workaround around that. It is enough to put only
+        // `LatestKnown` here but I don't know why as well.
+        // The issue may be related to the large size of crates. Other workaround
+        // is to move these types to smaller crates.
+        // TODO (#11755): find the reason and remove this workaround.
+        LatestKnown::ensure_registration();
+        LatestWitnessesInfo::ensure_registration();
+        EpochInfoAggregator::ensure_registration();
+    }
+
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
     let target_dir = std::env::var("CARGO_TARGET_DIR")
         .map(std::path::PathBuf::from)
@@ -104,7 +129,8 @@ fn main() {
 
     let mut current_hashes: BTreeMap<String, u32> = Default::default();
     for info in inventory::iter::<ProtocolSchemaInfo> {
-        let hash = compute_hash(info, &structs);
+        let mut types_in_compute: HashSet<TypeId> = Default::default();
+        let hash = compute_hash(info, &structs, &mut types_in_compute);
         current_hashes.insert(info.type_name().to_string(), hash);
     }
 
@@ -154,7 +180,8 @@ mod tests {
         structs: &BTreeMap<TypeId, &'static ProtocolSchemaInfo>,
     ) -> u32 {
         let mut hasher = StableHasher::new();
-        compute_type_hash(ty, structs, &mut hasher);
+        let mut types_in_compute: HashSet<TypeId> = Default::default();
+        compute_type_hash(ty, structs, &mut types_in_compute, &mut hasher);
         hasher.finish() as u32
     }
 

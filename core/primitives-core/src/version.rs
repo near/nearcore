@@ -147,6 +147,10 @@ pub enum ProtocolFeature {
     EthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
+    /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
+    /// Fixes increase to 100K NEAR in the previous protocol version.
+    /// See #11953 for more details.
+    FixMinStakeRatio,
 
     /// Protocol version reserved for use in resharding tests.
     SimpleNightshadeTestonly,
@@ -160,6 +164,9 @@ pub enum ProtocolFeature {
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
     /// instead of chunk_hash
     ChunkEndorsementV2,
+    // Include a bitmap of endorsements from chunk validator in the block header
+    // in order to calculate the rewards and kickouts for the chunk validators.
+    ChunkEndorsementsInBlockHeader,
 }
 
 impl ProtocolFeature {
@@ -213,6 +220,7 @@ impl ProtocolFeature {
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
+            ProtocolFeature::FixMinStakeRatio => 71,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -232,6 +240,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ChunkEndorsementV2 => 144,
+            ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
         }
     }
 
@@ -240,21 +249,16 @@ impl ProtocolFeature {
     }
 }
 
-/// Current protocol version used on the mainnet.
-/// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
-/// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 70;
+/// Current protocol version used on the mainnet with all stable features.
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
+
+// On nightly, pick big enough version to support all features.
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
-    // Please note that congestion control and stateless validation are now
-    // stabilized but statelessnet should remain at its own version.
-    82
-} else if cfg!(feature = "nightly_protocol") {
-    // On nightly, pick big enough version to support all features.
-    144
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+    NIGHTLY_PROTOCOL_VERSION
 } else {
-    // Enable all stable features.
     STABLE_PROTOCOL_VERSION
 };
 

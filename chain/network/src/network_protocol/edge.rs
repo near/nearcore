@@ -3,11 +3,14 @@ use near_async::time;
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_schema_checker_lib::ProtocolSchema;
 use std::sync::Arc;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
-#[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
+#[derive(
+    Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default, ProtocolSchema,
+)]
 pub struct PartialEdgeInfo {
     pub nonce: u64,
     pub signature: Signature,
@@ -27,7 +30,7 @@ pub enum InvalidNonceError {
     NonceOutOfBoundsError { nonce: u64 },
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash, ProtocolSchema)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct Edge(pub Arc<EdgeInner>);
 
@@ -252,7 +255,7 @@ impl Edge {
 /// Note that edge might either in `Active` or `Removed` state.
 /// We need to keep explicitly `Removed` edges, in order to be able to proof, that given `Edge`
 /// isn't `Active` anymore. In case, someone delivers a proof that the edge existed.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash, ProtocolSchema)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeInner {
     /// Each edge consists of unordered pair of public keys of both peers.
@@ -308,7 +311,7 @@ impl EdgeInner {
 /// State of a given edge.
 /// Every edge starts in `Active` state. It can be removed and go to `Removed` state, and then
 /// added back to go to `Active` state, etc.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, Hash, ProtocolSchema)]
 pub enum EdgeState {
     /// `Edge` is `Active` if there is an active connection between two peers on the network.
     Active,

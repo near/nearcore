@@ -10,8 +10,6 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
-#[cfg(feature = "new_epoch_sync")]
-use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -55,6 +53,7 @@ use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
 mod latest_witnesses;
+pub use latest_witnesses::LatestWitnessesInfo;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -898,15 +897,6 @@ impl ChainStore {
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
         self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
-    }
-
-    /// Save epoch sync info
-    #[cfg(feature = "new_epoch_sync")]
-    pub fn get_epoch_sync_info(&self, epoch_id: &EpochId) -> Result<EpochSyncInfo, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::EpochSyncInfo, epoch_id.as_ref()),
-            "EpochSyncInfo",
-        )
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.

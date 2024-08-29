@@ -10,7 +10,6 @@ use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
-use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::SyncAdapter;
@@ -94,15 +93,10 @@ use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
+use crate::sync::epoch::EpochSync;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
-/// The time we wait for the response to a Epoch Sync request before retrying
-// TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::milliseconds(1_000);
-/// How frequently a Epoch Sync response can be sent to a particular peer
-// TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::milliseconds(10);
 /// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
 const BLOCK_HORIZON: u64 = 500;
 
@@ -224,8 +218,8 @@ impl Client {
 
     /// Updates client's mutable validator signer.
     /// It will update all validator signers that synchronize with it.
-    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
-        self.validator_signer.update(Some(signer))
+    pub(crate) fn update_validator_signer(&self, signer: Option<Arc<ValidatorSigner>>) -> bool {
+        self.validator_signer.update(signer)
     }
 }
 
@@ -286,22 +280,12 @@ impl Client {
         let sharded_tx_pool =
             ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
-        let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
             clock.clone(),
             network_adapter.clone(),
-            *genesis_block.header().epoch_id(),
-            *genesis_block.header().next_epoch_id(),
-            epoch_manager
-                .get_epoch_block_producers_ordered(
-                    genesis_block.header().epoch_id(),
-                    genesis_block.hash(),
-                )?
-                .iter()
-                .map(|x| x.0.clone())
-                .collect(),
-            EPOCH_SYNC_REQUEST_TIMEOUT,
-            EPOCH_SYNC_PEER_TIMEOUT,
+            chain.genesis().clone(),
+            async_computation_spawner.clone(),
+            config.epoch_sync.clone(),
         );
         let header_sync = HeaderSync::new(
             clock.clone(),
@@ -355,8 +339,10 @@ impl Client {
             config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker =
-            Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
+        let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
+            epoch_manager.clone(),
+            chain.chain_store().store().clone(),
+        ));
         // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
         let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
             && config.chain_id != near_primitives::chains::TESTNET;

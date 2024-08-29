@@ -28,11 +28,11 @@ use tracing::{debug, info};
 pub fn load_trie_from_flat_state(
     store: &Store,
     shard_uid: ShardUId,
-    state_root: CryptoHash,
+    state_root: StateRoot,
     block_height: BlockHeight,
     parallelize: bool,
 ) -> Result<MemTries, StorageError> {
-    if parallelize && state_root != CryptoHash::default() {
+    if parallelize && state_root != StateRoot::default() {
         const NUM_PARALLEL_SUBTREES_DESIRED: usize = 256;
         let load_start = Instant::now();
         let (arena, root_id) = load_memtrie_in_parallel(
@@ -111,7 +111,7 @@ fn get_state_root(
     store: &Store,
     block_hash: CryptoHash,
     shard_uid: ShardUId,
-) -> Result<CryptoHash, StorageError> {
+) -> Result<StateRoot, StorageError> {
     let chunk_extra = store
         .get_ser::<ChunkExtra>(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid))
         .map_err(|err| {
@@ -216,7 +216,7 @@ mod tests {
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::StateChangeCause;
+    use near_primitives::types::{StateChangeCause, StateRoot};
     use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -532,10 +532,10 @@ mod tests {
     fn apply_trie_changes(
         tries: &ShardTries,
         shard_uid: ShardUId,
-        old_state_root: CryptoHash,
+        old_state_root: StateRoot,
         block: BlockInfo,
         changes: Vec<(TrieKey, Vec<u8>)>,
-    ) -> CryptoHash {
+    ) -> StateRoot {
         let mut trie_update = tries.new_trie_update(shard_uid, old_state_root);
         for (key, value) in changes {
             trie_update.set(key, value);
@@ -568,7 +568,7 @@ mod tests {
         store: &Store,
         block_hash: CryptoHash,
         shard_uid: ShardUId,
-        state_root: CryptoHash,
+        state_root: StateRoot,
     ) {
         let congestion_info = ProtocolFeature::CongestionControl
             .enabled(PROTOCOL_VERSION)
