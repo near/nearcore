@@ -258,7 +258,7 @@ expression: "&view"
     "outgoing_receipts_big_size_limit": 4718592
   },
   "witness_config": {
-    "main_storage_proof_size_soft_limit": 3000000,
+    "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
   }
