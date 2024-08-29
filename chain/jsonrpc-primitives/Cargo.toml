@@ -21,8 +21,8 @@ time.workspace = true
 near-crypto.workspace = true
 near-primitives = { workspace = true, features = ["rand"] }
 near-chain-configs.workspace = true
-near-rpc-error-macro.workspace = true
 near-client-primitives = { workspace = true, optional = true }
+near-schema-checker-lib.workspace = true
 
 [features]
 nightly_protocol = [
@@ -39,3 +39,8 @@ nightly = [
 full = ["debug_types"]
 debug_types = ["near-client-primitives"]
 test_features = []
+protocol_schema = [
+  "near-crypto/protocol_schema",
+  "near-primitives/protocol_schema",
+  "near-schema-checker-lib/protocol_schema",
+]

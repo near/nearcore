@@ -86,8 +86,6 @@ members = [
     "tools/ping",
     "tools/protocol-schema-check",
     "tools/restaked",
-    "tools/rpctypegen/core",
-    "tools/rpctypegen/macro",
     "tools/speedy_sync",
     "tools/state-parts",
     "tools/state-parts-dump-check",
@@ -191,7 +189,6 @@ enumset = "1.0"
 ethabi = "18"
 expect-test = "1.3.0"
 finite-wasm = "0.5.0"
-fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate" }
@@ -265,8 +262,6 @@ near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
 near-replay-archive-tool = { path = "tools/replay-archive" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
-near-rpc-error-core = { path = "tools/rpctypegen/core" }
-near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
@@ -455,6 +450,10 @@ inherits = "dev"
 opt-level = 3
 incremental = false
 codegen-units = 1
+
+[profile.dev-artifacts]
+inherits = "dev"
+panic = 'unwind'
 
 # Compile some dependencies with optimizations to speed up tests.
 [profile.dev.package.hex]
