@@ -44,12 +44,12 @@ nightly_genesis_change = [
 # give more stake to the bootnode so that it can produce the blocks alone
 nodes = start_cluster(2, 1, 8, None,
                       nightly_genesis_change if nightly else genesis_change, {
-                          0: {
-                              "tracked_shards": [0]
-                          },
-                          1: {
-                              "tracked_shards": [0]
-                          },
+                        #   0: {
+                        #       "tracked_shards": [0]
+                        #   },
+                        #   1: {
+                        #       "tracked_shards": [0]
+                        #   },
                           2: {
                               "tracked_shards": [0]
                           }
