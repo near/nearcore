@@ -368,6 +368,11 @@ impl Block {
         let chunk_endorsements_bitmap = if ProtocolFeature::ChunkEndorsementsInBlockHeader
             .enabled(this_epoch_protocol_version)
         {
+            debug_assert_eq!(
+                chunk_endorsements.len(),
+                chunk_mask.len(),
+                "Chunk endorsements size is different from number of shards."
+            );
             // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
             // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
             Some(ChunkEndorsementsBitmap::from_endorsements(
