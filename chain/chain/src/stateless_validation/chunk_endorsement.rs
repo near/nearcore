@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
+use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 
 /// This function validates the chunk_endorsements present in the block body. Validation does the following:
@@ -29,6 +30,20 @@ pub fn validate_chunk_endorsements_in_block(
             "Number of chunks and chunk endorsements does not match",
         );
         return Err(Error::InvalidChunkEndorsement);
+    }
+
+    // Validate the chunk endorsements bitmap (if present) in the block header against the endorsement signatures in the body.
+    let endorsements_bitmap = block.header().chunk_endorsements();
+    if let Some(endorsements_bitmap) = endorsements_bitmap {
+        if endorsements_bitmap.num_shards() != block.chunk_endorsements().len() {
+            tracing::error!(
+                target: "chain",
+                num_bitmap_shards = endorsements_bitmap.num_shards(),
+                num_chunk_endorsement_shards = block.chunk_endorsements().len(),
+                "Number of per-shard endorsement bitmaps and chunk endorsements do not match",
+            );
+            return Err(Error::InvalidChunkEndorsementBitmap);
+        }
     }
 
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
@@ -100,6 +115,55 @@ pub fn validate_chunk_endorsements_in_block(
         if !endorsement_stats.has_enough_stake() {
             tracing::error!(target: "chain", ?endorsement_stats, "Chunk does not have enough stake to be endorsed");
             return Err(Error::InvalidChunkEndorsement);
+        }
+
+        // Validate the chunk endorsements bitmap (if present) in the block header against the endorsement signatures in the body.
+        if let Some(endorsements_bitmap) = endorsements_bitmap {
+            for (bit, signature) in
+                endorsements_bitmap.iter(chunk_header.shard_id()).zip(signatures.iter())
+            {
+                if bit != signature.is_some() {
+                    tracing::error!(
+                        target: "chain",
+                        "Chunk endorsement bitmap does not match endorsement signatures for shard {:?}. Bit value: {}, Signature exists: {}",
+                        chunk_header.shard_id(),
+                        bit, signature.is_some(),
+                    );
+                    return Err(Error::InvalidChunkEndorsementBitmap);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present.
+/// Otherwise it checks that the feature enabling the bitmap is not enabled for the current epoch.
+pub fn validate_chunk_endorsements_in_header(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+) -> Result<(), Error> {
+    let Some(chunk_endorsements) = header.chunk_endorsements() else {
+        return Err(Error::InvalidChunkEndorsementBitmap);
+    };
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
+    let shard_ids = epoch_manager.get_shard_layout(&epoch_id)?.shard_ids().collect_vec();
+    if chunk_endorsements.num_shards() != shard_ids.len() {
+        return Err(Error::InvalidChunkEndorsementBitmap);
+    }
+    for shard_id in shard_ids.into_iter() {
+        let num_validator_assignments = epoch_manager
+            .get_chunk_validator_assignments(&epoch_id, shard_id, header.height())?
+            .len();
+        // 1. Bitmap's length must be equal or greater than the number of assignments in the previous block.
+        if chunk_endorsements.len(shard_id).unwrap() < num_validator_assignments {
+            return Err(Error::InvalidChunkEndorsementBitmap);
+        }
+        // 2. All extra positions after the assignments must be left as false.
+        for value in chunk_endorsements.iter(shard_id).skip(num_validator_assignments) {
+            if value != false {
+                return Err(Error::InvalidChunkEndorsementBitmap);
+            }
         }
     }
     Ok(())

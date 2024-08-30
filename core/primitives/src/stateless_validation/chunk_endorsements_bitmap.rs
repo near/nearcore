@@ -55,6 +55,17 @@ impl ChunkEndorsementsBitmap {
         let bitvec = BitVecType::from_vec(self.inner[shard_id as usize].clone());
         Box::new(bitvec.into_iter())
     }
+
+    /// Returns the number of shards in the endorsements.
+    pub fn num_shards(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns the full length of the bitmap for a given shard.
+    /// Note that the size may be greater than the number of validator assignments.
+    pub fn len(&self, shard_id: ShardId) -> Option<usize> {
+        self.inner.get(shard_id as usize).map(|v| v.len())
+    }
 }
 
 #[cfg(test)]

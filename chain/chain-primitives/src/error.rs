@@ -138,6 +138,9 @@ pub enum Error {
     #[error("Invalid Chunk Endorsement")]
     InvalidChunkEndorsement,
     /// Invalid chunk mask
+    #[error("Invalid Chunk Endorsement Bitmap")]
+    InvalidChunkEndorsementBitmap,
+    /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
     /// The chunk height is outside of the horizon
@@ -277,6 +280,7 @@ impl Error {
             | Error::InvalidChunkStateWitness(_)
             | Error::InvalidPartialChunkStateWitness(_)
             | Error::InvalidChunkEndorsement
+            | Error::InvalidChunkEndorsementBitmap
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -353,6 +357,7 @@ impl Error {
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
             Error::InvalidPartialChunkStateWitness(_) => "invalid_partial_chunk_state_witness",
             Error::InvalidChunkEndorsement => "invalid_chunk_endorsement",
+            Error::InvalidChunkEndorsementBitmap => "invalid_chunk_endorsement_bitmap",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",
