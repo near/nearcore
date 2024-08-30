@@ -353,15 +353,17 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV5 {
+    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
             BlockHeader::BlockHeaderV1(_)
             | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_)
-            | BlockHeader::BlockHeaderV4(_) => {
+            | BlockHeader::BlockHeaderV3(_) => {
                 panic!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV5(header) => {
+                panic!("new header should not appear in tests until ChunkEndorsementsInBlockHeader is stabilized")
+            }
         }
     }
 

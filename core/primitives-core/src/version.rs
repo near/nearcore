@@ -228,7 +228,7 @@ impl ProtocolFeature {
             // protocol versions will still have the production layout.
             ProtocolFeature::SimpleNightshadeTestonly => 100,
 
-            // Nightly features
+            // Nightly features:
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -241,7 +241,13 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ChunkEndorsementV2 => 144,
-            ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
+
+            // Features that should not be included in Nightly yet:
+            
+            // DO NOT include this in Nightly yet, because there are some tests that assume that they always
+            // operate on the latest BlockHeader version (which is V4 for stable version and V5 for nightly).
+            // This is not possible until this feature is stabilized or modify all those tests.
+            ProtocolFeature::ChunkEndorsementsInBlockHeader => 200,
         }
     }
 
@@ -254,7 +260,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
