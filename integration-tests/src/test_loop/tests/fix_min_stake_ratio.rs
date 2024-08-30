@@ -1,6 +1,6 @@
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::client::get_epoch_all_validators;
+use crate::test_loop::utils::validators::get_epoch_all_validators;
 use crate::test_loop::utils::ONE_NEAR;
 use itertools::Itertools;
 use near_async::messaging::SendAsync;
@@ -9,6 +9,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -83,20 +84,13 @@ fn test_fix_min_stake_ratio() {
     assert_eq!(initial_validators.len(), 2);
     assert!(!initial_validators.contains(&small_validator.to_string()));
 
-    // Run chain for couple epochs.
-    // Due to how protocol version voting works, chain must automatically
-    // upgrade to the latest protocol version which includes FixMinStakeRatio
-    // enabled.
-    // In the epoch where it happens, small validator must join the validator
-    // set.
+    // Generate new proposal for small validator at each epoch start.
+    // `AtomicU64` is used because `success_condition` is `Fn` which doesn't
+    // allow mutation.
+    // TODO: consider using specific handler for spawning transactions
+    // based on chain/network events.
     let latest_epoch_height = AtomicU64::new(0);
-    let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
-        let client = &test_loop_data.get(&client_handle).client;
-        let validators = get_epoch_all_validators(client);
-        let tip = client.chain.head().unwrap();
-        let epoch_height =
-            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
-
+    let stake_if_new_epoch_started = |prev_block_hash: CryptoHash, epoch_height: u64| {
         if epoch_height > latest_epoch_height.load(Ordering::Relaxed) {
             latest_epoch_height.store(epoch_height, Ordering::Relaxed);
             // At each epoch start, stake with small validator so that it
@@ -108,7 +102,7 @@ fn test_fix_min_stake_ratio() {
                 &create_user_test_signer(sender).into(),
                 ONE_NEAR,
                 near_primitives::test_utils::create_test_signer(accounts[2].as_str()).public_key(),
-                tip.prev_block_hash,
+                prev_block_hash,
             );
             let future = client_sender.send_async(ProcessTxRequest {
                 transaction: tx,
@@ -117,6 +111,21 @@ fn test_fix_min_stake_ratio() {
             });
             drop(future);
         }
+    };
+
+    // Run chain for couple epochs.
+    // Due to how protocol version voting works, chain must automatically
+    // upgrade to the latest protocol version which includes FixMinStakeRatio
+    // enabled.
+    // In the epoch where it happens, small validator must join the validator
+    // set.
+    let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
+        let client = &test_loop_data.get(&client_handle).client;
+        let validators = get_epoch_all_validators(client);
+        let tip = client.chain.head().unwrap();
+        let epoch_height =
+            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
+        stake_if_new_epoch_started(tip.prev_block_hash, epoch_height);
 
         assert!(epoch_height < 4);
         return if validators.len() == 3 {
