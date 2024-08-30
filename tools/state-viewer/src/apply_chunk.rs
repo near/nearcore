@@ -552,7 +552,6 @@ mod test {
             let epoch_id = *block.header().epoch_id();
 
             env.process_block(0, block, Provenance::PRODUCED);
-            env.propagate_chunk_state_witnesses_and_endorsements(false);
 
             let new_roots = (0..4)
                 .map(|i| {
@@ -641,7 +640,6 @@ mod test {
             let epoch_id = *block.header().epoch_id();
 
             env.process_block(0, block, Provenance::PRODUCED);
-            env.propagate_chunk_state_witnesses_and_endorsements(false);
 
             let new_roots = (0..4)
                 .map(|i| {

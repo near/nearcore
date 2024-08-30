@@ -91,7 +91,6 @@ fn test_burn_mint() {
     assert_eq!(calc_total_supply(&mut env), initial_total_supply);
     for i in 1..6 {
         env.produce_block(0, i);
-        env.propagate_chunk_state_witnesses_and_endorsements(false);
         // TODO: include receipts into total supply calculations and check with total supply in the next block?
         //        print_accounts(&mut env);
         //        assert_eq!(

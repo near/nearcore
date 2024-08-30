@@ -557,7 +557,6 @@ mod test {
             }
             blocks.push(block.clone());
             env.process_block(0, block, Provenance::PRODUCED);
-            env.propagate_chunk_state_witnesses_and_endorsements(false);
         }
     }
 

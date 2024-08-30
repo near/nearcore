@@ -388,7 +388,6 @@ mod test {
                 h += 1;
             }
             env.process_block(0, block.unwrap(), Provenance::PRODUCED);
-            env.propagate_chunk_state_witnesses_and_endorsements(false);
         }
     }
 
@@ -739,7 +738,6 @@ mod test {
             for j in 0..2 {
                 let provenance = if j == 0 { Provenance::PRODUCED } else { Provenance::NONE };
                 env.process_block(j, block.clone(), provenance);
-                env.propagate_chunk_state_witnesses_and_endorsements(false);
             }
             blocks.push(block);
         }
