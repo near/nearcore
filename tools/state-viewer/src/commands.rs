@@ -1540,6 +1540,7 @@ mod tests {
         // It takes 2 blocks to record a transaction on chain and apply the receipts.
         env.produce_block(0, 1);
         env.produce_block(0, 2);
+        env.propagate_chunk_state_witnesses_and_endorsements(false);
 
         let chunk_extras: Vec<Arc<ChunkExtra>> = (1..=2)
             .map(|height| {

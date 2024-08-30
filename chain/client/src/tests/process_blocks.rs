@@ -203,6 +203,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
+    env.propagate_chunk_state_witnesses_and_endorsements(false);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
 
     let validator_signer = create_test_signer("test0");

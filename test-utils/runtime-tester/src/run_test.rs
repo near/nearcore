@@ -107,6 +107,7 @@ impl Scenario {
                 .produce_block(block.height)?
                 .ok_or_else(|| Error::Other(String::from("No block has been produced")))?;
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+            env.propagate_chunk_state_witnesses_and_endorsements(false);
 
             block_stats.block_production_time = start_time.elapsed();
 
