@@ -1,6 +1,7 @@
 use crate::flat::FlatStateChanges;
 use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate, Trie, TrieAccess as _, TrieUpdate
+    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
+    Trie, TrieAccess as _, TrieUpdate,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
