@@ -129,6 +129,8 @@ fn test_fix_min_stake_ratio() {
         assert!(epoch_height < 4);
         return if validators.len() == 3 {
             assert!(validators.contains(&small_validator.to_string()));
+            let epoch_config = client.epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
+            assert_eq!(epoch_config.validator_selection_config.minimum_stake_ratio, Rational32::new(1, 62_500));
             true
         } else {
             false
