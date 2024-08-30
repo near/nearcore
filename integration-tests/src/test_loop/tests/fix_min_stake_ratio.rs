@@ -84,7 +84,8 @@ fn test_fix_min_stake_ratio() {
     assert_eq!(initial_validators.len(), 2);
     assert!(!initial_validators.contains(&small_validator.to_string()));
 
-    // Generate new proposal for small validator at each epoch start.
+    // Generate new validator proposal for small account at each epoch start,
+    // so it can get included in the validator set.
     // `AtomicU64` is used because `success_condition` is `Fn` which doesn't
     // allow mutation.
     // TODO: consider using specific handler for spawning transactions
@@ -93,8 +94,6 @@ fn test_fix_min_stake_ratio() {
     let stake_if_new_epoch_started = |prev_block_hash: CryptoHash, epoch_height: u64| {
         if epoch_height > latest_epoch_height.load(Ordering::Relaxed) {
             latest_epoch_height.store(epoch_height, Ordering::Relaxed);
-            // At each epoch start, stake with small validator so that it
-            // will be included in the list of proposals.
             let sender = &accounts[2];
             let tx = SignedTransaction::stake(
                 epoch_height,
