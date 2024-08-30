@@ -216,10 +216,6 @@ impl ChainStore {
                         *block_hash,
                     )?;
                     gc_blocks_remaining -= 1;
-                } else {
-                    return Err(Error::GCError(
-                        "block on canonical chain shouldn't have refcount 0".into(),
-                    ));
                 }
             }
             chain_store_update.update_tail(height)?;

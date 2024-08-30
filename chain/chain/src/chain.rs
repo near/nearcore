@@ -1643,7 +1643,12 @@ impl Chain {
         let header = self.get_block_header(&sync_hash)?;
         let hash = *header.prev_hash();
         let prev_block = self.get_block(&hash)?;
-        let new_tail = prev_block.header().height();
+        let mut new_tail = prev_block.header().height() - 2;
+        if let Some(min_height_included) =
+            prev_block.chunks().iter().map(|chunk| chunk.height_included()).min()
+        {
+            new_tail = std::cmp::min(new_tail, min_height_included - 1)
+        }
         let new_chunk_tail = prev_block.chunks().iter().map(|x| x.height_created()).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
