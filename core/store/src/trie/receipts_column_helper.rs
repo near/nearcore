@@ -277,7 +277,9 @@ impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
-        let result = match get(self.trie, &key) {
+        let value =
+            if self.side_effects { get(self.trie, &key) } else { get_pure(self.trie, &key) };
+        let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
                 "Receipt referenced by index should be in the state".to_owned(),

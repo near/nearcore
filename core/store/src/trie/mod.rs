@@ -1756,9 +1756,12 @@ impl TrieAccess for Trie {
         };
         match node {
             Some(optimized_ref) => Ok(Some(match &optimized_ref {
-                OptimizedValueRef::Ref(value_ref) => self.retrieve_value(&value_ref.hash),
-                OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => Ok(value.clone()),
-            }?)),
+                OptimizedValueRef::Ref(value_ref) => {
+                    let bytes = self.internal_retrieve_trie_node(&value_ref.hash, false, false)?;
+                    bytes.to_vec()
+                }
+                OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => value.clone(),
+            })),
             None => Ok(None),
         }
     }
