@@ -5,11 +5,11 @@ use std::time::Instant;
 
 // This function creates a new trie from flat storage for a given shard_uid
 // store: location of RocksDB store from where we read flatstore
-// write_store: location of RocksDB store where we write the newly constructred trie
+// write_store: location of RocksDB store where we write the newly constructed trie
 // shard_uid: The shard which we are recreating
 //
 // Please note that the trie is created for the block state with height equal to flat_head
-// flat state can comtain deltas after flat_head and can be different from tip of the blockchain.
+// flat state can contain deltas after flat_head and can be different from tip of the blockchain.
 pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: ShardUId) {
     let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
     let flat_state_to_trie_kv =
