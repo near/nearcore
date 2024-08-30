@@ -2302,6 +2302,7 @@ fn test_validate_chunk_extra() {
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
+    env.propagate_chunk_state_witnesses_and_endorsements(false);
     assert_eq!(accepted_blocks.len(), 1);
 
     // Produce a block on top of block1.
