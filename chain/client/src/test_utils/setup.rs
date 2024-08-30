@@ -354,7 +354,6 @@ pub fn setup_mock_with_validity_period(
         network_adapter.as_multi_sender(),
         transaction_validity_period,
         clock.now_utc(),
-        // ctx,
         None,
     );
     let client_addr1 = client_addr.clone();
