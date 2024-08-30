@@ -2304,10 +2304,9 @@ fn test_validate_chunk_extra() {
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     assert_eq!(accepted_blocks.len(), 1);
 
-    let client = &mut env.clients[0];
-
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
+    let client = &mut env.clients[0];
     client
         .chunk_inclusion_tracker
         .prepare_chunk_headers_ready_for_inclusion(
@@ -2317,6 +2316,8 @@ fn test_validate_chunk_extra() {
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
+    env.propagate_chunk_state_witnesses_and_endorsements(false);
+    let client = &mut env.clients[0];
     let chunks = client
         .chunk_inclusion_tracker
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
