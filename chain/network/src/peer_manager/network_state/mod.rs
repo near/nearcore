@@ -565,7 +565,7 @@ impl NetworkState {
     /// Return whether the message is sent or not.
     /// The message might be sent over TIER1 or TIER2 connection depending on the message type.
     pub fn send_message_to_account(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         account_id: &AccountId,
         msg: RoutedMessageBody,
@@ -574,13 +574,17 @@ impl NetworkState {
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
             // For now, we don't allow all types of messages to be sent to self.
             debug_assert!(msg.allow_sending_to_self());
-            let future = self.receive_routed_message(
-                clock,
-                self.config.node_id(),
-                CryptoHash::default(),
-                msg,
-            );
-            drop(future);
+            let this = self.clone();
+            let clock = clock.clone();
+            actix::spawn(async move {
+                this.receive_routed_message(
+                    &clock,
+                    this.config.node_id(),
+                    CryptoHash::default(),
+                    msg,
+                )
+                .await;
+            });
             return true;
         }
 
