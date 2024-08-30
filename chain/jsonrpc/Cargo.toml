@@ -37,10 +37,8 @@ near-o11y.workspace = true
 near-jsonrpc-client.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-jsonrpc-adversarial-primitives = { workspace = true, optional = true }
-near-rpc-error-macro.workspace = true
 
 [features]
-dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 test_features = [
   "near-client/test_features",
   "near-network/test_features",
