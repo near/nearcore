@@ -1661,7 +1661,7 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    &receipt,
+                    receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {
@@ -1709,6 +1709,7 @@ impl Runtime {
                 .delayed_receipts
                 .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
                 .expect("queue is not empty");
+            let receipt = receipt.receipt();
 
             if let Some(prefetcher) = &mut processing_state.prefetcher {
                 // Prefetcher is allowed to fail
@@ -1765,7 +1766,7 @@ impl Runtime {
             // want to store invalid receipts in state as delayed.
             validate_receipt(
                 &processing_state.apply_state.config.wasm_config.limit_config,
-                receipt,
+                &receipt,
                 protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
@@ -1776,7 +1777,7 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    receipt,
+                    receipt.clone(), // TODO get rid of clone
                     &processing_state.apply_state.config,
                 )?;
             } else {

@@ -5,6 +5,7 @@ use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -90,6 +91,80 @@ pub enum Receipt {
     V1(ReceiptV1),
 }
 
+/// A receipt that is stored in the state with added metadata. An receipt may be
+/// stored in the state as a delayed receipt, buffered receipt or a promise
+/// yield receipt. The metadata contains information about receipt
+///
+/// Please note that the StateStoredReceipt implements custom serialization and
+/// deserialization. This is an unfortunate implementation for the migration
+/// from storing receipts as is to storing them in the StateStoredReceipt
+/// wrapper.
+pub enum StateStoredReceipt {
+    V0(StateStoredReceiptV0),
+}
+
+pub struct StateStoredReceiptV0 {
+    /// The receipt.
+    pub receipt: Receipt,
+    pub metadata: StateStoredReceiptMetadata,
+}
+
+pub struct StateStoredReceiptMetadata {
+    pub gas: Gas,
+    pub size: u64,
+}
+
+pub enum ReceiptOrStateStoredReceipt {
+    Receipt(Receipt),
+    StateStoredReceipt(StateStoredReceipt),
+}
+
+impl ReceiptOrStateStoredReceipt {
+    pub fn receipt(self) -> Receipt {
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(receipt) => receipt,
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.take_receipt(),
+        }
+    }
+}
+
+impl BorshDeserialize for ReceiptOrStateStoredReceipt {
+    fn deserialize_reader<R: Read>(_reader: &mut R) -> io::Result<Self> {
+        todo!()
+    }
+}
+
+impl BorshSerialize for ReceiptOrStateStoredReceipt {
+    fn serialize<W: io::Write>(&self, _writer: &mut W) -> io::Result<()> {
+        todo!()
+    }
+}
+
+impl StateStoredReceipt {
+    pub fn new(receipt: Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+        let v0 = StateStoredReceiptV0 { receipt, metadata };
+        Self::V0(v0)
+    }
+
+    pub fn receipt(&self) -> &Receipt {
+        match self {
+            StateStoredReceipt::V0(v0) => &v0.receipt,
+        }
+    }
+
+    pub fn take_receipt(self) -> Receipt {
+        match self {
+            StateStoredReceipt::V0(v0) => v0.receipt,
+        }
+    }
+
+    pub fn metadata(&self) -> &StateStoredReceiptMetadata {
+        match self {
+            StateStoredReceipt::V0(v0) => &v0.metadata,
+        }
+    }
+}
+
 impl BorshSerialize for Receipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
@@ -112,8 +187,8 @@ impl BorshDeserialize for Receipt {
         let u4 = u8::deserialize_reader(reader)?;
         // This is a ridiculous hackery: because the first field in `ReceiptV0` is an `AccountId`
         // and an account id is at most 64 bytes, for all valid `ReceiptV0` the second byte must be 0
-        // because of the littel endian encoding of the length of the account id.
-        // On the other hand, for `ReceiptV0`, since the first byte is 1 and an account id must have nonzero
+        // because of the little endian encoding of the length of the account id.
+        // On the other hand, for `ReceiptV1`, since the first byte is 1 and an account id must have nonzero
         // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
         // by looking at the second byte.
 
@@ -155,6 +230,18 @@ impl BorshDeserialize for Receipt {
                 priority,
             }))
         }
+    }
+}
+
+impl BorshSerialize for StateStoredReceipt {
+    fn serialize<W: io::Write>(&self, _writer: &mut W) -> io::Result<()> {
+        todo!()
+    }
+}
+
+impl BorshDeserialize for StateStoredReceipt {
+    fn deserialize_reader<R: Read>(_reader: &mut R) -> io::Result<Self> {
+        todo!()
     }
 }
 
