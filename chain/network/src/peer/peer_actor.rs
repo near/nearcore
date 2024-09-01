@@ -1182,8 +1182,18 @@ impl PeerActor {
                     self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
                 }
 
-                // Add received peers to the peer store
                 let node_id = self.network_state.config.node_id();
+
+                // Record our own IP address as observed by the peer.
+                if self.network_state.my_public_addr.read().is_none() {
+                    if let Some(my_peer_info) = direct_peers.iter().find(|peer_info| peer_info.id == node_id) {
+                        if let Some(addr) = my_peer_info.addr {
+                            let mut my_public_addr = self.network_state.my_public_addr.write();
+                            *my_public_addr = Some(addr);
+                        }
+                    }
+                }
+                // Add received indirect peers to the peer store
                 self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
                     peers.into_iter().filter(|peer_info| peer_info.id != node_id),
