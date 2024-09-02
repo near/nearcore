@@ -243,7 +243,7 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkEndorsementV2 => 144,
 
             // Features that should not be included in Nightly yet:
-            
+
             // DO NOT include this in Nightly yet, because there are some tests that assume that they always
             // operate on the latest BlockHeader version (which is V4 for stable version and V5 for nightly).
             // This is not possible until this feature is stabilized or modify all those tests.

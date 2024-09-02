@@ -36,13 +36,9 @@ pub fn validate_chunk_endorsements_in_block(
     let endorsements_bitmap = block.header().chunk_endorsements();
     if let Some(endorsements_bitmap) = endorsements_bitmap {
         if endorsements_bitmap.num_shards() != block.chunk_endorsements().len() {
-            tracing::error!(
-                target: "chain",
-                num_bitmap_shards = endorsements_bitmap.num_shards(),
-                num_chunk_endorsement_shards = block.chunk_endorsements().len(),
-                "Number of per-shard endorsement bitmaps and chunk endorsements do not match",
-            );
-            return Err(Error::InvalidChunkEndorsementBitmap);
+            return Err(Error::InvalidChunkEndorsementBitmap(
+                format!("Number of shards in bitmap and chunk endorsement signatures do not match: shards={}, signatures={}",
+                    endorsements_bitmap.num_shards(), block.chunk_endorsements().len())));
         }
     }
 
@@ -123,13 +119,9 @@ pub fn validate_chunk_endorsements_in_block(
                 endorsements_bitmap.iter(chunk_header.shard_id()).zip(signatures.iter())
             {
                 if bit != signature.is_some() {
-                    tracing::error!(
-                        target: "chain",
-                        "Chunk endorsement bitmap does not match endorsement signatures for shard {:?}. Bit value: {}, Signature exists: {}",
-                        chunk_header.shard_id(),
-                        bit, signature.is_some(),
-                    );
-                    return Err(Error::InvalidChunkEndorsementBitmap);
+                    return Err(Error::InvalidChunkEndorsementBitmap(
+                        format!("Chunk endorsement bit in header does not match endorsement in body. shard={}, bit={}, signature={}",
+                            chunk_header.shard_id(), bit, signature.is_some())));
                 }
             }
         }
@@ -137,19 +129,24 @@ pub fn validate_chunk_endorsements_in_block(
     Ok(())
 }
 
-/// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present.
-/// Otherwise it checks that the feature enabling the bitmap is not enabled for the current epoch.
+/// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present, otherwise returns an error.
+/// This function must be called only if ChunkEndorsementInBlockHeader feature is enabled.
 pub fn validate_chunk_endorsements_in_header(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<(), Error> {
     let Some(chunk_endorsements) = header.chunk_endorsements() else {
-        return Err(Error::InvalidChunkEndorsementBitmap);
+        return Err(Error::InvalidChunkEndorsementBitmap(format!(
+            "Expected chunk endorsements bitmap but found None at height {}",
+            header.height()
+        )));
     };
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
     let shard_ids = epoch_manager.get_shard_layout(&epoch_id)?.shard_ids().collect_vec();
     if chunk_endorsements.num_shards() != shard_ids.len() {
-        return Err(Error::InvalidChunkEndorsementBitmap);
+        return Err(Error::InvalidChunkEndorsementBitmap(
+            format!("Number of shards in bitmap and in epoch do not match: shards in bitmap={}, shards in epoch={}",
+                chunk_endorsements.num_shards(), shard_ids.len())));
     }
     for shard_id in shard_ids.into_iter() {
         let num_validator_assignments = epoch_manager
@@ -157,12 +154,16 @@ pub fn validate_chunk_endorsements_in_header(
             .len();
         // 1. Bitmap's length must be equal or greater than the number of assignments in the previous block.
         if chunk_endorsements.len(shard_id).unwrap() < num_validator_assignments {
-            return Err(Error::InvalidChunkEndorsementBitmap);
+            return Err(Error::InvalidChunkEndorsementBitmap(
+                format!("Bitmap's length for shard {} is not less than or equal to the number of validator assignments {}",
+                    shard_id, chunk_endorsements.len(shard_id).unwrap() < num_validator_assignments )));
         }
         // 2. All extra positions after the assignments must be left as false.
         for value in chunk_endorsements.iter(shard_id).skip(num_validator_assignments) {
             if value != false {
-                return Err(Error::InvalidChunkEndorsementBitmap);
+                return Err(Error::InvalidChunkEndorsementBitmap(
+                    format!("Extra positions after in the bitmap {} validator assignments are not all false for shard {}",
+                        num_validator_assignments, shard_id)));
             }
         }
     }

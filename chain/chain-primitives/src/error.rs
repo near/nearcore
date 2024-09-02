@@ -139,7 +139,7 @@ pub enum Error {
     InvalidChunkEndorsement,
     /// Invalid chunk mask
     #[error("Invalid Chunk Endorsement Bitmap")]
-    InvalidChunkEndorsementBitmap,
+    InvalidChunkEndorsementBitmap(String),
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -280,7 +280,7 @@ impl Error {
             | Error::InvalidChunkStateWitness(_)
             | Error::InvalidPartialChunkStateWitness(_)
             | Error::InvalidChunkEndorsement
-            | Error::InvalidChunkEndorsementBitmap
+            | Error::InvalidChunkEndorsementBitmap(_)
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -357,7 +357,7 @@ impl Error {
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
             Error::InvalidPartialChunkStateWitness(_) => "invalid_partial_chunk_state_witness",
             Error::InvalidChunkEndorsement => "invalid_chunk_endorsement",
-            Error::InvalidChunkEndorsementBitmap => "invalid_chunk_endorsement_bitmap",
+            Error::InvalidChunkEndorsementBitmap(_) => "invalid_chunk_endorsement_bitmap",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",

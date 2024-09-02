@@ -353,6 +353,7 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
+    // TODO(#11900): Return BlockHeaderV5 when ChunkEndorsementsInBlockHeader is stabilized.
     pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
             BlockHeader::BlockHeaderV1(_)
@@ -361,7 +362,7 @@ impl BlockHeader {
                 panic!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
-            BlockHeader::BlockHeaderV5(header) => {
+            BlockHeader::BlockHeaderV5(_) => {
                 panic!("new header should not appear in tests until ChunkEndorsementsInBlockHeader is stabilized")
             }
         }
