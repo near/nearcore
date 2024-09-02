@@ -31,6 +31,7 @@ use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
+use reward_calculator::MinMaxRatio;
 
 impl EpochManager {
     /// Returns number of produced and expected blocks by given validator.
@@ -662,8 +663,6 @@ fn test_validator_reward_one_validator() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager =
@@ -708,8 +707,13 @@ fn test_validator_reward_one_validator() {
     );
     let mut validator_stakes = HashMap::new();
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
+    let validator_online_thresholds = ValidatorOnlineThresholds {
+        production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+    };
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
+        validator_online_thresholds,
         &validator_stakes,
         total_supply,
         PROTOCOL_VERSION,
@@ -745,8 +749,6 @@ fn test_validator_reward_weight_by_stake() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager =
@@ -791,8 +793,13 @@ fn test_validator_reward_weight_by_stake() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount1);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
+    let validator_online_thresholds = ValidatorOnlineThresholds {
+        production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+    };
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
+        validator_online_thresholds,
         &validators_stakes,
         total_supply,
         PROTOCOL_VERSION,
@@ -842,8 +849,6 @@ fn test_reward_multiple_shards() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
@@ -906,8 +911,13 @@ fn test_reward_multiple_shards() {
     let mut validators_stakes = HashMap::new();
     validators_stakes.insert("test1".parse().unwrap(), stake_amount);
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
+    let validator_online_thresholds = ValidatorOnlineThresholds {
+        production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+    };
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
+        validator_online_thresholds,
         &validators_stakes,
         total_supply,
         PROTOCOL_VERSION,
@@ -1160,8 +1170,6 @@ fn test_rewards_with_kickouts() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     };
     let mut em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator);
@@ -2302,6 +2310,8 @@ fn test_protocol_version_switch_with_many_seats() {
         fishermen_threshold: 0,
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
+        online_min_endorsement_threshold: Ratio::new(90, 100),
+        online_max_endorsement_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::v0_single_shard(),

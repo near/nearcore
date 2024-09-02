@@ -483,6 +483,8 @@ impl EpochManagerAdapter for MockEpochManager {
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: Ratio::new(1i32, 4i32),
             online_max_threshold: Ratio::new(3i32, 4i32),
+            online_min_endorsement_threshold: Ratio::new(1i32, 4i32),
+            online_max_endorsement_threshold: Ratio::new(3i32, 4i32),
             fishermen_threshold: 1,
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),

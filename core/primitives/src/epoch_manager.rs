@@ -40,9 +40,19 @@ pub struct EpochConfig {
     /// Max ratio of validators that we can kick out in an epoch
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
+    /// This threshold applies to rewards for block and chunk production, but not chunk endorsement.
+    /// For chunk endorsement rewards, use online_min_endorsement_threshold.
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
+    /// /// This threshold applies to rewards for block and chunk production, but not chunk endorsement.
+    /// For chunk endorsement rewards, use online_max_endorsement_threshold.
     pub online_max_threshold: Rational32,
+    /// Online minimum threshold below which validator doesn't receive reward.
+    /// This applies to rewards for chunk validation/endorsement.
+    pub online_min_endorsement_threshold: Rational32,
+    /// Online maximum threshold above which validator gets full reward.
+    /// This applies to rewards for chunk validation/endorsement.
+    pub online_max_endorsement_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
@@ -181,6 +191,8 @@ impl AllEpochConfig {
         Self::config_max_kickout_stake(&mut config, protocol_version);
 
         Self::config_fix_min_stake_ratio(&mut config, protocol_version);
+
+        Self::config_online_thresholds(&mut config, protocol_version);
 
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
@@ -321,6 +333,16 @@ impl AllEpochConfig {
             config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
         }
     }
+
+    fn config_online_thresholds(config: &mut EpochConfig, protocol_version: u32) {
+        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+            config.online_min_endorsement_threshold = Rational32::new(30, 100);
+            config.online_max_endorsement_threshold = Rational32::new(70, 100);
+        } else {
+            config.online_min_endorsement_threshold = config.online_min_threshold;
+            config.online_max_endorsement_threshold = config.online_max_threshold;
+        }
+    }
 }
 
 /// Additional configuration parameters for the new validator selection
@@ -392,6 +414,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
+    include_config!("mainnet", 145, "145.json"),
     // Epoch configs for testnet (genesis protool version is 29).
     include_config!("testnet", 29, "29.json"),
     include_config!("testnet", 48, "48.json"),
@@ -404,6 +427,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
+    include_config!("testnet", 145, "145.json"),
     // Epoch configs for mocknet (forknet) (genesis protool version is 29).
     // TODO(#11900): Check the forknet config and uncomment this.
     // include_config!("mocknet", 29, "29.json"),
@@ -415,6 +439,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     // include_config!("mocknet", 71, "71.json"),
     // include_config!("mocknet", 100, "100.json"),
     // include_config!("mocknet", 101, "101.json"),
+    // include_config!("mocknet", 145, "145.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
@@ -431,7 +456,10 @@ impl EpochConfigStore {
         for (chain, version, content) in CONFIGS.iter() {
             if *chain == chain_id {
                 let config: EpochConfig = serde_json::from_str(*content).unwrap_or_else(|e| {
-                    panic!("Failed to load epoch config files for chain {}: {:#}", chain_id, e)
+                    panic!(
+                        "Failed to load epoch config files for chain {} and version {}: {:#}",
+                        chain_id, version, e
+                    )
                 });
                 store.insert(*version, Arc::new(config));
             }
@@ -496,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn test_epoch_config_store_ainnet() {
+    fn test_epoch_config_store_mainnet() {
         test_epoch_config_store("mainnet", 29);
     }
 

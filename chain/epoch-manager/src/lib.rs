@@ -28,6 +28,7 @@ use near_primitives::views::{
 };
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use primitive_types::U256;
+use reward_calculator::{MinMaxRatio, ValidatorOnlineThresholds};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -752,8 +753,20 @@ impl EpochManager {
                     validator_block_chunk_stats.remove(account_id);
                 }
             }
+            let epoch_config = self.get_epoch_config(block_info.epoch_id())?;
+            let validator_online_thresholds = ValidatorOnlineThresholds {
+                production: MinMaxRatio(
+                    epoch_config.online_min_threshold,
+                    epoch_config.online_max_threshold,
+                ),
+                endorsement: MinMaxRatio(
+                    epoch_config.online_min_endorsement_threshold,
+                    epoch_config.online_max_endorsement_threshold,
+                ),
+            };
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
+                validator_online_thresholds,
                 &validator_stake,
                 *block_info.total_supply(),
                 epoch_protocol_version,

@@ -13,6 +13,29 @@ use crate::validator_stats::get_validator_online_ratio;
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
+/// Contains online thresholds for validators.
+/// The thresholds for block and chunk production and chunk endorsement may be different.
+#[derive(Clone, Debug)]
+pub struct ValidatorOnlineThresholds {
+    pub production: MinMaxRatio,
+    pub endorsement: MinMaxRatio,
+}
+
+/// A pair of min and max thresholds.
+/// Min: Online ratio below which validator doesn't receive reward.
+/// Max: Online ratio above which validator gets full reward.
+#[derive(Clone, Debug)]
+pub struct MinMaxRatio(pub Rational32, pub Rational32);
+
+impl MinMaxRatio {
+    fn min(&self) -> Rational32 {
+        self.0
+    }
+    fn max(&self) -> Rational32 {
+        self.1
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
     pub max_inflation_rate: Rational32,
@@ -20,30 +43,31 @@ pub struct RewardCalculator {
     pub epoch_length: u64,
     pub protocol_reward_rate: Rational32,
     pub protocol_treasury_account: AccountId,
-    pub online_min_threshold: Rational32,
-    pub online_max_threshold: Rational32,
     pub num_seconds_per_year: u64,
 }
 
 impl RewardCalculator {
-    pub fn new(config: &GenesisConfig) -> Self {
+    pub fn new(genesis_config: &GenesisConfig) -> Self {
         RewardCalculator {
-            max_inflation_rate: config.max_inflation_rate,
-            num_blocks_per_year: config.num_blocks_per_year,
-            epoch_length: config.epoch_length,
-            protocol_reward_rate: config.protocol_reward_rate,
-            protocol_treasury_account: config.protocol_treasury_account.clone(),
-            online_max_threshold: config.online_max_threshold,
-            online_min_threshold: config.online_min_threshold,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            num_blocks_per_year: genesis_config.num_blocks_per_year,
+            epoch_length: genesis_config.epoch_length,
+            protocol_reward_rate: genesis_config.protocol_reward_rate,
+            protocol_treasury_account: genesis_config.protocol_treasury_account.clone(),
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         }
     }
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
     /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.
+    ///
+    /// # Arguments
+    ///
+    /// * `validator_online_thresholds`: Min and max online ratios for block and chunk producers and chunk validators to receive rewards.
     pub fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+        validator_online_thresholds: ValidatorOnlineThresholds,
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
         protocol_version: ProtocolVersion,
@@ -98,8 +122,10 @@ impl RewardCalculator {
             let expected_chunks = stats.chunk_stats.expected();
             let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
 
-            let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
-            let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
+            let online_min_numer =
+                U256::from(*validator_online_thresholds.production.min().numer() as u64);
+            let online_min_denom =
+                U256::from(*validator_online_thresholds.production.min().denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let chunk_only_producers_enabled =
                 checked_feature!("stable", ChunkOnlyProducers, protocol_version);
@@ -121,8 +147,10 @@ impl RewardCalculator {
                     .get(&account_id)
                     .unwrap_or_else(|| panic!("{} is not a validator", account_id));
                 // Online reward multiplier is min(1., (uptime - online_threshold_min) / (online_threshold_max - online_threshold_min).
-                let online_max_numer = U256::from(*self.online_max_threshold.numer() as u64);
-                let online_max_denom = U256::from(*self.online_max_threshold.denom() as u64);
+                let online_max_numer =
+                    U256::from(*validator_online_thresholds.production.max().numer() as u64);
+                let online_max_denom =
+                    U256::from(*validator_online_thresholds.production.max().denom() as u64);
                 let online_numer =
                     online_max_numer * online_min_denom - online_min_numer * online_max_denom;
                 let mut uptime_numer = (average_produced_numer * online_min_denom
@@ -161,8 +189,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 1),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 1000000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -183,9 +209,14 @@ mod tests {
         ]);
         let validator_stake =
             HashMap::from([("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]);
+        let validator_online_thresholds = ValidatorOnlineThresholds {
+            production: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
+            endorsement: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
+        };
         let total_supply = 1_000_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
+            validator_online_thresholds,
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
@@ -212,8 +243,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -244,9 +273,14 @@ mod tests {
             ("test2".parse().unwrap(), 500_000),
             ("test3".parse().unwrap(), 500_000),
         ]);
+        let validator_online_thresholds = ValidatorOnlineThresholds {
+            production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+            endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        };
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
+            validator_online_thresholds,
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
@@ -277,8 +311,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -321,9 +353,14 @@ mod tests {
             ("test3".parse().unwrap(), 500_000),
             ("test4".parse().unwrap(), 500_000),
         ]);
+        let validator_online_thresholds = ValidatorOnlineThresholds {
+            production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+            endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        };
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
+            validator_online_thresholds,
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
@@ -357,8 +394,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -407,9 +442,14 @@ mod tests {
             ("test3".parse().unwrap(), 500_000),
             ("test4".parse().unwrap(), 500_000),
         ]);
+        let validator_online_thresholds = ValidatorOnlineThresholds {
+            production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+            endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        };
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
+            validator_online_thresholds,
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
@@ -445,8 +485,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(1, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 60 * 60 * 24 * 365,
         };
         let validator_block_chunk_stats = HashMap::from([(
@@ -459,11 +497,16 @@ mod tests {
                 },
             },
         )]);
+        let validator_online_thresholds = ValidatorOnlineThresholds {
+            production: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
+            endorsement: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
+        };
         let validator_stake = HashMap::from([("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]);
         // some hypothetical large total supply (100b)
         let total_supply = 100_000_000_000 * 10_u128.pow(24);
         reward_calculator.calculate_reward(
             validator_block_chunk_stats,
+            validator_online_thresholds,
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,

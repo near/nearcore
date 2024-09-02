@@ -262,6 +262,11 @@ impl From<&GenesisConfig> for EpochConfig {
             fishermen_threshold: config.fishermen_threshold,
             online_min_threshold: config.online_min_threshold,
             online_max_threshold: config.online_max_threshold,
+            // Note: These fields are introduced in later protocol versions than mainnet/testnet genesis.
+            // They will be overridden by AllEpochConfig logic based on the protocol version.
+            // Thus for the genesis, we just re-use the production online ratios for chunk endorsement.
+            online_min_endorsement_threshold: config.online_min_threshold,
+            online_max_endorsement_threshold: config.online_max_threshold,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
