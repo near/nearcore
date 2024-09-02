@@ -180,6 +180,7 @@ RoutedMessageBody = 3925228741
 RoutingTableUpdate = 2987752645
 Secp256K1PublicKey = 4117078281
 Secp256K1Signature = 3687154735
+ServerError = 3794571225
 ShardChunk = 834871798
 ShardChunkHeader = 4215449923
 ShardChunkHeaderInner = 3760333502

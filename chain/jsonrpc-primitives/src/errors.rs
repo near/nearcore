@@ -1,4 +1,5 @@
 use near_primitives::errors::TxExecutionError;
+use near_schema_checker_lib::ProtocolSchema;
 use serde_json::{to_value, Value};
 use std::fmt;
 
@@ -38,15 +39,7 @@ pub enum RpcRequestValidationErrorKind {
 }
 
 /// A general Server Error
-#[derive(
-    serde::Serialize,
-    serde::Deserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    near_rpc_error_macro::RpcError,
-)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
