@@ -227,9 +227,9 @@ impl BorshDeserialize for Receipt {
 impl BorshSerialize for StateStoredReceipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         // The serialization format for StateStored receipt is as follows:
-        // Byte 0: STATE_STORED_RECEIPT_TAG
         // Byte 1: STATE_STORED_RECEIPT_TAG
-        // Byte 2: enum version (e.g. V0 => 0_u8)
+        // Byte 2: STATE_STORED_RECEIPT_TAG
+        // Byte 3: enum version (e.g. V0 => 0_u8)
         // serialized variant value
 
         BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
@@ -293,7 +293,7 @@ impl BorshSerialize for ReceiptOrStateStoredReceipt {
 
 impl BorshDeserialize for ReceiptOrStateStoredReceipt {
     fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
-        // This is custom serialization in order to provide backwards
+        // This is custom deserialization in order to provide backwards
         // compatibility for migration from Receipt to StateStoredReceipt.
 
         // Both variants (Receipt and StateStoredReceipt) need to be directly
