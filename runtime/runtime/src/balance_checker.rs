@@ -9,7 +9,7 @@ use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
+use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
@@ -152,12 +152,8 @@ fn buffered_receipts(
         if let Some(num_forwarded) = after.first_index.checked_sub(before.first_index) {
             // The first n receipts were forwarded.
             for receipt in initial_buffer.iter(initial_state).take(num_forwarded as usize) {
-                let receipt = match receipt? {
-                    ReceiptOrStateStoredReceipt::Receipt(receipt) => receipt,
-                    ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
-                        receipt.take_receipt()
-                    }
-                };
+                let receipt = receipt?;
+                let receipt = receipt.receipt();
                 forwarded_receipts.push(receipt)
             }
         }
@@ -166,12 +162,8 @@ fn buffered_receipts(
         {
             // The last n receipts are new. ("rev" to take from the back)
             for receipt in final_buffer.iter(final_state).rev().take(num_buffered as usize) {
-                let receipt = match receipt? {
-                    ReceiptOrStateStoredReceipt::Receipt(receipt) => receipt,
-                    ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
-                        receipt.take_receipt()
-                    }
-                };
+                let receipt = receipt?;
+                let receipt = receipt.receipt();
                 new_buffered_receipts.push(receipt)
             }
         }

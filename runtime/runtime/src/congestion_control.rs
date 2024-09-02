@@ -289,10 +289,6 @@ impl ReceiptSinkV2<'_> {
         };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        // let gas_to_forward = receipt.metadata().gas;
-        // let size_to_forward = receipt.metadata().size;
-        // let size_to_forward: u64 = size_to_forward.try_into().expect("Can't convert usize to u64");
-
         if forward_limit.gas > gas && forward_limit.size > size {
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above
@@ -524,8 +520,8 @@ pub(crate) fn receipt_size(
 }
 
 pub(crate) fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowError> {
-    // `borsh::object_length` may only fail when the total size overflows u32
-    borsh::object_length(&receipt).map(|size| size as u64).map_err(|_| IntegerOverflowError)
+    let size = borsh::object_length(&receipt).map_err(|_| IntegerOverflowError)?;
+    size.try_into().map_err(|_| IntegerOverflowError)
 }
 
 fn int_overflow_to_storage_err(_err: IntegerOverflowError) -> StorageError {

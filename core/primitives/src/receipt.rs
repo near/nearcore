@@ -91,29 +91,38 @@ pub enum Receipt {
     V1(ReceiptV1),
 }
 
-/// A receipt that is stored in the state with added metadata. An receipt may be
+/// A receipt that is stored in the state with added metadata. A receipt may be
 /// stored in the state as a delayed receipt, buffered receipt or a promise
-/// yield receipt. The metadata contains information about receipt
+/// yield receipt. The metadata contains additional information about receipt
 ///
 /// Please note that the StateStoredReceipt implements custom serialization and
-/// deserialization. This is an unfortunate implementation for the migration
-/// from storing receipts as is to storing them in the StateStoredReceipt
-/// wrapper.
+/// deserialization. Please see the comment on [ReceiptOrStateStoredReceipt]
+/// for more details.
+///
+/// This struct is versioned so that it can be enhanced in the future.
 pub enum StateStoredReceipt {
     V0(StateStoredReceiptV0),
 }
 
+#[derive(BorshDeserialize, BorshSerialize)]
 pub struct StateStoredReceiptV0 {
     /// The receipt.
     pub receipt: Receipt,
     pub metadata: StateStoredReceiptMetadata,
 }
 
+#[derive(BorshDeserialize, BorshSerialize)]
 pub struct StateStoredReceiptMetadata {
     pub gas: Gas,
     pub size: u64,
 }
 
+/// The tag that is used to differentiate between the Receipt and StateStoredReceipt.
+const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
+
+/// This is a helper struct for handling the migration from Receipt to
+/// StateStoredReceipt. Both variants can be directly serialized and
+/// deserialized to this struct.
 pub enum ReceiptOrStateStoredReceipt {
     Receipt(Receipt),
     StateStoredReceipt(StateStoredReceipt),
@@ -128,28 +137,10 @@ impl ReceiptOrStateStoredReceipt {
     }
 }
 
-impl BorshDeserialize for ReceiptOrStateStoredReceipt {
-    fn deserialize_reader<R: Read>(_reader: &mut R) -> io::Result<Self> {
-        todo!()
-    }
-}
-
-impl BorshSerialize for ReceiptOrStateStoredReceipt {
-    fn serialize<W: io::Write>(&self, _writer: &mut W) -> io::Result<()> {
-        todo!()
-    }
-}
-
 impl StateStoredReceipt {
     pub fn new(receipt: Receipt, metadata: StateStoredReceiptMetadata) -> Self {
         let v0 = StateStoredReceiptV0 { receipt, metadata };
         Self::V0(v0)
-    }
-
-    pub fn receipt(&self) -> &Receipt {
-        match self {
-            StateStoredReceipt::V0(v0) => &v0.receipt,
-        }
     }
 
     pub fn take_receipt(self) -> Receipt {
@@ -234,14 +225,101 @@ impl BorshDeserialize for Receipt {
 }
 
 impl BorshSerialize for StateStoredReceipt {
-    fn serialize<W: io::Write>(&self, _writer: &mut W) -> io::Result<()> {
-        todo!()
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // The serialization format for StateStored receipt is as follows:
+        // Byte 0: STATE_STORED_RECEIPT_TAG
+        // Byte 1: STATE_STORED_RECEIPT_TAG
+        // Byte 2: enum version (e.g. V0 => 0_u8)
+        // serialized variant value
+
+        BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
+        BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
+        match self {
+            StateStoredReceipt::V0(v0) => {
+                BorshSerialize::serialize(&0_u8, writer)?;
+                BorshSerialize::serialize(&v0, writer)?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl BorshDeserialize for StateStoredReceipt {
-    fn deserialize_reader<R: Read>(_reader: &mut R) -> io::Result<Self> {
-        todo!()
+    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+        let u3 = u8::deserialize_reader(reader)?;
+
+        if u1 != STATE_STORED_RECEIPT_TAG || u2 != STATE_STORED_RECEIPT_TAG {
+            let error = Error::new(
+                ErrorKind::Other,
+                "Invalid tag found when deserializing StateStoredReceipt",
+            );
+            return Err(io::Error::new(ErrorKind::InvalidData, error));
+        }
+
+        match u3 {
+            0 => {
+                let v0 = StateStoredReceiptV0::deserialize_reader(reader)?;
+                Ok(StateStoredReceipt::V0(v0))
+            }
+            _ => {
+                let error = Error::new(
+                    ErrorKind::Other,
+                    "Invalid version found when deserializing StateStoredReceipt",
+                );
+                Err(io::Error::new(ErrorKind::InvalidData, error))
+            }
+        }
+    }
+}
+
+impl BorshSerialize for ReceiptOrStateStoredReceipt {
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // This is custom serialization in order to provide backwards
+        // compatibility for migration from Receipt to StateStoredReceipt.
+
+        // Please see the comment in deserialize_reader for more details.
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(receipt) => {
+                BorshSerialize::serialize(receipt, writer)
+            }
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
+                BorshSerialize::serialize(receipt, writer)
+            }
+        }
+    }
+}
+
+impl BorshDeserialize for ReceiptOrStateStoredReceipt {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
+        // This is custom serialization in order to provide backwards
+        // compatibility for migration from Receipt to StateStoredReceipt.
+
+        // Both variants (Receipt and StateStoredReceipt) need to be directly
+        // deserializable into the ReceiptOrStateStoredReceipt.
+
+        // Read the first two bytes in order to discriminate between the Receipt
+        // and StateStoredReceipt.
+        // The StateStored receipt has the tag as the first two bytes.
+        // The Receipt::V0 has 0 as the second byte.
+        // The Receipt::V1 has 1 as the first byte.
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+
+        // Put the read bytes back into the reader by chaining.
+        let prefix = [u1, u2];
+        let mut reader = prefix.chain(reader);
+
+        let tag = u8::MAX;
+
+        if u1 == tag && u2 == tag {
+            let receipt = StateStoredReceipt::deserialize_reader(&mut reader)?;
+            Ok(ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt))
+        } else {
+            let receipt = Receipt::deserialize_reader(&mut reader)?;
+            Ok(ReceiptOrStateStoredReceipt::Receipt(receipt))
+        }
     }
 }
 
