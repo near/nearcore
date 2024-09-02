@@ -373,7 +373,7 @@ pub fn migrate_40_to_41(store: &Store, kind: DbKind, is_node_archival: bool) -> 
         return Ok(());
     }
     let _span = tracing::info_span!(target: "migrations",
-        "Migration from 40 to 41: Deleting contents of PartialChunks column from Cold DB")
+        "Migration from 40 to 41: Deleting contents of PartialChunks column Cold DB of archival node")
     .entered();
     let mut update = store.store_update();
     update.delete_all(DBCol::PartialChunks);
