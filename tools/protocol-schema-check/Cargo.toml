@@ -21,6 +21,7 @@ near-store = { workspace = true, features = ["protocol_schema"] }
 near-epoch-manager = { workspace = true, features = ["protocol_schema"] }
 near-chain = { workspace = true, features = ["protocol_schema"] }
 near-network = { workspace = true, features = ["protocol_schema"] }
+near-jsonrpc-primitives = { workspace = true, features = ["protocol_schema"] }
 near-stable-hasher.workspace = true
 
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -38,4 +39,5 @@ default = [
     "near-epoch-manager/protocol_schema",
     "near-chain/protocol_schema",
     "near-network/protocol_schema",
+    "near-jsonrpc-primitives/protocol_schema",
 ]
