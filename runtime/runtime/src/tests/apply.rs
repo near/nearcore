@@ -1,10 +1,6 @@
 use super::{to_yocto, GAS_PRICE};
 use crate::config::safe_add_gas;
-use crate::congestion_control::{
-    compute_receipt_congestion_gas,
-    compute_receipt_size,
-    // receipt_congestion_gas, receipt_size,
-};
+use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{create_receipt_with_actions, MAX_ATTACHED_GAS};
 use crate::total_prepaid_exec_fees;
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};

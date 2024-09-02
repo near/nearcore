@@ -120,8 +120,8 @@ pub struct StateStoredReceiptMetadata {
 /// The tag that is used to differentiate between the Receipt and StateStoredReceipt.
 const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
 
-/// This is a helper struct for handling the migration from Receipt to
-/// StateStoredReceipt. Both variants can be directly serialized and
+/// This is a convenience struct for handling the migration from [Receipt] to
+/// [StateStoredReceipt]. Both variants can be directly serialized and
 /// deserialized to this struct.
 pub enum ReceiptOrStateStoredReceipt {
     Receipt(Receipt),

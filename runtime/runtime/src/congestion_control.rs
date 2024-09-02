@@ -329,6 +329,9 @@ impl ReceiptSinkV2<'_> {
     }
 }
 
+/// Get the receipt gas from the receipt that was retrieved from the state.
+/// If it is a [Receipt], the gas will be computed.
+/// If it s the [StateStoredReceipt], the size will be read from the metadata.
 pub(crate) fn receipt_congestion_gas(
     receipt: &ReceiptOrStateStoredReceipt,
     config: &RuntimeConfig,
@@ -341,6 +344,10 @@ pub(crate) fn receipt_congestion_gas(
     }
 }
 
+/// Calculate the gas of a receipt before it is pushed into a state queue or
+/// buffer. Please note that this method should only be used when storing
+/// receipts into state. It should not be used for retrieving receipts from the
+/// state.
 pub(crate) fn compute_receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
@@ -510,6 +517,9 @@ impl DelayedReceiptQueueWrapper {
     }
 }
 
+/// Get the receipt size from the receipt that was retrieved from the state.
+/// If it is a [Receipt], the size will be computed.
+/// If it s the [StateStoredReceipt], the size will be read from the metadata.
 pub(crate) fn receipt_size(
     receipt: &ReceiptOrStateStoredReceipt,
 ) -> Result<u64, IntegerOverflowError> {
@@ -519,6 +529,9 @@ pub(crate) fn receipt_size(
     }
 }
 
+/// Calculate the size of a receipt before it is pushed into a state queue or
+/// buffer. Please note that this method should only be used when storing
+/// receipts into state. It should not be used for retrieving receipts from the state.
 pub(crate) fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowError> {
     let size = borsh::object_length(&receipt).map_err(|_| IntegerOverflowError)?;
     size.try_into().map_err(|_| IntegerOverflowError)
