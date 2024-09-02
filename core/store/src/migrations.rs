@@ -365,11 +365,11 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
 /// This migration applies ONLY to the Cold DB.
 pub fn migrate_40_to_41(store: &Store, kind: DbKind, is_node_archival: bool) -> anyhow::Result<()> {
     if !is_node_archival {
-        tracing::info!(target: "migrations", "Not applying migration from 40 to 41 for non-archival node");
+        tracing::info!(target: "migrations", "No-op migration from 40 to 41 for non-archival node");
         return Ok(());
     }
     if kind != DbKind::Cold {
-        tracing::info!(target: "migrations", ?kind, "Not applying migration from 40 to 41 for non-Cold DB");
+        tracing::info!(target: "migrations", ?kind, "No-op migration from 40 to 41 for non-Cold DB");
         return Ok(());
     }
     let _span = tracing::info_span!(target: "migrations",
