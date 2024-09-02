@@ -6,7 +6,7 @@
 **No Changes**
 
 ### Non-protocol Changes
-**No Changes**
+* **Archival nodes only:** Clean-up the `PartialChunks` column in the Cold DB and stop writing `PartialChunks` to Cold DB.
 
 ### 2.2.0
 
