@@ -28,10 +28,10 @@ pub struct ValidatorOnlineThresholds {
 pub struct MinMaxRatio(pub Rational32, pub Rational32);
 
 impl MinMaxRatio {
-    fn min(&self) -> Rational32 {
+    pub fn min(&self) -> Rational32 {
         self.0
     }
-    fn max(&self) -> Rational32 {
+    pub fn max(&self) -> Rational32 {
         self.1
     }
 }
@@ -114,7 +114,7 @@ impl RewardCalculator {
         let mut epoch_actual_reward = epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
-            let production_ratio = get_validator_online_ratio(&stats);
+            let production_ratio = get_validator_online_ratio(&stats, &validator_online_thresholds);
             let average_produced_numer = production_ratio.numer();
             let average_produced_denom = production_ratio.denom();
 

@@ -469,6 +469,7 @@ impl EpochManager {
         let mut total_stake: Balance = 0;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
+        let online_thresholds = get_online_thresholds(config);
 
         for (i, v) in epoch_info.validators_iter().enumerate() {
             let account_id = v.account_id();
@@ -508,7 +509,9 @@ impl EpochManager {
             {
                 let mut sorted_validators = validator_block_chunk_stats
                     .iter()
-                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
+                    .map(|(account, stats)| {
+                        (get_sortable_validator_online_ratio(stats, &online_thresholds), account)
+                    })
                     .collect::<Vec<_>>();
                 sorted_validators.sort();
                 sorted_validators
@@ -754,19 +757,9 @@ impl EpochManager {
                 }
             }
             let epoch_config = self.get_epoch_config(block_info.epoch_id())?;
-            let validator_online_thresholds = ValidatorOnlineThresholds {
-                production: MinMaxRatio(
-                    epoch_config.online_min_threshold,
-                    epoch_config.online_max_threshold,
-                ),
-                endorsement: MinMaxRatio(
-                    epoch_config.online_min_endorsement_threshold,
-                    epoch_config.online_max_endorsement_threshold,
-                ),
-            };
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
-                validator_online_thresholds,
+                get_online_thresholds(&epoch_config),
                 &validator_stake,
                 *block_info.total_supply(),
                 epoch_protocol_version,
@@ -2123,5 +2116,15 @@ impl EpochManager {
 
         // The height doesn't belong to any of the epochs around the tip, return an empty Vec.
         Ok(vec![])
+    }
+}
+
+fn get_online_thresholds(config: &EpochConfig) -> ValidatorOnlineThresholds {
+    ValidatorOnlineThresholds {
+        production: MinMaxRatio(config.online_min_threshold, config.online_max_threshold),
+        endorsement: MinMaxRatio(
+            config.online_min_endorsement_threshold,
+            config.online_max_endorsement_threshold,
+        ),
     }
 }
