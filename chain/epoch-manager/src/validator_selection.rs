@@ -1283,7 +1283,7 @@ mod tests {
             online_min_threshold: 0.into(),
             online_max_threshold: 0.into(),
             online_min_endorsement_threshold: 0.into(),
-            online_max_endorsement_threshold: 0.into(),
+            online_max_endorsement_threshold: 1.into(),
             fishermen_threshold: 0,
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),

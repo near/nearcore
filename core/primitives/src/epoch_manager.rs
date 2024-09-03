@@ -10,6 +10,7 @@ use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
+use num_rational::Ratio;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound;
@@ -339,8 +340,8 @@ impl AllEpochConfig {
             config.online_min_endorsement_threshold = Rational32::new(30, 100);
             config.online_max_endorsement_threshold = Rational32::new(70, 100);
         } else {
-            config.online_min_endorsement_threshold = config.online_min_threshold;
-            config.online_max_endorsement_threshold = config.online_max_threshold;
+            config.online_min_endorsement_threshold = Ratio::from_integer(0);
+            config.online_max_endorsement_threshold = Ratio::from_integer(1);
         }
     }
 }

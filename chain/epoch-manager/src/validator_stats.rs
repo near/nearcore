@@ -144,6 +144,9 @@ fn apply_thresholds(
     if expected == 0 {
         return (0, 0);
     }
+    if min_threshold == Ratio::from_integer(0) && max_threshold == Ratio::from_integer(1) {
+        return (produced, expected);
+    }
     let online_min_numer = *min_threshold.numer() as u64;
     let online_min_denom = *min_threshold.denom() as u64;
     if produced * online_min_denom < online_min_numer * expected {

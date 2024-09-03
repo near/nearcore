@@ -243,7 +243,7 @@ mod tests {
             fishermen_threshold: 0,
             online_min_threshold: Ratio::new(90, 100),
             online_max_threshold: Ratio::from_integer(1),
-            online_min_endorsement_threshold: Ratio::new(90, 100),
+            online_min_endorsement_threshold: Ratio::from_integer(0),
             online_max_endorsement_threshold: Ratio::from_integer(1),
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(80, 100),
