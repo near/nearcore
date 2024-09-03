@@ -65,6 +65,8 @@ pub enum FlatStorageStatus {
     Creation(FlatStorageCreationStatus),
     /// Flat Storage is ready to be used.
     Ready(FlatStorageReadyStatus),
+    /// Flat storage is undergoing resharding.
+    Resharding(FlatStorageReshardingStatus),
 }
 
 impl Into<i64> for &FlatStorageStatus {
@@ -80,6 +82,12 @@ impl Into<i64> for &FlatStorageStatus {
                 FlatStorageCreationStatus::SavingDeltas => 10,
                 FlatStorageCreationStatus::FetchingState(_) => 11,
                 FlatStorageCreationStatus::CatchingUp(_) => 12,
+            },
+            // 20..30 is reserved for resharding statuses.
+            FlatStorageStatus::Resharding(resharding_status) => match resharding_status {
+                FlatStorageReshardingStatus::SplittingParent => 20,
+                FlatStorageReshardingStatus::CreatingChild => 21,
+                FlatStorageReshardingStatus::CatchingUp(_) => 22,
             },
         }
     }
@@ -121,6 +129,37 @@ pub enum FlatStorageCreationStatus {
     /// the saved step again.
     FetchingState(FetchingStateStatus),
     /// Flat storage data exists on disk but block which is corresponds to is earlier than chain final head.
+    /// We apply deltas from disk until the head reaches final head.
+    /// Includes block hash of flat storage head.
+    CatchingUp(CryptoHash),
+}
+
+/// This struct represents what is the current status of flat storage resharding.
+/// During resharding flat storage must be changed to reflect the new shard layout.
+///
+/// When two shards are split, the parent shard disappears and two children are created. The flat storage
+/// entries that belonged to the parent must be copied in one of the two shards. This operation happens in the
+/// background and could take significant time.
+/// After all elements have been copied the new flat storages will be behind the chain head. To remediate this issue
+/// they will enter a catching up phase. The parent shard, instead, must be removed and cleaned up.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+pub enum FlatStorageReshardingStatus {
+    /// Resharding phase entered when a shard is being split.
+    /// Copy key-value pairs from this shard (the parent) to children shards.
+    SplittingParent,
+    /// Resharding phase entered when a shard is being split.
+    /// This shard (child) is being built from state taken from its parent.
+    CreatingChild,
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
     CatchingUp(CryptoHash),

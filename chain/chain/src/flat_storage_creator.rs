@@ -413,6 +413,9 @@ impl FlatStorageShardCreator {
             FlatStorageStatus::Disabled => {
                 panic!("initiated flat storage creation for shard {shard_id} while it is disabled");
             }
+            // If the flat storage is undergoing resharding it means it was created successfully
+            // and there's nothing else to do.
+            FlatStorageStatus::Resharding(_) => return Ok(true),
         };
         Ok(false)
     }
@@ -498,6 +501,9 @@ impl FlatStorageCreator {
                     );
                 }
                 FlatStorageStatus::Disabled => {}
+                FlatStorageStatus::Resharding(_) => {
+                    todo!("resume resharding of flat storage")
+                }
             }
         }
 
@@ -527,7 +533,8 @@ impl FlatStorageCreator {
                 }
                 FlatStorageStatus::Empty
                 | FlatStorageStatus::Creation(_)
-                | FlatStorageStatus::Disabled => {
+                | FlatStorageStatus::Disabled
+                | FlatStorageStatus::Resharding(_) => {
                     // The flat storage for children shards will be created
                     // separately in the resharding process.
                 }
