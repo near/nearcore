@@ -1,9 +1,9 @@
 use near_primitives::types::BlockChunkValidatorStats;
 use num_bigint::BigUint;
-use num_rational::{BigRational, Ratio, Rational32, Rational64};
+use num_rational::{BigRational, Ratio, Rational64};
 use primitive_types::U256;
 
-use crate::reward_calculator::ValidatorOnlineThresholds;
+use crate::reward_calculator::{MinMaxRatio, ValidatorOnlineThresholds};
 
 /// Computes the overall online (uptime) ratio of the validator.
 /// This is an average of block produced / expected, chunk produced / expected,
@@ -21,8 +21,7 @@ pub(crate) fn get_validator_online_ratio(
     let (produced_endorsements, expected_endorsements) = apply_thresholds(
         endorsement_stats.produced,
         endorsement_stats.expected,
-        thresholds.endorsement.min(),
-        thresholds.endorsement.max(),
+        &thresholds.endorsement,
     );
 
     let (average_produced_numer, average_produced_denom) =
@@ -135,28 +134,22 @@ pub(crate) fn get_sortable_validator_online_ratio_without_endorsements(
 /// Applies the min/max threshold to the produced/expected values to remap them between 0 and 1.
 /// Returns numerator and denominator of the ratio computed as follows:
 /// min(1, (produced/expected - min_threshold) / (max_threshold - min_threshold))
-fn apply_thresholds(
-    produced: u64,
-    expected: u64,
-    min_threshold: Rational32,
-    max_threshold: Rational32,
-) -> (u64, u64) {
+fn apply_thresholds(produced: u64, expected: u64, thresholds: &MinMaxRatio) -> (u64, u64) {
     if expected == 0 {
         return (0, 0);
     }
-    if min_threshold == Ratio::from_integer(0) && max_threshold == Ratio::from_integer(1) {
+    if thresholds.min() == Ratio::from_integer(0) && thresholds.max() == Ratio::from_integer(1) {
         return (produced, expected);
     }
-    let online_min_numer = *min_threshold.numer() as u64;
-    let online_min_denom = *min_threshold.denom() as u64;
-    if produced * online_min_denom < online_min_numer * expected {
+    let min_numer = *thresholds.min().numer() as u64;
+    let min_denom = *thresholds.min().denom() as u64;
+    if produced * min_denom < min_numer * expected {
         return (0, 0);
     }
-    let online_max_numer = *max_threshold.numer() as u64;
-    let online_max_denom = *max_threshold.denom() as u64;
-    let online_numer = online_max_numer * online_min_denom - online_min_numer * online_max_denom;
-    let uptime_numer =
-        (produced * online_min_denom - online_min_numer * expected) * online_max_denom;
+    let max_numer = *thresholds.max().numer() as u64;
+    let max_denom = *thresholds.max().denom() as u64;
+    let online_numer = max_numer * min_denom - min_numer * max_denom;
+    let uptime_numer = (produced * min_denom - min_numer * expected) * max_denom;
     let uptime_denom = online_numer * expected;
     // Apply min between 1. and computed uptime.
     if uptime_numer > uptime_denom {
