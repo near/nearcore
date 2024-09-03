@@ -230,10 +230,6 @@ impl TxTracker {
         Ok((next_height, create_account_height))
     }
 
-    pub(crate) fn has_stop_height(&self) -> bool {
-        self.stop_height.is_some()
-    }
-
     pub(crate) fn finished(&self) -> bool {
         match self.stop_height {
             Some(_) => {

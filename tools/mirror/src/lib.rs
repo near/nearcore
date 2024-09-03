@@ -1590,12 +1590,14 @@ impl<T: ChainAccess> TxMirror<T> {
     // Up to a certain capacity, prepare and queue up batches of
     // transactions that we want to send to the target chain.
     // Returns the number of blocks worth of txs queued at the end.
+    // `have_stop_height` refers to whether we're going to stop sending transactions and exit after a particular height
     async fn queue_txs(
         &mut self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
         ref_hash: CryptoHash,
+        have_stop_height: bool,
     ) -> anyhow::Result<()> {
         let mut num_blocks_queued = {
             let tx_block_queue = tx_block_queue.lock().unwrap();
@@ -1617,7 +1619,7 @@ impl<T: ChainAccess> TxMirror<T> {
             };
             // if we have a stop height, just send the last few blocks without worrying about
             // extra create account txs, otherwise wait until we get more blocks
-            if !tracker.has_stop_height() && create_account_height.is_none() {
+            if !have_stop_height && create_account_height.is_none() {
                 return Ok(());
             }
             let b = self
@@ -1817,6 +1819,7 @@ impl<T: ChainAccess> TxMirror<T> {
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
         mut source_hash: CryptoHash,
+        have_stop_height: bool,
     ) -> anyhow::Result<()> {
         let mut queue_txs_time = tokio::time::interval(Duration::from_millis(100));
 
@@ -1824,7 +1827,7 @@ impl<T: ChainAccess> TxMirror<T> {
             tokio::select! {
                 // time to send a batch of transactions
                 _ = queue_txs_time.tick() => {
-                    self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap()).await?;
+                    self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap(), have_stop_height).await?;
                 }
                 tx_batch = blocks_sent.recv() => {
                     let tx_batch = tx_batch.unwrap();
@@ -2056,6 +2059,7 @@ impl<T: ChainAccess> TxMirror<T> {
             &tx_block_queue,
             &target_view_client,
             *target_head.read().unwrap(),
+            stop_height.is_some(),
         )
         .await?;
 
@@ -2084,7 +2088,7 @@ impl<T: ChainAccess> TxMirror<T> {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, target_client, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
-                source_hash
+                source_hash, stop_height.is_some(),
             ) => {
                 // TODO: cancel other threads
                 res
