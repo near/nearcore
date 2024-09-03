@@ -116,15 +116,18 @@ impl GasCounter {
         }
     }
 
-    /// Simpler version of `deduct_gas()` for when no promises are involved.
+    /// Checks whether the current contract execution is allowed to burn this much new gas.
     ///
-    /// Return an error if there are arithmetic overflows.
-    pub(crate) fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
-        let new_burnt_gas =
-            self.fast_counter.burnt_gas.checked_add(gas_burnt).ok_or(HostError::IntegerOverflow)?;
+    /// If yes, returns the total amount of gas that would have been burnt if this amount of gas
+    /// were burnt.
+    pub(crate) fn can_burn_gas(&mut self, gas_to_be_burnt: Gas) -> Result<Gas> {
+        let new_burnt_gas = self
+            .fast_counter
+            .burnt_gas
+            .checked_add(gas_to_be_burnt)
+            .ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.fast_counter.gas_limit {
-            self.fast_counter.burnt_gas = new_burnt_gas;
-            Ok(())
+            Ok(new_burnt_gas)
         } else {
             // In the past `new_used_gas` would be computed using an implicit wrapping addition,
             // which would then give an opportunity for the `assert` (now `debug_assert`) in the
@@ -136,6 +139,14 @@ impl GasCounter {
             let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
             Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
+    }
+
+    /// Simpler version of `deduct_gas()` for when no promises are involved.
+    ///
+    /// Return an error if there are arithmetic overflows.
+    pub(crate) fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
+        self.fast_counter.burnt_gas = self.can_burn_gas(gas_burnt)?;
+        Ok(())
     }
 
     pub(crate) fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> HostError {

@@ -116,11 +116,14 @@ wasm_storage_write_evicted_byte                   32_117_307
 wasm_storage_read_base                        56_356_845_750, compute:      200_000_000_000
 wasm_storage_read_key_byte                        30_952_533
 wasm_storage_read_value_byte                       5_611_005
+wasm_storage_small_read_base                  56_356_845_750, compute:      159_000_000_000
+wasm_storage_small_read_key_byte                  30_952_533, compute:           10_000_000
+wasm_storage_small_read_value_byte                 5_611_005, compute:            2_500_000
 wasm_storage_remove_base                      53_473_030_500, compute:      200_000_000_000
 wasm_storage_remove_key_byte                      38_220_384
 wasm_storage_remove_ret_value_byte                11_531_556
-wasm_storage_has_key_base                     54_039_896_625, compute:      200_000_000_000
-wasm_storage_has_key_byte                         30_790_845
+wasm_storage_has_key_base                     54_039_896_625, compute:        8_000_000_000
+wasm_storage_has_key_byte                         30_790_845, compute:            9_000_000
 wasm_storage_iter_create_prefix_base                       0
 wasm_storage_iter_create_prefix_byte                       0
 wasm_storage_iter_create_range_base                        0
@@ -129,7 +132,7 @@ wasm_storage_iter_create_to_byte                           0
 wasm_storage_iter_next_base                                0
 wasm_storage_iter_next_key_byte                            0
 wasm_storage_iter_next_value_byte                          0
-wasm_touching_trie_node                       16_101_955_926, compute:      110_000_000_000
+wasm_touching_trie_node                       16_101_955_926, compute:       20_000_000_000
 wasm_read_cached_trie_node                     2_280_000_000
 wasm_promise_and_base                          1_465_013_400
 wasm_promise_and_per_promise                       5_452_176

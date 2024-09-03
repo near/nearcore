@@ -14,6 +14,7 @@ use near_parameters::vm::{Config, StorageGetMode};
 use near_parameters::{
     transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
 };
+use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
@@ -3157,7 +3158,17 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///  cost to read key from register + cost to write value into register`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.result_state.gas_counter.pay_base(base)?;
-        self.result_state.gas_counter.pay_base(storage_read_base)?;
+        // Note: this host function charges the costs only after performing the work. In order to
+        // not be vulnerable to the various issues that could arise from that, this function does
+        // check that there is at least enough gas available for the "small" reads before performing
+        // the reads. And if there is enough gas for small reads but not large reads, the read
+        // should be interrupted before going down to disk, so there would not be undercharging.
+        //
+        // Make sure that we do have enough gas for the "small" reads at least, at the same place
+        // as we originally did. We will charge the actual gas at the end when we know to which
+        // cost type we should charge it.
+        let gas_to_be_burnt = storage_small_read_base.gas(&self.result_state.config.ext_costs);
+        self.result_state.gas_counter.can_burn_gas(gas_to_be_burnt)?;
         let key = get_memory_or_register!(self, key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
@@ -3166,7 +3177,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             }
             .into());
         }
-        self.result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
+        let gas_to_be_burnt = storage_small_read_key_byte
+            .gas(&self.result_state.config.ext_costs)
+            .checked_mul(key.len() as u64)
+            .and_then(|g| g.checked_add(gas_to_be_burnt))
+            .ok_or(HostError::IntegerOverflow)?;
+        self.result_state.gas_counter.can_burn_gas(gas_to_be_burnt)?;
         let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key, self.config.storage_get_mode);
         let nodes_delta = self
@@ -3175,8 +3191,31 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .checked_sub(&nodes_before)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
         self.result_state.gas_counter.add_trie_fees(&nodes_delta)?;
-        let read =
-            Self::deref_value(&mut self.result_state.gas_counter, storage_read_value_byte, read?)?;
+        let read = match read? {
+            Some(read) => {
+                // Here we'll do u32 -> usize -> u64, which is always infallible
+                let read_len = read.len() as usize;
+                if read_len < INLINE_DISK_VALUE_THRESHOLD {
+                    self.result_state.gas_counter.pay_base(storage_small_read_base)?;
+                    self.result_state
+                        .gas_counter
+                        .pay_per(storage_small_read_key_byte, key.len() as u64)?;
+                    self.result_state
+                        .gas_counter
+                        .pay_per(storage_small_read_value_byte, read_len as u64)?;
+                } else {
+                    self.result_state.gas_counter.pay_base(storage_read_base)?;
+                    self.result_state
+                        .gas_counter
+                        .pay_per(storage_read_key_byte, key.len() as u64)?;
+                    self.result_state
+                        .gas_counter
+                        .pay_per(storage_read_value_byte, read_len as u64)?;
+                }
+                Some(read.deref()?)
+            }
+            None => None,
+        };
 
         #[cfg(feature = "io_trace")]
         tracing::trace!(

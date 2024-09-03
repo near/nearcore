@@ -196,21 +196,6 @@ expression: receipts_gas_profile
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
-            cost: "STORAGE_READ_BASE",
-            gas_used: 112713691500,
-        },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "STORAGE_READ_KEY_BYTE",
-            gas_used: 278572797,
-        },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "STORAGE_READ_VALUE_BYTE",
-            gas_used: 28055025,
-        },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
             cost: "STORAGE_REMOVE_BASE",
             gas_used: 106946061000,
         },
@@ -223,6 +208,21 @@ expression: receipts_gas_profile
             cost_category: "WASM_HOST_COST",
             cost: "STORAGE_REMOVE_RET_VALUE_BYTE",
             gas_used: 57657780,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_SMALL_READ_BASE",
+            gas_used: 56356845750,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_SMALL_READ_KEY_BYTE",
+            gas_used: 61905066,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_SMALL_READ_VALUE_BYTE",
+            gas_used: 28055025,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

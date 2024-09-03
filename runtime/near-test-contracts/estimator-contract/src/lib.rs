@@ -1039,64 +1039,58 @@ storage_bench!(key, 10, value, 10240, 1000, storage_write_10b_key_10kib_value_1k
     storage_write(10, key.as_ptr() as _, 10240, value.as_ptr() as _, 0);
 });
 
+// Function to measure `storage_write_base + storage_write_value_byte`.
+// Writes to storage with 100kib value 1000 times.
+storage_bench!(key, 10, value, 102400, 1000, storage_write_10b_key_100kib_value_1k, {
+    storage_write(10, key.as_ptr() as _, 102400, value.as_ptr() as _, 0);
+});
+
+// Function to measure `storage_write_base + storage_write_key_byte`.
+// Writes to storage with 10kib key and 10kib value 1000 times.
+storage_bench!(key, 10240, value, 10240, 1000, storage_write_10kib_key_10kib_value_1k, {
+    storage_write(10240, key.as_ptr() as _, 10240, value.as_ptr() as _, 0);
+});
+
 // Storage reading.
 
 // Function to measure `storage_read_base`.
-// Writes to storage 1k times.
-storage_bench!(key, 10, value, 10, 1000, storage_read_10b_key_10b_value_1k, {
+// Reads from storage 1k times.
+storage_bench!(key, 10, value, 10, 1000, storage_read_10b_key_1k, {
     storage_read(10, key.as_ptr() as _, 0);
 });
 
 // Function to measure `storage_read_base + storage_read_key_byte`.
-// Writes to storage with 10kib key 1000 times.
-storage_bench!(key, 10240, value, 10, 1000, storage_read_10kib_key_10b_value_1k, {
+// Reads from storage with 10kib key 1000 times.
+storage_bench!(key, 10240, value, 10, 1000, storage_read_10kib_key_1k, {
     storage_read(10240, key.as_ptr() as _, 0);
-});
-
-// Function to measure `storage_read_base + storage_read_value_byte`.
-// Writes to storage with 10kib value 1000 times.
-storage_bench!(key, 10, value, 10240, 1000, storage_read_10b_key_10kib_value_1k, {
-    storage_read(10, key.as_ptr() as _, 0);
 });
 
 // Storage removing.
 
 // Function to measure `storage_remove_base`.
 // Writes to storage 1k times.
-storage_bench!(key, 10, value, 10, 1000, storage_remove_10b_key_10b_value_1k, {
+storage_bench!(key, 10, value, 10, 1000, storage_remove_10b_key_1k, {
     storage_remove(10, key.as_ptr() as _, 0);
 });
 
 // Function to measure `storage_remove_base + storage_remove_key_byte`.
 // Writes to storage with 10kib key 1000 times.
-storage_bench!(key, 10240, value, 10, 1000, storage_remove_10kib_key_10b_value_1k, {
+storage_bench!(key, 10240, value, 10, 1000, storage_remove_10kib_key_1k, {
     storage_remove(10240, key.as_ptr() as _, 0);
-});
-
-// Function to measure `storage_remove_base + storage_remove_value_byte`.
-// Writes to storage with 10kib value 1000 times.
-storage_bench!(key, 10, value, 10240, 1000, storage_remove_10b_key_10kib_value_1k, {
-    storage_remove(10, key.as_ptr() as _, 0);
 });
 
 // Storage has key.
 
 // Function to measure `storage_has_key_base`.
-// Writes to storage 1k times.
-storage_bench!(key, 10, value, 10, 1000, storage_has_key_10b_key_10b_value_1k, {
+// Checks from storage 1k times.
+storage_bench!(key, 10, value, 10, 1000, storage_has_key_10b_key_1k, {
     storage_has_key(10, key.as_ptr() as _);
 });
 
 // Function to measure `storage_has_key_base + storage_has_key_key_byte`.
-// Writes to storage with 10kib key 1000 times.
-storage_bench!(key, 10240, value, 10, 1000, storage_has_key_10kib_key_10b_value_1k, {
+// Checks from storage with 10kib key 1000 times.
+storage_bench!(key, 10240, value, 10, 1000, storage_has_key_10kib_key_1k, {
     storage_has_key(10240, key.as_ptr() as _);
-});
-
-// Function to measure `storage_has_key_base + storage_has_key_value_byte`.
-// Writes to storage with 10kib value 1000 times.
-storage_bench!(key, 10, value, 10240, 1000, storage_has_key_10b_key_10kib_value_1k, {
-    storage_has_key(10, key.as_ptr() as _);
 });
 
 // Function to measure `promise_and_base`.

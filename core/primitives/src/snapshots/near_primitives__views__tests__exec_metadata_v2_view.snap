@@ -377,6 +377,21 @@ expression: view
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_SMALL_READ_BASE",
+      "gas_used": "0"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_SMALL_READ_KEY_BYTE",
+      "gas_used": "0"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_SMALL_READ_VALUE_BYTE",
+      "gas_used": "0"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "STORAGE_WRITE_BASE",
       "gas_used": "26"
     },
