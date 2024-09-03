@@ -193,7 +193,7 @@ impl AllEpochConfig {
 
         Self::config_fix_min_stake_ratio(&mut config, protocol_version);
 
-        Self::config_online_thresholds(&mut config, protocol_version);
+        Self::config_chunk_endorsement_thresholds(&mut config, protocol_version);
 
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
@@ -335,10 +335,11 @@ impl AllEpochConfig {
         }
     }
 
-    fn config_online_thresholds(config: &mut EpochConfig, protocol_version: u32) {
+    fn config_chunk_endorsement_thresholds(config: &mut EpochConfig, protocol_version: u32) {
         if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
             config.online_min_endorsement_threshold = Rational32::new(30, 100);
             config.online_max_endorsement_threshold = Rational32::new(70, 100);
+            config.chunk_validator_only_kickout_threshold = 20;
         } else {
             config.online_min_endorsement_threshold = Ratio::from_integer(0);
             config.online_max_endorsement_threshold = Ratio::from_integer(1);
@@ -431,16 +432,16 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 145, "145.json"),
     // Epoch configs for mocknet (forknet) (genesis protool version is 29).
     // TODO(#11900): Check the forknet config and uncomment this.
-    // include_config!("mocknet", 29, "29.json"),
-    // include_config!("mocknet", 48, "48.json"),
-    // include_config!("mocknet", 64, "64.json"),
-    // include_config!("mocknet", 65, "65.json"),
-    // include_config!("mocknet", 69, "69.json"),
-    // include_config!("mocknet", 70, "70.json"),
-    // include_config!("mocknet", 71, "71.json"),
-    // include_config!("mocknet", 100, "100.json"),
-    // include_config!("mocknet", 101, "101.json"),
-    // include_config!("mocknet", 145, "145.json"),
+    include_config!("mocknet", 29, "29.json"),
+    include_config!("mocknet", 48, "48.json"),
+    include_config!("mocknet", 64, "64.json"),
+    include_config!("mocknet", 65, "65.json"),
+    include_config!("mocknet", 69, "69.json"),
+    include_config!("mocknet", 70, "70.json"),
+    include_config!("mocknet", 71, "71.json"),
+    include_config!("mocknet", 100, "100.json"),
+    include_config!("mocknet", 101, "101.json"),
+    include_config!("mocknet", 145, "145.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
@@ -535,10 +536,10 @@ mod tests {
     }
 
     // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // fn test_epoch_config_store_mocknet() {
-    //     test_epoch_config_store("mocknet", 29);
-    // }
+    #[test]
+    fn test_epoch_config_store_mocknet() {
+        test_epoch_config_store("mocknet", 29);
+    }
 
     #[allow(unused)]
     fn generate_epoch_configs(chain_id: &str, genesis_protocol_version: ProtocolVersion) {
@@ -563,23 +564,23 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn generate_epoch_configs_mainnet() {
         generate_epoch_configs("mainnet", 29);
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn generate_epoch_configs_testnet() {
         generate_epoch_configs("testnet", 29);
     }
 
     // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
+    #[test]
     // #[ignore]
-    // fn generate_epoch_configs_mocknet() {
-    //     generate_epoch_configs("mocknet", 29);
-    // }
+    fn generate_epoch_configs_mocknet() {
+        generate_epoch_configs("mocknet", 29);
+    }
 
     #[allow(unused)]
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {
