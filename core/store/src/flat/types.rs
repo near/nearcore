@@ -156,6 +156,7 @@ pub enum FlatStorageCreationStatus {
 pub enum FlatStorageReshardingStatus {
     /// Resharding phase entered when a shard is being split.
     /// Copy key-value pairs from this shard (the parent) to children shards.
+    /// TODO(Trisfald): probably store latest status of splitting operation
     SplittingParent,
     /// Resharding phase entered when a shard is being split.
     /// This shard (child) is being built from state taken from its parent.
