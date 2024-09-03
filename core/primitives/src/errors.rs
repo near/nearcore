@@ -4,7 +4,6 @@ use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ProtocolVersion;
-use near_rpc_error_macro::RpcError;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 
@@ -16,7 +15,6 @@ use std::fmt::{Debug, Display};
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
@@ -153,7 +151,6 @@ impl std::error::Error for StorageError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
@@ -251,7 +248,6 @@ impl std::error::Error for InvalidTxError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
@@ -286,7 +282,6 @@ pub enum InvalidAccessKeyError {
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
@@ -335,7 +330,6 @@ pub enum ActionsValidationError {
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
@@ -481,7 +475,6 @@ impl std::error::Error for ActionsValidationError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
@@ -503,7 +496,6 @@ impl std::error::Error for ActionError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
@@ -713,9 +705,7 @@ impl Display for InvalidAccessKeyError {
 impl std::error::Error for InvalidAccessKeyError {}
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(
-    Debug, Clone, PartialEq, Eq, RpcError, serde::Deserialize, serde::Serialize, ProtocolSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, ProtocolSchema)]
 pub struct BalanceMismatchError {
     // Input balances
     #[serde(with = "dec_format")]
@@ -1034,7 +1024,6 @@ impl From<std::io::Error> for EpochError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
@@ -1076,7 +1065,6 @@ pub enum PrepareError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
@@ -1110,7 +1098,6 @@ pub enum WasmTrap {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
@@ -1194,7 +1181,6 @@ pub enum HostError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
@@ -1213,7 +1199,6 @@ pub enum MethodResolveError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,

@@ -164,25 +164,13 @@ check-lychee:
 check-protocol-schema:
     rustup toolchain install nightly
     rustup target add wasm32-unknown-unknown --toolchain nightly
+
     # Test that checker is not broken
-    env RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check
+    RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check --profile dev-artifacts
     # Run the checker
-    env RUSTFLAGS="--cfg enable_const_type_id" \
+    RUSTFLAGS="--cfg enable_const_type_id" \
         {{ with_macos_incremental }} \
-        cargo +nightly run -p protocol-schema-check
-
-# build target/rpc_errors_schema.json
-build-rpc-errors-schema:
-    rm -f target/rpc_errors_schema.json
-    cargo check -p near-jsonrpc --features dump_errors_schema
-
-# update chain/jsonrpc/res/rpc_errors_schema.json
-update-rpc-errors-schema: build-rpc-errors-schema
-    cp target/rpc_errors_schema.json chain/jsonrpc/res/rpc_errors_schema.json
-
-# check chain/jsonrpc/res/rpc_errors_schema.json
-check-rpc-errors-schema: build-rpc-errors-schema
-    diff target/rpc_errors_schema.json chain/jsonrpc/res/rpc_errors_schema.json
+        cargo +nightly run -p protocol-schema-check --profile dev-artifacts
 
 check_build_public_libraries:
     cargo check {{public_libraries}}

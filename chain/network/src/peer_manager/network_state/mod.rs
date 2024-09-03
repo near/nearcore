@@ -572,18 +572,17 @@ impl NetworkState {
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
-            // For now, we don't allow all types of messages to be sent to self.
+            // For now, we don't allow some types of messages to be sent to self.
             debug_assert!(msg.allow_sending_to_self());
             let this = self.clone();
             let clock = clock.clone();
+            let peer_id = self.config.node_id();
+            let msg = self.sign_message(
+                &clock,
+                RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
+            );
             actix::spawn(async move {
-                this.receive_routed_message(
-                    &clock,
-                    this.config.node_id(),
-                    CryptoHash::default(),
-                    msg,
-                )
-                .await;
+                this.receive_routed_message(&clock, peer_id, msg.hash(), msg.msg.body).await;
             });
             return true;
         }
