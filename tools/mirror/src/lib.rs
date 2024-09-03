@@ -1631,10 +1631,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await
                 .with_context(|| format!("Can't fetch source #{} transactions", next_height))?;
-            {
-                let mut tx_block_queue = tx_block_queue.lock().unwrap();
-                tracker.queue_block(&mut tx_block_queue, b, target_view_client, &self.db).await?;
-            }
+            tracker.queue_block(&tx_block_queue, b, target_view_client, &self.db).await?;
+
             num_blocks_queued += 1;
             if num_blocks_queued > 100 {
                 return Ok(());
@@ -2034,11 +2032,11 @@ impl<T: ChainAccess> TxMirror<T> {
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
                 let mut b = {
-                    let mut tx_block_queue = tx_block_queue.lock().unwrap();
                     tracker
-                        .queue_block(&mut tx_block_queue, block, &target_view_client, &self.db)
+                        .queue_block(&tx_block_queue, block, &target_view_client, &self.db)
                         .await?;
                     (&mut send_time).await;
+                    let mut tx_block_queue = tx_block_queue.lock().unwrap();
                     TxBatch::from(&tx_block_queue.pop_front().unwrap())
                 };
                 Self::send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))

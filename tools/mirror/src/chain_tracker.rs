@@ -412,7 +412,7 @@ impl TxTracker {
 
     pub(crate) async fn queue_block(
         &mut self,
-        tx_block_queue: &mut VecDeque<MappedBlock>,
+        tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         block: MappedBlock,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
@@ -468,7 +468,7 @@ impl TxTracker {
                 };
             }
         }
-        tx_block_queue.push_back(block);
+        tx_block_queue.lock().unwrap().push_back(block);
         Ok(())
     }
 
