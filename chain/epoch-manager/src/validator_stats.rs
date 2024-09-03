@@ -132,7 +132,7 @@ pub(crate) fn get_sortable_validator_online_ratio_without_endorsements(
 }
 
 /// Applies the min/max threshold to the produced/expected values to remap them between 0 and 1.
-/// Returns numerator and denominator of the ratio computed as follows:
+/// 1) Maps the ratio to the span between min and miaxof the ratio to the following:
 /// min(1, (produced/expected - min_threshold) / (max_threshold - min_threshold))
 fn apply_thresholds(produced: u64, expected: u64, thresholds: &MinMaxRatio) -> (u64, u64) {
     if expected == 0 {
@@ -148,13 +148,13 @@ fn apply_thresholds(produced: u64, expected: u64, thresholds: &MinMaxRatio) -> (
     }
     let max_numer = *thresholds.max().numer() as u64;
     let max_denom = *thresholds.max().denom() as u64;
-    let online_numer = max_numer * min_denom - min_numer * max_denom;
     let uptime_numer = (produced * min_denom - min_numer * expected) * max_denom;
-    let uptime_denom = online_numer * expected;
+    let uptime_denom = (max_numer * min_denom - min_numer * max_denom) * expected;
     // Apply min between 1. and computed uptime.
     if uptime_numer > uptime_denom {
         (1, 1)
     } else {
-        (uptime_numer, uptime_denom)
+        // Map the ratio between 0.1 and 0.9.
+        ((uptime_numer + uptime_denom * 9), (uptime_denom * 10))
     }
 }
