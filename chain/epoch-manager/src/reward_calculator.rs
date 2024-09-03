@@ -28,6 +28,9 @@ pub struct ValidatorOnlineThresholds {
 pub struct MinMaxRatio(pub Rational32, pub Rational32);
 
 impl MinMaxRatio {
+    pub fn zero_to_one() -> Self {
+        Self(Rational32::from_integer(0), Rational32::from_integer(1))
+    }
     pub fn min(&self) -> Rational32 {
         self.0
     }
@@ -211,7 +214,7 @@ mod tests {
             HashMap::from([("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]);
         let validator_online_thresholds = ValidatorOnlineThresholds {
             production: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
-            endorsement: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
+            endorsement: MinMaxRatio::zero_to_one(),
         };
         let total_supply = 1_000_000_000_000;
         let result = reward_calculator.calculate_reward(
@@ -275,7 +278,7 @@ mod tests {
         ]);
         let validator_online_thresholds = ValidatorOnlineThresholds {
             production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
-            endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+            endorsement: MinMaxRatio::zero_to_one(),
         };
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
@@ -355,7 +358,7 @@ mod tests {
         ]);
         let validator_online_thresholds = ValidatorOnlineThresholds {
             production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
-            endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+            endorsement: MinMaxRatio::zero_to_one(),
         };
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
@@ -444,7 +447,7 @@ mod tests {
         ]);
         let validator_online_thresholds = ValidatorOnlineThresholds {
             production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
-            endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+            endorsement: MinMaxRatio::zero_to_one(),
         };
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
@@ -499,7 +502,7 @@ mod tests {
         )]);
         let validator_online_thresholds = ValidatorOnlineThresholds {
             production: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
-            endorsement: MinMaxRatio(Ratio::new(9, 10), Ratio::new(1, 1)),
+            endorsement: MinMaxRatio::zero_to_one(),
         };
         let validator_stake = HashMap::from([("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]);
         // some hypothetical large total supply (100b)

@@ -709,7 +709,7 @@ fn test_validator_reward_one_validator() {
     validator_stakes.insert("test2".parse().unwrap(), stake_amount);
     let validator_online_thresholds = ValidatorOnlineThresholds {
         production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
-        endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        endorsement: MinMaxRatio::zero_to_one(),
     };
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
@@ -795,7 +795,7 @@ fn test_validator_reward_weight_by_stake() {
     validators_stakes.insert("test2".parse().unwrap(), stake_amount2);
     let validator_online_thresholds = ValidatorOnlineThresholds {
         production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
-        endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        endorsement: MinMaxRatio::zero_to_one(),
     };
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
@@ -913,7 +913,7 @@ fn test_reward_multiple_shards() {
     validators_stakes.insert("test2".parse().unwrap(), stake_amount);
     let validator_online_thresholds = ValidatorOnlineThresholds {
         production: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
-        endorsement: MinMaxRatio(Ratio::new(90, 100), Ratio::new(99, 100)),
+        endorsement: MinMaxRatio::zero_to_one(),
     };
     let (validator_reward, inflation) = reward_calculator.calculate_reward(
         validator_online_ratio,
