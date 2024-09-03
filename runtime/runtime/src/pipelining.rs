@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::ext::RuntimeContractExt;
 use crate::metrics::{
     PIPELINING_ACTIONS_FOUND_PREPARED, PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME,
