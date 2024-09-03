@@ -16,7 +16,9 @@ use actix::{Actor, Addr, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
-use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{
+    noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
+};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -955,13 +957,29 @@ pub fn setup_no_network_with_validity_period(
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
+    let my_account_id = account_id.clone();
     setup_mock_with_validity_period(
         clock,
         validators,
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        Box::new(|_, _, _| {
+        Box::new(move |request, _, client| {
+            // Handle network layer sending messages to self
+            match request {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
+                    account_id,
+                    endorsement,
+                )) => {
+                    if account_id == &my_account_id {
+                        let future = client.send_async(
+                            ChunkEndorsementMessage(endorsement.clone()).with_span_context(),
+                        );
+                        drop(future);
+                    }
+                }
+                _ => {}
+            };
             PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
         }),
         transaction_validity_period,

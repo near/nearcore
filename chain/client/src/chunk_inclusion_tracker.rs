@@ -110,7 +110,7 @@ impl ChunkInclusionTracker {
     pub fn prepare_chunk_headers_ready_for_inclusion(
         &mut self,
         prev_block_hash: &CryptoHash,
-        endorsement_tracker: &ChunkEndorsementTracker,
+        endorsement_tracker: &mut ChunkEndorsementTracker,
     ) -> Result<(), Error> {
         let Some(entry) = self.prev_block_to_chunk_hash_ready.get(prev_block_hash) else {
             return Ok(());
