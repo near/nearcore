@@ -365,6 +365,7 @@ impl ReplayController {
             self.epoch_manager.as_ref(),
             update_reason,
             shard_context,
+            near_primitives::apply::ApplyChunkReason::UpdateTrackedShard
         )?;
 
         let output = match shard_update_result {

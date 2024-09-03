@@ -5420,6 +5420,7 @@ dependencies = [
  "testlib",
  "thiserror",
  "tracing",
+ "zstd",
 ]
 
 [[package]]

@@ -333,8 +333,8 @@ pub static CHUNK_RECORDED_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size",
         "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
-        &["shard_id"],
-        Some(buckets_for_chunk_storage_proof_size()),
+        &["shard_id", "apply_reason"],
+        Some(buckets_for_witness_field_size()),
     )
     .unwrap()
 });
@@ -342,8 +342,8 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: LazyLock<HistogramVec> = LazyLock::n
     try_create_histogram_vec(
         "near_chunk_recorded_size_upper_bound",
         "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
-        &["shard_id"],
-        Some(buckets_for_chunk_storage_proof_size()),
+        &["shard_id", "apply_reason"],
+        Some(buckets_for_witness_field_size()),
     )
     .unwrap()
 });
@@ -437,7 +437,7 @@ pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: LazyLock<IntCounterVec> = LazyLock:
     try_create_int_counter_vec(
         "near_chunk_receipts_limited_by",
         "Number of chunks where the number of processed receipts was limited by a certain factor.",
-        &["shard_id", "limited_by"],
+        &["shard_id", "apply_reason", "limited_by"],
     )
     .unwrap()
 });
@@ -760,4 +760,30 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
     CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
         .with_label_values(&[shard_id_str.as_str(), "values"])
         .observe(total_size.values_size as f64);
+}
+
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSED_STORAGE_PROOF_SIZE: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_chunk_state_witness_compressed_storage_proof_size",
+            "compressed storage proof size",
+            &["shard_id", "apply_reason"],
+            Some(buckets_for_witness_field_size()),
+        )
+            .unwrap()
+    });
+
+pub(crate) static CHUNK_STATE_WITNESS_STORAGE_PROOF_SIZE: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_chunk_state_witness_storage_proof_size",
+            "compressed storage proof size",
+            &["shard_id", "apply_reason"],
+            Some(buckets_for_witness_field_size()),
+        )
+            .unwrap()
+    });
+
+fn buckets_for_witness_field_size() -> Vec<f64> {
+    linear_buckets(100_000., 50_000., 200).unwrap()
 }

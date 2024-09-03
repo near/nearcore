@@ -11,6 +11,7 @@ pub enum ApplyChunkReason {
     UpdateTrackedShard,
     /// Apply-chunk is invoked to validate the state witness for a shard in the context of stateless validation.
     ValidateChunkStateWitness,
+    Experiment,
 }
 
 impl ApplyChunkReason {
@@ -19,6 +20,7 @@ impl ApplyChunkReason {
         match self {
             ApplyChunkReason::UpdateTrackedShard => "update_shard",
             ApplyChunkReason::ValidateChunkStateWitness => "validate_chunk",
+            ApplyChunkReason::Experiment => "experiment",
         }
     }
 }

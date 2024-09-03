@@ -1808,12 +1808,17 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let protocol_version = processing_state.protocol_version;
         let apply_state = &processing_state.apply_state;
+        let apply_reason = apply_state.apply_reason.clone();
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+            if matches!(apply_reason, Some(ApplyChunkReason::Experiment)) {
+                Some(4_000_000)
+            } else {
+                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+            }
         } else {
             None
         };
@@ -1854,19 +1859,24 @@ impl Runtime {
         )?;
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        let apply_reason = apply_reason.map_or("unknown".to_owned(), |reason| reason.to_string());
         if processing_state.total.compute >= compute_limit {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
-                .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
+                .with_label_values(&[shard_id_str.as_str(), &apply_reason, "compute_limit"])
                 .inc();
         } else if proof_size_limit.is_some_and(|limit| {
             processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
         }) {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
-                .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
+                .with_label_values(&[
+                    shard_id_str.as_str(),
+                    &apply_reason,
+                    "storage_proof_size_limit",
+                ])
                 .inc();
         } else {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
-                .with_label_values(&[shard_id_str.as_str(), "unlimited"])
+                .with_label_values(&[shard_id_str.as_str(), &apply_reason, "unlimited"])
                 .inc();
         }
 
@@ -1931,13 +1941,33 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+
+        let apply_reason_label = apply_state.apply_reason.as_ref().unwrap().to_string();
+        let shard_id_str = apply_state.shard_id.to_string();
+
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
-        let shard_id_str = apply_state.shard_id.to_string();
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
-            .with_label_values(&[shard_id_str.as_str()])
+            .with_label_values(&[shard_id_str.as_str(), &apply_reason_label])
             .observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
+
+        if let Some(partial_storage) = trie.recorded_storage() {
+            let bytes = borsh::to_vec(&partial_storage.nodes).unwrap();
+            metrics::CHUNK_STATE_WITNESS_STORAGE_PROOF_SIZE
+                .with_label_values(&[
+                    &shard_id_str,
+                    &apply_reason_label,
+                ])
+                .observe(bytes.len() as f64);
+            let compressed = zstd::encode_all(bytes.as_slice(), 3).unwrap();
+            metrics::CHUNK_STATE_WITNESS_COMPRESSED_STORAGE_PROOF_SIZE
+                .with_label_values(&[
+                    &shard_id_str,
+                    &apply_reason_label,
+                ])
+                .observe(compressed.len() as f64);
+        }
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -1969,7 +1999,7 @@ impl Runtime {
         let state_root = trie_changes.new_root;
         let chunk_recorded_size = trie.recorded_storage_size() as f64;
         metrics::CHUNK_RECORDED_SIZE
-            .with_label_values(&[shard_id_str.as_str()])
+            .with_label_values(&[shard_id_str.as_str(), &apply_reason_label])
             .observe(chunk_recorded_size);
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .with_label_values(&[shard_id_str.as_str()])

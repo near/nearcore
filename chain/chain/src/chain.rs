@@ -3542,7 +3542,8 @@ impl Chain {
         }
         let Some(account_id) = me.as_ref() else { return Ok(false) };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
-            || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
+            || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?
+            || true)
     }
 
     /// Creates jobs which will update shards for the given block and incoming
@@ -3789,15 +3790,25 @@ impl Chain {
 
         let runtime = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
+
         Ok(Some((
             shard_id,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
+                let _ = process_shard_update(
+                    parent_span,
+                    runtime.as_ref(),
+                    epoch_manager.as_ref(),
+                    shard_update_reason.clone(),
+                    shard_context.clone(),
+                    near_primitives::apply::ApplyChunkReason::Experiment,
+                );
                 Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
+                    near_primitives::apply::ApplyChunkReason::UpdateTrackedShard,
                 )?)
             }),
         )))
