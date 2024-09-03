@@ -202,20 +202,20 @@ impl TxTracker {
     }
 
     pub(crate) async fn next_heights<T: ChainAccess>(
-        &mut self,
+        me: &Mutex<Self>,
         source_chain: &T,
     ) -> anyhow::Result<(Option<BlockHeight>, Option<BlockHeight>)> {
-        while self.next_heights.len() <= crate::CREATE_ACCOUNT_DELTA {
+        let (mut next_heights, height_queued) = {
+            let t = me.lock().unwrap();
+            (t.next_heights.clone(), t.height_queued)
+        };
+        while next_heights.len() <= crate::CREATE_ACCOUNT_DELTA {
             // we unwrap() the height_queued because Self::new() should have been called with
             // nonempty next_heights.
-            let h = self
-                .next_heights
-                .iter()
-                .next_back()
-                .cloned()
-                .unwrap_or_else(|| self.height_queued.unwrap());
+            let h =
+                next_heights.iter().next_back().cloned().unwrap_or_else(|| height_queued.unwrap());
             match source_chain.get_next_block_height(h).await {
-                Ok(h) => self.next_heights.push_back(h),
+                Ok(h) => next_heights.push_back(h),
                 Err(ChainError::Unknown) => break,
                 Err(ChainError::Other(e)) => {
                     return Err(e)
@@ -223,8 +223,10 @@ impl TxTracker {
                 }
             };
         }
-        let next_height = self.next_heights.get(0).cloned();
-        let create_account_height = self.next_heights.get(crate::CREATE_ACCOUNT_DELTA).cloned();
+        let mut t = me.lock().unwrap();
+        t.next_heights = next_heights;
+        let next_height = t.next_heights.get(0).cloned();
+        let create_account_height = t.next_heights.get(crate::CREATE_ACCOUNT_DELTA).cloned();
         Ok((next_height, create_account_height))
     }
 

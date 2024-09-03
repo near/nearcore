@@ -1606,11 +1606,11 @@ impl<T: ChainAccess> TxMirror<T> {
         }
 
         loop {
-            let mut tracker = tracker.lock().unwrap();
-
             let (next_height, create_account_height) =
-                tracker.next_heights(&self.source_chain_access).await?;
+                crate::chain_tracker::TxTracker::next_heights(&tracker, &self.source_chain_access)
+                    .await?;
 
+            let mut tracker = tracker.lock().unwrap();
             let next_height = match next_height {
                 Some(h) => h,
                 None => return Ok(()),
