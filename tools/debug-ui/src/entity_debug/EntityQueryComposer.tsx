@@ -11,10 +11,11 @@ import { KeyInput } from './KeyInput';
 import { AllQueriesContext } from './all_queries';
 import { FetcherContext } from './fetcher';
 import './EntityQueryComposer.scss';
-import { PinnedKeysContext } from './pinned_keys';
+import { ColdStorageChoiceContext, PinnedKeysContext } from './pinned_keys';
 
 export const EntityQueryComposer = () => {
     const { keys: pinnedKeys } = useContext(PinnedKeysContext);
+    const { coldStorage } = useContext(ColdStorageChoiceContext);
     const [query, queryDispatch] = useReducer(composingQueryReducer, {
         queryType: entityQueryTypes[0],
         keys: pinnedKeys,
@@ -44,10 +45,14 @@ export const EntityQueryComposer = () => {
             allQueriesDispatch({
                 type: 'add-query',
                 query: constructedQuery,
-                node: new EntityDataRootNode(constructedQuery, fetcher.fetch(constructedQuery)),
+                node: new EntityDataRootNode(
+                    constructedQuery,
+                    coldStorage,
+                    fetcher.fetch(constructedQuery, coldStorage)
+                ),
             });
         }
-    }, [constructedQuery, fetcher, allQueriesDispatch]);
+    }, [constructedQuery, fetcher, allQueriesDispatch, coldStorage]);
 
     const selectionList = (
         <div className="query-type-list">

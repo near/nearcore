@@ -12,7 +12,7 @@ import {
     entityQueryOutputType,
     entityQueryTypes,
 } from './types';
-import { PinnedKeysContext } from './pinned_keys';
+import { ColdStorageChoiceContext, PinnedKeysContext } from './pinned_keys';
 import { EntityDataRootView } from './EntityDataRootView';
 import './EntityDataValueView.scss';
 
@@ -27,16 +27,19 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
     const [hovering, setHovering] = useState(false);
     const [, setChildrenVersion] = useState(0);
     const { keys: pinnedKeys, dispatch: pinnedKeysDispatch } = useContext(PinnedKeysContext);
+    const { coldStorage } = useContext(ColdStorageChoiceContext);
 
     const addQuery = useCallback(
         (query: EntityQuery) => {
             if (fetcher == null) {
                 return;
             }
-            entry.queriedChildren.push(new EntityDataRootNode(query, fetcher.fetch(query)));
+            entry.queriedChildren.push(
+                new EntityDataRootNode(query, coldStorage, fetcher.fetch(query, coldStorage))
+            );
             setChildrenVersion((v) => v + 1);
         },
-        [fetcher, entry]
+        [fetcher, entry, coldStorage]
     );
 
     const onMouseEnter = useCallback(() => setHovering(true), []);
@@ -103,9 +106,9 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
                             onClick={(e) =>
                                 e.currentTarget.classList.contains('selected')
                                     ? pinnedKeysDispatch({
-                                          type: 'remove-key',
-                                          keyType: key.type(),
-                                      })
+                                        type: 'remove-key',
+                                        keyType: key.type(),
+                                    })
                                     : pinnedKeysDispatch({ type: 'add-key', key })
                             }>
                             {selected ? '☑' : '☐'} {key.type()}
