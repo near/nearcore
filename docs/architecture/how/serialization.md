@@ -14,18 +14,19 @@ ProtocolSchema trait:
 // First, the schema checksums (hashes) are calculated at compile time and
 // require `TypeId` for cross-navigation. However, it is a nightly feature,
 // so we enable it manually by putting this in lib.rs:
-// #![cfg_attr(enable_const_type_id, feature(const_type_id))]
-//
+
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 // Then, import schema calculation functionality by putting in Cargo.toml:
 // near-schema-checker-lib.workspace = true
-// [features]
-// protocol_schema = [
-//   "near-schema-checker-lib/protocol_schema",
-//   ...the same feature in all dependent crates...
-// ]
-// 
-// Lastly, mark your crate in `tools/protocol-schema-check/Cargo.toml`
-// as dependency with `protocol_schema` feature enabled
+
+[features]
+protocol_schema = [
+  "near-schema-checker-lib/protocol_schema",
+  ...the same feature in all dependent crates...
+]
+ 
+// Then, mark your struct with `#[derive(ProtocolSchema)]`:
 
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -34,6 +35,10 @@ pub struct BlockHeader {
   pub hash: CryptoHash,
   pub height: BlockHeight,
 }
+
+// Lastly, mark your crate in `tools/protocol-schema-check/Cargo.toml`
+// as dependency with `protocol_schema` feature enabled.
+
 ```
 
 This is done to protect structures from accidental changes that could corrupt the 

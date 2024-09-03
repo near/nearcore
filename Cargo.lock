@@ -2618,16 +2618,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs2"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "fs_extra"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4417,7 +4407,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-primitives",
- "near-rpc-error-macro",
  "serde",
  "serde_json",
  "serde_with",
@@ -4474,7 +4463,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-primitives",
- "near-rpc-error-macro",
+ "near-schema-checker-lib",
  "serde",
  "serde_json",
  "thiserror",
@@ -4748,7 +4737,6 @@ dependencies = [
  "near-parameters",
  "near-primitives",
  "near-primitives-core",
- "near-rpc-error-macro",
  "near-schema-checker-lib",
  "near-stdx",
  "near-time",
@@ -4845,27 +4833,6 @@ dependencies = [
  "strum",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "near-rpc-error-core"
-version = "0.0.0"
-dependencies = [
- "quote",
- "serde",
- "serde_json",
- "syn 2.0.70",
-]
-
-[[package]]
-name = "near-rpc-error-macro"
-version = "0.0.0"
-dependencies = [
- "fs2",
- "near-rpc-error-core",
- "serde",
- "serde_json",
- "syn 2.0.70",
 ]
 
 [[package]]
@@ -6353,6 +6320,7 @@ dependencies = [
  "near-chain",
  "near-crypto",
  "near-epoch-manager",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-parameters",
  "near-primitives",
