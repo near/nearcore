@@ -1643,12 +1643,22 @@ impl Chain {
         let header = self.get_block_header(&sync_hash)?;
         let hash = *header.prev_hash();
         let prev_block = self.get_block(&hash)?;
-        let mut new_tail = prev_block.header().height() - 2;
-        if let Some(min_height_included) =
-            prev_block.chunks().iter().map(|chunk| chunk.height_included()).min()
-        {
-            new_tail = std::cmp::min(new_tail, min_height_included - 1)
-        }
+
+        // The congestion control added a dependency on the prev block when
+        // applying chunks in a block. This means that we need to keep the
+        // blocks at sync hash, prev hash and prev prev hash. The heigh of that
+        // block is sync_height - 2.
+        let mut new_tail = prev_block.header().height().saturating_sub(1);
+
+        // In case there are missing chunks we need to keep more than just the
+        // sync hash block. The logic below adjusts the gc_height so that every
+        // shard is guaranteed to have at least one new chunk in the blocks
+        // leading to the sync hash block.
+        let min_height_included =
+            prev_block.chunks().iter().map(|chunk| chunk.height_included()).min().unwrap();
+
+        tracing::debug!(target: "sync", ?min_height_included, ?new_tail, "adjusting tail for missing chunks");
+        new_tail = std::cmp::min(new_tail, min_height_included - 1);
         let new_chunk_tail = prev_block.chunks().iter().map(|x| x.height_created()).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
