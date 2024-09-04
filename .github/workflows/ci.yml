@@ -483,3 +483,13 @@ jobs:
         with:
           tool: just
       - run: just check_build_public_libraries
+
+  check_published_crates_in_isolation:
+    name: "Ensure published crates can be built in isolation"
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+        with:
+          tool: just,cargo-workspaces
+      - run: just check_published_crates_in_isolation
