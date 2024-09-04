@@ -1639,6 +1639,28 @@ impl Client {
             if let Err(err) = self.send_network_chain_info() {
                 error!(target: "client", ?err, "Failed to update network chain info");
             }
+
+            // If the next block is the first of the next epoch and the shard
+            // layout is changing we need to reshard the transaction pool.
+            // TODO make sure transactions don't get added for the old shard
+            // layout after the pool resharding
+            // TODO check if this logic works in resharding V3
+            if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
+                let new_shard_layout =
+                    self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
+                let old_shard_layout =
+                    self.epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash());
+                match (old_shard_layout, new_shard_layout) {
+                    (Ok(old_shard_layout), Ok(new_shard_layout)) => {
+                        if old_shard_layout != new_shard_layout {
+                            self.sharded_tx_pool.reshard(&old_shard_layout, &new_shard_layout);
+                        }
+                    }
+                    (old_shard_layout, new_shard_layout) => {
+                        tracing::warn!(target: "client", ?old_shard_layout, ?new_shard_layout, "failed to check if shard layout is changing");
+                    }
+                }
+            }
         }
 
         if let Some(signer) = signer.clone() {
