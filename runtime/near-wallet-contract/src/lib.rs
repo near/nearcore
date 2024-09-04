@@ -27,21 +27,25 @@ static LOCALNET: WalletContract =
 
 /// Get wallet contract code for different Near chains.
 pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
-    let mainnet_magic_bytes = MAINNET.magic_bytes();
-    if &code_hash == mainnet_magic_bytes.hash() {
-        return Some(MAINNET.read_contract());
+    fn check(code_hash: &CryptoHash, contract: &WalletContract) -> Option<Arc<ContractCode>> {
+        let magic_bytes = contract.magic_bytes();
+        if code_hash == magic_bytes.hash() {
+            Some(contract.read_contract())
+        } else {
+            None
+        }
     }
-    let testnet_magic_bytes = TESTNET.magic_bytes();
-    if &code_hash == testnet_magic_bytes.hash() {
-        return Some(TESTNET.read_contract());
+    if let Some(c) = check(&code_hash, &MAINNET) {
+        return Some(c);
     }
-    let old_testnet_magic_bytes = OLD_TESTNET.magic_bytes();
-    if &code_hash == old_testnet_magic_bytes.hash() {
-        return Some(OLD_TESTNET.read_contract());
+    if let Some(c) = check(&code_hash, &TESTNET) {
+        return Some(c);
     }
-    let localnet_magic_bytes = LOCALNET.magic_bytes();
-    if &code_hash == localnet_magic_bytes.hash() {
-        return Some(LOCALNET.read_contract());
+    if let Some(c) = check(&code_hash, &OLD_TESTNET) {
+        return Some(c);
+    }
+    if let Some(c) = check(&code_hash, &LOCALNET) {
+        return Some(c);
     }
     return None;
 }
