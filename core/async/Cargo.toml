@@ -26,7 +26,7 @@ near-async-derive.workspace = true
 # TODO(#11652): we use it only for logging. i think, it's a bit too much...
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
-near-time = { workspace = true, features = ["clock"] }
+near-time = { workspace = true, features = [] }
 
 [dev-dependencies]
 derive-enum-from-into.workspace = true
