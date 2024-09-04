@@ -602,7 +602,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
@@ -622,7 +622,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract(&chain_id, current_protocol_version),
+                    &wallet_contract(&chain_id),
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
                 )
