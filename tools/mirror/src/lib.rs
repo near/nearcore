@@ -1833,7 +1833,8 @@ impl<T: ChainAccess> TxMirror<T> {
             tokio::select! {
                 // time to send a batch of transactions
                 _ = queue_txs_time.tick() => {
-                    self.queue_txs(&tracker, &tx_block_queue, &target_view_client, *target_head.read().unwrap(), have_stop_height).await?;
+                    let target_head = *target_head.read().unwrap();
+                    self.queue_txs(&tracker, &tx_block_queue, &target_view_client, target_head, have_stop_height).await?;
                 }
                 tx_batch = blocks_sent.recv() => {
                     let tx_batch = tx_batch.unwrap();
@@ -1859,10 +1860,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 msg = accounts_to_unstake.recv() => {
                     let staked_accounts = msg.unwrap();
+                    let target_head = *target_head.read().unwrap();
+                    let target_height = *target_height.read().unwrap();
                     self.unstake(
                         &tracker, &tx_block_queue, &target_client,
                         &target_view_client, staked_accounts, &source_hash,
-                        &target_head.read().unwrap(), *target_height.read().unwrap()
+                        &target_head, target_height
                     ).await?;
                 }
             };
@@ -2016,6 +2019,7 @@ impl<T: ChainAccess> TxMirror<T> {
             .tx_batch_interval
             .unwrap_or(self.target_min_block_production_delay + Duration::from_millis(100));
 
+        let initial_target_head = *target_head.read().unwrap();
         if last_stored_height.is_none() {
             // send any extra function call-initiated create accounts for the first few blocks right now
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
@@ -2025,10 +2029,11 @@ impl<T: ChainAccess> TxMirror<T> {
                 source_height: last_height,
                 chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
             };
+
             for h in next_heights {
                 self.add_create_account_txs(
                     h,
-                    *target_head.read().unwrap(),
+                    initial_target_head,
                     &tracker,
                     &tx_block_queue,
                     &target_view_client,
@@ -2066,7 +2071,7 @@ impl<T: ChainAccess> TxMirror<T> {
             &tracker,
             &tx_block_queue,
             &target_view_client,
-            *target_head.read().unwrap(),
+            initial_target_head,
             stop_height.is_some(),
         )
         .await?;
