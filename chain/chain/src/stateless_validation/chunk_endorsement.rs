@@ -119,9 +119,8 @@ pub fn validate_chunk_endorsements_in_block(
             // Bitmap's length must be equal to the min bytes needed to encode one bit per validator assignment.
             if endorsements_bitmap.len(shard_id).unwrap() == signatures.len().div_ceil(8) * 8 {
                 return Err(Error::InvalidChunkEndorsementBitmap(format!(
-                    "Bitmap's length for shard {} is inconsistent with the number of signatures {}",
-                    shard_id,
-                    endorsements_bitmap.len(shard_id).unwrap() < signatures.len()
+                    "Bitmap's length {} is inconsistent with the number of signatures {} for shard {} ",
+                    endorsements_bitmap.len(shard_id).unwrap(), signatures.len(), shard_id,
                 )));
             }
             for (bit, signature) in endorsements_bitmap.iter(shard_id).zip(signatures.iter()) {
@@ -159,13 +158,13 @@ pub fn validate_chunk_endorsements_in_header(
         let num_validator_assignments = epoch_manager
             .get_chunk_validator_assignments(&epoch_id, shard_id, header.height())?
             .len();
-        // 1. Bitmap's length must be equal to the min bytes needed to encode one bit per validator assignment.
+        // Bitmap's length must be equal to the min bytes needed to encode one bit per validator assignment.
         if chunk_endorsements.len(shard_id).unwrap() == num_validator_assignments.div_ceil(8) * 8 {
             return Err(Error::InvalidChunkEndorsementBitmap(
-                format!("Bitmap's length for shard {} is inconsistent with the number of validator assignments {}",
-                    shard_id, chunk_endorsements.len(shard_id).unwrap() < num_validator_assignments )));
+                format!("Bitmap's length {} is inconsistent with the number of validator assignments {} for shard {} ",
+                    chunk_endorsements.len(shard_id).unwrap(), num_validator_assignments, shard_id)));
         }
-        // 2. All extra positions after the assignments must be left as false.
+        // All extra positions after the assignments must be left as false.
         for value in chunk_endorsements.iter(shard_id).skip(num_validator_assignments) {
             if !value {
                 return Err(Error::InvalidChunkEndorsementBitmap(
