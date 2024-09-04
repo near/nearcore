@@ -174,3 +174,15 @@ check-protocol-schema:
 
 check_build_public_libraries:
     cargo check {{public_libraries}}
+
+# Ensures all published crates can be built in isolation.
+# Generally CI tests combinations of crates, which may miss a scenario where a crate cannot be
+# built in isolation. For example because a crucial feature is enabled only accidentally by
+# another crate included in the build process.
+#
+# By default `cargo workspaces list` ignores private crates.
+check_published_crates_in_isolation:
+    for crate in `cargo workspaces list`; do \
+        echo checking $crate; \
+        cargo check -p $crate; \
+    done
