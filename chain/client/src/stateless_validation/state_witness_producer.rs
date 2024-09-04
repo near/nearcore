@@ -69,7 +69,6 @@ impl Client {
                 self.epoch_manager.as_ref(),
                 my_signer.as_ref(),
                 &self.network_adapter.clone().into_sender(),
-                self.chunk_endorsement_tracker.as_ref(),
             );
         }
 

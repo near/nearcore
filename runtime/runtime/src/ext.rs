@@ -14,7 +14,7 @@ use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
-use near_wallet_contract::{code_hash_matches_wallet_contract, wallet_contract};
+use near_wallet_contract::wallet_contract;
 use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
@@ -365,7 +365,6 @@ pub(crate) struct RuntimeContractExt<'a> {
     pub(crate) trie_update: &'a TrieUpdate,
     pub(crate) account_id: &'a AccountId,
     pub(crate) account: &'a Account,
-    pub(crate) chain_id: &'a str,
     pub(crate) current_protocol_version: ProtocolVersion,
 }
 
@@ -378,13 +377,20 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         let account_id = self.account_id;
         let code_hash = self.hash();
         let version = self.current_protocol_version;
-        let chain_id = self.chain_id;
+
         if checked_feature!("stable", EthImplicitAccounts, version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
-            && code_hash_matches_wallet_contract(chain_id, &code_hash, version)
         {
-            return Some(wallet_contract(&chain_id, version));
+            // Accounts that look like eth implicit accounts and have existed prior to the
+            // eth-implicit accounts protocol change (these accounts are discussed in the
+            // description of #11606) may have something else deployed to them. Only return
+            // something here if the accounts have a wallet contract hash. Otherwise use the
+            // regular path to grab the deployed contract.
+            if let Some(wc) = wallet_contract(code_hash) {
+                return Some(wc);
+            }
         }
+
         let mode = match checked_feature!("stable", ChunkNodesCache, version) {
             true => Some(TrieCacheMode::CachingShard),
             false => None,
