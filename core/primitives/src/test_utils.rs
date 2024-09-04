@@ -353,6 +353,7 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
+    // TODO(#11900): Return BlockHeaderV5 when ChunkEndorsementsInBlockHeader is stabilized.
     pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
             BlockHeader::BlockHeaderV1(_)
@@ -361,6 +362,9 @@ impl BlockHeader {
                 panic!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV5(_) => {
+                panic!("new header should not appear in tests until ChunkEndorsementsInBlockHeader is stabilized")
+            }
         }
     }
 
@@ -379,6 +383,10 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -408,6 +416,11 @@ impl BlockHeader {
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
