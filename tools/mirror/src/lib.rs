@@ -1677,14 +1677,12 @@ impl<T: ChainAccess> TxMirror<T> {
         }
         if !txs.is_empty() {
             Self::send_transactions(target_client, txs.iter_mut()).await?;
-            tracker
-                .on_txs_sent(
-                    tx_block_queue,
-                    &self.db,
-                    crate::chain_tracker::SentBatch::ExtraTxs(txs),
-                    target_height,
-                )
-                .await?;
+            tracker.on_txs_sent(
+                tx_block_queue,
+                &self.db,
+                crate::chain_tracker::SentBatch::ExtraTxs(txs),
+                target_height,
+            )?;
         }
         Ok(())
     }
@@ -1848,7 +1846,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         &self.db,
                         crate::chain_tracker::SentBatch::MappedBlock(tx_batch),
                         target_height,
-                    ).await?;
+                    )?;
                     *send_delay.lock().unwrap() = new_delay;
                 }
                 msg = accounts_to_unstake.recv() => {
@@ -2044,14 +2042,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 };
                 Self::send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
                     .await?;
-                send_delay = tracker
-                    .on_txs_sent(
-                        &tx_block_queue,
-                        &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(b),
-                        *target_height.read().unwrap(),
-                    )
-                    .await?;
+                send_delay = tracker.on_txs_sent(
+                    &tx_block_queue,
+                    &self.db,
+                    crate::chain_tracker::SentBatch::MappedBlock(b),
+                    *target_height.read().unwrap(),
+                )?;
             }
         }
         self.queue_txs(

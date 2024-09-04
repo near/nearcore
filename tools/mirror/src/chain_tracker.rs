@@ -834,7 +834,7 @@ impl TxTracker {
         Ok(TargetBlockInfo { staked_accounts, access_key_updates })
     }
 
-    async fn on_tx_sent(
+    fn on_tx_sent(
         &mut self,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
@@ -1070,7 +1070,7 @@ impl TxTracker {
 
     // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
     // Returns the new amount that we should wait before sending transactions
-    pub(crate) async fn on_txs_sent(
+    pub(crate) fn on_txs_sent(
         &mut self,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         db: &DB,
@@ -1120,8 +1120,7 @@ impl TxTracker {
                             target_height,
                             now,
                             &mut access_keys_to_remove,
-                        )
-                        .await?;
+                        )?;
                         total_sent += 1;
                     } else {
                         self.on_tx_skipped(
