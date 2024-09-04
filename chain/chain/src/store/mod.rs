@@ -2933,7 +2933,7 @@ mod tests {
         let signer = Arc::new(create_test_signer("test1"));
         let block1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         let mut block2 = block1.clone();
-        block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
+        block2.mut_header().set_epoch_id(EpochId(hash(&[1, 2, 3])));
         block2.mut_header().resign(&*signer);
 
         let mut store_update = chain.mut_chain_store().store_update();

@@ -12,13 +12,14 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransactionV0, TransactionV1, TransferAction,
 };
+use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
-use near_crypto::{EmptySigner, PublicKey, SecretKey, Signer};
-use near_primitives_core::types::{ProtocolVersion, ShardId};
+use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -353,43 +354,13 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    // TODO(#11900): Return BlockHeaderV5 when ChunkEndorsementsInBlockHeader is stabilized.
-    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
+    pub fn init(&mut self) {
         match self {
-            BlockHeader::BlockHeaderV1(_)
-            | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_) => {
-                panic!("old header should not appear in tests")
-            }
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
-            BlockHeader::BlockHeaderV5(_) => {
-                panic!("new header should not appear in tests until ChunkEndorsementsInBlockHeader is stabilized")
-            }
-        }
-    }
-
-    pub fn set_latest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
-        match self {
-            BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
-            BlockHeader::BlockHeaderV2(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
-            BlockHeader::BlockHeaderV3(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
-            BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).init(),
+            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).init(),
         }
     }
 
@@ -400,21 +371,9 @@ impl BlockHeader {
             &self.inner_rest_bytes(),
         );
         match self {
-            BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
-                header.hash = hash;
-                header.signature = signature;
-            }
-            BlockHeader::BlockHeaderV2(header) => {
-                let header = Arc::make_mut(header);
-                header.hash = hash;
-                header.signature = signature;
-            }
-            BlockHeader::BlockHeaderV3(header) => {
-                let header = Arc::make_mut(header);
-                header.hash = hash;
-                header.signature = signature;
-            }
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
             BlockHeader::BlockHeaderV4(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
@@ -424,6 +383,242 @@ impl BlockHeader {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
+            }
+        }
+    }
+
+    pub fn set_prev_hash(&mut self, value: CryptoHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).prev_hash = value,
+            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).prev_hash = value,
+        }
+    }
+
+    pub fn set_height(&mut self, value: BlockHeight) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).inner_lite.height = value,
+            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).inner_lite.height = value,
+        }
+    }
+
+    pub fn set_epoch_id(&mut self, value: EpochId) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).inner_lite.epoch_id = value,
+            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).inner_lite.epoch_id = value,
+        }
+    }
+
+    pub fn set_prev_state_root(&mut self, value: MerkleHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_lite.prev_state_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_lite.prev_state_root = value
+            }
+        }
+    }
+
+    pub fn set_prev_chunk_outgoing_receipts_root(&mut self, value: MerkleHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.prev_chunk_outgoing_receipts_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.prev_chunk_outgoing_receipts_root = value
+            }
+        }
+    }
+
+    pub fn set_chunk_headers_root(&mut self, value: MerkleHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.chunk_headers_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.chunk_headers_root = value
+            }
+        }
+    }
+
+    pub fn set_chunk_tx_root(&mut self, value: MerkleHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.chunk_tx_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.chunk_tx_root = value
+            }
+        }
+    }
+
+    pub fn set_chunk_mask(&mut self, value: Vec<bool>) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.chunk_mask = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.chunk_mask = value
+            }
+        }
+    }
+
+    pub fn set_prev_outcome_root(&mut self, value: MerkleHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_lite.prev_outcome_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_lite.prev_outcome_root = value
+            }
+        }
+    }
+
+    pub fn set_timestamp(&mut self, value: u64) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_lite.timestamp = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_lite.timestamp = value
+            }
+        }
+    }
+
+    pub fn set_prev_validator_proposals(&mut self, value: Vec<ValidatorStake>) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.prev_validator_proposals = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.prev_validator_proposals = value
+            }
+        }
+    }
+
+    pub fn set_next_gas_price(&mut self, value: Balance) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.next_gas_price = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.next_gas_price = value
+            }
+        }
+    }
+
+    pub fn set_block_merkle_root(&mut self, value: CryptoHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_lite.block_merkle_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_lite.block_merkle_root = value
+            }
+        }
+    }
+
+    pub fn set_approvals(&mut self, value: Vec<Option<Box<Signature>>>) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.approvals = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.approvals = value
+            }
+        }
+    }
+
+    pub fn set_latest_protocol_version(&mut self, value: ProtocolVersion) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.latest_protocol_version = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.latest_protocol_version = value
+            }
+        }
+    }
+
+    pub fn set_block_body_hash(&mut self, value: CryptoHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.block_body_hash = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.block_body_hash = value
+            }
+        }
+    }
+
+    pub fn set_signature(&mut self, value: Signature) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).signature = value,
+            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).signature = value,
+        }
+    }
+
+    pub fn set_challenges_root(&mut self, value: MerkleHash) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => {
+                Arc::make_mut(header).inner_rest.challenges_root = value
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.challenges_root = value
             }
         }
     }
