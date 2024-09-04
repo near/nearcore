@@ -485,7 +485,7 @@ jobs:
       - run: just check_build_public_libraries
 
   check_published_crates_in_isolation:
-    name: "Ensure published crates can be built in isolation"
+    name: "Build published crates in isolation"
     runs-on: "ubuntu-latest"
     steps:
       - uses: actions/checkout@v4
