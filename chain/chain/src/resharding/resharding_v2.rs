@@ -16,7 +16,7 @@ use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::FlatStorageError;
-use near_store::resharding::{get_delayed_receipts, get_promise_yield_timeouts};
+use near_store::resharding_v2::{get_delayed_receipts, get_promise_yield_timeouts};
 use near_store::{ShardTries, ShardUId, StorageError, Trie};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
