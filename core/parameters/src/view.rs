@@ -236,6 +236,8 @@ pub struct VMConfigView {
     /// See [VMConfig::yield_resume_host_functions](`crate::vm::Config::yield_resume_host_functions).
     pub yield_resume_host_functions: bool,
 
+    pub cache_generation: Option<u32>,
+
     /// Describes limits for VM and Runtime.
     ///
     /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
@@ -262,6 +264,7 @@ impl From<crate::vm::Config> for VMConfigView {
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
             yield_resume_host_functions: config.yield_resume_host_functions,
+            cache_generation: config.cache_generation,
         }
     }
 }
@@ -285,6 +288,7 @@ impl From<VMConfigView> for crate::vm::Config {
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
             yield_resume_host_functions: view.yield_resume_host_functions,
+            cache_generation: view.cache_generation,
         }
     }
 }

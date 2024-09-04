@@ -2,7 +2,7 @@ use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -92,16 +92,21 @@ impl RuntimeConfigStore {
         }
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
-            params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
+            let diff :ParameterTableDiff= diff_bytes.parse()
+                .unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            params.apply_diff(diff)
+                .unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
+            let mut runtime_config = RuntimeConfig::new(&params)
+                .unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
+            if ProtocolFeature::ContractCacheClearCoordination.enabled(*protocol_version) {
+                let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
+                wasm_config.cache_generation = Some(*protocol_version);
+            }
+
             #[cfg(not(feature = "calimero_zero_storage"))]
-            store.insert(
-                *protocol_version,
-                Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
-            );
+            store.insert(*protocol_version, Arc::new(runtime_config));
             #[cfg(feature = "calimero_zero_storage")]
             {
-                let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
                 let fees = Arc::make_mut(&mut runtime_config.fees);
                 fees.storage_usage_config.storage_amount_per_byte = 0;
                 store.insert(*protocol_version, Arc::new(runtime_config));

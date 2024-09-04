@@ -169,6 +169,10 @@ pub enum ProtocolFeature {
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
     ChunkEndorsementsInBlockHeader,
+    // A protocol version at which a coordinated per-version contract cache clearing is introduced.
+    //
+    // Effectively this is the version at which `ContractCacheKey::Version6` starts being used.
+    ContractCacheClearCoordination,
 }
 
 impl ProtocolFeature {
@@ -223,6 +227,7 @@ impl ProtocolFeature {
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
+            ProtocolFeature::ContractCacheClearCoordination => 72,
             ProtocolFeature::IncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::ChunkEndorsementV2 => 72,
 

@@ -15,20 +15,6 @@ use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
-enum ContractCacheKey {
-    _Version1,
-    _Version2,
-    _Version3,
-    _Version4,
-    Version5 {
-        code_hash: CryptoHash,
-        vm_config_non_crypto_hash: u64,
-        vm_kind: VMKind,
-        vm_hash: u64,
-    },
-}
-
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
         #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
@@ -52,11 +38,44 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
 
 #[tracing::instrument(level = "trace", target = "vm", "get_key", skip_all)]
 pub fn get_contract_cache_key(code_hash: CryptoHash, config: &Config) -> CryptoHash {
-    let key = ContractCacheKey::Version5 {
-        code_hash,
-        vm_config_non_crypto_hash: config.non_crypto_hash(),
-        vm_kind: config.vm_kind,
-        vm_hash: vm_hash(config.vm_kind),
+    #[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
+    enum ContractCacheKey {
+        _Version1,
+        _Version2,
+        _Version3,
+        _Version4,
+        Version5 {
+            code_hash: CryptoHash,
+            vm_config_non_crypto_hash: u64,
+            vm_kind: VMKind,
+            vm_hash: u64,
+        },
+        /// A version of the cache key that changes with each protocol version.
+        ///
+        /// `cache_generation` is populated with protocol version by the config loading code.
+        Version6 {
+            code_hash: CryptoHash,
+            vm_config_non_crypto_hash: u64,
+            vm_kind: VMKind,
+            vm_hash: u64,
+            cache_generation: u32,
+        },
+    }
+    let key = if let Some(cache_generation) = config.cache_generation {
+        ContractCacheKey::Version6 {
+            code_hash,
+            vm_config_non_crypto_hash: config.non_crypto_hash(),
+            vm_kind: config.vm_kind,
+            vm_hash: vm_hash(config.vm_kind),
+            cache_generation,
+        }
+    } else {
+        ContractCacheKey::Version5 {
+            code_hash,
+            vm_config_non_crypto_hash: config.non_crypto_hash(),
+            vm_kind: config.vm_kind,
+            vm_hash: vm_hash(config.vm_kind),
+        }
     };
     CryptoHash::hash_borsh(key)
 }

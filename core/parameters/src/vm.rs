@@ -199,6 +199,9 @@ pub struct Config {
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
+    /// Cache generation (dependent on the protocol version)
+    pub cache_generation: Option<u32>,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
