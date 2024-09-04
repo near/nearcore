@@ -377,10 +377,18 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         let account_id = self.account_id;
         let code_hash = self.hash();
         let version = self.current_protocol_version;
+
         if checked_feature!("stable", EthImplicitAccounts, version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
         {
-            return wallet_contract(code_hash);
+            // Accounts that look like eth implicit accounts and have existed prior to the
+            // eth-implicit accounts protocol change (these accounts are discussed in the
+            // description of #11606) may have something else deployed to them. Only return
+            // something here if the accounts have a wallet contract hash. Otherwise use the
+            // regular path to grab the deployed contract.
+            if let Some(wc) = wallet_contract(code_hash) {
+                return Some(wc);
+            }
         }
 
         let mode = match checked_feature!("stable", ChunkNodesCache, version) {
