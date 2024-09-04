@@ -1,4 +1,4 @@
-/// Implementation for all resharding logic.
+/// Implementation for all resharding V2 logic.
 /// ReshardingRequest and ReshardingResponse are exchanged across the client_actor and SyncJobsActor.
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
@@ -9,22 +9,15 @@ use crate::metrics::{
     RESHARDING_STATUS,
 };
 use crate::Chain;
-use itertools::Itertools;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::error::Error;
-use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::state::FlatStateValue;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
-use near_store::flat::{
-    store_helper, BlockInfo, FlatStorageError, FlatStorageManager, FlatStorageReadyStatus,
-    FlatStorageStatus,
-};
+use near_store::flat::FlatStorageError;
 use near_store::resharding::{get_delayed_receipts, get_promise_yield_timeouts};
-use near_store::trie::SnapshotError;
-use near_store::{ShardTries, ShardUId, StorageError, Store, Trie, TrieDBStorage, TrieStorage};
+use near_store::{ShardTries, ShardUId, StorageError, Trie};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -202,107 +195,8 @@ fn apply_promise_yield_timeouts<'a>(
     Ok(new_state_roots)
 }
 
-// function to set up flat storage status to Ready after a resharding event
-// TODO(resharding) : Consolidate this with setting up flat storage during state sync logic
-fn set_flat_storage_state(
-    store: Store,
-    flat_storage_manager: &FlatStorageManager,
-    shard_uid: ShardUId,
-    block_info: BlockInfo,
-) -> Result<(), Error> {
-    let mut store_update = store.store_update();
-    store_helper::set_flat_storage_status(
-        &mut store_update,
-        shard_uid,
-        FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: block_info }),
-    );
-    store_update.commit()?;
-    flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
-    Ok(())
-}
-
-/// Helper function to read the value from flat storage.
-/// It either returns the inlined value or reads ref value from the storage.
-fn read_flat_state_value(
-    trie_storage: &TrieDBStorage,
-    flat_state_value: FlatStateValue,
-) -> Vec<u8> {
-    match flat_state_value {
-        FlatStateValue::Ref(val) => trie_storage.retrieve_raw_bytes(&val.hash).unwrap().to_vec(),
-        FlatStateValue::Inlined(val) => val,
-    }
-}
-
 impl Chain {
-    pub fn build_state_for_resharding_preprocessing(
-        &self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
-    ) -> Result<(), Error> {
-        tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
-        let block_header = self.get_block_header(sync_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
-        let next_epoch_shard_layout =
-            self.epoch_manager.get_shard_layout(block_header.next_epoch_id())?;
-        assert_ne!(shard_layout, next_epoch_shard_layout);
-
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let prev_hash = block_header.prev_hash();
-        let prev_block_header = self.get_block_header(prev_hash)?;
-        let prev_prev_hash = prev_block_header.prev_hash();
-        let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
-
-        resharding_scheduler.send(ReshardingRequest {
-            tries: Arc::new(self.runtime_adapter.get_tries()),
-            sync_hash: *sync_hash,
-            prev_hash: *prev_hash,
-            prev_prev_hash: *prev_prev_hash,
-            shard_uid,
-            state_root,
-            next_epoch_shard_layout,
-            curr_poll_time: Duration::ZERO,
-            config: self.resharding_config.clone(),
-            handle: self.resharding_handle.clone(),
-            on_demand: false,
-        });
-
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::Scheduled.into());
-        Ok(())
-    }
-
-    /// Function to check whether the snapshot is ready for resharding or not. We return true if the snapshot is not
-    /// ready and we need to retry/reschedule the resharding job.
-    pub fn retry_build_state_for_split_shards(resharding_request: &ReshardingRequest) -> bool {
-        let ReshardingRequest { tries, prev_prev_hash, curr_poll_time, config, .. } =
-            resharding_request;
-        let config = config.get();
-
-        // Do not retry if we have spent more than max_poll_time
-        // The error would be caught in build_state_for_split_shards and propagated to client actor
-        if curr_poll_time > &config.max_poll_time {
-            tracing::warn!(target: "resharding", ?curr_poll_time, ?config.max_poll_time, "exceeded max poll time while waiting for snapshot");
-            return false;
-        }
-
-        let state_snapshot = tries.get_state_snapshot(prev_prev_hash);
-        if let Err(err) = state_snapshot {
-            tracing::debug!(target: "resharding", ?err, "state snapshot is not ready");
-            return match err {
-                SnapshotError::SnapshotNotFound(_) => true,
-                SnapshotError::LockWouldBlock => true,
-                SnapshotError::IncorrectSnapshotRequested(_, _) => false,
-                SnapshotError::Other(_) => false,
-            };
-        }
-
-        // The snapshot is Ok, no need to retry.
-        return false;
-    }
-
-    pub fn build_state_for_split_shards(
+    pub fn build_state_for_split_shards_v2(
         resharding_request: ReshardingRequest,
     ) -> ReshardingResponse {
         let shard_uid = resharding_request.shard_uid;
@@ -394,8 +288,6 @@ impl Chain {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let ReshardingRequest {
             tries,
-            prev_hash,
-            prev_prev_hash,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
@@ -421,83 +313,30 @@ impl Chain {
         let checked_account_id_to_shard_uid =
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
-        if on_demand {
-            // When resharding is triggered on demand no special iterator chaining is required
-            // because we fallback to use the tries stored on disk.
-            let trie: Trie = tries.get_trie_for_shard(shard_uid, state_root);
-
-            // However some gymnastics are required to make the iterator signature match the one required by
-            // `apply_resharding_batches`.
-            let mut iter = trie.disk_iter()?.map(|item| {
-                item.map(|(lhs, rhs)| (lhs, Some(rhs)))
-                    .map_err(|err| FlatStorageError::StorageInternalError(err.to_string()))
-            });
-
-            Self::apply_resharding_batches(
-                &shard_uid,
-                &config,
-                &tries,
-                &checked_account_id_to_shard_uid,
-                handle,
-                &mut state_roots,
-                &mut iter,
-            )?;
-        } else {
-            // Build the required iterator from flat storage and delta changes. Note that we are
-            // working with iterators as we don't want to have all the state in memory at once.
-            //
-            // Iterator is built by chaining the following:
-            // 1. Flat storage iterator from the snapshot state as of `prev_prev_hash`.
-            // 2. Delta changes iterator from the snapshot state as of `prev_hash`.
-            //
-            // The snapshot when created has the flat head as of `prev_prev_hash`, i.e. the hash as
-            // of the second last block of the previous epoch. Hence we need to append the delta
-            // changes on top of it.
-            let (snapshot_store, flat_storage_manager) = tries
-                .get_state_snapshot(&prev_prev_hash)
-                .map_err(|err| StorageInconsistentState(err.to_string()))?;
-            let flat_storage_chunk_view =
-                flat_storage_manager.chunk_view(shard_uid, prev_prev_hash);
-            let flat_storage_chunk_view = flat_storage_chunk_view.ok_or_else(|| {
-                StorageInconsistentState("Chunk view missing for snapshot flat storage".to_string())
-            })?;
-            // Get the flat storage iter and wrap the value in Optional::Some to
-            // match the delta iterator so that they can be chained.
-            let flat_storage_iter = flat_storage_chunk_view.iter_flat_state_entries(None, None);
-            let flat_storage_iter = flat_storage_iter.map_ok(|(key, value)| (key, Some(value)));
-
-            // Get the delta iter and wrap the items in Result to match the flat
-            // storage iter so that they can be chained.
-            let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
-                .map_err(|err| StorageInconsistentState(err.to_string()))?;
-            let delta = delta.ok_or_else(|| {
-                StorageInconsistentState("Delta missing for snapshot flat storage".to_string())
-            })?;
-            let delta_iter = delta.0.into_iter();
-            let delta_iter = delta_iter.map(|item| Ok(item));
-
-            // chain the flat storage and flat storage delta iterators
-            let iter = flat_storage_iter.chain(delta_iter);
-
-            // map the iterator to read the values
-            let trie_storage = TrieDBStorage::new(tries.get_store(), shard_uid);
-            let iter = iter.map_ok(move |(key, value)| {
-                (key, value.map(|value| read_flat_state_value(&trie_storage, value)))
-            });
-
-            // Once we build the iterator, we break it into batches using the get_trie_update_batch function.
-            let mut iter = iter;
-
-            Self::apply_resharding_batches(
-                &shard_uid,
-                &config,
-                &tries,
-                &checked_account_id_to_shard_uid,
-                handle,
-                &mut state_roots,
-                &mut iter,
-            )?;
+        if !on_demand {
+            panic!("Resharding V2 can be triggered only on-demand")
         }
+
+        // When resharding is triggered on demand no special iterator chaining is required
+        // because we fallback to use the tries stored on disk.
+        let trie: Trie = tries.get_trie_for_shard(shard_uid, state_root);
+
+        // However some gymnastics are required to make the iterator signature match the one required by
+        // `apply_resharding_batches`.
+        let mut iter = trie.disk_iter()?.map(|item| {
+            item.map(|(lhs, rhs)| (lhs, Some(rhs)))
+                .map_err(|err| FlatStorageError::StorageInternalError(err.to_string()))
+        });
+
+        Self::apply_resharding_batches(
+            &shard_uid,
+            &config,
+            &tries,
+            &checked_account_id_to_shard_uid,
+            handle,
+            &mut state_roots,
+            &mut iter,
+        )?;
 
         state_roots = apply_delayed_receipts(
             &config.get(),
@@ -521,69 +360,15 @@ impl Chain {
         Ok(state_roots)
     }
 
-    pub fn build_state_for_split_shards_postprocessing(
-        &mut self,
-        shard_uid: ShardUId,
-        sync_hash: &CryptoHash,
-        state_roots: HashMap<ShardUId, StateRoot>,
-    ) -> Result<(), Error> {
-        let block_header = self.get_block_header(sync_hash)?;
-        let prev_hash = block_header.prev_hash();
-
-        let child_shard_uids = state_roots.keys().cloned().collect_vec();
-        self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
-        // TODO(resharding) #10844 Load in-memory trie if needed.
-
-        let mut chain_store_update = self.mut_chain_store().store_update();
-        for (shard_uid, state_root) in state_roots {
-            // here we store the state roots in chunk_extra in the database for later use
-            let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
-            chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"resharding", "Finish building resharding for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
-        }
-        chain_store_update.commit()?;
-
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::Finished.into());
-
-        Ok(())
-    }
-
-    // Here we iterate over all the child shards and initialize flat storage for them by calling set_flat_storage_state
-    // Note that this function is called on the current_block which is the first block the next epoch.
-    // We set the flat_head as the prev_block as after resharding, the state written to flat storage corresponds to the
-    // state as of prev_block, and that's the convention that we follow.
-    fn initialize_flat_storage(
-        &self,
-        prev_hash: &CryptoHash,
-        child_shard_uids: &[ShardUId],
-    ) -> Result<(), Error> {
-        let prev_block_header = self.get_block_header(prev_hash)?;
-        let prev_block_info = BlockInfo {
-            hash: *prev_block_header.hash(),
-            prev_hash: *prev_block_header.prev_hash(),
-            height: prev_block_header.height(),
-        };
-
-        // create flat storage for child shards
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        for shard_uid in child_shard_uids {
-            let store = self.runtime_adapter.store().clone();
-            set_flat_storage_state(store, &flat_storage_manager, *shard_uid, prev_block_info)?;
-        }
-        Ok(())
-    }
-
     /// Preprocessing stage for on demand resharding. This method should be called only by the resharding tool.
-    pub fn custom_build_state_for_resharding_preprocessing(
+    pub fn custom_build_state_for_resharding_v2_preprocessing(
         &self,
         // The resharding will execute on the post state of the target_hash block.
         target_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ReshardingRequest, Error> {
         let sync_hash = target_hash;
-        tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
+        tracing::debug!(target: "resharding-v2", ?shard_id, ?sync_hash, "preprocessing started");
         let block_header = self.get_block_header(sync_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let next_epoch_id = block_header.next_epoch_id();
@@ -618,7 +403,7 @@ impl Chain {
     }
 
     /// Postprocessing stage for on demand resharding. This method should be called only by the resharding tool.
-    pub fn custom_build_state_for_split_shards_postprocessing(
+    pub fn custom_build_state_for_split_shards_v2_postprocessing(
         &mut self,
         shard_uid: ShardUId,
         sync_hash: &CryptoHash,
@@ -628,15 +413,15 @@ impl Chain {
         let prev_hash = block_header.prev_hash();
 
         for (shard_uid, state_root) in state_roots {
-            debug!(target:"resharding", "Finish building resharding for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
+            debug!(target:"resharding-v2", "Finish building resharding for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
             // Chunk extra should match the ones committed into the chain.
             let new_chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             if let Ok(chunk_extra) = self.get_chunk_extra(sync_hash, &shard_uid) {
                 if chunk_extra.state_root() != new_chunk_extra.state_root() {
-                    error!(target:"resharding", ?chunk_extra, ?new_chunk_extra, "Chunk extra state_root mismatch!");
+                    error!(target:"resharding-v2", ?chunk_extra, ?new_chunk_extra, "Chunk extra state_root mismatch!");
                 }
             } else {
-                warn!(target:"resharding", ?sync_hash, "Chunk extra not found in DB");
+                warn!(target:"resharding-v2", ?sync_hash, "Chunk extra not found in DB");
             }
         }
 

@@ -1,15 +1,11 @@
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
-use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
-use near_async::messaging::{self, CanSend, Handler, HandlerWithContext, Sender};
-use near_async::time::Duration;
+use near_async::messaging::{self, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
 };
-use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
-use near_chain::Chain;
 use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
@@ -23,7 +19,6 @@ const MAILBOX_CAPACITY: usize = 100;
 pub struct ClientSenderForSyncJobs {
     apply_state_parts_response: Sender<ApplyStatePartsResponse>,
     block_catch_up_response: Sender<BlockCatchUpResponse>,
-    resharding_response: Sender<ReshardingResponse>,
     load_memtrie_response: Sender<LoadMemtrieResponse>,
 }
 
@@ -51,13 +46,6 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
     #[perf]
     fn handle(&mut self, msg: BlockCatchUpRequest) {
         self.handle_block_catch_up_request(msg);
-    }
-}
-
-impl HandlerWithContext<ReshardingRequest> for SyncJobsActor {
-    #[perf]
-    fn handle(&mut self, msg: ReshardingRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
-        self.handle_resharding_request(msg, ctx);
     }
 }
 
@@ -171,40 +159,5 @@ impl SyncJobsActor {
             block_hash: msg.block_hash,
             results,
         });
-    }
-
-    pub fn handle_resharding_request(
-        &mut self,
-        mut resharding_request: ReshardingRequest,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-    ) {
-        let config = resharding_request.config.get();
-
-        // Wait for the initial delay. It should only be used in tests.
-        let initial_delay = config.initial_delay.max(Duration::ZERO);
-        if resharding_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
-            tracing::debug!(target: "resharding", ?resharding_request, ?initial_delay, "Waiting for the initial delay");
-            resharding_request.curr_poll_time += initial_delay;
-            ctx.run_later("resharding initial delay", initial_delay, |act, ctx| {
-                act.handle_resharding_request(resharding_request, ctx)
-            });
-            return;
-        }
-
-        if Chain::retry_build_state_for_split_shards(&resharding_request) {
-            // Actix implementation let's us send message to ourselves with a delay.
-            // In case snapshots are not ready yet, we will retry resharding later.
-            let retry_delay = config.retry_delay.max(Duration::ZERO);
-            tracing::debug!(target: "resharding", ?resharding_request, ?retry_delay, "Snapshot missing, retrying resharding later");
-            resharding_request.curr_poll_time += retry_delay;
-            ctx.run_later("resharding retry", retry_delay, |act, ctx| {
-                act.handle_resharding_request(resharding_request, ctx)
-            });
-            return;
-        }
-
-        tracing::debug!(target: "resharding", ?resharding_request, "Starting resharding");
-        let response = Chain::build_state_for_split_shards(resharding_request);
-        self.client_sender.send(response);
     }
 }

@@ -26,7 +26,6 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::PrepareTransactionsChunkContext;
@@ -1640,27 +1639,6 @@ impl Client {
             if let Err(err) = self.send_network_chain_info() {
                 error!(target: "client", ?err, "Failed to update network chain info");
             }
-
-            // If the next block is the first of the next epoch and the shard
-            // layout is changing we need to reshard the transaction pool.
-            // TODO make sure transactions don't get added for the old shard
-            // layout after the pool resharding
-            if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
-                let new_shard_layout =
-                    self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
-                let old_shard_layout =
-                    self.epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash());
-                match (old_shard_layout, new_shard_layout) {
-                    (Ok(old_shard_layout), Ok(new_shard_layout)) => {
-                        if old_shard_layout != new_shard_layout {
-                            self.sharded_tx_pool.reshard(&old_shard_layout, &new_shard_layout);
-                        }
-                    }
-                    (old_shard_layout, new_shard_layout) => {
-                        tracing::warn!(target: "client", ?old_shard_layout, ?new_shard_layout, "failed to check if shard layout is changing");
-                    }
-                }
-            }
         }
 
         if let Some(signer) = signer.clone() {
@@ -2455,7 +2433,6 @@ impl Client {
         state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
         load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         state_parts_future_spawner: &dyn FutureSpawner,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -2532,7 +2509,6 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 load_memtrie_scheduler,
-                resharding_scheduler,
                 state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),
