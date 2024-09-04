@@ -255,8 +255,6 @@ mod tests {
             epoch_length: 1,
             protocol_reward_rate: Ratio::from_integer(0),
             protocol_treasury_account: "test".parse().unwrap(),
-            online_max_threshold: initial_epoch_config.online_max_threshold,
-            online_min_threshold: initial_epoch_config.online_min_threshold,
             num_seconds_per_year: 1000000,
         };
         EpochManager::new(

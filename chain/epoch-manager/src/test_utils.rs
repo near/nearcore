@@ -190,8 +190,6 @@ pub fn default_reward_calculator() -> RewardCalculator {
         epoch_length: 1,
         protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }

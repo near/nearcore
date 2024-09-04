@@ -13,6 +13,20 @@ use crate::validator_stats::get_validator_online_ratio;
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
+/// Contains online thresholds for validators.
+#[derive(Clone, Debug)]
+pub struct ValidatorOnlineThresholds {
+    /// Online minimum threshold below which validator doesn't receive reward.
+    pub online_min_threshold: Rational32,
+    /// Online maximum threshold above which validator gets full reward.
+    pub online_max_threshold: Rational32,
+    /// If set, contains a number between 0 and 100 (percentage), and endorsement ratio
+    /// below this threshold will be treated 0, and otherwise be treated 1,
+    /// before calculating the average uptime ratio of the validator.
+    /// If not set, endorsement ratio will be used as is.
+    pub endorsement_cutoff_threshold: Option<u8>,
+}
+
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
     pub max_inflation_rate: Rational32,
@@ -20,8 +34,6 @@ pub struct RewardCalculator {
     pub epoch_length: u64,
     pub protocol_reward_rate: Rational32,
     pub protocol_treasury_account: AccountId,
-    pub online_min_threshold: Rational32,
-    pub online_max_threshold: Rational32,
     pub num_seconds_per_year: u64,
 }
 
@@ -33,8 +45,6 @@ impl RewardCalculator {
             epoch_length: config.epoch_length,
             protocol_reward_rate: config.protocol_reward_rate,
             protocol_treasury_account: config.protocol_treasury_account.clone(),
-            online_max_threshold: config.online_max_threshold,
-            online_min_threshold: config.online_min_threshold,
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         }
     }
@@ -49,6 +59,7 @@ impl RewardCalculator {
         protocol_version: ProtocolVersion,
         genesis_protocol_version: ProtocolVersion,
         epoch_duration: u64,
+        online_thresholds: ValidatorOnlineThresholds,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
@@ -90,7 +101,8 @@ impl RewardCalculator {
         let mut epoch_actual_reward = epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
-            let production_ratio = get_validator_online_ratio(&stats);
+            let production_ratio =
+                get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
             let average_produced_numer = production_ratio.numer();
             let average_produced_denom = production_ratio.denom();
 
@@ -98,8 +110,10 @@ impl RewardCalculator {
             let expected_chunks = stats.chunk_stats.expected();
             let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
 
-            let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
-            let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
+            let online_min_numer =
+                U256::from(*online_thresholds.online_min_threshold.numer() as u64);
+            let online_min_denom =
+                U256::from(*online_thresholds.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let chunk_only_producers_enabled =
                 checked_feature!("stable", ChunkOnlyProducers, protocol_version);
@@ -121,8 +135,10 @@ impl RewardCalculator {
                     .get(&account_id)
                     .unwrap_or_else(|| panic!("{} is not a validator", account_id));
                 // Online reward multiplier is min(1., (uptime - online_threshold_min) / (online_threshold_max - online_threshold_min).
-                let online_max_numer = U256::from(*self.online_max_threshold.numer() as u64);
-                let online_max_denom = U256::from(*self.online_max_threshold.denom() as u64);
+                let online_max_numer =
+                    U256::from(*online_thresholds.online_max_threshold.numer() as u64);
+                let online_max_denom =
+                    U256::from(*online_thresholds.online_max_threshold.denom() as u64);
                 let online_numer =
                     online_max_numer * online_min_denom - online_min_numer * online_max_denom;
                 let mut uptime_numer = (average_produced_numer * online_min_denom
@@ -161,8 +177,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 1),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 1000000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -191,6 +205,11 @@ mod tests {
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
+            ValidatorOnlineThresholds {
+                online_min_threshold: Ratio::new(9, 10),
+                online_max_threshold: Ratio::new(1, 1),
+                endorsement_cutoff_threshold: None,
+            },
         );
         assert_eq!(
             result.0,
@@ -212,8 +231,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -252,6 +269,11 @@ mod tests {
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
+            ValidatorOnlineThresholds {
+                online_min_threshold: Ratio::new(9, 10),
+                online_max_threshold: Ratio::new(99, 100),
+                endorsement_cutoff_threshold: None,
+            },
         );
         // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets 3_333_333.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -277,8 +299,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -329,6 +349,11 @@ mod tests {
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
+            ValidatorOnlineThresholds {
+                online_min_threshold: Ratio::new(9, 10),
+                online_max_threshold: Ratio::new(99, 100),
+                endorsement_cutoff_threshold: None,
+            },
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -357,8 +382,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
@@ -415,6 +438,11 @@ mod tests {
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
+            ValidatorOnlineThresholds {
+                online_min_threshold: Ratio::new(9, 10),
+                online_max_threshold: Ratio::new(99, 100),
+                endorsement_cutoff_threshold: None,
+            },
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
@@ -445,8 +473,6 @@ mod tests {
             epoch_length,
             protocol_reward_rate: Ratio::new(1, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Ratio::new(9, 10),
-            online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 60 * 60 * 24 * 365,
         };
         let validator_block_chunk_stats = HashMap::from([(
@@ -469,6 +495,11 @@ mod tests {
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
+            ValidatorOnlineThresholds {
+                online_min_threshold: Ratio::new(9, 10),
+                online_max_threshold: Ratio::new(1, 1),
+                endorsement_cutoff_threshold: None,
+            },
         );
     }
 }

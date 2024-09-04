@@ -1,4 +1,4 @@
-use near_primitives::types::BlockChunkValidatorStats;
+use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
 use num_bigint::BigUint;
 use num_rational::{BigRational, Ratio, Rational64};
 use primitive_types::U256;
@@ -7,10 +7,21 @@ use primitive_types::U256;
 /// This is an average of block produced / expected, chunk produced / expected,
 /// and chunk endorsed produced / expected.
 /// Note that it returns `Ratio<U256>` in raw form (not reduced).
-pub(crate) fn get_validator_online_ratio(stats: &BlockChunkValidatorStats) -> Ratio<U256> {
+///
+/// # Arguments
+///
+/// * `stats` - stats for block and chunk production and chunk endorsement
+/// * `endorsement_cutoff_threshold` - if set, a number between 0 and 100 (percentage) that
+///   represents the minimum endorsement ratio below which the ratio is treated 0, and 1 otherwise
+pub(crate) fn get_validator_online_ratio(
+    stats: &BlockChunkValidatorStats,
+    endorsement_cutoff_threshold: Option<u8>,
+) -> Ratio<U256> {
     let expected_blocks = stats.block_stats.expected;
     let expected_chunks = stats.chunk_stats.expected();
-    let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
+
+    let (produced_endorsements, expected_endorsements) =
+        get_endorsement_ratio(stats.chunk_stats.endorsement_stats(), endorsement_cutoff_threshold);
 
     let (average_produced_numer, average_produced_denom) =
         match (expected_blocks, expected_chunks, expected_endorsements) {
@@ -18,42 +29,49 @@ pub(crate) fn get_validator_online_ratio(stats: &BlockChunkValidatorStats) -> Ra
             (0, 0, 0) => (U256::from(0), U256::from(1)),
             // Validator was a stateless validator only (not expected to produce anything)
             (0, 0, expected_endorsements) => {
-                let endorsement_stats = stats.chunk_stats.endorsement_stats();
-                (U256::from(endorsement_stats.produced), U256::from(expected_endorsements))
+                (U256::from(produced_endorsements), U256::from(expected_endorsements))
             }
             // Validator was a chunk-only producer
             (0, expected_chunks, 0) => {
-                (U256::from(stats.chunk_stats.produced()), U256::from(expected_chunks))
+                let produced_chunks = stats.chunk_stats.produced();
+
+                (U256::from(produced_chunks), U256::from(expected_chunks))
             }
             // Validator was only a block producer
             (expected_blocks, 0, 0) => {
-                (U256::from(stats.block_stats.produced), U256::from(expected_blocks))
+                let produced_blocks = stats.block_stats.produced;
+
+                (U256::from(produced_blocks), U256::from(expected_blocks))
             }
             // Validator produced blocks and chunks, but not endorsements
             (expected_blocks, expected_chunks, 0) => {
+                let produced_blocks = stats.block_stats.produced;
+                let produced_chunks = stats.chunk_stats.produced();
+
                 let numer = U256::from(
-                    stats.block_stats.produced * expected_chunks
-                        + stats.chunk_stats.produced() * expected_blocks,
+                    produced_blocks * expected_chunks + produced_chunks * expected_blocks,
                 );
                 let denom = U256::from(2 * expected_chunks * expected_blocks);
                 (numer, denom)
             }
             // Validator produced chunks and endorsements, but not blocks
             (0, expected_chunks, expected_endorsements) => {
-                let endorsement_stats = stats.chunk_stats.endorsement_stats();
+                let produced_chunks = stats.chunk_stats.produced();
+
                 let numer = U256::from(
-                    endorsement_stats.produced * expected_chunks
-                        + stats.chunk_stats.produced() * expected_endorsements,
+                    produced_endorsements * expected_chunks
+                        + produced_chunks * expected_endorsements,
                 );
                 let denom = U256::from(2 * expected_chunks * expected_endorsements);
                 (numer, denom)
             }
             // Validator produced blocks and endorsements, but not chunks
             (expected_blocks, 0, expected_endorsements) => {
-                let endorsement_stats = stats.chunk_stats.endorsement_stats();
+                let produced_blocks = stats.block_stats.produced;
+
                 let numer = U256::from(
-                    endorsement_stats.produced * expected_blocks
-                        + stats.block_stats.produced * expected_endorsements,
+                    produced_endorsements * expected_blocks
+                        + produced_blocks * expected_endorsements,
                 );
                 let denom = U256::from(2 * expected_blocks * expected_endorsements);
                 (numer, denom)
@@ -62,7 +80,6 @@ pub(crate) fn get_validator_online_ratio(stats: &BlockChunkValidatorStats) -> Ra
             (expected_blocks, expected_chunks, expected_endorsements) => {
                 let produced_blocks = stats.block_stats.produced;
                 let produced_chunks = stats.chunk_stats.produced();
-                let produced_endorsements = stats.chunk_stats.endorsement_stats().produced;
 
                 let numer = U256::from(
                     produced_blocks * expected_chunks * expected_endorsements
@@ -89,8 +106,11 @@ pub(crate) fn get_validator_online_ratio(stats: &BlockChunkValidatorStats) -> Ra
 /// Instead of having a full-blown implementation of `U256`` for `num_integer::Integer`
 /// we wrap the value in a `BigInt` for now.
 /// TODO: Implement `num_integer::Integer` for `U256` and remove this function.
-pub(crate) fn get_sortable_validator_online_ratio(stats: &BlockChunkValidatorStats) -> BigRational {
-    let ratio = get_validator_online_ratio(stats);
+pub(crate) fn get_sortable_validator_online_ratio(
+    stats: &BlockChunkValidatorStats,
+    endorsement_cutoff_threshold: Option<u8>,
+) -> BigRational {
+    let ratio = get_validator_online_ratio(stats, endorsement_cutoff_threshold);
     let mut bytes: [u8; size_of::<U256>()] = [0; size_of::<U256>()];
     ratio.numer().to_little_endian(&mut bytes);
     let bignumer = BigUint::from_bytes_le(&bytes);
@@ -114,4 +134,21 @@ pub(crate) fn get_sortable_validator_online_ratio_without_endorsements(
             + Rational64::new(stats.block_stats.produced as i64, stats.block_stats.expected as i64))
             / 2
     }
+}
+/// Applies the `cutoff_threshold` to the endorsement ratio encoded in the `stats`.
+/// If `cutoff_threshold` is not provided, returns the same ratio from the `stats`.
+/// If `cutoff_threshold` is provided, compares the endorsement ratio from the `stats` with the threshold.
+/// If the ratio is below the threshold, it returns 0, otherwise it returns 1.
+fn get_endorsement_ratio(stats: &ValidatorStats, cutoff_threshold: Option<u8>) -> (u64, u64) {
+    let (numer, denom) = cutoff_threshold.map_or_else(
+        || (stats.produced, stats.expected),
+        |threshold| {
+            if stats.less_than(threshold) {
+                (0, 1)
+            } else {
+                (1, 1)
+            }
+        },
+    );
+    (numer, denom)
 }
