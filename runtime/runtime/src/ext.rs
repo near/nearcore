@@ -365,7 +365,6 @@ pub(crate) struct RuntimeContractExt<'a> {
     pub(crate) trie_update: &'a TrieUpdate,
     pub(crate) account_id: &'a AccountId,
     pub(crate) account: &'a Account,
-    pub(crate) chain_id: &'a str,
     pub(crate) current_protocol_version: ProtocolVersion,
 }
 

@@ -245,7 +245,6 @@ impl TrieViewer {
             &contract_id,
             &function_call,
             config,
-            epoch_info_provider,
             view_config.clone(),
         );
         let mut runtime_ext = RuntimeExt::new(

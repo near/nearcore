@@ -442,7 +442,6 @@ impl Runtime {
                     account_id,
                     function_call,
                     &apply_state.config,
-                    epoch_info_provider,
                     None,
                 );
                 let is_last_action = action_index + 1 == actions.len();

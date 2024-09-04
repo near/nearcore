@@ -168,7 +168,6 @@ pub(crate) fn prepare_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     config: &RuntimeConfig,
-    epoch_info_provider: &(dyn EpochInfoProvider),
     view_config: Option<ViewConfig>,
 ) -> Box<dyn PreparedContract> {
     let max_gas_burnt = match view_config {
@@ -186,7 +185,6 @@ pub(crate) fn prepare_function_call(
         trie_update: state_update,
         account_id,
         account,
-        chain_id: &epoch_info_provider.chain_id(),
         current_protocol_version: apply_state.current_protocol_version,
     };
     let contract = near_vm_runner::prepare(
