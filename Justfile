@@ -182,7 +182,8 @@ check_build_public_libraries:
 #
 # By default `cargo workspaces list` ignores private crates.
 check_published_crates_in_isolation:
-    for crate in `cargo workspaces list`; do \
-        echo checking $crate; \
-        cargo check -p $crate; \
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    for crate in `cargo workspaces list`; do
+        cargo check -p $crate;
     done
