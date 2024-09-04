@@ -608,11 +608,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + magic_bytes.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
+                let contract_hash = *magic_bytes.hash();
                 *account = Some(Account::new(
                     amount,
                     0,
                     permanent_storage_bytes,
-                    *magic_bytes.hash(),
+                    contract_hash,
                     storage_usage,
                     current_protocol_version,
                 ));
@@ -622,7 +623,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract(&chain_id, current_protocol_version),
+                    &wallet_contract(contract_hash).expect("should definitely exist"),
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
                 )

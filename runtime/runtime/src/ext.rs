@@ -14,7 +14,7 @@ use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
-use near_wallet_contract::{code_hash_matches_wallet_contract, wallet_contract};
+use near_wallet_contract::wallet_contract;
 use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
@@ -378,13 +378,12 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         let account_id = self.account_id;
         let code_hash = self.hash();
         let version = self.current_protocol_version;
-        let chain_id = self.chain_id;
         if checked_feature!("stable", EthImplicitAccounts, version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
-            && code_hash_matches_wallet_contract(chain_id, &code_hash, version)
         {
-            return Some(wallet_contract(&chain_id, version));
+            return wallet_contract(code_hash);
         }
+
         let mode = match checked_feature!("stable", ChunkNodesCache, version) {
             true => Some(TrieCacheMode::CachingShard),
             false => None,
