@@ -151,6 +151,8 @@ pub enum ProtocolFeature {
     /// Fixes increase to 100K NEAR in the previous protocol version.
     /// See #11953 for more details.
     FixMinStakeRatio,
+    /// Increases main_storage_proof_size_soft_limit parameter from 3mb to 4mb
+    IncreaseStorageProofSizeSoftLimit,
 
     /// Protocol version reserved for use in resharding tests.
     SimpleNightshadeTestonly,
@@ -222,6 +224,8 @@ impl ProtocolFeature {
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
+            ProtocolFeature::IncreaseStorageProofSizeSoftLimit
+            | ProtocolFeature::ChunkEndorsementV2 => 72,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -240,7 +244,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ChunkEndorsementV2 => 144,
 
             // Features that should not be included in Nightly yet:
 
@@ -257,7 +260,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 72;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;

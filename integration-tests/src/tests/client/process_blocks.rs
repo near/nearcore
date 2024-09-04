@@ -2302,21 +2302,23 @@ fn test_validate_chunk_extra() {
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
+    env.propagate_chunk_state_witnesses_and_endorsements(false);
     assert_eq!(accepted_blocks.len(), 1);
-
-    let client = &mut env.clients[0];
 
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
+    let client = &mut env.clients[0];
     client
         .chunk_inclusion_tracker
         .prepare_chunk_headers_ready_for_inclusion(
             block1.hash(),
-            client.chunk_endorsement_tracker.as_ref(),
+            &mut client.chunk_endorsement_tracker,
         )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
+    env.propagate_chunk_state_witnesses_and_endorsements(false);
+    let client = &mut env.clients[0];
     let chunks = client
         .chunk_inclusion_tracker
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
@@ -2822,7 +2824,7 @@ fn test_epoch_multi_protocol_version_change() {
         format!("{}={},{}={}", v1_upgrade_time, v1, v2_upgrade_time, v2);
 
     tracing::debug!(target: "test", ?protocol_version_override, "setting the protocol_version_override");
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override);
+    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override) };
 
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
@@ -2896,7 +2898,7 @@ fn test_epoch_multi_protocol_version_change_epoch_overlap() {
         format!("{}={},{}={}", v1_upgrade_time, v1, v2_upgrade_time, v2);
 
     tracing::debug!(target: "test", ?protocol_version_override, "setting the protocol_version_override");
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override);
+    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override) };
 
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);

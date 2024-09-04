@@ -1,7 +1,6 @@
 pub mod orphan_witness_handling;
 pub mod orphan_witness_pool;
 
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::Client;
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
@@ -40,7 +39,6 @@ pub struct ChunkValidator {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: chunk_validation::MainStateTransitionCache,
@@ -56,7 +54,6 @@ impl ChunkValidator {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         orphan_witness_pool_size: usize,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
         panic_on_validation_error: bool,
@@ -65,7 +62,6 @@ impl ChunkValidator {
             epoch_manager,
             network_sender,
             runtime_adapter,
-            chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
@@ -104,7 +100,6 @@ impl ChunkValidator {
 
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
-        let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
         // This usually happens because we are a chunk producer and
@@ -134,7 +129,6 @@ impl ChunkValidator {
                         epoch_manager.as_ref(),
                         signer,
                         &network_sender,
-                        chunk_endorsement_tracker.as_ref(),
                     );
                     return Ok(());
                 }
@@ -173,7 +167,6 @@ impl ChunkValidator {
                         epoch_manager.as_ref(),
                         signer.as_ref(),
                         &network_sender,
-                        chunk_endorsement_tracker.as_ref(),
                     );
                 }
                 Err(err) => {
@@ -202,7 +195,6 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     epoch_manager: &dyn EpochManagerAdapter,
     signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
-    chunk_endorsement_tracker: &ChunkEndorsementTracker,
 ) {
     let epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
@@ -230,22 +222,9 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let endorsement = ChunkEndorsement::new(epoch_id, chunk_header, signer, protocol_version);
     for block_producer in block_producers {
-        if signer.validator_id() == &block_producer {
-            // Our own endorsements are not always valid (see issue #11750).
-            if let Err(err) = chunk_endorsement_tracker
-                .process_chunk_endorsement(endorsement.clone(), Some(chunk_header.clone()))
-            {
-                tracing::warn!(
-                    target: "client",
-                    ?chunk_hash,
-                    ?endorsement,
-                    "Failed to process self chunk endorsement ({err:?})");
-            }
-        } else {
-            network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
-            ));
-        }
+        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
+        ));
     }
 }
 
