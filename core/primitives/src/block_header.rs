@@ -603,9 +603,141 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
         };
-        // This function still preserves code for old block header versions. These code are no longer
-        // used in production, but we still have features tests in the code that uses them.
-        // So we still keep the old code here.
+
+        if chunk_endorsements.is_some() {
+            debug_assert!(ProtocolFeature::ChunkEndorsementsInBlockHeader
+                .enabled(this_epoch_protocol_version));
+            let chunk_endorsements = chunk_endorsements.unwrap();
+            let inner_rest = BlockHeaderInnerRestV5 {
+                block_body_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                next_gas_price,
+                block_ordinal,
+                total_supply,
+                challenges_result,
+                last_final_block,
+                last_ds_final_block,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version: crate::version::get_protocol_version(
+                    next_epoch_protocol_version,
+                    clock,
+                ),
+                chunk_endorsements,
+            };
+            let (hash, signature) = signer.sign_block_header_parts(
+                prev_hash,
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            }))
+        } else if ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
+            let inner_rest = BlockHeaderInnerRestV4 {
+                block_body_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                next_gas_price,
+                block_ordinal,
+                total_supply,
+                challenges_result,
+                last_final_block,
+                last_ds_final_block,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version: crate::version::get_protocol_version(
+                    next_epoch_protocol_version,
+                    clock,
+                ),
+            };
+            let (hash, signature) = signer.sign_block_header_parts(
+                prev_hash,
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            }))
+        } else {
+            // Build BlockHeaderV1-V3.
+            Self::old_impl(
+                inner_lite,
+                this_epoch_protocol_version,
+                next_epoch_protocol_version,
+                prev_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                block_ordinal,
+                next_gas_price,
+                total_supply,
+                challenges_result,
+                signer,
+                last_final_block,
+                last_ds_final_block,
+                epoch_sync_data_hash,
+                approvals,
+                prev_height,
+                clock,
+            )
+        }
+    }
+
+    /// Returns BlockHeaderV1-V3.
+    /// This function still preserves code for old block header versions. These code are no longer
+    /// used in production, but we still have features tests in the code that uses them.
+    /// So we still keep the old code here.
+    #[cfg(feature = "clock")]
+    fn old_impl(
+        inner_lite: BlockHeaderInnerLite,
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
+        prev_hash: CryptoHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
+        chunk_tx_root: MerkleHash,
+        challenges_root: MerkleHash,
+        random_value: CryptoHash,
+        prev_validator_proposals: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
+        block_ordinal: NumBlocks,
+        next_gas_price: Balance,
+        total_supply: Balance,
+        challenges_result: ChallengesResult,
+        signer: &ValidatorSigner,
+        last_final_block: CryptoHash,
+        last_ds_final_block: CryptoHash,
+        epoch_sync_data_hash: Option<CryptoHash>,
+        approvals: Vec<Option<Box<Signature>>>,
+        prev_height: BlockHeight,
+        clock: near_time::Clock,
+    ) -> Self {
         let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
         // to preserve this for archival nodes
@@ -675,47 +807,7 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if chunk_endorsements.is_some() {
-            debug_assert!(ProtocolFeature::ChunkEndorsementsInBlockHeader
-                .enabled(this_epoch_protocol_version));
-            let chunk_endorsements = chunk_endorsements.unwrap();
-            let inner_rest = BlockHeaderInnerRestV5 {
-                block_body_hash,
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                next_gas_price,
-                block_ordinal,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                prev_height,
-                epoch_sync_data_hash,
-                approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
-                chunk_endorsements,
-            };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        } else if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
+        } else {
             let inner_rest = BlockHeaderInnerRestV3 {
                 prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
@@ -744,42 +836,6 @@ impl BlockHeader {
                 &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        } else {
-            let inner_rest = BlockHeaderInnerRestV4 {
-                block_body_hash,
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                next_gas_price,
-                block_ordinal,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                prev_height,
-                epoch_sync_data_hash,
-                approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
-            };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
