@@ -12,7 +12,9 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
-use crate::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
+use crate::stateless_validation::chunk_endorsement::{
+    validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
+};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
@@ -1082,6 +1084,12 @@ impl Chain {
             }
             if !header.challenges_result().is_empty() {
                 return Err(Error::InvalidChallenge);
+            }
+
+            let protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+            if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+                validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
 

@@ -10,6 +10,8 @@
 use near_chain::*;
 use near_crypto::*;
 use near_epoch_manager::*;
+use near_jsonrpc_primitives::errors::*;
+use near_network::*;
 use near_parameters::*;
 use near_primitives::*;
 use near_store::*;
@@ -97,13 +99,14 @@ fn main() {
         // For some reason, `EpochInfoAggregator` is not picked up by `inventory`
         // crate at all. In addition to that, `Latest*` structs are not picked up
         // on macos. This is a workaround around that. It is enough to put only
-        // `LatestKnown` here but I don't know why as well.
+        // `LatestKnown` and `ServerError` here but I don't know why as well.
         // The issue may be related to the large size of crates. Other workaround
         // is to move these types to smaller crates.
         // TODO (#11755): find the reason and remove this workaround.
         LatestKnown::ensure_registration();
         LatestWitnessesInfo::ensure_registration();
         EpochInfoAggregator::ensure_registration();
+        ServerError::ensure_registration();
     }
 
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join(PROTOCOL_SCHEMA_FILE);
