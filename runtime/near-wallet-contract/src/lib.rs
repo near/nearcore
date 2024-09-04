@@ -210,24 +210,24 @@ mod tests {
     //     );
     // }
 
-    fn check_wallet_contract_magic_bytes(
-        chain_id: &str,
-        expected_code_hash: &str,
-        expected_magic_hash: &str,
-    ) {
-        assert!(!wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).code().is_empty());
-        let expected_hash =
-            CryptoHash::from_str(expected_magic_hash).expect("Failed to parse hash from string");
-        assert_eq!(
-            *wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).hash(),
-            expected_hash,
-            "magic bytes hash mismatch"
-        );
+    // fn check_wallet_contract_magic_bytes(
+    //     chain_id: &str,
+    //     expected_code_hash: &str,
+    //     expected_magic_hash: &str,
+    // ) {
+    //     assert!(!wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).code().is_empty());
+    //     let expected_hash =
+    //         CryptoHash::from_str(expected_magic_hash).expect("Failed to parse hash from string");
+    //     assert_eq!(
+    //         *wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).hash(),
+    //         expected_hash,
+    //         "magic bytes hash mismatch"
+    //     );
 
-        let expected_code = format!("near{}", expected_code_hash);
-        assert_eq!(
-            wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).code(),
-            expected_code.as_bytes()
-        );
-    }
+    //     let expected_code = format!("near{}", expected_code_hash);
+    //     assert_eq!(
+    //         wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).code(),
+    //         expected_code.as_bytes()
+    //     );
+    // }
 }
