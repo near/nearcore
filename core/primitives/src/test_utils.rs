@@ -354,13 +354,28 @@ impl SignedTransaction {
 }
 
 impl BlockHeader {
-    pub fn init(&mut self) {
+    pub fn set_latest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
         match self {
-            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).init(),
-            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).init(),
+            BlockHeader::BlockHeaderV1(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV3(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
         }
     }
 
@@ -371,9 +386,21 @@ impl BlockHeader {
             &self.inner_rest_bytes(),
         );
         match self {
-            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV1(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV3(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
             BlockHeader::BlockHeaderV4(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
@@ -384,6 +411,16 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+        }
+    }
+
+    pub fn init(&mut self) {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).init(),
+            BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).init(),
         }
     }
 
@@ -567,20 +604,6 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV5(header) => {
                 Arc::make_mut(header).inner_rest.approvals = value
-            }
-        }
-    }
-
-    pub fn set_latest_protocol_version(&mut self, value: ProtocolVersion) {
-        match self {
-            BlockHeader::BlockHeaderV1(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV2(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV3(_) => unreachable!("old header should not appear in tests"),
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.latest_protocol_version = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.latest_protocol_version = value
             }
         }
     }
