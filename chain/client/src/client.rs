@@ -26,7 +26,6 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::PrepareTransactionsChunkContext;
@@ -1645,6 +1644,7 @@ impl Client {
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
+            // TODO check if this logic works in resharding V3
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
@@ -2455,7 +2455,6 @@ impl Client {
         state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
         load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         state_parts_future_spawner: &dyn FutureSpawner,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -2532,7 +2531,6 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 load_memtrie_scheduler,
-                resharding_scheduler,
                 state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),

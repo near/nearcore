@@ -8,7 +8,7 @@ use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
-use crate::resharding::ReshardingCommand;
+use crate::resharding_v2::ReshardingV2Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
@@ -61,8 +61,8 @@ enum SubCommand {
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
 
-    /// Perform on demand resharding
-    Resharding(ReshardingCommand),
+    /// Perform on demand resharding V2
+    Resharding(ReshardingV2Command),
 }
 
 impl DatabaseCommand {

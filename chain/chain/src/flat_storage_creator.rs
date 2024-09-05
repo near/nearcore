@@ -451,7 +451,7 @@ impl FlatStorageCreator {
         // matters during resharding where the shards in the next epoch are
         // different than in the current epoch. The flat storage for the
         // children shards is initially created at the end of the resharding.
-        // This method here is only needed when the node is restared after
+        // This method here is only needed when the node is restarted after
         // resharding is finished but before switching to the new shard layout.
         Self::create_flat_storage_for_next_epoch(
             &chain_head,
