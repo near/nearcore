@@ -140,15 +140,147 @@ pub(crate) fn get_sortable_validator_online_ratio_without_endorsements(
 /// If `cutoff_threshold` is provided, compares the endorsement ratio from the `stats` with the threshold.
 /// If the ratio is below the threshold, it returns 0, otherwise it returns 1.
 fn get_endorsement_ratio(stats: &ValidatorStats, cutoff_threshold: Option<u8>) -> (u64, u64) {
-    let (numer, denom) = cutoff_threshold.map_or_else(
-        || (stats.produced, stats.expected),
-        |threshold| {
-            if stats.less_than(threshold) {
-                (0, 1)
-            } else {
-                (1, 1)
-            }
-        },
-    );
+    let (numer, denom) = if stats.expected == 0 {
+        debug_assert_eq!(stats.produced, 0);
+        (0, 0)
+    } else if let Some(threshold) = cutoff_threshold {
+        if stats.less_than(threshold) {
+            (0, 1)
+        } else {
+            (1, 1)
+        }
+    } else {
+        (stats.produced, stats.expected)
+    };
     (numer, denom)
+}
+
+#[cfg(test)]
+mod test {
+    use near_primitives::types::{BlockChunkValidatorStats, ChunkStats, ValidatorStats};
+    use num_bigint::BigInt;
+    use num_rational::{Ratio, Rational32};
+    use primitive_types::U256;
+
+    use crate::validator_stats::{get_sortable_validator_online_ratio, get_validator_online_ratio};
+
+    const VALIDATOR_STATS: BlockChunkValidatorStats = BlockChunkValidatorStats {
+        block_stats: ValidatorStats { produced: 98, expected: 100 },
+        chunk_stats: ChunkStats {
+            production: ValidatorStats { produced: 76, expected: 100 },
+            endorsement: ValidatorStats { produced: 42, expected: 100 },
+        },
+    };
+
+    const VALIDATOR_STATS_NO_ENDORSEMENT: BlockChunkValidatorStats = BlockChunkValidatorStats {
+        block_stats: ValidatorStats { produced: 98, expected: 100 },
+        chunk_stats: ChunkStats {
+            production: ValidatorStats { produced: 76, expected: 100 },
+            endorsement: ValidatorStats { produced: 0, expected: 0 },
+        },
+    };
+
+    #[test]
+    fn test_average_uptime_ratio_without_endorsement_cutoff() {
+        let endorsement_cutoff = None;
+        let actual_ratio: Ratio<U256> =
+            get_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> =
+            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::new(42, 100)) / 3;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_average_uptime_ratio_with_endorsement_cutoff_passed() {
+        let endorsement_cutoff = Some(30);
+        let actual_ratio: Ratio<U256> =
+            get_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> =
+            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::from_integer(1)) / 3;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_average_uptime_ratio_with_endorsement_cutoff_not_passed() {
+        let endorsement_cutoff = Some(50);
+        let actual_ratio: Ratio<U256> =
+            get_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> =
+            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::from_integer(0)) / 3;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_average_uptime_ratio_with_no_endorsement_expected() {
+        let endorsement_cutoff = Some(50);
+        let actual_ratio: Ratio<U256> =
+            get_validator_online_ratio(&VALIDATOR_STATS_NO_ENDORSEMENT, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> = (Rational32::new(98, 100) + Rational32::new(76, 100)) / 2;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_sortable_average_uptime_ratio_without_endorsement_cutoff() {
+        let endorsement_cutoff = None;
+        let actual_ratio: Ratio<BigInt> =
+            get_sortable_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> =
+            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::new(42, 100)) / 3;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_sortable_average_uptime_ratio_with_endorsement_cutoff_passed() {
+        let endorsement_cutoff = Some(30);
+        let actual_ratio: Ratio<BigInt> =
+            get_sortable_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> =
+            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::from_integer(1)) / 3;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_sortable_average_uptime_ratio_with_endorsement_cutoff_not_passed() {
+        let endorsement_cutoff = Some(50);
+        let actual_ratio: Ratio<BigInt> =
+            get_sortable_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+        let expected_ratio: Ratio<i32> =
+            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::from_integer(0)) / 3;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
+
+    #[test]
+    fn test_sortable_average_uptime_ratio_with_no_endorsement_expected() {
+        let endorsement_cutoff = Some(50);
+        let actual_ratio: Ratio<BigInt> = get_sortable_validator_online_ratio(
+            &VALIDATOR_STATS_NO_ENDORSEMENT,
+            endorsement_cutoff,
+        );
+        let expected_ratio: Ratio<i32> = (Rational32::new(98, 100) + Rational32::new(76, 100)) / 2;
+        assert_eq!(
+            actual_ratio.numer() * expected_ratio.denom(),
+            actual_ratio.denom() * expected_ratio.numer()
+        );
+    }
 }

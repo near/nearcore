@@ -372,7 +372,6 @@ mod tests {
         }
     }
 
-    // Test rewards when some validators are only responsible for endorsements
     #[test]
     fn test_reward_stateless_validation() {
         let epoch_length = 1000;
@@ -458,6 +457,95 @@ mod tests {
                 ])
             );
             assert_eq!(result.1, 7_500_000u128);
+        }
+    }
+
+    #[test]
+    fn test_reward_stateless_validation_with_endorsement_cutoff() {
+        let epoch_length = 1000;
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: Ratio::new(1, 100),
+            num_blocks_per_year: 1000,
+            epoch_length,
+            protocol_reward_rate: Ratio::new(0, 10),
+            protocol_treasury_account: "near".parse().unwrap(),
+            num_seconds_per_year: 1000,
+        };
+        let validator_block_chunk_stats = HashMap::from([
+            // Blocks, chunks, endorsements - endorsement ratio cutoff is exceeded
+            (
+                "test1".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 945, expected: 1000 },
+                    chunk_stats: ChunkStats {
+                        production: ValidatorStats { produced: 944, expected: 1000 },
+                        endorsement: ValidatorStats { produced: 946, expected: 1000 },
+                    },
+                },
+            ),
+            // Blocks, chunks, endorsements - endorsement ratio cutoff is not exceeded
+            (
+                "test2".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 945, expected: 1000 },
+                    chunk_stats: ChunkStats {
+                        production: ValidatorStats { produced: 944, expected: 1000 },
+                        endorsement: ValidatorStats { produced: 446, expected: 1000 },
+                    },
+                },
+            ),
+            // Endorsements only - endorsement ratio cutoff is exceeded
+            (
+                "test3".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkStats::new_with_endorsement(946, 1000),
+                },
+            ),
+            // Endorsements only - endorsement ratio cutoff is not exceeded
+            (
+                "test4".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkStats::new_with_endorsement(446, 1000),
+                },
+            ),
+        ]);
+        let validator_stake = HashMap::from([
+            ("test1".parse().unwrap(), 500_000),
+            ("test2".parse().unwrap(), 500_000),
+            ("test3".parse().unwrap(), 500_000),
+            ("test4".parse().unwrap(), 500_000),
+        ]);
+        let total_supply = 1_000_000_000;
+        let result = reward_calculator.calculate_reward(
+            validator_block_chunk_stats,
+            &validator_stake,
+            total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            epoch_length * NUM_NS_IN_SECOND,
+            ValidatorOnlineThresholds {
+                online_min_threshold: Ratio::new(9, 10),
+                online_max_threshold: Ratio::new(99, 100),
+                endorsement_cutoff_threshold: Some(50),
+            },
+        );
+        // test2 does not get reward since its uptime ration goes below online_min_threshold,
+        // because its endorsement ratio is below the cutoff threshold.
+        // test3 does not get reward since its endorsement ratio is below the cutoff threshold.
+        {
+            assert_eq!(
+                result.0,
+                HashMap::from([
+                    ("near".parse().unwrap(), 0),
+                    ("test1".parse().unwrap(), 1_750_000u128),
+                    ("test2".parse().unwrap(), 0),
+                    ("test3".parse().unwrap(), 2_500_000u128),
+                    ("test4".parse().unwrap(), 0)
+                ])
+            );
+            assert_eq!(result.1, 4_250_000u128);
         }
     }
 
