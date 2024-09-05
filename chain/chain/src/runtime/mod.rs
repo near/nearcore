@@ -961,8 +961,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
     ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
-        let _timer =
-            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
+        let _timer = metrics::APPLYING_CHUNKS_TIME
+            .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
+            .start_timer();
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => self.get_trie_for_shard(
