@@ -67,3 +67,4 @@
 
 - [Overview](./misc/README.md)
 - [State Sync Dump](./misc/state_sync_dump.md)
+- [Archival node - recovery of missing data](./misc/archival_data_recovery.md)
