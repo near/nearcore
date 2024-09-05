@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use lru::LruCache;
 use near_chain_primitives::Error;
@@ -27,7 +27,7 @@ pub struct ChunkEndorsementTracker {
     store: Store,
     /// We store the validated chunk endorsements received from chunk validators.
     /// Interior mutability is required to update the cache in process_chunk_endorsement & compute_chunk_endorsements.
-    chunk_endorsements: Mutex<LruCache<ChunkProductionKey, HashMap<AccountId, ChunkEndorsementV2>>>,
+    chunk_endorsements: LruCache<ChunkProductionKey, HashMap<AccountId, ChunkEndorsementV2>>,
 }
 
 impl ChunkEndorsementTracker {
@@ -35,27 +35,21 @@ impl ChunkEndorsementTracker {
         Self {
             epoch_manager,
             store,
-            chunk_endorsements: Mutex::new(LruCache::new(
+            chunk_endorsements: LruCache::new(
                 NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap(),
-            )),
+            ),
         }
     }
 
     // Validate the chunk endorsement and store it in the cache.
     pub(crate) fn process_chunk_endorsement(
-        &self,
+        &mut self,
         endorsement: ChunkEndorsementV2,
     ) -> Result<(), Error> {
         // Check if we have already received chunk endorsement from this validator.
         let key = endorsement.chunk_production_key();
         let account_id = endorsement.account_id();
-        if self
-            .chunk_endorsements
-            .lock()
-            .unwrap()
-            .peek(&key)
-            .is_some_and(|entry| entry.contains_key(account_id))
-        {
+        if self.chunk_endorsements.peek(&key).is_some_and(|entry| entry.contains_key(account_id)) {
             tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
             return Ok(());
         }
@@ -63,8 +57,6 @@ impl ChunkEndorsementTracker {
         // Validate the chunk endorsement and store it in the cache.
         if validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
             self.chunk_endorsements
-                .lock()
-                .unwrap()
                 .get_or_insert_mut(key, || HashMap::new())
                 .insert(account_id.clone(), endorsement);
         };
@@ -77,7 +69,7 @@ impl ChunkEndorsementTracker {
     /// in a block as is.
     /// We returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
     pub(crate) fn collect_chunk_endorsements(
-        &self,
+        &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
         let shard_id = chunk_header.shard_id();
@@ -104,8 +96,7 @@ impl ChunkEndorsementTracker {
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
         //    3. We still need to validate if the chunk_hash matches the chunk_header.chunk_hash()
-        let mut chunk_endorsements = self.chunk_endorsements.lock().unwrap();
-        let Some(entry) = chunk_endorsements.get_mut(&key) else {
+        let Some(entry) = self.chunk_endorsements.get_mut(&key) else {
             // Early return if no chunk_endorsements found in our cache.
             return Ok(ChunkEndorsementsState::NotEnoughStake(None));
         };

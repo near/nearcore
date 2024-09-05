@@ -66,7 +66,7 @@ impl ChunkEndorsementTracker {
 
     // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
     pub fn process_chunk_endorsement(
-        &self,
+        &mut self,
         endorsement: ChunkEndorsement,
         chunk_header: Option<ShardChunkHeader>,
     ) -> Result<(), Error> {
@@ -81,7 +81,7 @@ impl ChunkEndorsementTracker {
     }
 
     pub fn collect_chunk_endorsements(
-        &self,
+        &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
         let epoch_id =
