@@ -1987,12 +1987,12 @@ impl<T: ChainAccess> TxMirror<T> {
         let target_height2 = target_height.clone();
         let target_head2 = target_head.clone();
         let tracker2 = tracker.clone();
-        let arbiter = actix::Arbiter::new();
+        let index_target_thread = actix::Arbiter::new();
 
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
-        arbiter.spawn(async move {
+        index_target_thread.spawn(async move {
             let res = Self::index_target_loop(
                 tracker2,
                 tx_block_queue2,
@@ -2082,10 +2082,10 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue2 = tx_block_queue.clone();
         let target_client2 = target_client.clone();
         let db = self.db.clone();
-        let arbiter2 = actix::Arbiter::new();
+        let send_txs_thread = actix::Arbiter::new();
         let (send_txs_done_tx, send_txs_done_rx) =
             tokio::sync::oneshot::channel::<anyhow::Result<()>>();
-        arbiter2.spawn(async move {
+        send_txs_thread.spawn(async move {
             let res = Self::send_txs_loop(
                 db,
                 blocks_sent_tx,
