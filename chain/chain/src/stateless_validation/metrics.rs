@@ -72,7 +72,27 @@ pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: LazyLock<HistogramVec> = LazyL
         "near_chunk_state_witness_total_size",
         "Stateless validation compressed state witness size in bytes",
         &["shard_id"],
-        Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
+        Some(witness_size_buckets()),
+    )
+    .unwrap()
+});
+
+pub static CHUNK_STATE_WITNESS_WITH_CACHE_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_with_cache_size",
+        "Stateless validation compressed state witness with filtered values size in bytes",
+        &["shard_id"],
+        Some(witness_size_buckets()),
+    )
+    .unwrap()
+});
+
+pub static MAIN_STORAGE_PROOF_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_main_storage_proof_size",
+        "Stateless validation uncompressed storage proof in bytes",
+        &["shard_id", "context"],
+        Some(witness_size_buckets()),
     )
     .unwrap()
 });
@@ -176,6 +196,10 @@ fn record_witness_size_metrics_fallible(
         .with_label_values(&[&shard_id.as_str()])
         .observe(borsh::to_vec(&witness.source_receipt_proofs)?.len() as f64);
     Ok(())
+}
+
+fn witness_size_buckets() -> Vec<f64> {
+    linear_buckets(100_000.0, 100_000.0, 100).unwrap()
 }
 
 /// Buckets from 0 to 10MB

@@ -1,9 +1,16 @@
+use std::collections::HashSet;
+
 use near_chain::stateless_validation::chunk_validation::validate_prepared_transactions;
+use near_chain::stateless_validation::metrics::{CHUNK_STATE_WITNESS_WITH_CACHE_SIZE, MAIN_STORAGE_PROOF_SIZE};
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
+use near_primitives::challenge::{PartialState, TrieValue};
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::state_witness::{ChunkStateWitness, EncodedChunkStateWitness};
 
+use crate::metrics::STATE_CACHE_SIZE;
 use crate::Client;
 
 impl Client {
@@ -78,6 +85,7 @@ impl Client {
             chunk,
             validated_transactions.storage_proof,
         )?;
+        self.apply_state_caching(witness.clone());
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
@@ -88,5 +96,42 @@ impl Client {
             None,
         )?;
         Ok(())
+    }
+
+    fn apply_state_caching(&mut self, mut witness: ChunkStateWitness) {
+        let shard_id = witness.chunk_header.shard_id();
+        let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+        let cache = self.state_cache.entry(shard_id).or_default();
+        MAIN_STORAGE_PROOF_SIZE
+            .with_label_values(&[&shard_id.to_string(), "no_cache"])
+            .observe(borsh::to_vec(values).unwrap().len() as f64);
+        *values = Self::filter_state_values(cache, std::mem::take(values));
+        MAIN_STORAGE_PROOF_SIZE
+            .with_label_values(&[&shard_id.to_string(), "with_cache"])
+            .observe(borsh::to_vec(values).unwrap().len() as f64);
+        STATE_CACHE_SIZE.with_label_values(&[&shard_id.to_string()]).set(cache.len() as i64);
+        let (encoded_witness, _raw_witness_size) =
+            EncodedChunkStateWitness::encode(&witness).unwrap();
+        CHUNK_STATE_WITNESS_WITH_CACHE_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(encoded_witness.size_bytes() as f64);
+    }
+
+    fn filter_state_values(
+        cache: &mut HashSet<CryptoHash>,
+        values: Vec<TrieValue>,
+    ) -> Vec<TrieValue> {
+        const SIZE_THRESHOLD: usize = 64000;
+        let mut ret = Vec::new();
+        for val in values {
+            if val.len() >= SIZE_THRESHOLD {
+                let key = CryptoHash::hash_bytes(val.as_ref());
+                if !cache.insert(key) {
+                    continue;
+                }
+            }
+            ret.push(val);
+        }
+        ret
     }
 }

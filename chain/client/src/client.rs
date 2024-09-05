@@ -192,6 +192,8 @@ pub struct Client {
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
+
+    pub state_cache: HashMap<ShardId, HashSet<CryptoHash>>,
 }
 
 impl AsRef<Client> for Client {
@@ -404,6 +406,7 @@ impl Client {
             chunk_endorsement_tracker,
             partial_witness_adapter,
             chunk_distribution_network,
+            state_cache: HashMap::new(),
         })
     }
 

@@ -618,6 +618,15 @@ pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_SIZE: LazyLock<IntGaugeVec> =
         .unwrap()
     });
 
+pub(crate) static STATE_CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_cache_size",
+        "state cache size",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: LazyLock<IntGaugeVec> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
