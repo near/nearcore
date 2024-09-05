@@ -55,6 +55,17 @@ impl ChunkEndorsementsBitmap {
         let bitvec = BitVecType::from_vec(self.inner[shard_id as usize].clone());
         Box::new(bitvec.into_iter())
     }
+
+    /// Returns the number of shards in the endorsements.
+    pub fn num_shards(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns the full length of the bitmap for a given shard.
+    /// Note that the size may be greater than the number of validator assignments.
+    pub fn len(&self, shard_id: ShardId) -> Option<usize> {
+        self.inner.get(shard_id as usize).map(|v| v.len() * 8)
+    }
 }
 
 #[cfg(test)]
@@ -74,15 +85,17 @@ mod tests {
     ) {
         // Endorsements from the bitmap iterator must match the endorsements given previously.
         for (shard_id, endorsements) in expected_endorsements.iter().enumerate() {
-            // 1. Endorsements from the bitmap iterator must match the endorsements given previously.
-            assert_eq!(
-                bitmap.iter(shard_id as ShardId).take(num_assignments).collect_vec(),
-                *endorsements
-            );
-            // 2. All remaining bits after the endorsement bits must be 0.
-            for value in bitmap.iter(shard_id as ShardId).skip(num_assignments) {
-                assert_eq!(value, false);
-            }
+            let num_bits = bitmap.len(shard_id as ShardId).unwrap();
+            let bits = bitmap.iter(shard_id as ShardId).collect_vec();
+            // Number of bits must be equal to the size of the bit iterator for the corresponding shard.
+            assert_eq!(num_bits, bits.len());
+            // Bitmap must contain the minimal number of bits to represent the endorsements.
+            assert_eq!(num_bits, num_assignments.div_ceil(8) * 8);
+            // Endorsements from the bitmap iterator must match the endorsements given previously.
+            let mut expected_bits = endorsements.clone();
+            // All remaining bits after the endorsement bits must be false.
+            expected_bits.extend(std::iter::repeat(false).take(num_bits - num_assignments));
+            assert_eq!(bits, expected_bits);
         }
     }
 
