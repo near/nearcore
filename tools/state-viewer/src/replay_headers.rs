@@ -97,7 +97,7 @@ fn get_block_info(
     let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
     let chunk_endorsements_bitmap: Option<ChunkEndorsementsBitmap> =
         if ProtocolFeature::StatelessValidation.enabled(protocol_version)
-            && !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version)
+            && header.chunk_endorsements().is_none()
         {
             let block = chain_store.get_block(header.hash())?;
             let chunks = block.chunks();

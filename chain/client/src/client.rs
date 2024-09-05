@@ -188,7 +188,7 @@ pub struct Client {
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
-    pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
@@ -339,10 +339,10 @@ impl Client {
             config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
+        let chunk_endorsement_tracker = ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store().clone(),
-        ));
+        );
         // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
         let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
             && config.chain_id != near_primitives::chains::TESTNET;
@@ -350,7 +350,6 @@ impl Client {
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
-            chunk_endorsement_tracker.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
             panic_on_validation_error,
@@ -570,7 +569,7 @@ impl Client {
         if prepare_chunk_headers {
             self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                 &head.last_block_hash,
-                self.chunk_endorsement_tracker.as_ref(),
+                &mut self.chunk_endorsement_tracker,
             )?;
         }
 

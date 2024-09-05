@@ -46,7 +46,6 @@ near-time = { workspace = true }
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
-near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
 near-schema-checker-lib.workspace = true
 
@@ -56,7 +55,6 @@ test_features = []
 solomon = ["reed-solomon-erasure", "itertools"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand", "itertools"]
 clock = ["near-time/clock", "near-time/serde"]
-dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = [
   "near-primitives-core/protocol_feature_fix_staking_threshold",
 ]
