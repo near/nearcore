@@ -19,6 +19,7 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 
 use super::encoding::{WitnessEncoder, WitnessEncoderCache, WitnessPart};
+use near_primitives::utils::compression::CompressedData;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.

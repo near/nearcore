@@ -29,6 +29,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ProtocolVersion, ShardId};
+use near_primitives::utils::compression::CompressedData;
 use near_store::PartialStorage;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;

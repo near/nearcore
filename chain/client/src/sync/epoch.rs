@@ -17,12 +17,13 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::{
-    EpochSyncProof, EpochSyncProofCurrentEpochData, EpochSyncProofLastEpochData,
-    EpochSyncProofPastEpochData,
+    CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
+    EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::utils::compression::CompressedData;
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -487,8 +488,15 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
                         return;
                     }
                 };
+                let (compressed_proof, _) = match CompressedEpochSyncProof::encode(&proof) {
+                    Ok(compressed_proof) => compressed_proof,
+                    Err(e) => {
+                        tracing::error!("Failed to compress epoch sync proof: {:?}", e);
+                        return;
+                    }
+                };
                 network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::EpochSyncResponse { route_back, proof },
+                    NetworkRequests::EpochSyncResponse { route_back, proof: compressed_proof },
                 ));
             },
         )
@@ -498,10 +506,17 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
 impl Handler<EpochSyncResponseMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
+        let (proof, _) = match msg.proof.decode() {
+            Ok(proof) => proof,
+            Err(e) => {
+                tracing::error!("Failed to uncompress epoch sync proof: {:?}", e);
+                return;
+            }
+        };
         if let Err(e) = self.client.epoch_sync.apply_proof(
             &mut self.client.sync_status,
             &mut self.client.chain,
-            msg.proof,
+            proof,
             msg.from_peer,
             self.client.epoch_manager.as_ref(),
         ) {
