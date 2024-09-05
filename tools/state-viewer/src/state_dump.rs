@@ -184,7 +184,11 @@ pub fn state_dump_redis(
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
                     let redis_key = [b"code:", account_id.as_bytes()].concat();
-                    let () = redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let () = redis_connection.zadd(
+                        redis_key.clone(),
+                        block_hash.as_ref(),
+                        block_height,
+                    )?;
                     let value_vec: &[u8] = code.as_ref();
                     let () = redis_connection.set(
                         [redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(),
