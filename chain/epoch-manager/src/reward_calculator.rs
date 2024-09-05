@@ -531,9 +531,9 @@ mod tests {
                 endorsement_cutoff_threshold: Some(50),
             },
         );
-        // test2 does not get reward since its uptime ration goes below online_min_threshold,
+        // "test2" does not get reward since its uptime ration goes below online_min_threshold,
         // because its endorsement ratio is below the cutoff threshold.
-        // test3 does not get reward since its endorsement ratio is below the cutoff threshold.
+        // "test4" does not get reward since its endorsement ratio is below the cutoff threshold.
         {
             assert_eq!(
                 result.0,
