@@ -1139,10 +1139,6 @@ impl InstanceHandle {
     }
 }
 
-impl Drop for InstanceHandle {
-    fn drop(&mut self) {}
-}
-
 /// Initializes the host environments.
 ///
 /// # Safety

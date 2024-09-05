@@ -97,7 +97,3 @@ impl MemoryLike for NearVmMemory {
         Ok(unsafe { self.get_mut(offset, buffer.len())? }.copy_from_slice(buffer))
     }
 }
-
-impl Drop for NearVmMemory {
-    fn drop(&mut self) {}
-}
