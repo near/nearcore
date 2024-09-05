@@ -224,9 +224,9 @@ impl NearVM {
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
-        let code_hash = contract.hash();
+        let key = get_contract_cache_key(contract.hash(), &self.config);
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
-            code_hash,
+            key,
             || {
                 // `cache` stores compiled machine code in the database
                 //
@@ -235,7 +235,6 @@ impl NearVM {
                 // outcome). And `cache`, being a database, can fail with an `io::Error`.
                 let _span =
                     tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
-                let key = get_contract_cache_key(code_hash, &self.config);
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let Some(compiled_contract_info) = cache_record else {
                     let Some(code) = contract.get_code() else {
