@@ -1649,13 +1649,14 @@ impl Chain {
             .entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        let hash = *header.prev_hash();
-        let prev_block = self.get_block(&hash)?;
+        let prev_hash = *header.prev_hash();
+        let prev_block = self.get_block(&prev_hash)?;
 
         // The congestion control added a dependency on the prev block when
         // applying chunks in a block. This means that we need to keep the
-        // blocks at sync hash, prev hash and prev prev hash. The heigh of that
-        // block is sync_height - 2.
+        // blocks at sync hash, prev hash and prev prev hash.
+        // Due to epoch finalization restrictions these blocks have consecutive heights,
+        // so the height of the prev prev block is sync_height - 2.
         let mut new_tail = prev_block.header().height().saturating_sub(1);
 
         // In case there are missing chunks we need to keep more than just the
@@ -1684,7 +1685,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_sender);
+        self.check_orphans(me, prev_hash, block_processing_artifacts, apply_chunks_done_sender);
         Ok(())
     }
 
