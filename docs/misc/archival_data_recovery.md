@@ -2,7 +2,7 @@
 
 # Incident description
 
-In early 2024 there have been a few incidents on archival node storage. As result of these incidents archival node might have lost data from January to March.
+In early 2024 there have been a few incidents on archival node storage. As result of these incidents archival node might have lost some data from January to March.
 
 The practical effect of this issue is that requests querying the state of an account may fail, returning instead an internal server error.
 
