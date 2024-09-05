@@ -32,7 +32,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesForResharding, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -518,18 +518,6 @@ impl ChainStore {
                 Err(err) => Err(err.into()),
             })
             .collect()
-    }
-
-    pub fn get_state_changes_for_resharding(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<StateChangesForResharding, Error> {
-        let key = &get_block_shard_id(block_hash, shard_id);
-        option_to_not_found(
-            self.store.get_ser(DBCol::StateChangesForSplitStates, key),
-            format_args!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
-        )
     }
 
     /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
@@ -1419,9 +1407,6 @@ pub struct ChainStoreUpdate<'a> {
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
-    // All state changes made by a chunk, this is only used for resharding.
-    add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
-    remove_all_state_changes_for_resharding: bool,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1447,8 +1432,6 @@ impl<'a> ChainStoreUpdate<'a> {
             largest_target_height: None,
             trie_changes: vec![],
             state_transition_data: Default::default(),
-            add_state_changes_for_resharding: HashMap::new(),
-            remove_all_state_changes_for_resharding: false,
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -2062,22 +2045,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    pub fn add_state_changes_for_resharding(
-        &mut self,
-        block_hash: CryptoHash,
-        shard_id: ShardId,
-        state_changes: StateChangesForResharding,
-    ) {
-        let prev =
-            self.add_state_changes_for_resharding.insert((block_hash, shard_id), state_changes);
-        // We should not save state changes for the same chunk twice
-        assert!(prev.is_none());
-    }
-
-    pub fn remove_all_state_changes_for_resharding(&mut self) {
-        self.remove_all_state_changes_for_resharding = true;
-    }
-
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
         self.add_blocks_to_catchup.push((prev_hash, block_hash));
     }
@@ -2547,19 +2514,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(&block_hash, shard_id),
                     &state_transition_data,
                 )?;
-            }
-            for ((block_hash, shard_id), state_changes) in
-                self.add_state_changes_for_resharding.drain()
-            {
-                store_update.set_ser(
-                    DBCol::StateChangesForSplitStates,
-                    &get_block_shard_id(&block_hash, shard_id),
-                    &state_changes,
-                )?;
-            }
-
-            if self.remove_all_state_changes_for_resharding {
-                store_update.delete_all(DBCol::StateChangesForSplitStates);
             }
         }
         {
