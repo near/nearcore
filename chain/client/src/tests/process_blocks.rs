@@ -30,7 +30,7 @@ fn test_not_process_height_twice() {
 
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    duplicate_block.mut_header().get_mut().inner_rest.prev_validator_proposals = proposals;
+    duplicate_block.mut_header().set_prev_validator_proposals(proposals);
     duplicate_block.mut_header().resign(&validator_signer);
     let dup_block_hash = *duplicate_block.hash();
     let signer = env.clients[0].validator_signer.get();
@@ -90,13 +90,13 @@ fn test_bad_shard_id() {
     );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
-    block.mut_header().get_mut().inner_rest.chunk_headers_root =
-        Block::compute_chunk_headers_root(&chunks).0;
-    block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
-        Block::compute_chunk_prev_outgoing_receipts_root(&chunks);
+    block.mut_header().set_chunk_headers_root(Block::compute_chunk_headers_root(&chunks).0);
+    block.mut_header().set_prev_chunk_outgoing_receipts_root(
+        Block::compute_chunk_prev_outgoing_receipts_root(&chunks),
+    );
     block.set_chunks(chunks);
-    block.mut_header().get_mut().inner_rest.block_body_hash =
-        block.compute_block_body_hash().unwrap();
+    let body_hash = block.compute_block_body_hash().unwrap();
+    block.mut_header().set_block_body_hash(body_hash);
     block.mut_header().resign(&validator_signer);
 
     let err = env.clients[0]
@@ -139,7 +139,7 @@ fn test_bad_block_signature() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.mut_header().get_mut().signature = Signature::default();
+    bad_block.mut_header().set_signature(Signature::default());
     let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
