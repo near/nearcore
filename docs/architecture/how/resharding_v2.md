@@ -1,4 +1,6 @@
-# Resharding
+# Resharding V2
+
+**DISCLAIMER**: This document describes Resharding V2 and it may not be up to date with recent changes to `nearcore`.
 
 ## Resharding
 

@@ -129,6 +129,7 @@ impl TestEnv {
                     .unwrap();
             }
         }
+        self.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     /// Produces block by given client, which may kick off chunk production.
