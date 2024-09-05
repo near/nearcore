@@ -475,9 +475,7 @@ impl DelayedReceiptQueueWrapper {
         let gas = compute_receipt_congestion_gas(&receipt, &config)?;
         let size = compute_receipt_size(&receipt)? as u64;
 
-        // TODO - should depend on protocol version
-        let use_state_stored_receipt = true;
-        let receipt = match use_state_stored_receipt {
+        let receipt = match config.use_state_stored_receipt {
             true => {
                 let metadata = StateStoredReceiptMetadata { gas, size };
                 let receipt = StateStoredReceipt::new(receipt, metadata);
