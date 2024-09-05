@@ -102,9 +102,10 @@ fn query_status_not_crash() {
                 Clock::real(),
                 None,
             );
-            next_block.mut_header().get_mut().inner_lite.timestamp =
-                (next_block.header().timestamp() + Duration::seconds(60)).unix_timestamp_nanos()
-                    as u64;
+            let timestamp = next_block.header().timestamp();
+            next_block
+                .mut_header()
+                .set_timestamp((timestamp + Duration::seconds(60)).unix_timestamp_nanos() as u64);
             next_block.mut_header().resign(&signer);
 
             actix::spawn(

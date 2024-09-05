@@ -47,9 +47,8 @@ fn test_block_with_challenges() {
         let challenges = vec![challenge];
         block.set_challenges(challenges.clone());
         let block_body_hash = block.compute_block_body_hash().unwrap();
-        block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
-        block.mut_header().get_mut().inner_rest.challenges_root =
-            Block::compute_challenges_root(&challenges);
+        block.mut_header().set_block_body_hash(block_body_hash);
+        block.mut_header().set_challenges_root(Block::compute_challenges_root(&challenges));
         block.mut_header().resign(&*signer);
     }
 
