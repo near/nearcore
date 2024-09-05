@@ -66,6 +66,8 @@ Follow the instructions below if, for any reason, you prefer to perform the manu
 * `cold` storage must be mounted on an SSD disk or better
 * The config `resharding_config.batch_delay` must be set to 0.
 
+After the recovery is finished the configuration changes can be undone and a hard disk drive can be used to mount the `cold` storage.
+
 **Important considerations:**
 
 * The recovery procedure will, most likely, take more than one week
