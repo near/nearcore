@@ -220,6 +220,9 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
+
+    // Receipt State Storage
+    UseStateStoredReceipt,
 }
 
 #[derive(

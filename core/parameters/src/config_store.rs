@@ -50,6 +50,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Increase main_storage_proof_size_soft_limit
     (72, include_config!("72.yaml")),
     (129, include_config!("129.yaml")),
+    // StateStoredReceipt
+    (146, include_config!("146.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -119,6 +121,7 @@ impl RuntimeConfigStore {
                     account_creation_config: runtime_config.account_creation_config.clone(),
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
+                    use_state_stored_receipt: runtime_config.use_state_stored_receipt,
                 }),
             );
             store.insert(0, Arc::new(runtime_config.clone()));

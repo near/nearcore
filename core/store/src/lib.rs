@@ -753,9 +753,9 @@ pub fn get<T: BorshDeserialize>(
     match trie.get(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
-            Err(_err) => {
-                Err(StorageError::StorageInconsistentState("Failed to deserialize".to_string()))
-            }
+            Err(err) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to deserialize. err={err:?}"
+            ))),
             Ok(value) => Ok(Some(value)),
         },
     }

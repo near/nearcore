@@ -218,3 +218,4 @@ allowed_shard_outgoing_gas              1_000_000_000_000_000
 max_tx_gas                               500_000_000_000_000
 min_tx_gas                                20_000_000_000_000
 reject_tx_congestion_threshold          50 / 100
+use_state_stored_receipt                false

@@ -256,7 +256,14 @@ impl ReceiptSinkV2<'_> {
         )? {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
-                self.buffer_receipt(receipt, size, gas, state_update, shard)?;
+                self.buffer_receipt(
+                    receipt,
+                    size,
+                    gas,
+                    state_update,
+                    shard,
+                    apply_state.config.use_state_stored_receipt,
+                )?;
             }
         }
         Ok(())
@@ -308,9 +315,8 @@ impl ReceiptSinkV2<'_> {
         gas: u64,
         state_update: &mut TrieUpdate,
         shard: u64,
+        use_state_stored_receipt: bool,
     ) -> Result<(), RuntimeError> {
-        // TODO
-        let use_state_stored_receipt = true;
         let receipt = match use_state_stored_receipt {
             true => {
                 let metadata = StateStoredReceiptMetadata { gas, size };
