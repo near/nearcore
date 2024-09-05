@@ -191,13 +191,12 @@ impl WasmtimeVM {
         method: &str,
         closure: impl FnOnce(GasCounter, Module) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
-        let code_hash = contract.hash();
         type MemoryCacheType = (u64, Result<Module, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
+        let key = get_contract_cache_key(contract.hash(), &self.config);
         let (wasm_bytes, module_result) = cache.memory_cache().try_lookup(
-            code_hash,
+            key,
             || {
-                let key = get_contract_cache_key(code_hash, &self.config);
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let Some(compiled_contract_info) = cache_record else {
                     let Some(code) = contract.get_code() else {

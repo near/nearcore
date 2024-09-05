@@ -498,7 +498,7 @@ pub fn get_promise_yield_timeouts(
 
 #[cfg(test)]
 mod tests {
-    use crate::resharding::{
+    use crate::resharding_v2::{
         apply_delayed_receipts_to_children_states_impl,
         apply_promise_yield_timeouts_to_children_states_impl, get_delayed_receipts,
         get_promise_yield_timeouts,

@@ -195,7 +195,6 @@ impl ChainStore {
                 .cloned()
                 .collect::<Vec<_>>();
             let epoch_manager = epoch_manager.clone();
-            let runtime = runtime_adapter.clone();
             let mut chain_store_update = self.store_update();
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
@@ -209,11 +208,6 @@ impl ChainStore {
                         epoch_manager.as_ref(),
                         *block_hash,
                         GCMode::Canonical(tries.clone()),
-                    )?;
-                    chain_store_update.clear_resharding_data(
-                        runtime.as_ref(),
-                        epoch_manager.as_ref(),
-                        *block_hash,
                     )?;
                     gc_blocks_remaining -= 1;
                 } else {
@@ -525,59 +519,6 @@ impl<'a> ChainStoreUpdate<'a> {
             shard_uids_to_gc.extend(next_shard_layout.shard_uids());
         }
         shard_uids_to_gc
-    }
-
-    /// GC trie state and flat state data after a resharding event
-    /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
-    /// During GC, when we detect a change in shard layout, we can clear off all entries from
-    /// the parent shards
-    /// TODO(resharding): Need to clean remaining columns after resharding
-    fn clear_resharding_data(
-        &mut self,
-        runtime: &dyn RuntimeAdapter,
-        epoch_manager: &dyn EpochManagerAdapter,
-        block_hash: CryptoHash,
-    ) -> Result<(), Error> {
-        // Need to check if this is the last block of the epoch where resharding is completed
-        // which means shard layout changed in the previous epoch
-        if !epoch_manager.is_last_block_in_finished_epoch(&block_hash)? {
-            return Ok(());
-        }
-
-        // Since this code is related to GC, we need to be careful about accessing block_infos. Note
-        // that the BlockInfo exists for the current block_hash as it's not been GC'd yet.
-        // However, we need to use the block header to get the epoch_id and shard_layout for
-        // first_block_epoch_header and last_block_prev_epoch_hash as BlockInfo for these blocks is
-        // already GC'd while BlockHeader isn't GC'd.
-        let block_info = epoch_manager.get_block_info(&block_hash)?;
-        let first_block_epoch_hash = block_info.epoch_first_block();
-        if first_block_epoch_hash == &CryptoHash::default() {
-            return Ok(());
-        }
-        let first_block_epoch_header = self.get_block_header(first_block_epoch_hash)?;
-        let last_block_prev_epoch_header =
-            self.get_block_header(first_block_epoch_header.prev_hash())?;
-
-        let epoch_id = first_block_epoch_header.epoch_id();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let prev_epoch_id = last_block_prev_epoch_header.epoch_id();
-        let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
-        if shard_layout == prev_shard_layout {
-            return Ok(());
-        }
-
-        // Now we can proceed to removing the trie state and flat state
-        let mut store_update = self.store().store_update();
-        for shard_uid in prev_shard_layout.shard_uids() {
-            tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
-            runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
-            runtime
-                .get_flat_storage_manager()
-                .remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
-        }
-
-        self.merge(store_update);
-        Ok(())
     }
 
     // Clearing block data of `block_hash`, if on a fork.
