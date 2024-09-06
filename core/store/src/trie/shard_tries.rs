@@ -590,7 +590,7 @@ impl WrappedTrieChanges {
             // evaluating changes for resharding in process_resharding_results function
             change_with_trie_key
                 .changes
-                .retain(|change| change.cause != StateChangeCause::Resharding);
+                .retain(|change| change.cause != StateChangeCause::ReshardingV2);
             if change_with_trie_key.changes.is_empty() {
                 continue;
             }
