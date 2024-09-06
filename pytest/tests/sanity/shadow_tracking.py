@@ -86,7 +86,6 @@ class ShadowTrackingTest(unittest.TestCase):
         nodes[2].kill()
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
         nodes[2].start(boot_node=nodes[3])
-        nodes[2].stop_checking_store()
         # Give it some time to catch up.
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
 
