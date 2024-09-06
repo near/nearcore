@@ -3,11 +3,6 @@
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
-use crate::metrics::{
-    ReshardingStatus, RESHARDING_BATCH_APPLY_TIME, RESHARDING_BATCH_COMMIT_TIME,
-    RESHARDING_BATCH_COUNT, RESHARDING_BATCH_PREPARE_TIME, RESHARDING_BATCH_SIZE,
-    RESHARDING_STATUS,
-};
 use crate::Chain;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::error::Error;
@@ -21,7 +16,7 @@ use near_store::{ShardTries, ShardUId, StorageError, Trie};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, warn};
 
 /// ReshardingRequest has all the information needed to start a resharding job. This message is sent
@@ -106,7 +101,6 @@ type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
 
 struct TrieUpdateBatch {
     entries: Vec<TrieEntry>,
-    size: u64,
 }
 
 // Function to return batches of trie key, value pairs from flat storage iter. We return None at the end of iter.
@@ -128,7 +122,7 @@ fn get_trie_update_batch(
     if entries.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(TrieUpdateBatch { entries, size }))
+        Ok(Some(TrieUpdateBatch { entries }))
     }
 }
 
@@ -207,9 +201,6 @@ impl Chain {
             Ok(_) => {}
             Err(err) => {
                 tracing::error!(target: "resharding", ?shard_uid, ?err, "Resharding failed, manual recovery is necessary!");
-                RESHARDING_STATUS
-                    .with_label_values(&[&shard_uid.to_string()])
-                    .set(ReshardingStatus::Failed.into());
             }
         }
         ReshardingResponse { shard_id, sync_hash, new_state_roots }
@@ -224,8 +215,7 @@ impl Chain {
         state_roots: &mut HashMap<ShardUId, CryptoHash>,
         mut iter: &mut impl Iterator<Item = Result<(Vec<u8>, Option<Vec<u8>>), FlatStorageError>>,
     ) -> Result<(), Error> {
-        let shard_uid_string = shard_uid.to_string();
-        let metrics_labels = [shard_uid_string.as_str()];
+        let mut batch_count = 0;
 
         loop {
             if !handle.get() {
@@ -235,19 +225,17 @@ impl Chain {
             }
             // Prepare the batch.
             let (batch, prepare_time) = {
-                let histogram = RESHARDING_BATCH_PREPARE_TIME.with_label_values(&metrics_labels);
-                let timer = histogram.start_timer();
+                let timer = Instant::now();
                 let batch = get_trie_update_batch(&config.get(), &mut iter);
                 let batch = batch.map_err(Into::<StorageError>::into)?;
                 let Some(batch) = batch else { break };
-                (batch, timer.stop_and_record())
+                (batch, timer.elapsed())
             };
 
             // Apply the batch - add values to the children shards.
-            let TrieUpdateBatch { entries, size } = batch;
+            let TrieUpdateBatch { entries } = batch;
             let (store_update, apply_time) = {
-                let histogram = RESHARDING_BATCH_APPLY_TIME.with_label_values(&metrics_labels);
-                let timer = histogram.start_timer();
+                let timer = Instant::now();
                 // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
                 // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
                 let (store_update, new_state_roots) = tries.add_values_to_children_states(
@@ -256,23 +244,17 @@ impl Chain {
                     &checked_account_id_to_shard_uid,
                 )?;
                 *state_roots = new_state_roots;
-                (store_update, timer.stop_and_record())
+                (store_update, timer.elapsed())
             };
 
             // Commit the store update.
             let commit_time = {
-                let histogram = RESHARDING_BATCH_COMMIT_TIME.with_label_values(&metrics_labels);
-                let timer = histogram.start_timer();
+                let timer = Instant::now();
                 store_update.commit()?;
-                timer.stop_and_record()
+                timer.elapsed()
             };
 
-            let batch_count = {
-                let metric = RESHARDING_BATCH_COUNT.with_label_values(&metrics_labels);
-                metric.inc();
-                metric.get()
-            };
-            RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
+            batch_count += 1;
 
             debug!(target: "resharding", ?shard_uid, ?batch_count, ?prepare_time, ?apply_time, ?commit_time, "batch processed");
 
@@ -304,10 +286,6 @@ impl Chain {
             .ok_or(Error::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
-
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::BuildingState.into());
 
         // function to map account id to shard uid in range of child shards
         let checked_account_id_to_shard_uid =
@@ -393,19 +371,12 @@ impl Chain {
             on_demand: true,
         };
 
-        // Technically it's not scheduled yet but it should be immediately after
-        // this method returns.
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::Scheduled.into());
-
         Ok(resharding_request)
     }
 
     /// Postprocessing stage for on demand resharding. This method should be called only by the resharding tool.
     pub fn custom_build_state_for_split_shards_v2_postprocessing(
         &mut self,
-        shard_uid: ShardUId,
         sync_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
     ) -> Result<(), Error> {
@@ -424,10 +395,6 @@ impl Chain {
                 warn!(target:"resharding-v2", ?sync_hash, "Chunk extra not found in DB");
             }
         }
-
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::Finished.into());
 
         Ok(())
     }
