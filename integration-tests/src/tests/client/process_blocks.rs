@@ -1869,13 +1869,17 @@ fn test_gc_tail_update() {
     let signer = env.clients[1].validator_signer.get();
     env.clients[1].sync_block_headers(headers, &signer).unwrap();
     // simulate save sync hash block
+    let prev_prev_sync_block = blocks[blocks.len() - 4].clone();
+    let prev_prev_sync_hash = *prev_prev_sync_block.hash();
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let prev_sync_hash = *prev_sync_block.hash();
     let prev_sync_height = prev_sync_block.header().height();
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    env.clients[1].chain.save_block(prev_prev_sync_block.into()).unwrap();
     env.clients[1].chain.save_block(prev_sync_block.into()).unwrap();
     let mut store_update = env.clients[1].chain.mut_chain_store().store_update();
+    store_update.inc_block_refcount(&prev_prev_sync_hash).unwrap();
     store_update.inc_block_refcount(&prev_sync_hash).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();
@@ -1889,7 +1893,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
+    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height - 1);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
