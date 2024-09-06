@@ -9,7 +9,7 @@ use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
@@ -27,12 +27,14 @@ fn get_delayed_receipts(
 ) -> Result<Vec<Receipt>, StorageError> {
     indexes
         .map(|index| {
-            get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} should be in the state",
-                    index
-                ))
-            })
+            let receipt: Result<ReceiptOrStateStoredReceipt, StorageError> =
+                get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} should be in the state",
+                        index
+                    ))
+                });
+            receipt.map(|receipt| receipt.receipt())
         })
         .collect()
 }
