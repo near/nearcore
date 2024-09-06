@@ -9,7 +9,7 @@ Nightly build results are available on [NayDuck](https://nayduck.nearone.org/).
 
 ## List file format
 
-Each list file is read line-by-line. Empty lines and lines starting
+Each list file is read line-by-line.  Empty lines and lines starting
 with a hash are ignored.  The rest either specifies a test to run or
 a list file to include.  The general syntax of a line defining a test
 is:
