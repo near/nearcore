@@ -152,13 +152,13 @@ pub fn state_dump_redis(
                 if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
                     let redis_key = account_id.as_bytes();
-                    redis_connection.zadd(
+                    let () = redis_connection.zadd(
                         [b"account:", redis_key].concat(),
                         block_hash.as_ref(),
                         block_height,
                     )?;
                     let value = borsh::to_vec(&account).unwrap();
-                    redis_connection.set(
+                    let () = redis_connection.set(
                         [b"account-data:", redis_key, b":", block_hash.as_ref()].concat(),
                         value,
                     )?;
@@ -168,13 +168,13 @@ pub fn state_dump_redis(
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
                     println!("Data: {}", account_id);
                     let redis_key = [account_id.as_bytes(), b":", data_key.as_ref()].concat();
-                    redis_connection.zadd(
+                    let () = redis_connection.zadd(
                         [b"data:", redis_key.as_slice()].concat(),
                         block_hash.as_ref(),
                         block_height,
                     )?;
                     let value_vec: &[u8] = value.as_ref();
-                    redis_connection.set(
+                    let () = redis_connection.set(
                         [b"data-value:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
                         value_vec,
                     )?;
@@ -184,9 +184,13 @@ pub fn state_dump_redis(
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
                     let redis_key = [b"code:", account_id.as_bytes()].concat();
-                    redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let () = redis_connection.zadd(
+                        redis_key.clone(),
+                        block_hash.as_ref(),
+                        block_height,
+                    )?;
                     let value_vec: &[u8] = code.as_ref();
-                    redis_connection.set(
+                    let () = redis_connection.set(
                         [redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(),
                         value_vec,
                     )?;
