@@ -659,7 +659,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { vm, memory, entrypoint, artifact } = match result {
+        let ReadyContract { vm, mut memory, entrypoint, artifact } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -671,7 +671,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let import = build_imports(vmmemory, &mut logic, Arc::clone(&vm.config), artifact.engine());
         match vm.run_method(&artifact, import, entrypoint)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
