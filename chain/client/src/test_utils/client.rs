@@ -12,7 +12,6 @@ use itertools::Itertools;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::messaging::{noop, IntoSender, Sender};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
-use near_chain::resharding::ReshardingRequest;
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{Chain, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
@@ -299,11 +298,6 @@ pub fn run_catchup(
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
         block_inside_messages.write().unwrap().push(msg);
     });
-    let resharding_messages = Arc::new(RwLock::new(vec![]));
-    let resharding_inside_messages = resharding_messages.clone();
-    let resharding = Sender::from_fn(move |msg: ReshardingRequest| {
-        resharding_inside_messages.write().unwrap().push(msg);
-    });
     let _ = System::new();
     let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
@@ -313,7 +307,6 @@ pub fn run_catchup(
             &noop().into_sender(),
             &noop().into_sender(),
             &block_catch_up,
-            &resharding,
             None,
             &state_parts_future_spawner,
             &signer,
@@ -331,18 +324,6 @@ pub fn run_catchup(
                 blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
-            }
-            catchup_done = false;
-        }
-        for msg in resharding_messages.write().unwrap().drain(..) {
-            let response = Chain::build_state_for_split_shards(msg);
-            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&response.sync_hash) {
-                // We are doing catchup
-                sync.set_resharding_result(response.shard_id, response.new_state_roots);
-            } else {
-                client
-                    .state_sync
-                    .set_resharding_result(response.shard_id, response.new_state_roots);
             }
             catchup_done = false;
         }

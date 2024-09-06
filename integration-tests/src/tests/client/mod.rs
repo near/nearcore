@@ -6,7 +6,7 @@ mod cold_storage;
 mod features;
 mod flat_storage;
 mod process_blocks;
-mod resharding;
+mod resharding_v2;
 mod runtimes;
 #[cfg(feature = "sandbox")]
 mod sandbox;

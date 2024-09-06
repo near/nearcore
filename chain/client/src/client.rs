@@ -26,7 +26,6 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::PrepareTransactionsChunkContext;
@@ -188,7 +187,7 @@ pub struct Client {
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
-    pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
@@ -339,10 +338,10 @@ impl Client {
             config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
+        let chunk_endorsement_tracker = ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store().clone(),
-        ));
+        );
         // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
         let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
             && config.chain_id != near_primitives::chains::TESTNET;
@@ -350,7 +349,6 @@ impl Client {
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
-            chunk_endorsement_tracker.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
             panic_on_validation_error,
@@ -570,7 +568,7 @@ impl Client {
         if prepare_chunk_headers {
             self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                 &head.last_block_hash,
-                self.chunk_endorsement_tracker.as_ref(),
+                &mut self.chunk_endorsement_tracker,
             )?;
         }
 
@@ -1646,6 +1644,7 @@ impl Client {
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
+            // TODO check if this logic works in resharding V3
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
@@ -2456,7 +2455,6 @@ impl Client {
         state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
         load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         state_parts_future_spawner: &dyn FutureSpawner,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -2533,7 +2531,6 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 load_memtrie_scheduler,
-                resharding_scheduler,
                 state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),

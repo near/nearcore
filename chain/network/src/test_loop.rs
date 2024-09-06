@@ -253,7 +253,6 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
-            assert_ne!(target, my_account_id, "Sending message to self not supported.");
             let future = shared_state
                 .senders_for_account(&target)
                 .client_sender
