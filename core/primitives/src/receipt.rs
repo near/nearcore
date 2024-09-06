@@ -100,18 +100,19 @@ pub enum Receipt {
 /// for more details.
 ///
 /// This struct is versioned so that it can be enhanced in the future.
+#[derive(PartialEq, Eq, Debug)]
 pub enum StateStoredReceipt {
     V0(StateStoredReceiptV0),
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug)]
 pub struct StateStoredReceiptV0 {
     /// The receipt.
     pub receipt: Receipt,
     pub metadata: StateStoredReceiptMetadata,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug)]
 pub struct StateStoredReceiptMetadata {
     pub gas: Gas,
     pub size: u64,
@@ -123,6 +124,7 @@ const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
 /// This is a convenience struct for handling the migration from [Receipt] to
 /// [StateStoredReceipt]. Both variants can be directly serialized and
 /// deserialized to this struct.
+#[derive(PartialEq, Eq, Debug)]
 pub enum ReceiptOrStateStoredReceipt {
     Receipt(Receipt),
     StateStoredReceipt(StateStoredReceipt),
@@ -696,10 +698,10 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
-    #[test]
-    fn test_receipt_v0_serialization() {
+    fn get_receipt_v0() -> Receipt {
         let receipt_v0 = Receipt::V0(ReceiptV0 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
@@ -713,13 +715,10 @@ mod tests {
                 actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
             }),
         });
-        let serialized_receipt = borsh::to_vec(&receipt_v0).unwrap();
-        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
-        assert_eq!(receipt_v0, receipt2);
+        receipt_v0
     }
 
-    #[test]
-    fn test_receipt_v1_serialization() {
+    fn get_receipt_v1() -> Receipt {
         let receipt_v1 = Receipt::V1(ReceiptV1 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
@@ -734,8 +733,115 @@ mod tests {
             }),
             priority: 1,
         });
+        receipt_v1
+    }
+
+    #[test]
+    fn test_receipt_v0_serialization() {
+        let receipt_v0 = get_receipt_v0();
+        let serialized_receipt = borsh::to_vec(&receipt_v0).unwrap();
+        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
+        assert_eq!(receipt_v0, receipt2);
+    }
+
+    #[test]
+    fn test_receipt_v1_serialization() {
+        let receipt_v1 = get_receipt_v1();
         let serialized_receipt = borsh::to_vec(&receipt_v1).unwrap();
         let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
         assert_eq!(receipt_v1, receipt2);
+    }
+
+    fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
+        let metadata = StateStoredReceiptMetadata { gas: 42, size: 43 };
+        let receipt = StateStoredReceipt::new(receipt, metadata);
+
+        let serialized_receipt = borsh::to_vec(&receipt).unwrap();
+        let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+        assert_eq!(receipt, deserialized_receipt);
+    }
+
+    #[test]
+    fn test_state_stored_receipt_serialization_v0() {
+        let receipt = get_receipt_v0();
+        test_state_stored_receipt_serialization_impl(receipt);
+    }
+
+    #[test]
+    fn test_state_stored_receipt_serialization_v1() {
+        let receipt = get_receipt_v1();
+        test_state_stored_receipt_serialization_impl(receipt);
+    }
+
+    #[test]
+    fn test_receipt_or_state_stored_receipt_serialization() {
+        // Case 1:
+        // Receipt V0 can be deserialized as ReceiptOrStateStoredReceipt
+        {
+            let receipt = get_receipt_v0();
+            let serialized_receipt = borsh::to_vec(&receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(ReceiptOrStateStoredReceipt::Receipt(receipt), deserialized_receipt);
+        }
+
+        // Case 2:
+        // Receipt V1 can be deserialized as ReceiptOrStateStoredReceipt
+        {
+            let receipt = get_receipt_v1();
+            let serialized_receipt = borsh::to_vec(&receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(ReceiptOrStateStoredReceipt::Receipt(receipt), deserialized_receipt);
+        }
+
+        // Case 3:
+        // StateStoredReceipt can be deserialized as ReceiptOrStateStoredReceipt
+        {
+            let receipt = get_receipt_v0();
+            let metadata = StateStoredReceiptMetadata { gas: 42, size: 43 };
+            let state_stored_receipt = StateStoredReceipt::new(receipt, metadata);
+
+            let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(
+                ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt),
+                deserialized_receipt
+            );
+        }
+
+        // Case 4:
+        // ReceiptOrStateStoredReceipt::Receipt
+        {
+            let receipt = get_receipt_v0();
+            let receipt_or_state_stored_receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
+
+            let serialized_receipt = borsh::to_vec(&receipt_or_state_stored_receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
+        }
+
+        // Case 5:
+        // ReceiptOrStateStoredReceipt::StateStoredReceipt
+        {
+            let receipt = get_receipt_v0();
+            let metadata = StateStoredReceiptMetadata { gas: 42, size: 43 };
+            let state_stored_receipt = StateStoredReceipt::new(receipt, metadata);
+            let receipt_or_state_stored_receipt =
+                ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);
+
+            let serialized_receipt = borsh::to_vec(&receipt_or_state_stored_receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
+        }
     }
 }
