@@ -58,13 +58,13 @@ impl ReshardingV2Command {
             // In restore mode print database write statistics.
             chain.runtime_adapter.store().get_store_statistics().map(|stats| {
                 stats.data.iter().for_each(|(metric, values)| {
-                    tracing::info!(target: "resharding", %metric, ?values);
+                    tracing::info!(target: "resharding-v2", %metric, ?values);
                 })
             });
         }
 
         let state_roots = state_roots?;
-        tracing::info!(target: "resharding", ?state_roots, "state roots");
+        tracing::info!(target: "resharding-v2", ?state_roots, "state roots");
 
         chain.custom_build_state_for_split_shards_v2_postprocessing(&sync_hash, state_roots)?;
 

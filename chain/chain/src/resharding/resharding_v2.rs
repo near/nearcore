@@ -153,7 +153,7 @@ fn apply_delayed_receipts<'a>(
         store_update.commit()?;
     }
 
-    tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied delayed receipts");
+    tracing::debug!(target: "resharding-v2", ?orig_shard_uid, ?total_count, "Applied delayed receipts");
     Ok(new_state_roots)
 }
 
@@ -185,7 +185,7 @@ fn apply_promise_yield_timeouts<'a>(
         store_update.commit()?;
     }
 
-    tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied PromiseYield timeouts");
+    tracing::debug!(target: "resharding-v2", ?orig_shard_uid, ?total_count, "Applied PromiseYield timeouts");
     Ok(new_state_roots)
 }
 
@@ -200,7 +200,7 @@ impl Chain {
         match &new_state_roots {
             Ok(_) => {}
             Err(err) => {
-                tracing::error!(target: "resharding", ?shard_uid, ?err, "Resharding failed, manual recovery is necessary!");
+                tracing::error!(target: "resharding-v2", ?shard_uid, ?err, "Resharding failed, manual recovery is necessary!");
             }
         }
         ReshardingResponse { shard_id, sync_hash, new_state_roots }
@@ -220,7 +220,7 @@ impl Chain {
         loop {
             if !handle.get() {
                 // The keep_going is set to false, interrupt processing.
-                tracing::info!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl interrupted");
+                tracing::info!(target: "resharding-v2", ?shard_uid, "build_state_for_split_shards_impl interrupted");
                 return Err(Error::Other("Resharding interrupted.".to_string()));
             }
             // Prepare the batch.
@@ -256,7 +256,7 @@ impl Chain {
 
             batch_count += 1;
 
-            debug!(target: "resharding", ?shard_uid, ?batch_count, ?prepare_time, ?apply_time, ?commit_time, "batch processed");
+            debug!(target: "resharding-v2", ?shard_uid, ?batch_count, ?prepare_time, ?apply_time, ?commit_time, "batch processed");
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
@@ -278,7 +278,7 @@ impl Chain {
             on_demand,
             ..
         } = resharding_request;
-        tracing::debug!(target: "resharding", config=?config.get(), ?shard_uid, "build_state_for_split_shards_impl starting");
+        tracing::debug!(target: "resharding-v2", config=?config.get(), ?shard_uid, "build_state_for_split_shards_impl starting");
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
@@ -334,7 +334,7 @@ impl Chain {
             &checked_account_id_to_shard_uid,
         )?;
 
-        tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
+        tracing::debug!(target: "resharding-v2", ?shard_uid, "build_state_for_split_shards_impl finished");
         Ok(state_roots)
     }
 
