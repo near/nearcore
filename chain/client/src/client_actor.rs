@@ -2087,6 +2087,7 @@ impl ClientActorInner {
         if &block_hash == header.prev_hash() {
             // The last block of the previous epoch.
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save prev hash block");
+            // Prev sync block will have its refcount increased later when processing sync block.
             if let Err(err) = self.client.chain.save_block(block) {
                 error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
             }
@@ -2098,6 +2099,11 @@ impl ClientActorInner {
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save extra block");
             if let Err(err) = self.client.chain.save_block(block) {
                 error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
+            } else {
+                // save_block() does not increase refcount, and for extra blocks we need to increase the refcount manually.
+                let mut store_update = self.client.chain.mut_chain_store().store_update();
+                store_update.inc_block_refcount(&block_hash).unwrap();
+                store_update.commit().unwrap();
             }
             return true;
         }
