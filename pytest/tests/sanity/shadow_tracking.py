@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Starts two validating nodes, one RPC node, and one dumper node.
-# Set the RPC node to shadow track one of the validators.
-# Stop the RPC node for 1 epoch so that shard assignment changes.
-# Restart the RPC node, wait for state sync.
-# Ensure RPC node has chunks for the shards it supposed to track as shadow validator.
+# Starts two validating nodes, one failover node, and one dumper node.
+# Set the failover node to shadow track one of the validators.
+# Stop the failover node for 1 epoch during which shard assignment changes.
+# Restart the failover node and wait for state sync to finish.
+# Ensure the failover node has chunks for the shards it supposed to track as shadow validator.
 # Wait for 1 epoch so that shard assignment changes and do the check again, repeat 3 times.
 
 import unittest
@@ -64,7 +64,7 @@ class ShadowTrackingTest(unittest.TestCase):
         configs = {x: node_config_sync for x in range(3)}
         configs[3] = node_config_dump
 
-        # Set RPC node to shadow track "test0".
+        # Set the failover node to shadow track "test0".
         configs[2]["tracked_shadow_validator"] = "test0"
 
         nodes = start_cluster(
@@ -82,12 +82,13 @@ class ShadowTrackingTest(unittest.TestCase):
         logger.info('## Initial shard assignment: {}'.format(
             self._get_shard_assignment(nodes[3])))
 
-        # Stop RPC node for 1 epoch, so that it has to state sync to a new shard tracked by "test0".
+        # Stop the failover node for 1 epoch, so that it has to state sync to a new shard tracked by "test0".
         nodes[2].kill()
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
         nodes[2].start(boot_node=nodes[3])
+        nodes[2].stop_checking_store()
         # Give it some time to catch up.
-        wait_for_blocks(nodes[3], count=EPOCH_LENGTH // 2)
+        wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
 
         round = 0
         while True:
