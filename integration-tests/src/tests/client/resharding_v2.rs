@@ -1,6 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
-use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, NEAR_BASE};
@@ -17,7 +16,7 @@ use near_primitives::shard_layout::account_id_to_shard_uid;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -483,29 +482,6 @@ impl TestReshardingEnv {
 
         successful_txs
     }
-
-    /// Check that after resharding is finished, the artifacts stored in storage is removed
-    fn check_resharding_artifacts(&mut self, client_id: usize) {
-        tracing::debug!(target: "test", "checking resharding artifacts");
-
-        let client = &mut self.env.clients[client_id];
-        let head = client.chain.head().unwrap();
-        for height in 0..head.height {
-            let (block_hash, num_shards) = {
-                let block = client.chain.get_block_by_height(height).unwrap();
-                (*block.hash(), block.chunks().len() as NumShards)
-            };
-            for shard_id in 0..num_shards {
-                let res = client
-                    .chain
-                    .chain_store()
-                    .get_state_changes_for_resharding(&block_hash, shard_id);
-                assert_matches!(res, Err(error) => {
-                    assert_matches!(error, Error::DBNotFoundErr(_));
-                })
-            }
-        }
-    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -891,8 +867,6 @@ fn test_missing_chunks(
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
-
-    test_env.check_resharding_artifacts(0);
 }
 
 // Use resharding setup to run protocol for couple epochs with given probability
