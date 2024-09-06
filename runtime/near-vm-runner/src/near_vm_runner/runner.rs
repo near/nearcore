@@ -27,8 +27,9 @@ use near_vm_vm::{
     Artifact, ExportFunction, ExportFunctionMetadata, Instantiatable, LinearMemory, LinearTable,
     MemoryStyle, Resolver, TrapCode, VMFunction, VMFunctionKind, VMMemory,
 };
+use std::any::Any;
 use std::mem::size_of;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 type VMArtifact = Arc<UniversalArtifact>;
 
@@ -414,6 +415,7 @@ impl NearVM {
                         function.address,
                         [].as_mut_ptr() as *mut _,
                     );
+                    lazy_drop(Box::new(instance));
                     if let Err(trap) = res {
                         let abort = translate_runtime_error(
                             near_vm_engine::RuntimeError::from_trap(trap),
@@ -427,15 +429,33 @@ impl NearVM {
             } else {
                 panic!("signature should've already been checked by `get_entrypoint_index`")
             }
-
-            {
-                let _span =
-                    tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
-                drop(instance)
-            }
         }
 
         Ok(Ok(()))
+    }
+}
+
+/// Drop something somewhat lazily.
+///
+/// The memory destruction is sorta expensive process, but not expensive enough to offload it into
+/// a thread for individual instances.
+///
+/// Instead this method will gather up a number of things before initiating a release in a thread,
+/// thus working in batches of sorts and amortizing the thread overhead.
+fn lazy_drop(what: Box<dyn Any + Send>) {
+    // TODO: this would benefit from a lock-free array (should be straightforward enough to
+    // implement too...) But for the time being this mutex is not really contended much so…
+    // whatever.
+    const CHUNK_SIZE: usize = 8;
+    static WAITLIST: OnceLock<Mutex<Vec<Box<dyn Any + Send>>>> = OnceLock::new();
+    let waitlist = WAITLIST.get_or_init(|| Mutex::new(Vec::with_capacity(CHUNK_SIZE)));
+    let mut waitlist = waitlist.lock().unwrap_or_else(|e| e.into_inner());
+    if waitlist.capacity() > waitlist.len() {
+        waitlist.push(Box::new(what));
+    }
+    if waitlist.capacity() == waitlist.len() {
+        let chunk = std::mem::replace(&mut *waitlist, Vec::with_capacity(CHUNK_SIZE));
+        rayon::spawn(move || drop(chunk));
     }
 }
 
@@ -658,7 +678,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { memory, entrypoint, artifact, vm } = match result {
+        let ReadyContract { mut memory, entrypoint, artifact, vm } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -669,12 +689,14 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         };
         let config = Arc::clone(&result_state.config);
         let vmmemory = memory.vm();
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let import = build_imports(vmmemory, &mut logic, config, artifact.engine());
-        match vm.run_method(&artifact, import, entrypoint)? {
+        let result = match vm.run_method(&artifact, import, entrypoint)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
-        }
+        };
+        lazy_drop(Box::new(memory));
+        result
     }
 }
 
