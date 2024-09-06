@@ -366,7 +366,6 @@ pub(crate) struct RuntimeContractExt<'a> {
     pub(crate) storage: ContractStorage,
     pub(crate) account_id: &'a AccountId,
     pub(crate) code_hash: CryptoHash,
-    pub(crate) chain_id: &'a str,
     pub(crate) current_protocol_version: ProtocolVersion,
 }
 

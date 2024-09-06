@@ -55,9 +55,6 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// The contract cache.
     contract_cache: Option<Box<dyn ContractRuntimeCache>>,
 
-    /// The chain ID being processed.
-    chain_id: String,
-
     /// Protocol version for this chunk.
     protocol_version: u32,
 
@@ -87,7 +84,6 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn new(
         config: Arc<RuntimeConfig>,
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
-        chain_id: String,
         protocol_version: u32,
         storage: ContractStorage,
     ) -> Self {
@@ -96,7 +92,6 @@ impl ReceiptPreparationPipeline {
             block_accounts: Default::default(),
             config,
             contract_cache,
-            chain_id,
             protocol_version,
             storage,
         }
@@ -149,7 +144,6 @@ impl ReceiptPreparationPipeline {
                     let config = Arc::clone(&self.config.wasm_config);
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let storage = self.storage.clone();
-                    let chain_id = self.chain_id.clone();
                     let protocol_version = self.protocol_version;
                     let code_hash = account.code_hash();
                     let created = Instant::now();
@@ -171,7 +165,6 @@ impl ReceiptPreparationPipeline {
                         let contract = prepare_function_call(
                             &storage,
                             cache.as_deref(),
-                            &chain_id,
                             protocol_version,
                             config,
                             gas_counter,
@@ -246,7 +239,6 @@ impl ReceiptPreparationPipeline {
             let result = prepare_function_call(
                 &self.storage,
                 self.contract_cache.as_deref(),
-                &self.chain_id,
                 self.protocol_version,
                 Arc::clone(&self.config.wasm_config),
                 gas_counter,
@@ -278,7 +270,6 @@ impl ReceiptPreparationPipeline {
                     let contract = prepare_function_call(
                         &self.storage,
                         cache.as_deref(),
-                        &self.chain_id,
                         self.protocol_version,
                         Arc::clone(&self.config.wasm_config),
                         gas_counter,
@@ -331,7 +322,6 @@ fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
 
-    chain_id: &str,
     protocol_version: ProtocolVersion,
     config: Arc<near_parameters::vm::Config>,
     gas_counter: GasCounter,
@@ -344,7 +334,6 @@ fn prepare_function_call(
         storage: contract_storage.clone(),
         account_id,
         code_hash,
-        chain_id,
         current_protocol_version: protocol_version,
     };
     let contract = near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name);

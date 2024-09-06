@@ -248,7 +248,6 @@ impl TrieViewer {
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            epoch_info_provider.chain_id(),
             apply_state.current_protocol_version,
             state_update.contract_storage.clone(),
         );
