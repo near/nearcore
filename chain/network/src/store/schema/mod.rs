@@ -102,27 +102,6 @@ impl Column for RecentOutboundConnections {
     type Value = Vec<ConnectionInfoRepr>;
 }
 
-pub(super) struct PeerComponent;
-impl Column for PeerComponent {
-    const COL: DBCol = DBCol::PeerComponent;
-    type Key = Borsh<PeerId>;
-    type Value = Borsh<u64>;
-}
-
-pub(super) struct ComponentEdges;
-impl Column for ComponentEdges {
-    const COL: DBCol = DBCol::ComponentEdges;
-    type Key = U64LE;
-    type Value = Vec<EdgeRepr>;
-}
-
-pub(super) struct LastComponentNonce;
-impl Column for LastComponentNonce {
-    const COL: DBCol = DBCol::LastComponentNonce;
-    type Key = Borsh<()>;
-    type Value = Borsh<u64>;
-}
-
 ////////////////////////////////////////////////////
 // Storage
 

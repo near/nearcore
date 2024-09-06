@@ -4,10 +4,10 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ReshardingResults,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
 };
-use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, ShardUpdateResult};
+use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
 use near_chain_primitives::error::Error;
@@ -17,14 +17,12 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::types::{BlockExtra, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::views::LightClientBlockView;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -93,170 +91,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Postprocess resharding results and do the necessary update on chain for
-    /// resharding results.
-    /// - Store the chunk extras and trie changes for the apply results.
-    /// - Store the state changes to be applied later for the store results.
-    fn process_resharding_results(
-        &mut self,
-        block: &Block,
-        shard_uid: &ShardUId,
-        resharding_results: ReshardingResults,
-    ) -> Result<(), Error> {
-        let block_hash = block.hash();
-        let prev_hash = block.header().prev_hash();
-        let height = block.header().height();
-        match resharding_results {
-            ReshardingResults::ApplyReshardingResults(mut results) => {
-                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results apply");
-
-                // Sort the results so that the gas reassignment is deterministic.
-                results.sort_unstable_by_key(|r| r.shard_uid);
-                // Drop the mutability as we no longer need it.
-                let results = results;
-
-                // Split validator_proposals, gas_burnt, balance_burnt to each child shard
-                // and store the chunk extra for children shards
-                // Note that here we do not split outcomes by the new shard layout, we simply store
-                // the outcome_root from the parent shard. This is because outcome proofs are
-                // generated per shard using the old shard layout and stored in the database.
-                // For these proofs to work, we must store the outcome root per shard
-                // using the old shard layout instead of the new shard layout
-                let chunk_extra = self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
-                let next_epoch_shard_layout = {
-                    let epoch_id =
-                        self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-                    self.epoch_manager.get_shard_layout(&epoch_id)?
-                };
-
-                let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
-                for validator_proposal in chunk_extra.validator_proposals() {
-                    let shard_uid = account_id_to_shard_uid(
-                        validator_proposal.account_id(),
-                        &next_epoch_shard_layout,
-                    );
-                    validator_proposals_by_shard
-                        .entry(shard_uid)
-                        .or_default()
-                        .push(validator_proposal);
-                }
-
-                let num_split_shards = next_epoch_shard_layout
-                    .get_children_shards_uids(shard_uid.shard_id())
-                    .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
-                    .len() as NumShards;
-
-                let total_gas_used = chunk_extra.gas_used();
-                let total_balance_burnt = chunk_extra.balance_burnt();
-
-                // The gas remainder, the children shards will be reassigned one
-                // unit each until its depleted.
-                let mut gas_res = total_gas_used % num_split_shards;
-                // The gas quotient, the children shards will be reassigned the
-                // full value each.
-                let gas_split = total_gas_used / num_split_shards;
-
-                // The balance remainder, the children shards will be reassigned one
-                // unit each until its depleted.
-                let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
-                // The balance quotient, the children shards will be reassigned the
-                // full value each.
-                let balance_split = total_balance_burnt / (num_split_shards as u128);
-
-                let gas_limit = chunk_extra.gas_limit();
-                let outcome_root = *chunk_extra.outcome_root();
-
-                let mut sum_gas_used = 0;
-                let mut sum_balance_burnt = 0;
-
-                // The gas and balance distribution assumes that we have a result for every split shard.
-                // TODO(resharding) make sure that is the case.
-                assert_eq!(num_split_shards, results.len() as u64);
-
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
-                for result in results {
-                    let gas_burnt = if gas_res > 0 {
-                        gas_res -= 1;
-                        gas_split + 1
-                    } else {
-                        gas_split
-                    };
-
-                    let balance_burnt = if balance_res > 0 {
-                        balance_res -= 1;
-                        balance_split + 1
-                    } else {
-                        balance_split
-                    };
-
-                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                        // This will likely break resharding integration tests
-                        // when congestion control is enabled. Let's mark them
-                        // ignore when that happens.
-                        todo!("implement resharding and congestion control integration");
-                    }
-
-                    let new_chunk_extra = ChunkExtra::new(
-                        protocol_version,
-                        &result.new_root,
-                        outcome_root,
-                        validator_proposals_by_shard.remove(&result.shard_uid).unwrap_or_default(),
-                        gas_burnt,
-                        gas_limit,
-                        balance_burnt,
-                        // TODO(congestion_control) - integration with resharding
-                        None,
-                    );
-                    sum_gas_used += gas_burnt;
-                    sum_balance_burnt += balance_burnt;
-
-                    // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
-                    // functions to be a part of the same chain_store_update
-                    let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                    let store_update = flat_storage_manager.save_flat_state_changes(
-                        *block_hash,
-                        *prev_hash,
-                        block.header().height(),
-                        result.shard_uid,
-                        result.trie_changes.state_changes(),
-                    )?;
-                    let last_final_block_hash = *block.header().last_final_block();
-                    if last_final_block_hash != CryptoHash::default() {
-                        // TODO(#11600): this seems good enough to create a snapshot
-                        // for the new shard when resharding finishes, because there
-                        // is no concept of missing chunk. However, testing is required.
-                        flat_storage_manager.update_flat_storage_for_shard(
-                            result.shard_uid,
-                            last_final_block_hash,
-                        )?;
-                    }
-
-                    self.chain_store_update.merge(store_update);
-
-                    self.chain_store_update.save_chunk_extra(
-                        block_hash,
-                        &result.shard_uid,
-                        new_chunk_extra,
-                    );
-                    self.chain_store_update.save_trie_changes(result.trie_changes);
-                }
-                assert_eq!(sum_gas_used, total_gas_used);
-                assert_eq!(sum_balance_burnt, total_balance_burnt);
-            }
-            ReshardingResults::StoreReshardingResults(state_changes) => {
-                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results store");
-                self.chain_store_update.add_state_changes_for_resharding(
-                    *block_hash,
-                    shard_uid.shard_id(),
-                    state_changes,
-                );
-            }
-        }
-        Ok(())
-    }
-
     /// Process results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
@@ -268,12 +102,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            ShardUpdateResult::NewChunk(NewChunkResult {
-                gas_limit,
-                shard_uid,
-                apply_result,
-                resharding_results,
-            }) => {
+            ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
                 let (outcome_root, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
@@ -328,15 +157,8 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.applied_receipts_hash,
                     );
                 }
-                if let Some(resharding_results) = resharding_results {
-                    self.process_resharding_results(block, &shard_uid, resharding_results)?;
-                }
             }
-            ShardUpdateResult::OldChunk(OldChunkResult {
-                shard_uid,
-                apply_result,
-                resharding_results,
-            }) => {
+            ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
                 // anyway. Prepare a chunk extra as a copy of the old chunk
                 // extra and apply changes to it.
@@ -364,17 +186,6 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.applied_receipts_hash,
                     );
                 }
-
-                if let Some(resharding_config) = resharding_results {
-                    self.process_resharding_results(block, &shard_uid, resharding_config)?;
-                }
-            }
-            ShardUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
-                self.process_resharding_results(
-                    block,
-                    &shard_uid,
-                    ReshardingResults::ApplyReshardingResults(results),
-                )?;
             }
         };
         Ok(())

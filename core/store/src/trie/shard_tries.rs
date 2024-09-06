@@ -484,9 +484,7 @@ impl ShardTries {
         shard_uids_to_load
             .par_iter()
             .map(|shard_uid| self.load_mem_trie(shard_uid, None, parallelize))
-            .collect::<Vec<Result<_, _>>>()
-            .into_iter()
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<(), StorageError>>()?;
 
         info!(target: "memtrie", "Memtries loading complete for shards {:?}", shard_uids_to_load);
         Ok(())
@@ -592,7 +590,7 @@ impl WrappedTrieChanges {
             // evaluating changes for resharding in process_resharding_results function
             change_with_trie_key
                 .changes
-                .retain(|change| change.cause != StateChangeCause::Resharding);
+                .retain(|change| change.cause != StateChangeCause::ReshardingV2);
             if change_with_trie_key.changes.is_empty() {
                 continue;
             }
