@@ -239,6 +239,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
+        | PeerMessage::Tier3Handshake(_)
         | PeerMessage::HandshakeFailure(_, _)
         | PeerMessage::LastEdge(_)
         | PeerMessage::Disconnect(_)

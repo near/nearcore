@@ -411,6 +411,7 @@ pub struct Disconnect {
 pub enum PeerMessage {
     Tier1Handshake(Handshake),
     Tier2Handshake(Handshake),
+    Tier3Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
