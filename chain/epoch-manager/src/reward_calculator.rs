@@ -105,7 +105,7 @@ impl RewardCalculator {
                 get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
             let average_produced_numer = production_ratio.numer();
             let average_produced_denom = production_ratio.denom();
-            
+
             let expected_blocks = stats.block_stats.expected;
             let expected_chunks = stats.chunk_stats.expected();
             let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
