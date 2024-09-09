@@ -662,8 +662,6 @@ fn test_validator_reward_one_validator() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager =
@@ -715,6 +713,11 @@ fn test_validator_reward_one_validator() {
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
+        ValidatorOnlineThresholds {
+            online_min_threshold: Ratio::new(90, 100),
+            online_max_threshold: Ratio::new(99, 100),
+            endorsement_cutoff_threshold: None,
+        },
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -745,8 +748,6 @@ fn test_validator_reward_weight_by_stake() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager =
@@ -798,6 +799,11 @@ fn test_validator_reward_weight_by_stake() {
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
+        ValidatorOnlineThresholds {
+            online_min_threshold: Ratio::new(90, 100),
+            online_max_threshold: Ratio::new(99, 100),
+            endorsement_cutoff_threshold: None,
+        },
     );
     let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
@@ -842,8 +848,6 @@ fn test_reward_multiple_shards() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
@@ -913,6 +917,11 @@ fn test_reward_multiple_shards() {
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
+        ValidatorOnlineThresholds {
+            online_min_threshold: Ratio::new(90, 100),
+            online_max_threshold: Ratio::new(99, 100),
+            endorsement_cutoff_threshold: None,
+        },
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -1160,8 +1169,6 @@ fn test_rewards_with_kickouts() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     };
     let mut em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator);

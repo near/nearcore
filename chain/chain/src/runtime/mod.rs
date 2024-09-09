@@ -1,5 +1,5 @@
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
     PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
@@ -24,15 +24,13 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::{
-    account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
-};
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
+    ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -961,8 +959,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &[SignedTransaction],
     ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
-        let _timer =
-            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
+        let _timer = metrics::APPLYING_CHUNKS_TIME
+            .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
+            .start_timer();
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => self.get_trie_for_shard(
@@ -1220,49 +1219,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 false
             }
         }
-    }
-
-    fn apply_update_to_children_states(
-        &self,
-        block_hash: &CryptoHash,
-        block_height: BlockHeight,
-        state_roots: HashMap<ShardUId, StateRoot>,
-        next_epoch_shard_layout: &ShardLayout,
-        state_changes_for_resharding: StateChangesForResharding,
-    ) -> Result<Vec<ApplyResultForResharding>, Error> {
-        let trie_updates = self.tries.apply_state_changes_to_children_states(
-            &state_roots,
-            state_changes_for_resharding,
-            &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
-        )?;
-
-        let mut applied_resharding_results: Vec<_> = vec![];
-        for (shard_uid, trie_update) in trie_updates {
-            let (_, trie_changes, state_changes) = trie_update.finalize()?;
-            // All state changes that are related to resharding should have StateChangeCause as Resharding
-            // We do not want to commit the state_changes from resharding as they are already handled while
-            // processing parent shard
-            debug_assert!(state_changes.iter().all(|raw_state_changes| raw_state_changes
-                .changes
-                .iter()
-                .all(|state_change| state_change.cause == StateChangeCause::Resharding)));
-            let new_root = trie_changes.new_root;
-            let wrapped_trie_changes = WrappedTrieChanges::new(
-                self.get_tries(),
-                shard_uid,
-                trie_changes,
-                state_changes,
-                *block_hash,
-                block_height,
-            );
-            applied_resharding_results.push(ApplyResultForResharding {
-                shard_uid,
-                new_root,
-                trie_changes: wrapped_trie_changes,
-            });
-        }
-
-        Ok(applied_resharding_results)
     }
 
     fn apply_state_part(

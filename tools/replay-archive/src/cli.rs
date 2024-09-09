@@ -303,16 +303,6 @@ impl ReplayController {
 
         let shard_id = shard_uid.shard_id();
         let shard_context = self.get_shard_context(block_header, shard_uid)?;
-        let resharding_state_roots = if shard_context.need_to_reshard {
-            Some(Chain::get_resharding_state_roots(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                block,
-                shard_id,
-            )?)
-        } else {
-            None
-        };
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -347,49 +337,36 @@ impl ReplayController {
                 receipts,
                 block: block_context,
                 is_first_block_with_chunk_of_version,
-                resharding_state_roots,
                 storage_context,
             })
         } else {
             ShardUpdateReason::OldChunk(OldChunkData {
                 block: block_context,
                 prev_chunk_extra: ChunkExtra::clone(prev_chunk_extra.as_ref()),
-                resharding_state_roots,
                 storage_context,
             })
         };
 
-        let shard_update_result = process_shard_update(
-            &span,
-            self.runtime.as_ref(),
-            self.epoch_manager.as_ref(),
-            update_reason,
-            shard_context,
-        )?;
+        let shard_update_result =
+            process_shard_update(&span, self.runtime.as_ref(), update_reason, shard_context)?;
 
         let output = match shard_update_result {
             ShardUpdateResult::NewChunk(NewChunkResult {
                 gas_limit: _,
                 shard_uid: _,
                 apply_result,
-                resharding_results: _,
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
                 let chunk_extra =
                     apply_result_to_chunk_extra(protocol_version, apply_result, &chunk_header);
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
-            ShardUpdateResult::OldChunk(OldChunkResult {
-                shard_uid: _,
-                apply_result,
-                resharding_results: _,
-            }) => {
+            ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {
                 let mut chunk_extra = ChunkExtra::clone(&prev_chunk_extra.as_ref());
                 *chunk_extra.state_root_mut() = apply_result.new_root;
                 let outgoing_receipts = apply_result.outgoing_receipts;
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
-            ShardUpdateResult::Resharding(_) => bail!("Unexpected apply result for resharding"),
         };
 
         Ok(output)
@@ -511,13 +488,12 @@ impl ReplayController {
         shard_uid: ShardUId,
     ) -> Result<ShardContext> {
         let prev_hash = block_header.prev_hash();
-        let should_reshard = self.epoch_manager.will_shard_layout_change(prev_hash)?;
+        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
         let shard_context = ShardContext {
             shard_uid,
             cares_about_shard_this_epoch: true,
-            will_shard_layout_change: should_reshard,
+            will_shard_layout_change: will_shard_layout_change,
             should_apply_chunk: true,
-            need_to_reshard: should_reshard,
         };
         Ok(shard_context)
     }

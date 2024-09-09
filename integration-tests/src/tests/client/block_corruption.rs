@@ -78,8 +78,8 @@ fn change_shard_id_to_invalid() {
     block.set_chunks(new_chunks);
 
     // 2. Rehash and resign
-    block.mut_header().get_mut().inner_rest.block_body_hash =
-        block.compute_block_body_hash().unwrap();
+    let body_hash = block.compute_block_body_hash().unwrap();
+    block.mut_header().set_block_body_hash(body_hash);
     block.mut_header().resign(
         &InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
             .into(),
@@ -122,8 +122,8 @@ fn check_corrupt_block(
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
     if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
-        corrupt_block.mut_header().get_mut().inner_rest.block_body_hash =
-            corrupt_block.compute_block_body_hash().unwrap();
+        let body_hash = corrupt_block.compute_block_body_hash().unwrap();
+        corrupt_block.mut_header().set_block_body_hash(body_hash);
         corrupt_block.mut_header().resign(
             &InMemoryValidatorSigner::from_seed(
                 "test0".parse().unwrap(),

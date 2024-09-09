@@ -3,6 +3,6 @@
 # Changing this file is a protocol change because it will change the
 # bytes of the wallet contract. Therefore please only upgrade the Rust
 # version here when there is a good reason to do so.
-channel = "1.80.1"
+channel = "1.81.0"
 components = ["rustfmt", "clippy", "rust-analyzer"]
 targets = ["wasm32-unknown-unknown"]

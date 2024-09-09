@@ -152,6 +152,20 @@ pub struct StateSyncConfig {
     pub sync: SyncConfig,
 }
 
+impl StateSyncConfig {
+    pub fn gcs_default() -> Self {
+        Self {
+            dump: None,
+            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+                location: GCS { bucket: "state-parts".to_string() },
+                num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+                num_concurrent_requests_during_catchup:
+                    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+            }),
+        }
+    }
+}
+
 impl SyncConfig {
     /// Checks whether the object equals its default value.
     fn is_default(&self) -> bool {
@@ -286,18 +300,6 @@ pub fn default_sync_step_period() -> Duration {
 
 pub fn default_sync_height_threshold() -> u64 {
     1
-}
-
-pub fn default_state_sync() -> Option<StateSyncConfig> {
-    Some(StateSyncConfig {
-        dump: None,
-        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-            location: GCS { bucket: "state-parts".to_string() },
-            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-            num_concurrent_requests_during_catchup:
-                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
-        }),
-    })
 }
 
 pub fn default_epoch_sync() -> Option<EpochSyncConfig> {

@@ -6,7 +6,7 @@ use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, St
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, resharding, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
+    estimator, resharding_v2, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
     PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
     StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
