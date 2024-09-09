@@ -284,6 +284,18 @@ impl PeerActor {
                             .start_outbound(peer_id.clone())
                             .map_err(ClosingReason::OutboundNotAllowed)?
                     }
+                    tcp::Tier::T3 => {
+                        // Loop connections are allowed only on T1; see comment above
+                        if peer_id == &network_state.config.node_id() {
+                            return Err(ClosingReason::OutboundNotAllowed(
+                                connection::PoolError::UnexpectedLoopConnection,
+                            ));
+                        }
+                        network_state
+                            .tier3
+                            .start_outbound(peer_id.clone())
+                            .map_err(ClosingReason::OutboundNotAllowed)?
+                    }
                 },
                 handshake_spec: HandshakeSpec {
                     partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
@@ -293,10 +305,10 @@ impl PeerActor {
                 },
             },
         };
-        // Override force_encoding for outbound Tier1 connections,
-        // since Tier1Handshake is supported only with proto encoding.
+        // Override force_encoding for outbound Tier1 and Tier3 connections;
+        // Tier1Handshake and Tier3Handshake are supported only with proto encoding.
         let force_encoding = match &stream.type_ {
-            tcp::StreamType::Outbound { tier, .. } if tier == &tcp::Tier::T1 => {
+            tcp::StreamType::Outbound { tier, .. } if tier == &tcp::Tier::T1 || tier == &tcp::Tier::T3 => {
                 Some(Encoding::Proto)
             }
             _ => force_encoding,
@@ -480,6 +492,7 @@ impl PeerActor {
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
             tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+            tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
         };
         self.send_message_or_log(&msg);
     }
@@ -1140,7 +1153,7 @@ impl PeerActor {
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
+            PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) | PeerMessage::Tier3Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }

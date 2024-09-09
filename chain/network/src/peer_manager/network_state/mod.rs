@@ -115,6 +115,7 @@ pub(crate) struct NetworkState {
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
+    pub tier3: connection::Pool,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
@@ -196,6 +197,7 @@ impl NetworkState {
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
+            tier3: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             my_public_addr: Arc::new(RwLock::new(None)),
             peer_store,
@@ -351,6 +353,15 @@ impl NetworkState {
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
+                }
+                tcp::Tier::T3 => {
+                    if conn.peer_type == PeerType::Inbound {
+                        // TODO: check that we are expecting this Tier3 connection
+                    }
+                    if !edge.verify() {
+                        return Err(RegisterPeerError::InvalidEdge);
+                    }
+                    this.tier3.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }
             }
             Ok(())
@@ -560,6 +571,17 @@ impl NetworkState {
                         return false;
                     }
                 }
+            }
+            tcp::Tier::T3 => {
+                let peer_id = match &msg.target {
+                    PeerIdOrHash::Hash(_) => {
+                        // There is no route back cache for TIER3 as all connections are direct
+                        debug_assert!(false);
+                        return false;
+                    }
+                    PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
+                };
+                return self.tier3.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
         }
     }
