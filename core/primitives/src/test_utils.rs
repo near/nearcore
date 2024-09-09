@@ -7,6 +7,7 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -538,6 +539,19 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV5(header) => {
                 Arc::make_mut(header).inner_rest.chunk_mask = value
+            }
+        }
+    }
+
+    pub fn set_chunk_endorsements(&mut self, value: ChunkEndorsementsBitmap) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) | BlockHeader::BlockHeaderV4(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.chunk_endorsements = value
             }
         }
     }
