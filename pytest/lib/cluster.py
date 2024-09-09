@@ -564,7 +564,7 @@ class LocalNode(BaseNode):
 
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,client=trace," + env.get(
             "RUST_LOG", "debug")
         env.update(extra_env)
         node_dir = pathlib.Path(self.node_dir)
