@@ -309,7 +309,7 @@ impl AllEpochConfig {
 
     fn config_chunk_endorsement_thresholds(config: &mut EpochConfig, protocol_version: u32) {
         if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
-            config.chunk_validator_only_kickout_threshold = 50;
+            config.chunk_validator_only_kickout_threshold = 70;
         }
     }
 
