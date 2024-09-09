@@ -1,13 +1,13 @@
 {
-  "epoch_length": 2000,
-  "num_block_producer_seats": 100,
+  "epoch_length": 43200,
+  "num_block_producer_seats": 20,
   "num_block_producer_seats_per_shard": [
-    100,
-    100,
-    100,
-    100,
-    100,
-    100
+    20,
+    20,
+    20,
+    20,
+    20,
+    20
   ],
   "avg_hidden_validator_seats_per_shard": [
     0,
@@ -19,7 +19,7 @@
   ],
   "block_producer_kickout_threshold": 80,
   "chunk_producer_kickout_threshold": 80,
-  "chunk_validator_only_kickout_threshold": 80,
+  "chunk_validator_only_kickout_threshold": 70,
   "target_validator_mandates_per_shard": 68,
   "validator_max_kickout_stake_perc": 30,
   "online_min_threshold": [
@@ -75,7 +75,7 @@
     }
   },
   "validator_selection_config": {
-    "num_chunk_producer_seats": 100,
+    "num_chunk_producer_seats": 20,
     "num_chunk_validator_seats": 300,
     "num_chunk_only_producer_seats": 0,
     "minimum_validators_per_shard": 1,

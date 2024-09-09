@@ -20,6 +20,10 @@ pub(crate) mod testonly;
 mod tests;
 
 mod _proto {
+    // TODO: protobuf codegen includes `#![allow(box_pointers)]` which Clippy
+    // doesn’t like.  Allow renamed_and_removed_lints to silence that warning.
+    // Remove this once protobuf codegen is updated.
+    #![allow(renamed_and_removed_lints)]
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
