@@ -483,15 +483,15 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
             move || {
                 let proof = match EpochSync::derive_epoch_sync_proof(store) {
                     Ok(epoch_sync_proof) => epoch_sync_proof,
-                    Err(e) => {
-                        tracing::error!("Failed to derive epoch sync proof: {:?}", e);
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to derive epoch sync proof");
                         return;
                     }
                 };
                 let (compressed_proof, _) = match CompressedEpochSyncProof::encode(&proof) {
                     Ok(compressed_proof) => compressed_proof,
-                    Err(e) => {
-                        tracing::error!("Failed to compress epoch sync proof: {:?}", e);
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to compress epoch sync proof");
                         return;
                     }
                 };
@@ -508,19 +508,19 @@ impl Handler<EpochSyncResponseMessage> for ClientActorInner {
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
         let (proof, _) = match msg.proof.decode() {
             Ok(proof) => proof,
-            Err(e) => {
-                tracing::error!("Failed to uncompress epoch sync proof: {:?}", e);
+            Err(err) => {
+                tracing::error!(?err, "Failed to uncompress epoch sync proof");
                 return;
             }
         };
-        if let Err(e) = self.client.epoch_sync.apply_proof(
+        if let Err(err) = self.client.epoch_sync.apply_proof(
             &mut self.client.sync_status,
             &mut self.client.chain,
             proof,
             msg.from_peer,
             self.client.epoch_manager.as_ref(),
         ) {
-            tracing::error!("Failed to apply epoch sync proof: {:?}", e);
+            tracing::error!(?err, "Failed to apply epoch sync proof");
         }
     }
 }

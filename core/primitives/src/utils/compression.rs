@@ -17,14 +17,14 @@ where
         Self::from(data)
     }
 
-    /// Borsh-serialize and compress state witness.
-    /// Returns encoded witness along with the raw (uncompressed) witness size.
-    fn encode(witness: &T) -> std::io::Result<(Self, usize)> {
-        // Flow of data: State witness --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
-        // CountingWrite will count the number of bytes for the Borsh-serialized witness, before compression.
+    /// Borsh-serialize and compress the given data.
+    /// Returns compressed data along with the raw (uncompressed) serialized data size.
+    fn encode(uncompressed: &T) -> std::io::Result<(Self, usize)> {
+        // Flow of data: Original --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
+        // CountingWrite will count the number of bytes for the Borsh-serialized data, before compression.
         let mut counting_write =
             CountingWrite::new(zstd::stream::Encoder::new(Vec::new().writer(), COMPRESSION_LEVEL)?);
-        borsh::to_writer(&mut counting_write, witness)?;
+        borsh::to_writer(&mut counting_write, uncompressed)?;
 
         let borsh_bytes_len = counting_write.bytes_written();
         let encoded_bytes = counting_write.into_inner().finish()?.into_inner();
@@ -32,20 +32,20 @@ where
         Ok((Self::from(encoded_bytes.into()), borsh_bytes_len.as_u64() as usize))
     }
 
-    /// Decompress and borsh-deserialize encoded witness bytes.
-    /// Returns decoded witness along with the raw (uncompressed) witness size.
+    /// Decompress and borsh-deserialize the compressed data.
+    /// Returns decompressed and deserialized data along with the raw (uncompressed) serialized data size.
     fn decode(&self) -> std::io::Result<(T, usize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
         self.decode_with_limit(ByteSize(MAX_UNCOMPRESSED_SIZE))
     }
 
-    /// Decompress and borsh-deserialize encoded witness bytes.
-    /// Returns decoded witness along with the raw (uncompressed) witness size.
+    /// Decompress and borsh-deserialize the compressed data.
+    /// Returns decompressed and deserialized data along with the raw (uncompressed) serialized data size.
     fn decode_with_limit(&self, limit: ByteSize) -> std::io::Result<(T, usize)> {
-        // Flow of data: Bytes --> zstd decompression --> Counting read --> Borsh deserialization --> State witness.
-        // CountingRead will count the number of bytes for the Borsh-deserialized witness, after decompression.
+        // Flow of data: Bytes --> zstd decompression --> Counting read --> Borsh deserialization --> Original.
+        // CountingRead will count the number of bytes for the Borsh-deserialized data, after decompression.
         let mut counting_read = CountingRead::new_with_limit(
-            zstd::stream::Decoder::new(self.as_ref().as_ref().reader())?,
+            zstd::stream::Decoder::new(self.as_ref().reader())?,
             limit,
         );
 
@@ -62,7 +62,9 @@ where
                 };
                 Err(err)
             }
-            Ok(witness) => Ok((witness, counting_read.bytes_read().as_u64().try_into().unwrap())),
+            Ok(deserialized) => {
+                Ok((deserialized, counting_read.bytes_read().as_u64().try_into().unwrap()))
+            }
         }
     }
 

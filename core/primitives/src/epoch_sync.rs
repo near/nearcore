@@ -5,6 +5,7 @@ use crate::merkle::PartialMerkleTree;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytesize::ByteSize;
 use near_crypto::Signature;
 use std::fmt::Debug;
 
@@ -27,7 +28,7 @@ pub struct EpochSyncProof {
     pub current_epoch: EpochSyncProofCurrentEpochData,
 }
 
-const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = 500 * 1024 * 1024;
+const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;
 const EPOCH_SYNC_COMPRESSION_LEVEL: i32 = 3;
 
 #[derive(

@@ -20,6 +20,7 @@ use near_schema_checker_lib::ProtocolSchema;
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
 pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
+pub const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
 
 /// Represents bytes of encoded ChunkStateWitness.
 /// This is the compressed version of borsh-serialized state witness.
@@ -36,8 +37,12 @@ pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: u64 =
 )]
 pub struct EncodedChunkStateWitness(Box<[u8]>);
 
-impl CompressedData<ChunkStateWitness, MAX_UNCOMPRESSED_STATE_WITNESS_SIZE, 3>
-    for EncodedChunkStateWitness
+impl
+    CompressedData<
+        ChunkStateWitness,
+        MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
+        STATE_WITNESS_COMPRESSION_LEVEL,
+    > for EncodedChunkStateWitness
 {
 }
 
