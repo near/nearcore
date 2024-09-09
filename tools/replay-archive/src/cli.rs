@@ -47,8 +47,8 @@ pub struct ReplayArchiveCommand {
 }
 
 impl ReplayArchiveCommand {
-    pub fn run(self, home_dir: &Path) -> Result<()> {
-        let near_config = load_config(home_dir, GenesisValidationMode::Full)
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) -> Result<()> {
+        let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         if !near_config.config.archive {
@@ -500,7 +500,7 @@ impl ReplayController {
 
     /// Saves the ChunkExtras for the shards in the genesis block.
     /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
-    /// from the information in the genesis block without applying any transactions or receipts.    
+    /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
         let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);
         let state_roots = get_genesis_state_roots(self.chain_store.store())?
