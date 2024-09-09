@@ -952,6 +952,9 @@ impl PeerActor {
             (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, tcp::Tier::T2, msg)
             }
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier3Handshake(msg)) => {
+                self.process_handshake(ctx, tcp::Tier::T3, msg)
+            }
             (_, msg) => {
                 tracing::warn!(target:"network","unexpected message during handshake: {}",msg)
             }
