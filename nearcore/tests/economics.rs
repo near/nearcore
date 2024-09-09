@@ -9,7 +9,10 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::{
+    transaction::SignedTransaction,
+    version::{ProtocolFeature, PROTOCOL_VERSION},
+};
 use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 use nearcore::NightshadeRuntime;
 use testlib::fees_utils::FeeHelper;
@@ -111,10 +114,20 @@ fn test_burn_mint() {
             / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
         .as_u128()
     };
-    // In stateless validation, chunk endorsements are also included in the reward calculation.
-    // supply + 1% of protocol rewards + 2/3 * 9% of validator rewards.
+    // supply + 10% of protocol rewards (where inflation rate = 1/10)
+    //        + average_uptime * 90% of validator rewards (where min_online_threshold = 9/10).
     let expected_total_supply =
-        initial_total_supply + epoch_total_reward * 700 / 1000 - half_transfer_cost;
+        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+            // Validator stats: Block production rate: 2/2, Chunk production rate: 1/2, Chunk endorsement rate: 1/1.
+            // Average uptime: (2/2 + 1/2 + 1/1) / 3 = 5/6
+            // 1/10 + 5/6 * 9/10 = 85/100
+            initial_total_supply + epoch_total_reward * 85 / 100 - half_transfer_cost
+        } else {
+            // Validator stats: Block production rate: 2/2, Chunk production rate: 1/2, Chunk endorsement rate: 1/2.
+            // Average uptime: (2/2 + 1/2 + 1/2) / 3 = 2/3
+            // 1/10 + 2/3 * 9/10 = 7/10
+            initial_total_supply + epoch_total_reward * 7 / 10 - half_transfer_cost
+        };
     assert_eq!(block3.header().total_supply(), expected_total_supply);
     assert_eq!(block3.chunks()[0].prev_balance_burnt(), half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
