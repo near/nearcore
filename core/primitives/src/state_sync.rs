@@ -32,14 +32,44 @@ pub struct ShardStateSyncResponseHeaderV1 {
     pub state_root_node: StateRootNode,
 }
 
+/// Let B[h] be the block with hash h.
+/// Let shard_id be the shard ID of the shard this header is meant for
+/// As a shorthand,let B_sync = B[sync_hash], B_prev = B[B_sync.prev_hash]
+///
+/// Also let B_prev_chunk be the block with height B_prev.chunks[shard_id].height_included
+/// that is an ancestor of B_sync. So, the last block with a new chunk before B_sync.
+///
+/// Given these definitiions, the meaning of fields are explained below.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV2 {
+    /// The chunk whose header in included as B_prev.chunks[shard_id]
+    /// This chunk will be applied after downloading state
     pub chunk: ShardChunk,
+    /// A merkle path for (Self::chunk.hash, Self::chunk.height_included), verifiable
+    /// against B_prev.chunk_headers_root
     pub chunk_proof: MerklePath,
+    /// This is None if sync_hash is the genesis hash. Otherwise, it's B_prev_chunk.chunks[shard_id]
     pub prev_chunk_header: Option<ShardChunkHeader>,
+    /// A merkle path for (Self::prev_chunk_header.hash, Self::prev_chunk_header.height_included), verifiable
+    /// against B_prev_chunk.chunk_headers_root
     pub prev_chunk_proof: Option<MerklePath>,
+    /// This field contains the incoming receipts for shard_id for B_sync and B_prev_chunk.
+    /// So, this field has at most two elements.
+    /// These receipts are used to apply `chunk` after downloading state
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    /// This field contains the info necessary to verify that the receipt proofs in Self::incoming_receipts_proofs
+    /// are actually the ones referenced on chain
+    ///
+    /// The length of this field is the same as the length of Self::incoming_receipts_proofs, and elements
+    /// of the two at a given index are taken together for verification. For a given index i,
+    /// root_proofs[i] is a vector of the same length as incoming_receipts_proofs[i].1 , which itself is a
+    /// vector of receipt proofs for all "from_shard_ids" that sent receipts to shard_id. root_proofs[i][j]
+    /// contains a merkle root equal to the prev_outgoing_receipts_root field of the corresponding chunk
+    /// included in the block with hash incoming_receipts_proofs[i].0, and a merkle path to verify it against
+    /// that block's prev_chunk_outgoing_receipts_root field.
     pub root_proofs: Vec<Vec<RootProof>>,
+    /// The state root with hash equal to B_prev.chunks[shard_id].prev_state_root.
+    /// That is, the state root node of the trie before applying the chunks in B_prev
     pub state_root_node: StateRootNode,
 }
 
