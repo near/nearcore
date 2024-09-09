@@ -56,7 +56,7 @@ pub struct EpochSyncProofLastEpochData {
     /// Any final block header in the next epoch (i.e. current epoch for the whole proof).
     /// This is used to provide the `epoch_sync_data_hash` mentioned above.
     pub final_block_header_in_next_epoch: BlockHeader,
-    /// Approvals for `final_block_header_in_next_epoch`, used to prove that that block header
+    /// Approvals for `final_block_header_in_next_epoch`, used to prove that block header
     /// is valid.
     pub approvals_for_final_block_in_next_epoch: Vec<Option<Box<Signature>>>,
 }

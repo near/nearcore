@@ -11,7 +11,7 @@ def approximate_epoch_height(block_height, epoch_length):
     return int((block_height - 1) / epoch_length)
 
 
-def get_state_sync_configs_pair():
+def get_state_sync_configs_pair(tracked_shards=[0]):
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 
     config_dump = {
@@ -48,8 +48,9 @@ def get_state_sync_configs_pair():
             }
         },
         "state_sync_enabled": True,
-        "tracked_shards": [0],  # Track all shards
     }
+    if tracked_shards is not None:
+        config_sync['tracked_shards'] = tracked_shards
 
     return (config_dump, config_sync)
 

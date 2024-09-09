@@ -22,6 +22,7 @@ nodes = start_cluster(
     num_observers=1,
     num_shards=4,
     config=None,
+    extra_state_dumper=True,
     genesis_config_changes=[["min_gas_price",
                              0], ["max_inflation_rate", [0, 1]],
                             ["epoch_length", 10],
@@ -72,7 +73,7 @@ nodes = start_cluster(
 
 started = time.time()
 
-act_to_val = [4, 4, 4, 4, 4]
+act_to_val = [4, 4, 4, 4, 4, 4]
 
 ctx = utils.TxContext(act_to_val, nodes)
 

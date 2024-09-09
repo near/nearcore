@@ -585,6 +585,7 @@ impl ChainStore {
         }
     }
 
+    /// TODO validate if this logic works for Resharding V3.
     fn reassign_outgoing_receipts_for_resharding(
         receipts: &mut Vec<Receipt>,
         protocol_version: ProtocolVersion,
@@ -604,10 +605,6 @@ impl ChainStore {
             )?;
             return Ok(());
         }
-
-        // Otherwise use the old reassignment. Keep in mind it only works for
-        // 1 shard -> n shards reshardings, otherwise receipts get lost.
-        Self::reassign_outgoing_receipts_for_resharding_v1(receipts, shard_layout, shard_id)?;
         Ok(())
     }
 
@@ -651,28 +648,6 @@ impl ChainStore {
             receipts.clear();
             Ok(())
         }
-    }
-
-    /// Reassign the outgoing receipts from the parent shard to the children
-    /// shards.
-    ///
-    /// This method does it based on the "receipt receiver" approach where the
-    /// receipt is assigned to the shard of the receiver.
-    ///
-    /// This approach worked well for the 1->4 shards resharding but it doesn't
-    /// work for following reshardings. The reason is that it's only the child
-    /// shards that look at parents shard's outgoing receipts. If the receipt
-    /// receiver happens to not fall within one of the children shards then the
-    /// receipt is lost.
-    fn reassign_outgoing_receipts_for_resharding_v1(
-        receipts: &mut Vec<Receipt>,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-    ) -> Result<(), Error> {
-        receipts.retain(|receipt| {
-            account_id_to_shard_id(receipt.receiver_id(), &shard_layout) == shard_id
-        });
-        Ok(())
     }
 
     /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
