@@ -17,12 +17,13 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::{
-    EpochSyncProof, EpochSyncProofCurrentEpochData, EpochSyncProofLastEpochData,
-    EpochSyncProofPastEpochData,
+    CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
+    EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::utils::compression::CompressedData;
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -487,13 +488,20 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
             move || {
                 let proof = match EpochSync::derive_epoch_sync_proof(store) {
                     Ok(epoch_sync_proof) => epoch_sync_proof,
-                    Err(e) => {
-                        tracing::error!("Failed to derive epoch sync proof: {:?}", e);
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to derive epoch sync proof");
+                        return;
+                    }
+                };
+                let (compressed_proof, _) = match CompressedEpochSyncProof::encode(&proof) {
+                    Ok(compressed_proof) => compressed_proof,
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to compress epoch sync proof");
                         return;
                     }
                 };
                 network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::EpochSyncResponse { route_back, proof },
+                    NetworkRequests::EpochSyncResponse { route_back, proof: compressed_proof },
                 ));
             },
         )
@@ -503,14 +511,21 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
 impl Handler<EpochSyncResponseMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
-        if let Err(e) = self.client.epoch_sync.apply_proof(
+        let (proof, _) = match msg.proof.decode() {
+            Ok(proof) => proof,
+            Err(err) => {
+                tracing::error!(?err, "Failed to uncompress epoch sync proof");
+                return;
+            }
+        };
+        if let Err(err) = self.client.epoch_sync.apply_proof(
             &mut self.client.sync_status,
             &mut self.client.chain,
-            msg.proof,
+            proof,
             msg.from_peer,
             self.client.epoch_manager.as_ref(),
         ) {
-            tracing::error!("Failed to apply epoch sync proof: {:?}", e);
+            tracing::error!(?err, "Failed to apply epoch sync proof");
         }
     }
 }

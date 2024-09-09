@@ -30,6 +30,7 @@ use crate::stateless_validation::validate::validate_partial_encoded_state_witnes
 
 use super::encoding::WitnessEncoderCache;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
+use near_primitives::utils::compression::CompressedData;
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.

@@ -4,7 +4,7 @@ use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -128,7 +128,7 @@ pub struct EpochSyncRequestMessage {
 #[rtype(result = "()")]
 pub struct EpochSyncResponseMessage {
     pub from_peer: PeerId,
-    pub proof: EpochSyncProof,
+    pub proof: CompressedEpochSyncProof,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
