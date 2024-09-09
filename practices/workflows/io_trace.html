@@ -147,7 +147,7 @@ are slow. Or to detect general inefficiencies in how we use the DB.</p>
 <p>The results give you counts of DB requests and some useful statistics such as
 trie node cache hits. It will NOT give you time measurements, use Graphana to
 observe those.</p>
-<p>The main uses cases in the past were to estimate the performance of new storage
+<p>The main use cases in the past were to estimate the performance of new storage
 features (prefetcher, flat state) and to find out why specific contracts produce
 slow receipts.</p>
 <h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
@@ -186,7 +186,7 @@ cargo run --release -p runtime-params-estimator --features=required,io_trace \
 <p>Once you have collected an IO trace, you can inspect its content manually, or
 use existing tools to extract statistics. Let's start with the manual approach.</p>
 <h3 id="simple-example-trace-estimator"><a class="header" href="#simple-example-trace-estimator">Simple example trace: Estimator</a></h3>
-<p>An estimator trace typical typically starts something like this:</p>
+<p>An estimator trace typically starts something like this:</p>
 <pre><code>commit
   SET DbVersion &quot;'VERSION'&quot; size=2
 commit

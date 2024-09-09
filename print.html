@@ -4350,7 +4350,7 @@ contract on our local node.</p>
 <h2 id="preparing-ground"><a class="header" href="#preparing-ground">Preparing Ground</a></h2>
 <p>Let's start with creating a fresh local network with an account to which we'll
 deploy a contract. You might want to re-read <a href="practices/workflows/./run_a_node.html">how to run a node</a>
-to understand what's going one here:</p>
+to understand what's going on here:</p>
 <pre><code class="language-console">$ cargo run --profile dev-release -p neard -- init
 $ cargo run --profile dev-release -p neard -- run
 $ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
@@ -4670,7 +4670,7 @@ are slow. Or to detect general inefficiencies in how we use the DB.</p>
 <p>The results give you counts of DB requests and some useful statistics such as
 trie node cache hits. It will NOT give you time measurements, use Graphana to
 observe those.</p>
-<p>The main uses cases in the past were to estimate the performance of new storage
+<p>The main use cases in the past were to estimate the performance of new storage
 features (prefetcher, flat state) and to find out why specific contracts produce
 slow receipts.</p>
 <h2 id="setup-1"><a class="header" href="#setup-1">Setup</a></h2>
@@ -4709,7 +4709,7 @@ cargo run --release -p runtime-params-estimator --features=required,io_trace \
 <p>Once you have collected an IO trace, you can inspect its content manually, or
 use existing tools to extract statistics. Let's start with the manual approach.</p>
 <h3 id="simple-example-trace-estimator"><a class="header" href="#simple-example-trace-estimator">Simple example trace: Estimator</a></h3>
-<p>An estimator trace typical typically starts something like this:</p>
+<p>An estimator trace typically starts something like this:</p>
 <pre><code>commit
   SET DbVersion &quot;'VERSION'&quot; size=2
 commit
@@ -4922,10 +4922,10 @@ to debug write performance is naturally lacking.</p>
 <p>It is a common task to need to look where <code>neard</code> is spending time. Outside of instrumentation
 we've also been successfully using sampling profilers to gain an intuition over how the code works
 and where it spends time. It is a very quick way to get some baseline understanding of the
-performance characteristics, but due to its probablistic nature it is also not particularly precise
+performance characteristics, but due to its probabilistic nature it is also not particularly precise
 when it comes to small details.</p>
 <p>Linux's <code>perf</code> has been a tool of choice in most cases, although tools like Intel VTune could be
-used to. In order to use either, first prepare your system:</p>
+used too. In order to use either, first prepare your system:</p>
 <pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
 $ sudo sysctl kernel.restrict_kptr=0
 </code></pre>
@@ -5002,7 +5002,7 @@ memory or to inadvertently retain too much of it.</p>
 for example is introducing enough slowdown to significantly alter the behaviour of the run, not to
 mention that to run it successfully and without crashing it will be necessary to comment out
 <code>neard</code>’s use of <code>jemalloc</code> for yet another substantial slowdown.</p>
-<p>So far the only took that worked out well out of the box was
+<p>So far the only tool that worked out well out of the box was
 <a href="https://github.com/koute/bytehound"><code>bytehound</code></a>. Using it is quite straightforward, but needs
 Linux, and ability to execute privileged commands.</p>
 <p>First, checkout and build the profiler (you will need to have nodejs <code>yarn</code> thing available as
@@ -5044,8 +5044,8 @@ from including the profiler library.</li>
 <li>Try specifying an exact output file with e.g. environment variables that the profiler reads.</li>
 </ol>
 <h4 id="crashes"><a class="header" href="#crashes">Crashes</a></h4>
-<p>If the profiled <code>neard</code> crashes in your tests, there are a couple things you can try to get past
-it. First, makes sure your binary has the necessary ambient capabilities (<code>setcap</code> command above
+<p>If the profiled <code>neard</code> crashes in your tests, there are a couple of things you can try to get past
+it. First, make sure your binary has the necessary ambient capabilities (<code>setcap</code> command above
 needs to be executed every time binary is replaced!)</p>
 <p>Another thing to try is disabling <code>jemalloc</code>. Comment out this code in <code>neard/src/main.rs</code>:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
