@@ -103,11 +103,9 @@ impl RewardCalculator {
         for (account_id, stats) in validator_block_chunk_stats {
             let production_ratio =
                 get_validator_online_ratio(&stats, online_thresholds.endorsement_cutoff_threshold);
-            tracing::error!("STATS: {:?}", stats);
             let average_produced_numer = production_ratio.numer();
             let average_produced_denom = production_ratio.denom();
-            tracing::error!("NUMER: {}, DENOM: {}", average_produced_numer, average_produced_denom);
-
+            
             let expected_blocks = stats.block_stats.expected;
             let expected_chunks = stats.chunk_stats.expected();
             let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
@@ -155,7 +153,6 @@ impl RewardCalculator {
                     / U512::from(total_stake))
                 .as_u128()
             };
-            tracing::error!("REWARD: {}", reward);
             res.insert(account_id, reward);
             epoch_actual_reward += reward;
         }
