@@ -7,6 +7,7 @@ use crate::utils::compression::CompressedData;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 
 /// Proof that the blockchain history had progressed from the genesis (not included here) to the
@@ -32,7 +33,14 @@ const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;
 const EPOCH_SYNC_COMPRESSION_LEVEL: i32 = 3;
 
 #[derive(
-    Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, derive_more::From, derive_more::AsRef,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    derive_more::From,
+    derive_more::AsRef,
+    ProtocolSchema,
 )]
 pub struct CompressedEpochSyncProof(Box<[u8]>);
 impl
