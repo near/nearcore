@@ -1,6 +1,6 @@
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_primitives::utils::index_to_bytes;
-use near_store::metadata::{DbVersion, DB_VERSION};
+use near_store::metadata::{DbKind, DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
 use near_store::{DBCol, Store};
 
@@ -69,7 +69,12 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()> {
+    fn migrate(
+        &self,
+        store: &Store,
+        version: DbVersion,
+        kind: Option<DbKind>,
+    ) -> anyhow::Result<()> {
         match version {
             0..=31 => unreachable!(),
             32 => near_store::migrations::migrate_32_to_33(store),
@@ -86,6 +91,11 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             37 => near_store::migrations::migrate_37_to_38(store),
             38 => near_store::migrations::migrate_38_to_39(store),
             39 => near_store::migrations::migrate_39_to_40(store),
+            40 => near_store::migrations::migrate_40_to_41(
+                store,
+                kind.unwrap_or_else(|| panic!("DB kind is not set for DB at version: {}", version)),
+                self.config.client_config.archive,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }
