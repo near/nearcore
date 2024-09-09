@@ -553,6 +553,7 @@ pub enum RoutedMessageBody {
     VersionedChunkEndorsement(ChunkEndorsement),
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
+    StatePartRequest(StatePartRequest),
 }
 
 impl RoutedMessageBody {
@@ -646,6 +647,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::EpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
+            RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
         }
     }
 }
