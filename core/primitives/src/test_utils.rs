@@ -547,9 +547,11 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(_)
             | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_)
-            | BlockHeader::BlockHeaderV4(_) => {
+            | BlockHeader::BlockHeaderV3(_) => {
                 unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV4(_) => {
+                // BlockHeaderV4 can appear in tests but setting chunk endorsements will be no-op.
             }
             BlockHeader::BlockHeaderV5(header) => {
                 Arc::make_mut(header).inner_rest.chunk_endorsements = value
