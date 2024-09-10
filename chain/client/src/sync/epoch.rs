@@ -23,7 +23,6 @@ use near_primitives::epoch_sync::{
     EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
@@ -253,11 +252,11 @@ impl EpochSync {
                 Error::Other("Could not find first block info of next epoch".to_string())
             })?;
 
-        let merkle_proof_for_first_block_of_current_epoch = store
-            .get_ser::<PartialMerkleTree>(
-                DBCol::BlockMerkleTree,
-                first_block_of_current_epoch.hash().as_bytes(),
-            )?
+        let merkle_proof_for_first_block_of_current_epoch = chain_store
+            .get_block_proof(
+                first_block_of_current_epoch.hash(),
+                final_block_header_in_current_epoch.hash(),
+            )
             .ok_or_else(|| {
                 Error::Other("Could not find merkle proof for first block".to_string())
             })?;
@@ -566,7 +565,7 @@ impl EpochSync {
             return Err(Error::InvalidEpochSyncProof("empty past_epochs".to_string()));
         }
 
-        // Verify block producer handoff to the first epoch after genesis 
+        // Verify block producer handoff to the first epoch after genesis
         Self::verify_block_producer_handoff(
             past_epochs.first().unwrap(),
             self.genesis.epoch_id(),
@@ -628,9 +627,10 @@ impl EpochSync {
             &last_epoch.next_epoch_info,
             &last_epoch.next_next_epoch_info,
         ));
-        let expected_epoch_sync_data_hash = last_epoch.final_block_header_in_next_epoch.epoch_sync_data_hash().ok_or(
-            Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string())
-        )?;
+        let expected_epoch_sync_data_hash = last_epoch
+            .final_block_header_in_next_epoch
+            .epoch_sync_data_hash()
+            .ok_or(Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string()))?;
         if epoch_sync_data_hash != expected_epoch_sync_data_hash {
             return Err(Error::InvalidEpochSyncProof("invalid epoch_sync_data_hash".to_string()));
         }
