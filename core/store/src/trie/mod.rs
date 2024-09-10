@@ -1,7 +1,7 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::mem::iter::MemTrieIterator;
+use self::mem::iter::STMemTrieIterator;
 use self::mem::lookup::memtrie_lookup;
 use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
 use self::mem::MemTries;
@@ -1724,7 +1724,7 @@ impl<'a> TrieWithReadLock<'a> {
                         ))
                     })?)
                 };
-                Ok(TrieIterator::Memtrie(MemTrieIterator::new(root, self.trie)))
+                Ok(TrieIterator::Memtrie(STMemTrieIterator::new(root, self.trie)))
             }
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
         }

@@ -10,18 +10,20 @@
 //!    column.
 //!
 //! Testing of the `MemTrieIterator` is done together by tests of `DiskTrieIterator`.
-use super::arena::STArenaMemory;
-use super::node::{MemTrieNodePtr, MemTrieNodeView};
-use crate::{
-    trie::{iterator::TrieItem, OptimizedValueRef},
-    NibbleSlice, Trie,
-};
 use near_primitives::errors::StorageError;
+
+use crate::trie::iterator::TrieItem;
+use crate::trie::OptimizedValueRef;
+use crate::{NibbleSlice, Trie};
+
+use super::arena::single_thread::STArenaMemory;
+use super::arena::ArenaMemory;
+use super::node::{MemTrieNodePtr, MemTrieNodeView};
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
-struct Crumb<'a> {
-    node: Option<MemTrieNodeView<'a, STArenaMemory>>,
+struct Crumb<'a, M: ArenaMemory> {
+    node: Option<MemTrieNodeView<'a, M>>,
     status: CrumbStatus,
     prefix_boundary: bool,
 }
@@ -37,7 +39,7 @@ enum CrumbStatus {
     Exiting,
 }
 
-impl<'a> Crumb<'a> {
+impl<'a, M: ArenaMemory> Crumb<'a, M> {
     fn increment(&mut self) {
         if self.prefix_boundary {
             self.status = CrumbStatus::Exiting;
@@ -70,16 +72,18 @@ impl<'a> Crumb<'a> {
 /// The trail and the key_nibbles may have different lengths e.g. an extension trie node
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
 
-pub struct MemTrieIterator<'a> {
-    root: Option<MemTrieNodePtr<'a, STArenaMemory>>,
+pub type STMemTrieIterator<'a> = MemTrieIterator<'a, STArenaMemory>;
+
+pub struct MemTrieIterator<'a, M: ArenaMemory> {
+    root: Option<MemTrieNodePtr<'a, M>>,
     trie: &'a Trie,
-    trail: Vec<Crumb<'a>>,
+    trail: Vec<Crumb<'a, M>>,
     key_nibbles: Vec<u8>,
 }
 
-impl<'a> MemTrieIterator<'a> {
+impl<'a, M: ArenaMemory> MemTrieIterator<'a, M> {
     /// Create a new iterator.
-    pub fn new(root: Option<MemTrieNodePtr<'a, STArenaMemory>>, trie: &'a Trie) -> Self {
+    pub fn new(root: Option<MemTrieNodePtr<'a, M>>, trie: &'a Trie) -> Self {
         let mut r = MemTrieIterator { root, trie, trail: Vec::new(), key_nibbles: Vec::new() };
         r.descend_into_node(root);
         r
@@ -95,7 +99,7 @@ impl<'a> MemTrieIterator<'a> {
         &mut self,
         mut key: NibbleSlice<'_>,
         is_prefix_seek: bool,
-    ) -> Option<MemTrieNodePtr<'a, STArenaMemory>> {
+    ) -> Option<MemTrieNodePtr<'a, M>> {
         self.trail.clear();
         self.key_nibbles.clear();
         // Checks if a key in an extension or leaf matches our search query.
@@ -168,7 +172,7 @@ impl<'a> MemTrieIterator<'a> {
     /// Fetches node by its ptr and adds it to the trail.
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
-    fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a, STArenaMemory>>) {
+    fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a, M>>) {
         let node = ptr.map(|ptr| {
             let view = ptr.view();
             if let Some(recorder) = &self.trie.recorder {
@@ -190,7 +194,7 @@ impl<'a> MemTrieIterator<'a> {
     }
 
     /// Calculates the next step of the iteration.
-    fn iter_step(&mut self) -> Option<IterStep<'a>> {
+    fn iter_step(&mut self) -> Option<IterStep<'a, M>> {
         let last = self.trail.last_mut()?;
         last.increment();
         Some(match (last.status, &last.node) {
@@ -244,14 +248,14 @@ impl<'a> MemTrieIterator<'a> {
 }
 
 #[derive(Debug)]
-enum IterStep<'a> {
+enum IterStep<'a, M: ArenaMemory> {
     Continue,
     PopTrail,
-    Descend(MemTrieNodePtr<'a, STArenaMemory>),
+    Descend(MemTrieNodePtr<'a, M>),
     Value(OptimizedValueRef),
 }
 
-impl<'a> Iterator for MemTrieIterator<'a> {
+impl<'a, M: ArenaMemory> Iterator for MemTrieIterator<'a, M> {
     type Item = Result<TrieItem, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {

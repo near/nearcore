@@ -1,12 +1,14 @@
-use self::arena::{Arena, STArena, STArenaMemory};
-use self::metrics::MEM_TRIE_NUM_ROOTS;
-use self::node::{MemTrieNodeId, MemTrieNodePtr};
-use self::updating::MemTrieUpdate;
+use std::collections::{BTreeMap, HashMap};
+
+use arena::single_thread::{STArena, STArenaMemory};
+use arena::{Arena, ArenaMut};
+use metrics::MEM_TRIE_NUM_ROOTS;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, StateRoot};
-use std::collections::{BTreeMap, HashMap};
+use node::{MemTrieNodeId, MemTrieNodePtr};
+use updating::MemTrieUpdate;
 
 mod arena;
 mod construction;
@@ -159,7 +161,7 @@ impl MemTries {
         &self,
         root: CryptoHash,
         track_trie_changes: bool,
-    ) -> Result<MemTrieUpdate, StorageError> {
+    ) -> Result<MemTrieUpdate<STArenaMemory>, StorageError> {
         let root_id = if root == CryptoHash::default() {
             None
         } else {

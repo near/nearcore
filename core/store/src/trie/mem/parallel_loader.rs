@@ -1,5 +1,6 @@
 use super::arena::concurrent::{ConcurrentArena, ConcurrentArenaForThread};
-use super::arena::{Arena, STArena};
+use super::arena::single_thread::STArena;
+use super::arena::ArenaMut;
 use super::construction::TrieConstructor;
 use super::node::{InputMemTrieNode, MemTrieNodeId};
 use crate::flat::FlatStorageError;
@@ -210,7 +211,7 @@ impl ParallelMemTrieLoader {
     fn load_one_subtree(
         &self,
         subtree_to_load: &NibblePrefix,
-        arena: &mut impl Arena,
+        arena: &mut impl ArenaMut,
     ) -> Result<MemTrieNodeId, StorageError> {
         // Figure out which range corresponds to the prefix of this subtree.
         let (start, end) = subtree_to_load.to_iter_range(self.shard_uid);
@@ -285,7 +286,7 @@ enum TrieLoadingPlanNode {
 impl TrieLoadingPlanNode {
     /// This implements the construction part of stage 3, where we convert a plan node to
     /// a memtrie node. The `subtree_roots` is the parallel loading results.
-    fn to_node(self, arena: &mut impl Arena, subtree_roots: &[MemTrieNodeId]) -> MemTrieNodeId {
+    fn to_node(self, arena: &mut impl ArenaMut, subtree_roots: &[MemTrieNodeId]) -> MemTrieNodeId {
         match self {
             TrieLoadingPlanNode::Branch { children, value } => {
                 let mut res_children = [None; 16];

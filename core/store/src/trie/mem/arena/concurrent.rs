@@ -1,7 +1,9 @@
-use super::alloc::{allocation_class, allocation_size, CHUNK_SIZE};
-use super::{Arena, ArenaMemory, ArenaPos, ArenaSliceMut, STArena};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+use super::alloc::{allocation_class, allocation_size, CHUNK_SIZE};
+use super::single_thread::STArena;
+use super::{Arena, ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaSliceMut};
 
 /// Arena that can be allocated on from multiple threads, but still allowing conversion to a
 /// single-threaded `STArena` afterwards.
@@ -116,7 +118,9 @@ impl ArenaMemory for ConcurrentArenaMemory {
     fn raw_slice(&self, pos: ArenaPos, len: usize) -> &[u8] {
         &self.chunk(pos.chunk())[pos.pos()..pos.pos() + len]
     }
+}
 
+impl ArenaMemoryMut for ConcurrentArenaMemory {
     fn raw_slice_mut(&mut self, pos: ArenaPos, len: usize) -> &mut [u8] {
         &mut self.chunk_mut(pos.chunk())[pos.pos()..pos.pos() + len]
     }
@@ -181,6 +185,10 @@ impl Arena for ConcurrentArenaForThread {
     fn memory(&self) -> &Self::Memory {
         &self.memory
     }
+}
+
+impl ArenaMut for ConcurrentArenaForThread {
+    type MemoryMut = ConcurrentArenaMemory;
 
     fn memory_mut(&mut self) -> &mut Self::Memory {
         &mut self.memory
@@ -196,7 +204,7 @@ mod tests {
     use super::ConcurrentArena;
     use crate::trie::mem::arena::alloc::CHUNK_SIZE;
     use crate::trie::mem::arena::metrics::MEM_TRIE_ARENA_MEMORY_USAGE_BYTES;
-    use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaWithDealloc};
+    use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaMut, ArenaWithDealloc};
 
     #[test]
     fn test_concurrent_arena() {

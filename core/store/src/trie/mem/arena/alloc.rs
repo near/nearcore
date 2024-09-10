@@ -1,8 +1,10 @@
 use super::metrics::MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT;
-use super::{ArenaMemory, ArenaPos, ArenaSliceMut, STArenaMemory};
+use super::single_thread::STArenaMemory;
+use super::{ArenaMemory, ArenaPos, ArenaSliceMut};
 use crate::trie::mem::arena::metrics::{
     MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES, MEM_TRIE_ARENA_MEMORY_USAGE_BYTES,
 };
+use crate::trie::mem::arena::ArenaMemoryMut;
 use crate::trie::mem::flexible_data::encoding::BorshFixedSize;
 use near_o11y::metrics::IntGauge;
 
@@ -173,7 +175,8 @@ impl Allocator {
 mod test {
     use super::MAX_ALLOC_SIZE;
     use crate::trie::mem::arena::alloc::CHUNK_SIZE;
-    use crate::trie::mem::arena::{Arena, ArenaWithDealloc, STArena};
+    use crate::trie::mem::arena::single_thread::STArena;
+    use crate::trie::mem::arena::{Arena, ArenaMut, ArenaWithDealloc};
     use std::mem::size_of;
 
     #[test]
@@ -200,7 +203,7 @@ mod test {
             }
             // Check that each allocated interval is valid.
             for (pos, len) in &slices {
-                assert!((pos.chunk()) < arena.memory.chunks.len());
+                assert!((pos.chunk()) < arena.memory().chunks.len());
                 assert!(pos.offset_by(*len).pos() <= CHUNK_SIZE);
             }
             for (pos, len) in slices {
@@ -226,7 +229,7 @@ mod test {
         }
         assert_eq!(arena.num_active_allocs(), 0);
         // 8192 * 2000 <= 16MB, so we should have allocated only 4 chunks.
-        assert_eq!(arena.memory.chunks.len(), 4);
+        assert_eq!(arena.memory().chunks.len(), 4);
     }
 
     #[test]

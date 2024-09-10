@@ -1,4 +1,4 @@
-use super::arena::STArenaMemory;
+use super::arena::ArenaMemory;
 use super::flexible_data::value::ValueView;
 use super::metrics::MEM_TRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
@@ -13,8 +13,8 @@ use std::sync::Arc;
 /// will be added to the vector as (node hash, serialized `RawTrieNodeWithSize`).
 /// Even if the key is not found, the nodes that were accessed to make that
 /// determination will be added to the vector.
-pub fn memtrie_lookup<'a>(
-    root: MemTrieNodePtr<'a, STArenaMemory>,
+pub fn memtrie_lookup<'a, M: ArenaMemory>(
+    root: MemTrieNodePtr<'a, M>,
     key: &[u8],
     mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
 ) -> Option<ValueView<'a>> {
