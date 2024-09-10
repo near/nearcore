@@ -1,8 +1,8 @@
 use super::arena::ArenaMemory;
 use super::flexible_data::children::ChildrenView;
+use super::mem_tries::MemTries;
 use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
 use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
-use super::MemTries;
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap, TRIE_COSTS};
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::hash::{hash, CryptoHash};
@@ -919,8 +919,8 @@ pub fn apply_memtrie_changes(
 mod tests {
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::mem::lookup::memtrie_lookup;
+    use crate::trie::mem::mem_tries::MemTries;
     use crate::trie::mem::updating::apply_memtrie_changes;
-    use crate::trie::mem::MemTries;
     use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::shard_layout::ShardUId;
@@ -1270,7 +1270,7 @@ mod tests {
         // high the number of allocs in the end would be non-zero.
         tries.mem.delete_until_height(1);
         assert_eq!(tries.mem.num_roots(), 0);
-        assert_eq!(tries.mem.arena.num_active_allocs(), 0);
+        assert_eq!(tries.mem.arena().num_active_allocs(), 0);
     }
 
     // As of Oct 2023 this randomized test was seen to cover all branches except

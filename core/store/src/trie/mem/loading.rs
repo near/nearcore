@@ -1,5 +1,5 @@
+use super::mem_tries::MemTries;
 use super::node::MemTrieNodeId;
-use super::MemTries;
 use crate::flat::store_helper::{
     decode_flat_state_db_key, get_all_deltas_metadata, get_delta_changes, get_flat_storage_status,
 };

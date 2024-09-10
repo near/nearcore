@@ -1,4 +1,4 @@
-use super::mem::MemTries;
+use super::mem::mem_tries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
 use crate::flat::store_helper::remove_all_state_values;
