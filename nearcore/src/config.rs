@@ -792,6 +792,36 @@ fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
     }
 }
 
+/// Type of the configuration to download.
+pub enum DownloadConfigType {
+    Validator,
+    Rpc,
+    Archival,
+}
+
+impl ToString for DownloadConfigType {
+    fn to_string(&self) -> String {
+        match self {
+            DownloadConfigType::Validator => "validator".to_string(),
+            DownloadConfigType::Rpc => "rpc".to_string(),
+            DownloadConfigType::Archival => "archival".to_string(),
+        }
+    }
+}
+
+impl FromStr for DownloadConfigType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "validator" => Ok(DownloadConfigType::Validator),
+            "rpc" => Ok(DownloadConfigType::Rpc),
+            "archival" => Ok(DownloadConfigType::Archival),
+            _ => anyhow::bail!("Please use one of the following values for download config: validator, rpc, archival"),
+        }
+    }
+}
+
 /// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.
 ///
 /// This method supports the following use cases:
@@ -811,7 +841,7 @@ pub fn init_configs(
     should_download_genesis: bool,
     download_genesis_url: Option<&str>,
     download_records_url: Option<&str>,
-    should_download_config: bool,
+    download_config_type: Option<DownloadConfigType>,
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
@@ -853,8 +883,8 @@ pub fn init_configs(
         download_config(url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
-    } else if should_download_config {
-        let url = get_config_url(&chain_id);
+    } else if let Some(config_type) = download_config_type {
+        let url = get_config_url(&chain_id, config_type);
         download_config(&url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
@@ -1327,10 +1357,10 @@ pub fn get_records_url(chain_id: &str) -> String {
     )
 }
 
-pub fn get_config_url(chain_id: &str) -> String {
+pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String {
     format!(
-        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
-        chain_id,
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/{}/config.json",
+        chain_id, config_type.to_string()
     )
 }
 
@@ -1543,7 +1573,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
@@ -1601,7 +1631,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
@@ -1634,7 +1664,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,

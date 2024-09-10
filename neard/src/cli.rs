@@ -27,11 +27,13 @@ use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
 use near_undo_block::cli::UndoBlockCommand;
+use nearcore::config::DownloadConfigType;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
@@ -259,8 +261,10 @@ pub(super) struct InitCmd {
     #[clap(long)]
     download_genesis: bool,
     /// Download the verified NEAR config file automatically.
-    #[clap(long)]
-    download_config: bool,
+    /// Can be one of "validator", "rpc", "archival".
+    /// If not specified, defaults to "validator".
+    #[clap(long, default_missing_value = "validator")]
+    download_config: Option<String>,
     /// Makes block production fast (TESTING ONLY).
     #[clap(long)]
     fast: bool,
@@ -358,7 +362,7 @@ impl InitCmd {
             self.download_genesis,
             self.download_genesis_url.as_deref(),
             self.download_records_url.as_deref(),
-            self.download_config,
+            self.download_config.map(|c| DownloadConfigType::from_str(c.as_str()).unwrap()),
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
