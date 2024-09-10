@@ -321,7 +321,7 @@ impl ReceiptSinkV2<'_> {
         let receipt = match use_state_stored_receipt {
             true => {
                 let metadata = StateStoredReceiptMetadata { gas, size };
-                let receipt = StateStoredReceipt::new(receipt, metadata);
+                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
