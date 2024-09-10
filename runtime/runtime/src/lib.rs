@@ -1661,7 +1661,7 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    receipt,
+                    &receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {
@@ -1709,7 +1709,7 @@ impl Runtime {
                 .delayed_receipts
                 .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
                 .expect("queue is not empty");
-            let receipt = receipt.receipt();
+            let receipt = receipt.into_receipt();
 
             if let Some(prefetcher) = &mut processing_state.prefetcher {
                 // Prefetcher is allowed to fail
@@ -1777,7 +1777,7 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    receipt.clone(), // TODO get rid of clone
+                    &receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {

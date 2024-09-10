@@ -1,4 +1,5 @@
 use rand::Rng;
+use std::borrow::Cow;
 use std::path::Path;
 
 use near_chain::types::RuntimeAdapter;
@@ -191,6 +192,7 @@ impl PrepareBenchmarkCmd {
 
         for _ in 0..self.receipt_count {
             let receipt = self.create_receipt();
+            let receipt = Cow::Borrowed(&receipt);
             let receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
             queue.push(&mut trie_update, &receipt).unwrap();
         }

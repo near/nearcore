@@ -34,7 +34,7 @@ fn get_delayed_receipts(
                         index
                     ))
                 });
-            receipt.map(|receipt| receipt.receipt())
+            receipt.map(|receipt| receipt.into_receipt())
         })
         .collect()
 }
@@ -155,7 +155,7 @@ fn buffered_receipts(
             // The first n receipts were forwarded.
             for receipt in initial_buffer.iter(initial_state).take(num_forwarded as usize) {
                 let receipt = receipt?;
-                let receipt = receipt.receipt();
+                let receipt = receipt.into_receipt();
                 forwarded_receipts.push(receipt)
             }
         }
@@ -165,7 +165,7 @@ fn buffered_receipts(
             // The last n receipts are new. ("rev" to take from the back)
             for receipt in final_buffer.iter(final_state).rev().take(num_buffered as usize) {
                 let receipt = receipt?;
-                let receipt = receipt.receipt();
+                let receipt = receipt.into_receipt();
                 new_buffered_receipts.push(receipt)
             }
         }

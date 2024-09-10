@@ -16,6 +16,7 @@ use near_store::trie::receipts_column_helper::{
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Handle receipt forwarding for different protocol versions.
@@ -201,7 +202,7 @@ impl ReceiptSinkV2<'_> {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
             let size = receipt_size(&receipt)?;
-            let receipt = receipt.receipt();
+            let receipt = receipt.into_receipt();
 
             match Self::try_forward(
                 receipt,
@@ -324,7 +325,7 @@ impl ReceiptSinkV2<'_> {
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
-            false => ReceiptOrStateStoredReceipt::Receipt(receipt),
+            false => ReceiptOrStateStoredReceipt::Receipt(std::borrow::Cow::Owned(receipt)),
         };
 
         self.own_congestion_info.add_receipt_bytes(size)?;
@@ -469,7 +470,7 @@ impl DelayedReceiptQueueWrapper {
     pub(crate) fn push(
         &mut self,
         trie_update: &mut TrieUpdate,
-        receipt: Receipt,
+        receipt: &Receipt,
         config: &RuntimeConfig,
     ) -> Result<(), RuntimeError> {
         let gas = compute_receipt_congestion_gas(&receipt, &config)?;
@@ -478,10 +479,10 @@ impl DelayedReceiptQueueWrapper {
         let receipt = match config.use_state_stored_receipt {
             true => {
                 let metadata = StateStoredReceiptMetadata { gas, size };
-                let receipt = StateStoredReceipt::new(receipt, metadata);
+                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
-            false => ReceiptOrStateStoredReceipt::Receipt(receipt),
+            false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),
         };
 
         self.new_delayed_gas = safe_add_gas(self.new_delayed_gas, gas)?;
