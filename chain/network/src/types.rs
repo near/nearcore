@@ -16,7 +16,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
@@ -285,7 +285,7 @@ pub enum NetworkRequests {
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
-    EpochSyncResponse { route_back: CryptoHash, proof: EpochSyncProof },
+    EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
 }
 
 /// Combines peer address info, chain.

@@ -151,12 +151,13 @@ pub struct VMLogic<'a> {
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: &'a VMContext,
+    /// Pointer to the guest memory.
+    memory: super::vmstate::Memory<'a>,
+
     /// All gas and economic parameters required during contract execution.
     config: Arc<Config>,
     /// Fees charged for various operations that contract may execute.
     fees_config: Arc<RuntimeFeesConfig>,
-    /// Pointer to the guest memory.
-    memory: super::vmstate::Memory,
 
     /// Current amount of locked tokens, does not automatically change when staking transaction is
     /// issued.
@@ -237,7 +238,7 @@ impl<'a> VMLogic<'a> {
         context: &'a VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
         result_state: ExecutionResultState,
-        memory: impl MemoryLike + 'static,
+        memory: &'a mut dyn MemoryLike,
     ) -> Self {
         let current_account_locked_balance = context.account_locked_balance;
         let config = Arc::clone(&result_state.config);
@@ -272,7 +273,7 @@ impl<'a> VMLogic<'a> {
     }
 
     #[cfg(test)]
-    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory {
+    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory<'a> {
         &mut self.memory
     }
 

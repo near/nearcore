@@ -82,7 +82,7 @@ pub static APPLYING_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_applying_chunks_time",
         "Time taken to apply chunks per shard",
-        &["shard_id"],
+        &["apply_reason", "shard_id"],
         Some(processing_time_buckets()),
     )
     .unwrap()

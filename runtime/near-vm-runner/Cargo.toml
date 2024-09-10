@@ -26,6 +26,7 @@ memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
 parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
+rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 serde_repr.workspace = true

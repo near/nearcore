@@ -29,6 +29,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ProtocolVersion, ShardId};
+use near_primitives::utils::compression::CompressedData;
 use near_store::PartialStorage;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -228,7 +229,6 @@ pub fn pre_validate_chunk_state_witness(
             chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
-            resharding_state_roots: None,
             block: Chain::get_apply_chunk_block_context(
                 epoch_manager,
                 last_chunk_block,
@@ -402,10 +402,8 @@ pub fn validate_chunk_state_witness(
                         cares_about_shard_this_epoch: true,
                         will_shard_layout_change: false,
                         should_apply_chunk: true,
-                        need_to_reshard: false,
                     },
                     runtime_adapter,
-                    epoch_manager,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
                 let chunk_extra =
@@ -455,7 +453,6 @@ pub fn validate_chunk_state_witness(
         let block_hash = block.block_hash;
         let old_chunk_data = OldChunkData {
             prev_chunk_extra: chunk_extra.clone(),
-            resharding_state_roots: None,
             block,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
@@ -474,10 +471,8 @@ pub fn validate_chunk_state_witness(
                 cares_about_shard_this_epoch: true,
                 will_shard_layout_change: false,
                 should_apply_chunk: false,
-                need_to_reshard: false,
             },
             runtime_adapter,
-            epoch_manager,
         )?;
         *chunk_extra.state_root_mut() = apply_result.new_root;
         if chunk_extra.state_root() != &transition.post_state_root {

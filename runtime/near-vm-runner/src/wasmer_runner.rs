@@ -532,7 +532,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> Result<VMOutcome, VMRunnerError> {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { vm, memory, module, method } = match result {
+        let ReadyContract { vm, mut memory, module, method } = match result {
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
             }
@@ -543,7 +543,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         };
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let import_object = build_imports(memory_copy, &vm.config, &mut logic);
         match run_method(&module, &import_object, &method)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),

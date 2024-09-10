@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-use near_chain::resharding::ReshardingResponse;
+use near_chain::resharding::v2::ReshardingResponse;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::MutableConfigValue;
@@ -20,8 +20,8 @@ use nearcore::NightshadeRuntimeExt;
 use nearcore::{open_storage, NearConfig, NightshadeRuntime};
 
 #[derive(clap::Args)]
-pub(crate) struct ReshardingCommand {
-    /// The block height at which resharding is performed.
+pub(crate) struct ReshardingV2Command {
+    /// The block height at which resharding V2 is performed.
     /// This should be, usually, the block before shard layout has changed.
     /// Keep in mind that resharding is done on the post state root.
     #[clap(long)]
@@ -40,7 +40,7 @@ pub(crate) struct ReshardingCommand {
     restore: bool,
 }
 
-impl ReshardingCommand {
+impl ReshardingV2Command {
     pub(crate) fn run(&self, mut config: NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         Self::check_resharding_config(&mut config);
 
@@ -49,30 +49,24 @@ impl ReshardingCommand {
         let block_hash = *chain.get_block_by_height(self.height)?.hash();
 
         let resharding_request =
-            chain.custom_build_state_for_resharding_preprocessing(&block_hash, self.shard_id)?;
+            chain.custom_build_state_for_resharding_v2_preprocessing(&block_hash, self.shard_id)?;
 
-        let shard_uid = resharding_request.shard_uid;
-
-        let response = Chain::build_state_for_split_shards(resharding_request);
+        let response = Chain::build_state_for_split_shards_v2(resharding_request);
         let ReshardingResponse { sync_hash, new_state_roots: state_roots, .. } = response;
 
         if self.restore {
             // In restore mode print database write statistics.
             chain.runtime_adapter.store().get_store_statistics().map(|stats| {
                 stats.data.iter().for_each(|(metric, values)| {
-                    tracing::info!(target: "resharding", %metric, ?values);
+                    tracing::info!(target: "resharding-v2", %metric, ?values);
                 })
             });
         }
 
         let state_roots = state_roots?;
-        tracing::info!(target: "resharding", ?state_roots, "state roots");
+        tracing::info!(target: "resharding-v2", ?state_roots, "state roots");
 
-        chain.custom_build_state_for_split_shards_postprocessing(
-            shard_uid,
-            &sync_hash,
-            state_roots,
-        )?;
+        chain.custom_build_state_for_split_shards_v2_postprocessing(&sync_hash, state_roots)?;
 
         Ok(())
     }

@@ -2,7 +2,6 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::receipt::{PromiseYieldTimeout, Receipt};
 use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -191,7 +190,7 @@ pub enum StateChangeCause {
     /// after protocol upgrade
     Migration,
     /// State changes for building states for re-sharding
-    Resharding,
+    ReshardingV2,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -213,33 +212,6 @@ pub struct RawStateChangesWithTrieKey {
 pub struct ConsolidatedStateChange {
     pub trie_key: TrieKey,
     pub value: Option<Vec<u8>>,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
-pub struct StateChangesForResharding {
-    pub changes: Vec<ConsolidatedStateChange>,
-    // For DelayedReceipt and for PromiseYieldTimeout, account information is kept in the trie
-    // value rather than in the trie key. When such a key is erased, we need to know the erased
-    // value so that the change can be propagated to the correct child trie.
-    pub processed_delayed_receipts: Vec<Receipt>,
-    pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
-}
-
-impl StateChangesForResharding {
-    pub fn from_raw_state_changes(
-        changes: &[RawStateChangesWithTrieKey],
-        processed_delayed_receipts: Vec<Receipt>,
-        processed_yield_timeouts: Vec<PromiseYieldTimeout>,
-    ) -> Self {
-        let changes = changes
-            .iter()
-            .map(|RawStateChangesWithTrieKey { trie_key, changes }| {
-                let value = changes.last().expect("state_changes must not be empty").data.clone();
-                ConsolidatedStateChange { trie_key: trie_key.clone(), value }
-            })
-            .collect();
-        Self { changes, processed_delayed_receipts, processed_yield_timeouts }
-    }
 }
 
 /// key that was updated -> list of updates with the corresponding indexing event.

@@ -19,7 +19,7 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 /// the compiler can deconstruct the access to each field of [`VMLogic`] and do
 /// more granular lifetime analysis.  In particular, this design is what allows
 /// us to forgo copying register value in [`VMLogic::read_register`].
-pub(super) struct Memory(Box<dyn MemoryLike>);
+pub(super) struct Memory<'a>(&'a mut dyn MemoryLike);
 
 macro_rules! memory_get {
     ($_type:ty, $name:ident) => {
@@ -48,9 +48,9 @@ macro_rules! memory_set {
     };
 }
 
-impl Memory {
-    pub(super) fn new(mem: impl MemoryLike + 'static) -> Self {
-        Self(Box::new(mem))
+impl<'a> Memory<'a> {
+    pub(super) fn new(mem: &'a mut dyn MemoryLike) -> Self {
+        Self(mem)
     }
 
     /// Returns view of the guest memory.
