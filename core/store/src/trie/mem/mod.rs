@@ -4,7 +4,7 @@ pub(crate) mod flexible_data;
 mod freelist;
 pub mod iter;
 pub mod loading;
-pub mod lookup;
+mod lookup;
 pub mod mem_tries;
 pub mod metrics;
 pub mod node;

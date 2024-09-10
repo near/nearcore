@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -7,11 +8,16 @@ use near_primitives::types::{BlockHeight, StateRoot};
 
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEM_TRIE_NUM_ROOTS;
+use crate::trie::MemTrieChanges;
+use crate::Trie;
 
 use super::arena::single_thread::{STArena, STArenaMemory};
 use super::arena::Arena;
+use super::flexible_data::value::ValueView;
+use super::iter::STMemTrieIterator;
+use super::lookup::memtrie_lookup;
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
-use super::updating::MemTrieUpdate;
+use super::updating::{construct_root_from_changes, MemTrieUpdate};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
 /// Tries may share nodes with each other via refcounting. The way the
@@ -57,21 +63,19 @@ impl MemTries {
         tries
     }
 
-    /// Inserts a new root into the trie. The given function should perform
-    /// the entire construction of the new trie, possibly based on some existing
-    /// trie nodes. This internally takes care of refcounting.
-    pub fn construct_root<Error>(
+    /// This function should perform the entire construction of the new trie, possibly based on some existing
+    /// trie nodes. This internally takes care of refcounting and inserts a new root into the memtrie.
+    pub fn apply_memtrie_changes(
         &mut self,
         block_height: BlockHeight,
-        f: impl FnOnce(&mut STArena) -> Result<Option<MemTrieNodeId>, Error>,
-    ) -> Result<CryptoHash, Error> {
-        let root = f(&mut self.arena)?;
-        if let Some(root) = root {
+        changes: &MemTrieChanges,
+    ) -> CryptoHash {
+        if let Some(root) = construct_root_from_changes(&mut self.arena, changes) {
             let state_root = root.as_ptr(self.arena.memory()).view().node_hash();
             self.insert_root(state_root, root, block_height);
-            Ok(state_root)
+            state_root
         } else {
-            Ok(CryptoHash::default())
+            CryptoHash::default()
         }
     }
 
@@ -93,10 +97,18 @@ impl MemTries {
             .set(self.roots.len() as i64);
     }
 
-    /// Returns a root node corresponding to the given state root.
-    pub fn get_root(&self, state_root: &CryptoHash) -> Option<MemTrieNodePtr<STArenaMemory>> {
+    /// Returns the root node corresponding to the given state root.
+    pub(super) fn get_root(
+        &self,
+        state_root: &CryptoHash,
+    ) -> Result<MemTrieNodePtr<STArenaMemory>, StorageError> {
         assert_ne!(state_root, &CryptoHash::default());
-        self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory()))
+        self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Failed to find root node {:?} in memtrie",
+                state_root
+            ))
+        })
     }
 
     /// Expires all trie roots corresponding to a height smaller than
@@ -138,30 +150,13 @@ impl MemTries {
             .set(self.roots.len() as i64);
     }
 
-    /// Used for unit testing and integration testing.
-    pub fn num_roots(&self) -> usize {
-        self.heights.iter().map(|(_, v)| v.len()).sum()
-    }
-
     pub fn update(
         &self,
         root: CryptoHash,
         track_trie_changes: bool,
     ) -> Result<MemTrieUpdate<STArenaMemory>, StorageError> {
-        let root_id = if root == CryptoHash::default() {
-            None
-        } else {
-            let root_id = self
-                .get_root(&root)
-                .ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Failed to find root node {:?} in memtrie",
-                        root
-                    ))
-                })?
-                .id();
-            Some(root_id)
-        };
+        let root_id =
+            if root == CryptoHash::default() { None } else { Some(self.get_root(&root)?.id()) };
         Ok(MemTrieUpdate::new(
             root_id,
             &self.arena.memory(),
@@ -170,9 +165,36 @@ impl MemTries {
         ))
     }
 
+    /// Returns an iterator over the memtrie for the given trie root.
+    pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator, StorageError> {
+        let root = if trie.root == CryptoHash::default() {
+            None
+        } else {
+            Some(self.get_root(&trie.root)?)
+        };
+        Ok(STMemTrieIterator::new(root, trie))
+    }
+
+    /// Looks up a key in the memtrie with the given state_root and returns the value if found.
+    /// Additionally, it returns a list of nodes that were accessed during the lookup.
+    pub fn lookup(
+        &self,
+        state_root: &CryptoHash,
+        key: &[u8],
+        nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
+    ) -> Result<Option<ValueView>, StorageError> {
+        let root = self.get_root(state_root)?;
+        Ok(memtrie_lookup(root, key, nodes_accessed))
+    }
+
     #[cfg(test)]
     pub fn arena(&self) -> &STArena {
         &self.arena
+    }
+
+    /// Used for unit testing and integration testing.
+    pub fn num_roots(&self) -> usize {
+        self.heights.iter().map(|(_, v)| v.len()).sum()
     }
 }
 
@@ -188,15 +210,6 @@ mod tests {
     use near_primitives::types::BlockHeight;
     use rand::seq::SliceRandom;
     use rand::Rng;
-
-    #[test]
-    fn test_construct_empty_trie() {
-        let mut tries = MemTries::new(ShardUId::single_shard());
-        let state_root =
-            tries.construct_root(123, |_| -> Result<Option<MemTrieNodeId>, ()> { Ok(None) });
-        assert_eq!(state_root, Ok(CryptoHash::default()));
-        assert_eq!(tries.num_roots(), 0);
-    }
 
     #[test]
     fn test_refcount() {
@@ -219,28 +232,21 @@ mod tests {
                         // Reuse an existing root 25% of the time.
                         let (_, root) = available_hashes.choose(&mut rand::thread_rng()).unwrap();
                         let root = tries.get_root(root).unwrap().id();
-                        let state_root = tries
-                            .construct_root(height, |_| -> Result<Option<MemTrieNodeId>, ()> {
-                                Ok(Some(root))
-                            });
-                        available_hashes.push((height, state_root.unwrap()));
+                        let state_root = root.as_ptr(tries.arena.memory()).view().node_hash();
+                        tries.insert_root(state_root, root, height);
+                        available_hashes.push((height, state_root));
                     }
                     _ => {
                         // Construct a new root 75% of the time.
-                        let state_root = tries
-                            .construct_root(height, |arena| -> Result<Option<MemTrieNodeId>, ()> {
-                                let root = MemTrieNodeId::new(
-                                    arena,
-                                    InputMemTrieNode::Leaf {
-                                        value: &FlatStateValue::Inlined(
-                                            format!("{}", height).into_bytes(),
-                                        ),
-                                        extension: &NibbleSlice::new(&[]).encoded(true),
-                                    },
-                                );
-                                Ok(Some(root))
-                            })
-                            .unwrap();
+                        let root = MemTrieNodeId::new(
+                            &mut tries.arena,
+                            InputMemTrieNode::Leaf {
+                                value: &FlatStateValue::Inlined(format!("{}", height).into_bytes()),
+                                extension: &NibbleSlice::new(&[]).encoded(true),
+                            },
+                        );
+                        let state_root = root.as_ptr(tries.arena.memory()).view().node_hash();
+                        tries.insert_root(state_root, root, height);
                         available_hashes.push((height, state_root));
                     }
                 }

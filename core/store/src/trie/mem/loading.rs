@@ -1,3 +1,4 @@
+use super::arena::single_thread::STArena;
 use super::mem_tries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::flat::store_helper::{
@@ -7,7 +8,6 @@ use crate::flat::{FlatStorageError, FlatStorageStatus};
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
-use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -25,86 +25,73 @@ use tracing::{debug, info};
 /// `parallelize` can be used to speed up reading from db. However, it should
 /// only be used when no other work is being done, such as during initial
 /// startup. It also incurs a higher peak memory usage.
-pub fn load_trie_from_flat_state(
+fn load_trie_from_flat_state(
     store: &Store,
     shard_uid: ShardUId,
     state_root: StateRoot,
     block_height: BlockHeight,
     parallelize: bool,
 ) -> Result<MemTries, StorageError> {
-    if parallelize && state_root != StateRoot::default() {
+    if state_root == StateRoot::default() {
+        return Ok(MemTries::new(shard_uid));
+    }
+
+    let load_start = Instant::now();
+    let (arena, root_id) = if parallelize {
         const NUM_PARALLEL_SUBTREES_DESIRED: usize = 256;
-        let load_start = Instant::now();
-        let (arena, root_id) = load_memtrie_in_parallel(
+        load_memtrie_in_parallel(
             store.clone(),
             shard_uid,
             state_root,
             NUM_PARALLEL_SUBTREES_DESIRED,
             shard_uid.to_string(),
-        )?;
+        )?
+    } else {
+        load_memtrie_single_thread(store, shard_uid)?
+    };
 
-        info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
-        let root = root_id.as_ptr(arena.memory());
-        assert_eq!(
-            root.view().node_hash(),
-            state_root,
-            "In-memory trie for shard {} has incorrect state root",
-            shard_uid
-        );
-        return Ok(MemTries::new_from_arena_and_root(shard_uid, block_height, arena, root_id));
-    }
+    info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
+    let root = root_id.as_ptr(arena.memory());
+    assert_eq!(
+        root.view().node_hash(),
+        state_root,
+        "In-memory trie for shard {} has incorrect state root",
+        shard_uid
+    );
+    Ok(MemTries::new_from_arena_and_root(shard_uid, block_height, arena, root_id))
+}
 
-    let mut tries = MemTries::new(shard_uid);
-    tries.construct_root(block_height, |arena| -> Result<Option<MemTrieNodeId>, StorageError> {
-        info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
-        let load_start = Instant::now();
-        let mut recon = TrieConstructor::new(arena);
-        let mut num_keys_loaded = 0;
-        for item in store
-            .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
-        {
-            let (key, value) = item.map_err(|err| {
-                FlatStorageError::StorageInternalError(format!("Error iterating over FlatState: {err}"))
-            })?;
-            let (_, key) = decode_flat_state_db_key(&key).map_err(|err| {
-                FlatStorageError::StorageInternalError(format!(
-                    "invalid FlatState key format: {err}"
-                ))})?;
-            recon.add_leaf(NibbleSlice::new(&key), value);
-            num_keys_loaded += 1;
-            if num_keys_loaded % 1000000 == 0 {
-                debug!(
-                    target: "memtrie",
-                    %shard_uid,
-                    "Loaded {} keys, current key: {}",
-                    num_keys_loaded,
-                    hex::encode(&key)
-                );
-            }
+fn load_memtrie_single_thread(
+    store: &Store,
+    shard_uid: ShardUId,
+) -> Result<(STArena, MemTrieNodeId), StorageError> {
+    info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
+    let mut arena = STArena::new(shard_uid.to_string());
+    let mut recon = TrieConstructor::new(&mut arena);
+    let mut num_keys_loaded = 0;
+    for item in store
+        .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
+    {
+        let (key, value) = item.map_err(|err| {
+            FlatStorageError::StorageInternalError(format!("Error iterating over FlatState: {err}"))
+        })?;
+        let (_, key) = decode_flat_state_db_key(&key).map_err(|err| {
+            FlatStorageError::StorageInternalError(format!("invalid FlatState key format: {err}"))
+        })?;
+        recon.add_leaf(NibbleSlice::new(&key), value);
+        num_keys_loaded += 1;
+        if num_keys_loaded % 1000000 == 0 {
+            debug!(
+                target: "memtrie",
+                %shard_uid,
+                "Loaded {} keys, current key: {}",
+                num_keys_loaded,
+                hex::encode(&key)
+            );
         }
-        let root_id = match recon.finalize() {
-            Some(root_id) => root_id,
-            None => {
-                info!(target: "memtrie", shard_uid=%shard_uid, "No keys loaded, trie is empty");
-                return Ok(None);
-            }
-        };
-
-        debug!(
-            target: "memtrie",
-            %shard_uid,
-            "Loaded {} keys in total",
-            num_keys_loaded
-        );
-        info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
-
-        let root = root_id.as_ptr(arena.memory());
-        assert_eq!(
-            root.view().node_hash(), state_root,
-            "In-memory trie for shard {} has incorrect state root", shard_uid);
-        Ok(Some(root.id()))
-    })?;
-    Ok(tries)
+    }
+    let root_id = recon.finalize().expect("state root cannot be empty");
+    Ok((arena, root_id))
 }
 
 fn get_state_root(
@@ -187,8 +174,7 @@ pub fn load_trie_from_flat_state_and_delta(
             }
 
             let mem_trie_changes = trie_update.to_mem_trie_changes_only();
-            let new_root_after_apply =
-                apply_memtrie_changes(&mut mem_tries, &mem_trie_changes, height);
+            let new_root_after_apply = mem_tries.apply_memtrie_changes(height, &mem_trie_changes);
             assert_eq!(new_root_after_apply, new_state_root);
         }
         debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
