@@ -229,7 +229,6 @@ fn validate_shards_account_range(
         |reason: &str| ShardLayoutError::InvalidShardsAccountRange { reason: reason.to_string() };
 
     let values = shards_account_range.values().sorted().collect_vec();
-    println!("{:?}", values);
 
     let (Some(first), Some(last)) = (values.first(), values.last()) else {
         return Err(err("account range empty"));
