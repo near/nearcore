@@ -100,19 +100,19 @@ pub enum Receipt {
 /// for more details.
 ///
 /// This struct is versioned so that it can be enhanced in the future.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, ProtocolSchema)]
 pub enum StateStoredReceipt {
     V0(StateStoredReceiptV0),
 }
 
-#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct StateStoredReceiptV0 {
     /// The receipt.
     pub receipt: Receipt,
     pub metadata: StateStoredReceiptMetadata,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct StateStoredReceiptMetadata {
     pub gas: Gas,
     pub size: u64,
@@ -253,10 +253,8 @@ impl BorshDeserialize for StateStoredReceipt {
         let u3 = u8::deserialize_reader(reader)?;
 
         if u1 != STATE_STORED_RECEIPT_TAG || u2 != STATE_STORED_RECEIPT_TAG {
-            let error = Error::new(
-                ErrorKind::Other,
-                "Invalid tag found when deserializing StateStoredReceipt",
-            );
+            let error = format!("Invalid tag found when deserializing StateStoredReceipt. Found: {}, {}. Expected: {}, {}", u1, u2, STATE_STORED_RECEIPT_TAG, STATE_STORED_RECEIPT_TAG);
+            let error = Error::new(ErrorKind::Other, error);
             return Err(io::Error::new(ErrorKind::InvalidData, error));
         }
 
@@ -265,11 +263,9 @@ impl BorshDeserialize for StateStoredReceipt {
                 let v0 = StateStoredReceiptV0::deserialize_reader(reader)?;
                 Ok(StateStoredReceipt::V0(v0))
             }
-            _ => {
-                let error = Error::new(
-                    ErrorKind::Other,
-                    "Invalid version found when deserializing StateStoredReceipt",
-                );
+            v => {
+                let error = format!("Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 0", v);
+                let error = Error::new(ErrorKind::Other, error);
                 Err(io::Error::new(ErrorKind::InvalidData, error))
             }
         }
@@ -313,9 +309,7 @@ impl BorshDeserialize for ReceiptOrStateStoredReceipt {
         let prefix = [u1, u2];
         let mut reader = prefix.chain(reader);
 
-        let tag = u8::MAX;
-
-        if u1 == tag && u2 == tag {
+        if u1 == STATE_STORED_RECEIPT_TAG && u2 == STATE_STORED_RECEIPT_TAG {
             let receipt = StateStoredReceipt::deserialize_reader(&mut reader)?;
             Ok(ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt))
         } else {

@@ -47,11 +47,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (69, include_config!("69.yaml")),
     // Introduce ETH-implicit accounts.
     (70, include_config!("70.yaml")),
-    // Increase main_storage_proof_size_soft_limit
+    // Increase main_storage_proof_size_soft_limit and introduces StateStoredReceipt
     (72, include_config!("72.yaml")),
     (129, include_config!("129.yaml")),
-    // StateStoredReceipt
-    (146, include_config!("146.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
