@@ -142,12 +142,25 @@ impl EpochInfoAggregator {
             // NOTE:(#11900): If the chunk endorsements received from the chunk validators are not recorded in the block header,
             // we use the chunk production stats as the endorsements stats, ie. if the chunk is produced then we assume that
             // the endorsements from all the chunk validators assigned to that chunk are received (hence the `else` branch below).
-            let chunk_endorsements =
-                if let Some(chunk_endorsements) = block_info.chunk_endorsements() {
+            let chunk_endorsements = if let Some(chunk_endorsements) =
+                block_info.chunk_endorsements()
+            {
+                // For old chunks, we optimize the block and its header by not including the chunk endorsements and
+                // corresponding bitmaps. Thus, we expect that the bitmap is non-empty for new chunks only.
+                if *mask {
+                    debug_assert!(chunk_endorsements.len(shard_id).unwrap() >= chunk_validators.len(),
+                            "Chunk endorsement bitmap must be longer than or equal size to num chunk validators. Bitmap length={}, num validators={}, shard_id={}",
+                            chunk_endorsements.len(shard_id).unwrap(), chunk_validators.len(), shard_id);
                     chunk_endorsements.iter(shard_id)
                 } else {
-                    Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
-                };
+                    debug_assert_eq!(chunk_endorsements.len(shard_id).unwrap(), 0,
+                            "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_id={}",
+                            chunk_endorsements.len(shard_id).unwrap(), shard_id);
+                    Box::new(std::iter::repeat(false).take(chunk_validators.len()))
+                }
+            } else {
+                Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
+            };
             for (chunk_validator_id, endorsement_produced) in
                 chunk_validators.iter().zip(chunk_endorsements)
             {

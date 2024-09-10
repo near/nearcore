@@ -27,6 +27,7 @@ fn build_genesis() -> Genesis {
     genesis.config.protocol_reward_rate = Ratio::new_raw(1, 10);
     genesis.config.max_inflation_rate = Ratio::new_raw(1, 10);
     genesis.config.chunk_producer_kickout_threshold = 30;
+    genesis.config.chunk_validator_only_kickout_threshold = 30;
     genesis.config.online_min_threshold = Ratio::new_raw(0, 1);
     genesis.config.online_max_threshold = Ratio::new_raw(1, 1);
     genesis
@@ -114,8 +115,7 @@ fn test_burn_mint() {
             / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
         .as_u128()
     };
-    // supply + 10% of protocol rewards (where inflation rate = 1/10)
-    //        + average_uptime * 90% of validator rewards (where min_online_threshold = 9/10).
+    // supply + 10% of protocol rewards (where protocol reward rate = 1/10) + average_uptime * 90% of validator rewards.
     let expected_total_supply =
         if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
             // Validator stats: Block production rate: 2/2, Chunk production rate: 1/2, Chunk endorsement rate: 1/1.

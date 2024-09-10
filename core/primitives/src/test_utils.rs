@@ -547,7 +547,8 @@ impl BlockHeader {
         match self {
             BlockHeader::BlockHeaderV1(_)
             | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_) | BlockHeader::BlockHeaderV4(_) => {
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_) => {
                 unreachable!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV5(header) => {

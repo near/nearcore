@@ -2268,7 +2268,9 @@ fn test_validate_chunk_extra() {
         );
         block.mut_header().set_prev_state_root(Block::compute_state_root(&chunk_headers));
         block.mut_header().set_chunk_mask(vec![true]);
-        block.mut_header().set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
+        block
+            .mut_header()
+            .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
         let outcome_root = Block::compute_outcome_root(block.chunks().iter());
         block.mut_header().set_prev_outcome_root(outcome_root);
         let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), &validator_signer);
