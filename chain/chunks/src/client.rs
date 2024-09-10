@@ -120,6 +120,7 @@ impl ShardedTransactionPool {
     /// the new shard layout.
     /// It works by emptying the pools for old shard uids and re-inserting the
     /// transactions back to the pool with the new shard uids.
+    /// TODO check if this logic works in resharding V3
     pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
         tracing::debug!(
             target: "resharding",

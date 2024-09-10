@@ -56,8 +56,6 @@ pytest sanity/sync_chunks_from_archival.py
 pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
-pytest --timeout=480 sanity/skip_epoch.py
-pytest --timeout=480 sanity/skip_epoch.py --features nightly
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/one_val.py nightly --features nightly
 pytest --timeout=240 sanity/lightclnt.py

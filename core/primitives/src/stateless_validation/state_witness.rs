@@ -7,10 +7,9 @@ use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
-use crate::utils::io::{CountingRead, CountingWrite};
+use crate::utils::compression::CompressedData;
 use crate::validator_signer::EmptyValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::{Buf, BufMut};
 use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
@@ -19,86 +18,35 @@ use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
-pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize =
-    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 });
+pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: u64 =
+    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
+pub const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
 
 /// Represents bytes of encoded ChunkStateWitness.
 /// This is the compressed version of borsh-serialized state witness.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    ProtocolSchema,
+    derive_more::From,
+    derive_more::AsRef,
+)]
 pub struct EncodedChunkStateWitness(Box<[u8]>);
 
-pub type ChunkStateWitnessSize = usize;
-
-impl EncodedChunkStateWitness {
-    /// Only use this if you are sure that the data is already encoded.
-    pub fn from_boxed_slice(data: Box<[u8]>) -> Self {
-        Self(data)
-    }
-
-    /// Borsh-serialize and compress state witness.
-    /// Returns encoded witness along with the raw (uncompressed) witness size.
-    pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
-        const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
-
-        // Flow of data: State witness --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
-        // CountingWrite will count the number of bytes for the Borsh-serialized witness, before compression.
-        let mut counting_write = CountingWrite::new(zstd::stream::Encoder::new(
-            Vec::new().writer(),
-            STATE_WITNESS_COMPRESSION_LEVEL,
-        )?);
-        borsh::to_writer(&mut counting_write, witness)?;
-
-        let borsh_bytes_len = counting_write.bytes_written();
-        let encoded_bytes = counting_write.into_inner().finish()?.into_inner();
-
-        Ok((Self(encoded_bytes.into()), borsh_bytes_len.as_u64() as usize))
-    }
-
-    /// Decompress and borsh-deserialize encoded witness bytes.
-    /// Returns decoded witness along with the raw (uncompressed) witness size.
-    pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
-        // We want to limit the size of decompressed data to address "Zip bomb" attack.
-        self.decode_with_limit(MAX_UNCOMPRESSED_STATE_WITNESS_SIZE)
-    }
-
-    /// Decompress and borsh-deserialize encoded witness bytes.
-    /// Returns decoded witness along with the raw (uncompressed) witness size.
-    pub fn decode_with_limit(
-        &self,
-        limit: ByteSize,
-    ) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
-        // Flow of data: Bytes --> zstd decompression --> Counting read --> Borsh deserialization --> State witness.
-        // CountingRead will count the number of bytes for the Borsh-deserialized witness, after decompression.
-        let mut counting_read = CountingRead::new_with_limit(
-            zstd::stream::Decoder::new(self.0.as_ref().reader())?,
-            limit,
-        );
-
-        match borsh::from_reader(&mut counting_read) {
-            Err(err) => {
-                // If decompressed data exceeds the limit then CountingRead will return a WriteZero error.
-                // Here we convert it to a more descriptive error to make debugging easier.
-                let err = if err.kind() == std::io::ErrorKind::WriteZero {
-                    std::io::Error::other(format!(
-                        "Decompressed data exceeded limit of {limit}: {err}"
-                    ))
-                } else {
-                    err
-                };
-                Err(err)
-            }
-            Ok(witness) => Ok((witness, counting_read.bytes_read().as_u64().try_into().unwrap())),
-        }
-    }
-
-    pub fn size_bytes(&self) -> ChunkStateWitnessSize {
-        self.0.len()
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
+impl
+    CompressedData<
+        ChunkStateWitness,
+        MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
+        STATE_WITNESS_COMPRESSION_LEVEL,
+    > for EncodedChunkStateWitness
+{
 }
+
+pub type ChunkStateWitnessSize = usize;
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
 /// the originator of the witness (chunk producer).
@@ -292,66 +240,4 @@ pub struct ChunkStateTransition {
     /// derived by applying the state transition onto the base state, but
     /// this makes it easier to debug why a state witness may fail to validate.
     pub post_state_root: CryptoHash,
-}
-
-#[cfg(test)]
-mod tests {
-    use bytesize::ByteSize;
-    use near_primitives_core::hash::CryptoHash;
-    use std::io::ErrorKind;
-
-    use crate::stateless_validation::state_witness::{ChunkStateWitness, EncodedChunkStateWitness};
-
-    #[test]
-    fn encode_decode_state_dummy_witness_default_limit() {
-        let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
-        let (encoded_witness, borsh_bytes_from_encode) =
-            EncodedChunkStateWitness::encode(&original_witness).unwrap();
-        let (decoded_witness, borsh_bytes_from_decode) =
-            EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0).decode().unwrap();
-        assert_eq!(decoded_witness, original_witness);
-        assert_eq!(borsh_bytes_from_encode, borsh_bytes_from_decode);
-        assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes_from_encode);
-    }
-
-    #[test]
-    fn encode_decode_state_dummy_witness_within_limit() {
-        const LIMIT: ByteSize = ByteSize::mib(32);
-        let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
-        let (encoded_witness, borsh_bytes_from_encode) =
-            EncodedChunkStateWitness::encode(&original_witness).unwrap();
-        let (decoded_witness, borsh_bytes_from_decode) =
-            EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0)
-                .decode_with_limit(LIMIT)
-                .unwrap();
-        assert_eq!(decoded_witness, original_witness);
-        assert_eq!(borsh_bytes_from_encode, borsh_bytes_from_decode);
-        assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes_from_encode);
-    }
-
-    #[test]
-    fn encode_decode_state_dummy_witness_exceeds_limit() {
-        const LIMIT: ByteSize = ByteSize::b(32);
-        let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
-        let (encoded_witness, borsh_bytes_from_encode) =
-            EncodedChunkStateWitness::encode(&original_witness).unwrap();
-        assert!(borsh_bytes_from_encode > LIMIT.as_u64() as usize);
-        let error = EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0)
-            .decode_with_limit(LIMIT)
-            .unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::Other);
-        assert_eq!(
-            error.to_string(),
-            "Decompressed data exceeded limit of 32 B: Exceeded the limit of 32 bytes"
-        );
-    }
-
-    #[test]
-    fn decode_state_dummy_witness_invalid_data() {
-        let invalid_data = [0; 10];
-        let error = EncodedChunkStateWitness::from_boxed_slice(Box::new(invalid_data))
-            .decode()
-            .unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::Other);
-    }
 }

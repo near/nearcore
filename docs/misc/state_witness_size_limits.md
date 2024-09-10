@@ -1,7 +1,7 @@
 ## State witness size limits
 
 Some limits were introduced to keep the size of `ChunkStateWitness` reasonable.
-`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabatytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under 16MiB.
+`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under 16MiB.
 
 There are two types of size limits:
 * Hard limit - the size must be below this limit, anything else is considered invalid

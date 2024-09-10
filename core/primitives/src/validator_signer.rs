@@ -16,6 +16,7 @@ use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInne
 use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
+use crate::utils::compression::CompressedData;
 
 /// Enum for validator signer, that holds validator id and key used for signing data.
 #[derive(Clone, Debug, PartialEq)]

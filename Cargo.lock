@@ -5127,6 +5127,7 @@ dependencies = [
  "prometheus",
  "pwasm-utils",
  "rand",
+ "rayon",
  "ripemd",
  "rustix",
  "serde",

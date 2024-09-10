@@ -1,6 +1,6 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
     RuntimeAdapter, RuntimeStorageConfig,
 };
@@ -43,7 +43,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
-    ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    ShardId, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -1481,16 +1481,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: &CryptoHash,
     ) -> Result<bool, Error> {
         Ok(false)
-    }
-
-    fn apply_update_to_children_states(
-        &self,
-        _block_hash: &CryptoHash,
-        _block_height: BlockHeight,
-        _state_roots: HashMap<ShardUId, StateRoot>,
-        _next_shard_layout: &ShardLayout,
-        _state_changes: StateChangesForResharding,
-    ) -> Result<Vec<ApplyResultForResharding>, Error> {
-        Ok(vec![])
     }
 }

@@ -6,7 +6,8 @@
 **No Changes**
 
 ### Non-protocol Changes
-**No Changes**
+* Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
+* **Archival nodes only:** Clean-up the `PartialChunks` column in the Cold DB and stop writing `PartialChunks` to Cold DB.
 
 ### 2.2.0
 

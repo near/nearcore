@@ -31,7 +31,6 @@ use near_async::messaging::SendAsync;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::{ApplyStatePartsRequest, LoadMemtrieRequest};
 use near_chain::near_chain_primitives;
-use near_chain::resharding::ReshardingRequest;
 use near_chain::types::RuntimeAdapter;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
@@ -242,7 +241,6 @@ impl StateSync {
         now: Utc,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
         load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
-        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -319,24 +317,10 @@ impl StateSync {
                     )?;
                 }
                 ShardSyncStatus::ReshardingScheduling => {
-                    debug_assert!(need_to_reshard);
-                    self.sync_shards_resharding_scheduling_status(
-                        shard_id,
-                        shard_sync_download,
-                        sync_hash,
-                        chain,
-                        resharding_scheduler,
-                        me,
-                    )?;
+                    panic!("Resharding V2 scheduling is no longer supported")
                 }
                 ShardSyncStatus::ReshardingApplying => {
-                    debug_assert!(need_to_reshard);
-                    shard_sync_done = self.sync_shards_resharding_applying_status(
-                        shard_uid,
-                        shard_sync_download,
-                        sync_hash,
-                        chain,
-                    )?;
+                    panic!("Resharding V2 scheduling is no longer supported")
                 }
                 ShardSyncStatus::StateSyncDone => {
                     shard_sync_done = true;
@@ -762,7 +746,6 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
         load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
-        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -793,7 +776,6 @@ impl StateSync {
             now,
             state_parts_task_scheduler,
             load_memtrie_scheduler,
-            resharding_scheduler,
             state_parts_future_spawner,
             use_colour,
             runtime_adapter,
@@ -1126,49 +1108,6 @@ impl StateSync {
             shard_sync_done = true;
         }
 
-        Ok(shard_sync_done)
-    }
-
-    fn sync_shards_resharding_scheduling_status(
-        &mut self,
-        shard_id: ShardId,
-        shard_sync_download: &mut ShardSyncDownload,
-        sync_hash: CryptoHash,
-        chain: &Chain,
-        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
-        me: &Option<AccountId>,
-    ) -> Result<(), near_chain::Error> {
-        chain.build_state_for_resharding_preprocessing(
-            &sync_hash,
-            shard_id,
-            resharding_scheduler,
-        )?;
-        tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "resharding scheduled");
-        *shard_sync_download =
-            ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::ReshardingApplying };
-        Ok(())
-    }
-
-    /// Returns whether the State Sync for the given shard is complete.
-    fn sync_shards_resharding_applying_status(
-        &mut self,
-        shard_uid: ShardUId,
-        shard_sync_download: &mut ShardSyncDownload,
-        sync_hash: CryptoHash,
-        chain: &mut Chain,
-    ) -> Result<bool, near_chain::Error> {
-        let result = self.resharding_state_roots.remove(&shard_uid.shard_id());
-        let mut shard_sync_done = false;
-        if let Some(state_roots) = result {
-            chain.build_state_for_split_shards_postprocessing(
-                shard_uid,
-                &sync_hash,
-                state_roots?,
-            )?;
-            *shard_sync_download =
-                ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSyncDone };
-            shard_sync_done = true;
-        }
         Ok(shard_sync_done)
     }
 }
@@ -1594,7 +1533,6 @@ mod test {
                     kv.as_ref(),
                     &[highest_height_peer_info],
                     vec![0],
-                    &noop().into_sender(),
                     &noop().into_sender(),
                     &noop().into_sender(),
                     &ActixArbiterHandleFutureSpawner(Arbiter::new().handle()),

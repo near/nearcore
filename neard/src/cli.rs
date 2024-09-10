@@ -116,7 +116,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::ColdStore(cmd) => {
-                cmd.run(&home_dir)?;
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
@@ -125,13 +125,13 @@ impl NeardCmd {
                 cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::ValidateConfig(cmd) => {
-                cmd.run(&home_dir)?;
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::UndoBlock(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::Database(cmd) => {
-                cmd.run(&home_dir)?;
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::ForkNetwork(cmd) => {
                 cmd.run(
@@ -145,7 +145,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::ReplayArchive(cmd) => {
-                cmd.run(&home_dir)?;
+                cmd.run(&home_dir, genesis_validation)?;
             }
         };
         Ok(())
@@ -778,8 +778,12 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
 pub(super) struct ValidateConfigCommand {}
 
 impl ValidateConfigCommand {
-    pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
-        nearcore::config::load_config(home_dir, GenesisValidationMode::Full)?;
+    pub(super) fn run(
+        &self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        nearcore::config::load_config(home_dir, genesis_validation)?;
         Ok(())
     }
 }
