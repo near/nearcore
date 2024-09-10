@@ -4,7 +4,7 @@ use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
-    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, StatePartRequest
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -789,13 +789,35 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
-                if self.state.tier2.send_message(
-                    peer_id,
-                    Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
+                // TODO: send over Tier1 when applicable
+                match *self.state.my_public_addr.read() {
+                    Some(addr) => {
+                        if self.state.send_message_to_peer(
+                            &self.clock,
+                            tcp::Tier::T2,
+                            self.state.sign_message(
+                                &self.clock,
+                                RawRoutedMessage {
+                                    target: PeerIdOrHash::PeerId(peer_id),
+                                    body: RoutedMessageBody::StatePartRequest(StatePartRequest{
+                                        shard_id,
+                                        sync_hash,
+                                        part_id,
+                                        addr,
+                                    })
+                                }
+                            ),
+                        ) {
+                            NetworkResponses::NoResponse
+                        } else {
+                            NetworkResponses::RouteNotFound
+                        }
+                    }
+                    None => {
+                        // The node needs to know its own public address
+                        // to solicit a response via Tier3
+                        NetworkResponses::RouteNotFound
+                    }
                 }
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, mut shards } => {
