@@ -261,9 +261,9 @@ pub(super) struct InitCmd {
     #[clap(long)]
     download_genesis: bool,
     /// Download the verified NEAR config file automatically.
-    /// Can be one of "validator", "rpc", "archival".
-    /// If not specified, defaults to "validator".
-    #[clap(long, default_missing_value = "validator")]
+    /// Can be one of "validator", "rpc", and "archival".
+    /// If flag is present with no value, defaults to "validator".
+    #[clap(long, default_missing_value = "validator", num_args(0..=1))]
     download_config: Option<String>,
     /// Makes block production fast (TESTING ONLY).
     #[clap(long)]
@@ -351,6 +351,12 @@ impl InitCmd {
             check_release_build(chain)
         }
 
+        let download_config_type = if let Some(config_type) = self.download_config.as_deref() {
+            Some(DownloadConfigType::from_str(config_type)?)
+        } else {
+            None
+        };
+
         nearcore::init_configs(
             home_dir,
             self.chain_id,
@@ -362,7 +368,7 @@ impl InitCmd {
             self.download_genesis,
             self.download_genesis_url.as_deref(),
             self.download_records_url.as_deref(),
-            self.download_config.map(|c| DownloadConfigType::from_str(c.as_str()).unwrap()),
+            download_config_type,
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,

@@ -159,6 +159,11 @@ pub fn indexer_init_configs(
     dir: &std::path::PathBuf,
     params: InitConfigArgs,
 ) -> Result<(), anyhow::Error> {
+    let download_config_type = if let Some(config_type) = params.download_config.as_deref() {
+        Some(DownloadConfigType::from_str(config_type)?)
+    } else {
+        None
+    };
     init_configs(
         dir,
         params.chain_id,
@@ -170,7 +175,7 @@ pub fn indexer_init_configs(
         params.download_genesis,
         params.download_genesis_url.as_deref(),
         params.download_records_url.as_deref(),
-        params.download_config.map(|c| DownloadConfigType::from_str(c.as_str()).unwrap()),
+        download_config_type,
         params.download_config_url.as_deref(),
         params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
