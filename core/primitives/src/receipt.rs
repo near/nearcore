@@ -131,7 +131,7 @@ const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
 /// from the state. The borrowed ownership can be used when pushing receipts
 /// into the state. In that case the receipt should never need to be cloned. The
 /// serialization only needs a reference.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, ProtocolSchema)]
 pub enum ReceiptOrStateStoredReceipt<'a> {
     Receipt(Cow<'a, Receipt>),
     StateStoredReceipt(StateStoredReceipt<'a>),

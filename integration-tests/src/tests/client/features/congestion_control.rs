@@ -5,7 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
-use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::account::id::AccountId;
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
 use near_primitives::errors::{
@@ -25,6 +25,20 @@ use std::sync::Arc;
 
 const CONTRACT_ID: &str = "contract.test0";
 
+fn get_config(
+    config_store: &RuntimeConfigStore,
+    protocol_version: ProtocolVersion,
+) -> Arc<near_parameters::RuntimeConfig> {
+    let mut config = config_store.get_config(protocol_version).clone();
+    let mut_config = Arc::make_mut(&mut config);
+
+    // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
+    let wasm_config = Arc::make_mut(&mut mut_config.wasm_config);
+    wasm_config.regular_op_cost = u32::MAX;
+
+    config
+}
+
 fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
     genesis.config.epoch_length = 10;
@@ -32,11 +46,16 @@ fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> Tes
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
 
-    let mut config = RuntimeConfig::test();
-    // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-    let wasm_config = Arc::make_mut(&mut config.wasm_config);
-    wasm_config.regular_op_cost = u32::MAX;
-    let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
+    let config_store = RuntimeConfigStore::new(None);
+    let pre_config = get_config(&config_store, protocol_version);
+    let post_config = get_config(&config_store, PROTOCOL_VERSION);
+
+    assert!(false == pre_config.use_state_stored_receipt);
+    assert!(true == post_config.use_state_stored_receipt);
+
+    let runtime_configs = vec![RuntimeConfigStore::new_custom(
+        [(protocol_version, pre_config), (PROTOCOL_VERSION, post_config)].into_iter().collect(),
+    )];
 
     TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
@@ -243,8 +262,8 @@ fn test_protocol_upgrade_under_congestion() {
 
     let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
     let mut nonce = 10;
-    // Now, congest the network with ~1000 Pgas, enough to have some left after the protocol upgrade.
-    let n = 10000;
+    // Now, congest the network with ~100 Pgas, enough to have some left after the protocol upgrade.
+    let n = 1000;
     submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
 
     // Allow transactions to enter the chain
@@ -301,6 +320,36 @@ fn test_protocol_upgrade_under_congestion() {
 
     let check_congested_protocol_upgrade = true;
     check_congestion_info(&env, check_congested_protocol_upgrade);
+
+    // Test the migration from Receipt to StateStoredReceipt
+
+    // Wait until chain is no longer congested
+    let tip = env.clients[0].chain.head().unwrap();
+    for i in 1.. {
+        let block = env.clients[0].produce_block(tip.height + i);
+        let block = block.unwrap().unwrap();
+        let gas_used = block.chunks().get(contract_shard_id as usize).unwrap().prev_gas_used();
+
+        env.process_block(0, block, Provenance::PRODUCED);
+
+        if gas_used == 0 {
+            break;
+        }
+    }
+
+    // Submit some more transactions that should now be stored as StateStoredReceipts.
+    let included = submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
+    assert!(included > 0);
+
+    // Allow transactions to enter the chain and be processed. At this point the
+    // receipts will be stored and retrieved using the StateStoredReceipt
+    // structure.
+    let tip = env.clients[0].chain.head().unwrap();
+    for i in 1..10 {
+        env.produce_block(0, tip.height + i);
+    }
+
+    // The summary may be incomplete because of GC.
     env.print_summary();
 }
 
@@ -374,18 +423,27 @@ fn new_cheap_fn_call(
 
 /// Submit N transaction containing a function call action with 100 Tgas
 /// attached that will all be burned when called.
-fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &InMemorySigner) {
+fn submit_n_100tgas_fns(
+    env: &mut TestEnv,
+    n: u32,
+    nonce: &mut u64,
+    signer: &InMemorySigner,
+) -> u32 {
+    let mut included = 0;
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
         let fn_tx = new_fn_call_100tgas(nonce, signer, *block.hash());
         // this only adds the tx to the pool, no chain progress is made
         let response = env.clients[0].process_tx(fn_tx, false, false);
         match response {
-            ProcessTxResponse::ValidTx
-            | ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }) => (),
+            ProcessTxResponse::ValidTx => {
+                included += 1;
+            }
+            ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }) => (),
             other => panic!("unexpected result from submitting tx: {other:?}"),
         }
     }
+    included
 }
 
 /// Submit N transaction containing a cheap function call action.

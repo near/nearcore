@@ -165,6 +165,11 @@ impl RuntimeConfigStore {
         Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
     }
 
+    /// Constructs store with custom configs. This should only be used for testing.
+    pub fn new_custom(store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>) -> Self {
+        Self { store }
+    }
+
     /// Constructs test store.
     pub fn test() -> Self {
         Self::with_one_config(RuntimeConfig::test())
