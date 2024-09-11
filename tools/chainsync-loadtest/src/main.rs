@@ -18,7 +18,6 @@ use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use nearcore::config;
-use nearcore::config::DownloadConfigType;
 use nearcore::config::NearConfig;
 use network::Network;
 use openssl_probe;
@@ -60,7 +59,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
 fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<NearConfig> {
     // Always fetch the config.
     std::fs::create_dir_all(dir)?;
-    let url = config::get_config_url(chain_id, DownloadConfigType::Rpc);
+    let url = config::get_config_url(chain_id, near_config_utils::DownloadConfigType::RPC);
     let config_path = &dir.join(config::CONFIG_FILENAME);
     config::download_config(&url, config_path)?;
     let config = config::Config::from_file(config_path)?;

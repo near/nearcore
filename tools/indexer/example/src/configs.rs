@@ -1,8 +1,5 @@
 use near_indexer::near_primitives::types::Gas;
 
-/// Indexer uses the RPC configuration type.
-const DOWNLOAD_CONFIG_TYPE: &str = "rpc";
-
 /// NEAR Indexer Example
 /// Watches for stream of blocks from the chain
 #[derive(clap::Parser, Debug)]
@@ -80,7 +77,7 @@ impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
             download_genesis_url: config_args.download_genesis_url,
             download_records_url: config_args.download_records_url,
             download_config: if config_args.download_config {
-                Some(DOWNLOAD_CONFIG_TYPE.to_string())
+                Some(near_config_utils::DownloadConfigType::RPC)
             } else {
                 None
             },

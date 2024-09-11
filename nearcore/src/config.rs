@@ -28,7 +28,7 @@ use near_chain_configs::{
     NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
     TRANSACTION_VALIDITY_PERIOD,
 };
-use near_config_utils::{ValidationError, ValidationErrors};
+use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
@@ -788,41 +788,6 @@ fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
                 config.consensus.max_block_production_delay =
                     Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
-        }
-    }
-}
-
-/// Type of the configuration to download.
-pub enum DownloadConfigType {
-    /// Validator node configuration.
-    Validator,
-    /// Non-validator RPC node configuration.
-    Rpc,
-    /// Non-validator archival node configuration.
-    Archival,
-}
-
-impl ToString for DownloadConfigType {
-    fn to_string(&self) -> String {
-        match self {
-            DownloadConfigType::Validator => "validator".to_string(),
-            DownloadConfigType::Rpc => "rpc".to_string(),
-            DownloadConfigType::Archival => "archival".to_string(),
-        }
-    }
-}
-
-impl FromStr for DownloadConfigType {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "validator" => Ok(DownloadConfigType::Validator),
-            "rpc" => Ok(DownloadConfigType::Rpc),
-            "archival" => Ok(DownloadConfigType::Archival),
-            _ => anyhow::bail!(
-                "Flag download_config must be one of the following: validator, rpc, archival"
-            ),
         }
     }
 }

@@ -1,8 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use nearcore::config::DownloadConfigType;
-use std::str::FromStr;
+use near_config_utils::DownloadConfigType;
 use tokio::sync::mpsc;
 
 use near_chain_configs::GenesisValidationMode;
@@ -45,7 +44,7 @@ pub struct InitConfigArgs {
     /// Specify a custom download URL for the records file.
     pub download_records_url: Option<String>,
     /// Download the verified NEAR config file automatically.
-    pub download_config: Option<String>,
+    pub download_config: Option<DownloadConfigType>,
     /// Specify a custom download URL for the config file.
     pub download_config_url: Option<String>,
     /// Specify the boot nodes to bootstrap the network
@@ -159,11 +158,6 @@ pub fn indexer_init_configs(
     dir: &std::path::PathBuf,
     params: InitConfigArgs,
 ) -> Result<(), anyhow::Error> {
-    let download_config_type = if let Some(config_type) = params.download_config.as_deref() {
-        Some(DownloadConfigType::from_str(config_type)?)
-    } else {
-        None
-    };
     init_configs(
         dir,
         params.chain_id,
@@ -175,7 +169,7 @@ pub fn indexer_init_configs(
         params.download_genesis,
         params.download_genesis_url.as_deref(),
         params.download_records_url.as_deref(),
-        download_config_type,
+        params.download_config,
         params.download_config_url.as_deref(),
         params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
