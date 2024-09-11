@@ -192,8 +192,8 @@ def run_test(cluster: Cluster) -> None:
         assert False
 
     # Since Fred’s in-memory cache is clear, all Barney’s requests are served
-    # from storage.
-    assert_metrics(get_metrics('fred', fred), ('partial/ok',))
+    # from storage (PartialChunks from Hot storage and Chunks from Cold storage).
+    assert_metrics(get_metrics('fred', fred), ('partial/ok', 'chunk/ok'))
 
 
 if __name__ == '__main__':

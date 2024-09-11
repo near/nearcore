@@ -356,6 +356,7 @@ impl TestLoopBuilder {
             self.test_loop.clock(),
             validator_signer.clone(),
             epoch_manager.clone(),
+            epoch_manager.clone(),
             shard_tracker.clone(),
             network_adapter.as_sender(),
             client_adapter.as_sender(),

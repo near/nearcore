@@ -413,6 +413,7 @@ pub fn start_with_config_and_synchronization(
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
+        view_epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
