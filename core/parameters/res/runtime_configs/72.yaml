@@ -1,6 +1,6 @@
 main_storage_proof_size_soft_limit: {old: 3_000_000, new: 4_000_000}
-wasm_storage_has_key_base: { old: { gas: 54_039_896_625, compute: 200_000_000_000 }, new: { gas: 54_039_896_625, compute: 8_000_000_000 } }
-wasm_storage_has_key_byte: { old: 30_790_845, new: { gas: 30_790_845, compute: 9_000_000 } }
+wasm_storage_has_key_base: { old: { gas: 54_039_896_625, compute: 200_000_000_000 }, new: { gas: 54_039_896_625, compute: 158_000_000_000 } }
+wasm_storage_has_key_byte: { old: 30_790_845, new: { gas: 30_790_845, compute: 10_000_000 } }
 wasm_storage_small_read_base: { old: { gas: 56_356_845_750, compute: 200_000_000_000 }, new: { gas: 56_356_845_750, compute: 159_000_000_000 } }
 wasm_storage_small_read_key_byte: { old: 30_952_533, new: { gas: 30_952_533, compute: 10_000_000 } }
 wasm_storage_small_read_value_byte: { old: 5_611_005, new: { gas: 5_611_005, compute: 2_500_000 } }
