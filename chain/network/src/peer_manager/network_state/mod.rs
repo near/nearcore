@@ -28,7 +28,7 @@ use crate::state_witness::{
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::types::{ChainInfo, PeerType, ReasonForBan};
+use crate::types::{ChainInfo, PeerType, ReasonForBan, Tier3Request, Tier3RequestBody};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
@@ -39,6 +39,7 @@ use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
@@ -146,6 +147,9 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
+    /// Queue of received requests to which a response should be made over TIER3.
+    pub tier3_requests: Mutex<VecDeque<Tier3Request>>,
+
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
@@ -208,6 +212,7 @@ impl NetworkState {
             account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
+            tier3_requests: Mutex::new(VecDeque::<Tier3Request>::new()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
@@ -766,6 +771,20 @@ impl NetworkState {
             }
             RoutedMessageBody::EpochSyncResponse(proof) => {
                 self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                None
+            }
+            RoutedMessageBody::StatePartRequest(request) => {
+                // TODO: cap the size of this queue,
+                // perhaps preferentially allowing requests made by validators
+                self.tier3_requests.lock().push_back(Tier3Request {
+                    peer_id,
+                    addr: request.addr,
+                    body: Tier3RequestBody::StatePartRequest (
+                        request.shard_id,
+                        request.sync_hash,
+                        request.part_id,
+                    ),
+                });
                 None
             }
             body => {

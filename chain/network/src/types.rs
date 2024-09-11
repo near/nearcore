@@ -498,3 +498,19 @@ pub struct AccountIdOrPeerTrackingShard {
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// An inbound request to which a response should be sent over Tier3
+pub struct Tier3Request {
+    /// Target peer to send the response to
+    pub peer_id: PeerId,
+    /// Public address provided by the target peer
+    pub addr: std::net::SocketAddr,
+    /// Contents of the request
+    pub body: Tier3RequestBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Tier3RequestBody {
+    StatePartRequest(ShardId, CryptoHash, u64),
+}
