@@ -503,9 +503,7 @@ pub struct AccountIdOrPeerTrackingShard {
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
-    pub peer_id: PeerId,
-    /// Public address provided by the target peer
-    pub addr: std::net::SocketAddr,
+    pub peer_info: PeerInfo,
     /// Contents of the request
     pub body: Tier3RequestBody,
 }

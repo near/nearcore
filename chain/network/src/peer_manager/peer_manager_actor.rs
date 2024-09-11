@@ -1,4 +1,4 @@
-use crate::client::{ClientSenderForNetwork, SetNetworkInfo};
+use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestPart};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol;
@@ -18,7 +18,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo,
+    SetChainInfo, SnapshotHostInfo, Tier3RequestBody
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -77,6 +77,10 @@ const UNRELIABLE_PEER_HORIZON: u64 = 60;
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_TIER2_PEERS: usize = 128;
 
+/// In Tier3 we serve requests over outbound connections and receive responses over inbound.
+/// The number of concurrent outbound connections is limited to conserve the resources of the node.
+pub const MAX_TIER3_OUTBOUND: usize = 5;
+
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
 /// (a.k.a. ones that we've been connected to in the past) with these odds.
 /// Otherwise, we'd pick any peer that we've heard about.
@@ -86,6 +90,8 @@ const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 /// How often to poll the NetworkState for closed connections we'd like to re-establish.
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
+/// How often we should check for pending Tier3 requests
+const PROCESS_TIER3_REQUESTS_INTERVAL: time::Duration = time::Duration::seconds(15);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -334,6 +340,68 @@ impl PeerManagerActor {
 
                                 #[cfg(test)]
                                 state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
+                            }
+                        }
+                    }
+                });
+                // Periodically process pending Tier3 requests.
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let arbiter = arbiter.clone();
+                    let mut interval = time::Interval::new(clock.now(), PROCESS_TIER3_REQUESTS_INTERVAL);
+                    async move {
+                        loop {
+                            interval.tick(&clock).await;
+
+                            let tier3 = state.tier3.load();
+
+                            let mut potential_outbound_connections =
+                                tier3.ready.values().filter(|peer| peer.peer_type == PeerType::Outbound).count()
+                                + tier3.outbound_handshakes.len();
+
+                            while potential_outbound_connections < MAX_TIER3_OUTBOUND {
+                                if let Some(request) = state.tier3_requests.lock().pop_front() {
+                                    // TODO: handle the case in which we already have
+                                    // a connection to the requesting node here
+                                    arbiter.spawn({
+                                        let clock = clock.clone();
+                                        let state = state.clone();
+                                        async move {
+                                            let result = async {
+                                                let stream = tcp::Stream::connect(
+                                                    &request.peer_info,
+                                                    tcp::Tier::T2,
+                                                    &state.config.socket_options
+                                                ).await.context("tcp::Stream::connect()")?;
+                                                PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                                                anyhow::Ok(())
+                                            }.await;
+
+                                            if let Err(ref err) = result {
+                                                tracing::info!(target: "network", err = format!("{:#}", err), "failed to connect to {}", request.peer_info);
+                                            } else {
+                                                if let Some(response) = match request.body {
+                                                    Tier3RequestBody::StatePartRequest(shard_id, sync_hash, part_id) => {
+                                                        state
+                                                            .client
+                                                            .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                                                            .await
+                                                            .ok()
+                                                            .flatten()
+                                                            .map(|response| PeerMessage::VersionedStateResponse(*response.0))
+                                                    }
+                                                } {
+                                                    state.tier3.send_message(request.peer_info.id, Arc::new(response));
+                                                }
+                                            }
+                                        }
+                                    });
+
+                                    potential_outbound_connections += 1;
+                                } else {
+                                    break;
+                                }
                             }
                         }
                     }
