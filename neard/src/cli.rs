@@ -4,6 +4,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
@@ -32,6 +33,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
@@ -259,8 +261,10 @@ pub(super) struct InitCmd {
     #[clap(long)]
     download_genesis: bool,
     /// Download the verified NEAR config file automatically.
-    #[clap(long)]
-    download_config: bool,
+    /// Can be one of "validator", "rpc", and "archival".
+    /// If flag is present with no value, defaults to "validator".
+    #[clap(long, default_missing_value = "validator", num_args(0..=1))]
+    download_config: Option<String>,
     /// Makes block production fast (TESTING ONLY).
     #[clap(long)]
     fast: bool,
@@ -347,6 +351,12 @@ impl InitCmd {
             check_release_build(chain)
         }
 
+        let download_config_type = if let Some(config_type) = self.download_config.as_deref() {
+            Some(DownloadConfigType::from_str(config_type)?)
+        } else {
+            None
+        };
+
         nearcore::init_configs(
             home_dir,
             self.chain_id,
@@ -358,7 +368,7 @@ impl InitCmd {
             self.download_genesis,
             self.download_genesis_url.as_deref(),
             self.download_records_url.as_deref(),
-            self.download_config,
+            download_config_type,
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,

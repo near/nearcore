@@ -28,7 +28,7 @@ use near_chain_configs::{
     NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
     TRANSACTION_VALIDITY_PERIOD,
 };
-use near_config_utils::{ValidationError, ValidationErrors};
+use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
@@ -811,7 +811,7 @@ pub fn init_configs(
     should_download_genesis: bool,
     download_genesis_url: Option<&str>,
     download_records_url: Option<&str>,
-    should_download_config: bool,
+    download_config_type: Option<DownloadConfigType>,
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
@@ -853,8 +853,8 @@ pub fn init_configs(
         download_config(url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
-    } else if should_download_config {
-        let url = get_config_url(&chain_id);
+    } else if let Some(config_type) = download_config_type {
+        let url = get_config_url(&chain_id, config_type);
         download_config(&url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
@@ -1328,10 +1328,10 @@ pub fn get_records_url(chain_id: &str) -> String {
     )
 }
 
-pub fn get_config_url(chain_id: &str) -> String {
+pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String {
     format!(
-        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
-        chain_id,
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/{}/config.json",
+        chain_id, config_type.to_string()
     )
 }
 
@@ -1544,7 +1544,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
@@ -1602,7 +1602,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
@@ -1635,7 +1635,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,

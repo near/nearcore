@@ -177,7 +177,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
