@@ -8,10 +8,10 @@ use super::flexible_data::encoding::BorshFixedSize;
 
 mod alloc;
 pub mod concurrent;
+mod frozen;
 pub mod hybrid;
 mod metrics;
 pub mod single_thread;
-pub mod frozen;
 
 /// An abstraction of an arena that also allows being implemented differently,
 /// specifically in the case of a multi-threaded arena where each arena instance
