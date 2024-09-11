@@ -2557,7 +2557,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for state_sync_info in self.add_state_sync_infos.drain(..) {
             store_update.set_ser(
                 DBCol::StateDlInfos,
-                state_sync_info.epoch_tail_hash.as_ref(),
+                state_sync_info.sync_hash.as_ref(),
                 &state_sync_info,
             )?;
         }

@@ -2464,7 +2464,7 @@ impl Client {
         let me = signer.as_ref().map(|x| x.validator_id().clone());
 
         for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
-            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
+            assert_eq!(sync_hash, state_sync_info.sync_hash);
             let network_adapter = self.network_adapter.clone();
 
             let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, &me)?;

@@ -782,7 +782,7 @@ impl Chain {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
 
             let state_sync_info = StateSyncInfo {
-                epoch_tail_hash: *block.header().hash(),
+                sync_hash: *block.header().hash(),
                 shards: shards_to_state_sync
                     .iter()
                     .map(|shard_id| {

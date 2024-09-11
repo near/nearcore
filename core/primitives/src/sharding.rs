@@ -62,8 +62,16 @@ pub struct ShardInfo(pub ShardId, pub ChunkHash);
 /// Contains the information that is used to sync state for shards as epochs switch
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfo {
-    /// The first block of the epoch for which syncing is happening
-    pub epoch_tail_hash: CryptoHash,
+    /// The block we'll use as the "sync_hash" when state syncing. Previously, state sync
+    /// used the first block of an epoch as the "sync_hash", and synced state to the epoch before.
+    /// Now that state sync downloads the state of the current epoch, we need to wait a few blocks
+    /// after applying the first block in an epoch to know what "sync_hash" we'll use.
+    /// In order to avoid the need for a database migration while keeping backward compatibility,
+    /// this field is no longer equal to the database key associated with this value, and is set to
+    /// CryptoHash::default() when we apply the first block in an epoch and want to sync the current
+    /// epoch's state. If we instead want to sync the previous epoch's state, we set this field in the same
+    /// way it used to be set
+    pub sync_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
 }
