@@ -282,7 +282,7 @@ mod test {
             storage_remove_base -> 33 [0% host]
             storage_remove_key_byte -> 34 [0% host]
             storage_remove_ret_value_byte -> 35 [0% host]
-            storage_has_key_base -> 36 [0% host]
+            storage_has_key_base -> 36 [1% host]
             storage_has_key_byte -> 37 [1% host]
             storage_iter_create_prefix_base -> 38 [1% host]
             storage_iter_create_prefix_byte -> 39 [1% host]
@@ -318,8 +318,8 @@ mod test {
             bls12381_g1_multiexp_base -> 69 [1% host]
             bls12381_g1_multiexp_element -> 70 [1% host]
             bls12381_g2_multiexp_base -> 71 [1% host]
-            bls12381_g2_multiexp_element -> 72 [1% host]
-            bls12381_map_fp_to_g1_base -> 73 [1% host]
+            bls12381_g2_multiexp_element -> 72 [2% host]
+            bls12381_map_fp_to_g1_base -> 73 [2% host]
             bls12381_map_fp_to_g1_element -> 74 [2% host]
             bls12381_map_fp2_to_g2_base -> 75 [2% host]
             bls12381_map_fp2_to_g2_element -> 76 [2% host]
@@ -329,9 +329,8 @@ mod test {
             bls12381_p1_decompress_element -> 80 [2% host]
             bls12381_p2_decompress_base -> 81 [2% host]
             bls12381_p2_decompress_element -> 82 [2% host]
-            storage_small_read_base -> 83 [2% host]
-            storage_small_read_key_byte -> 84 [2% host]
-            storage_small_read_value_byte -> 85 [2% host]
+            storage_large_read_overhead_base -> 83 [2% host]
+            storage_large_read_overhead_byte -> 84 [2% host]
             ------ Actions --------
             create_account -> 1000
             delete_account -> 1001

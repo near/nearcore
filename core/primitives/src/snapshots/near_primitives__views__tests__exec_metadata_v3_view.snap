@@ -372,6 +372,16 @@ expression: view
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_LARGE_READ_OVERHEAD_BASE",
+      "gas_used": "83"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_LARGE_READ_OVERHEAD_BYTE",
+      "gas_used": "84"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "STORAGE_READ_BASE",
       "gas_used": "30"
     },
@@ -399,21 +409,6 @@ expression: view
       "cost_category": "WASM_HOST_COST",
       "cost": "STORAGE_REMOVE_RET_VALUE_BYTE",
       "gas_used": "35"
-    },
-    {
-      "cost_category": "WASM_HOST_COST",
-      "cost": "STORAGE_SMALL_READ_BASE",
-      "gas_used": "83"
-    },
-    {
-      "cost_category": "WASM_HOST_COST",
-      "cost": "STORAGE_SMALL_READ_KEY_BYTE",
-      "gas_used": "84"
-    },
-    {
-      "cost_category": "WASM_HOST_COST",
-      "cost": "STORAGE_SMALL_READ_VALUE_BYTE",
-      "gas_used": "85"
     },
     {
       "cost_category": "WASM_HOST_COST",

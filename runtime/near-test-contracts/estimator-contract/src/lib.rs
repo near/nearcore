@@ -1082,13 +1082,13 @@ storage_bench!(key, 10240, value, 10, 1000, storage_remove_10kib_key_1k, {
 // Storage has key.
 
 // Function to measure `storage_has_key_base`.
-// Checks from storage 1k times.
+// Checks key existence from storage 1k times.
 storage_bench!(key, 10, value, 10, 1000, storage_has_key_10b_key_1k, {
     storage_has_key(10, key.as_ptr() as _);
 });
 
 // Function to measure `storage_has_key_base + storage_has_key_key_byte`.
-// Checks from storage with 10kib key 1000 times.
+// Checks key existence from storage with 10kib key 1000 times.
 storage_bench!(key, 10240, value, 10, 1000, storage_has_key_10kib_key_1k, {
     storage_has_key(10240, key.as_ptr() as _);
 });

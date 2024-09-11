@@ -113,12 +113,11 @@ wasm_storage_write_base                       64_196_736_000, compute:      200_
 wasm_storage_write_key_byte                       70_482_867
 wasm_storage_write_value_byte                     31_018_539
 wasm_storage_write_evicted_byte                   32_117_307
-wasm_storage_read_base                        56_356_845_750, compute:      200_000_000_000
-wasm_storage_read_key_byte                        30_952_533
-wasm_storage_read_value_byte                       5_611_005
-wasm_storage_small_read_base                  56_356_845_750, compute:      159_000_000_000
-wasm_storage_small_read_key_byte                  30_952_533, compute:           10_000_000
-wasm_storage_small_read_value_byte                 5_611_005, compute:            2_500_000
+wasm_storage_read_base                        56_356_845_749, compute:      159_000_000_000
+wasm_storage_read_key_byte                        30_952_533, compute:           10_000_000
+wasm_storage_read_value_byte                       5_611_004, compute:            2_500_000
+wasm_storage_large_read_overhead_base                      1, compute:       41_000_000_000
+wasm_storage_large_read_overhead_byte                      1, compute:            3_111_005
 wasm_storage_remove_base                      53_473_030_500, compute:      200_000_000_000
 wasm_storage_remove_key_byte                      38_220_384
 wasm_storage_remove_ret_value_byte                11_531_556
