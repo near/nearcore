@@ -148,8 +148,8 @@ impl EpochInfoAggregator {
                 // For old chunks, we optimize the block and its header by not including the chunk endorsements and
                 // corresponding bitmaps. Thus, we expect that the bitmap is non-empty for new chunks only.
                 if *mask {
-                    debug_assert!(chunk_endorsements.len(shard_id).unwrap() >= chunk_validators.len(),
-                            "Chunk endorsement bitmap must be longer than or equal size to num chunk validators. Bitmap length={}, num validators={}, shard_id={}",
+                    debug_assert!(chunk_endorsements.len(shard_id).unwrap() == chunk_validators.len().div_ceil(8) * 8,
+                            "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_id={}",
                             chunk_endorsements.len(shard_id).unwrap(), chunk_validators.len(), shard_id);
                     chunk_endorsements.iter(shard_id)
                 } else {

@@ -133,7 +133,6 @@ pub fn validate_chunk_endorsements_in_block(
             }
             // All extra positions after the assignments must be left as false.
             for value in endorsements_bitmap.iter(shard_id).skip(signatures.len()) {
-                assert_eq!(value, false);
                 if value {
                     return Err(Error::InvalidChunkEndorsementBitmap(
                         format!("Extra positions in the bitmap after {} validator assignments are not all false for shard {}",
