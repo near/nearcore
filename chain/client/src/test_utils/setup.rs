@@ -190,6 +190,7 @@ pub fn setup(
     );
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
+        epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
         network_adapter.into_sender(),
@@ -1074,6 +1075,7 @@ pub fn setup_synchronous_shards_manager(
     let shards_manager = ShardsManagerActor::new(
         clock,
         MutableConfigValue::new(validator_signer, "validator_signer"),
+        epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
         network_adapter.request_sender,

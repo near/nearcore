@@ -1,0 +1,89 @@
+{
+  "epoch_length": 43200,
+  "num_block_producer_seats": 100,
+  "num_block_producer_seats_per_shard": [
+    100,
+    100,
+    100,
+    100,
+    100,
+    100
+  ],
+  "avg_hidden_validator_seats_per_shard": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "block_producer_kickout_threshold": 80,
+  "chunk_producer_kickout_threshold": 80,
+  "chunk_validator_only_kickout_threshold": 70,
+  "target_validator_mandates_per_shard": 68,
+  "validator_max_kickout_stake_perc": 30,
+  "online_min_threshold": [
+    90,
+    100
+  ],
+  "online_max_threshold": [
+    99,
+    100
+  ],
+  "fishermen_threshold": 340282366920938463463374607431768211455,
+  "minimum_stake_divisor": 10,
+  "protocol_upgrade_stake_threshold": [
+    4,
+    5
+  ],
+  "shard_layout": {
+    "V1": {
+      "boundary_accounts": [
+        "aurora",
+        "aurora-0",
+        "game.hot.tg",
+        "kkuuue2akv_1630967379.near",
+        "tge-lockup.sweat"
+      ],
+      "shards_split_map": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ]
+      ],
+      "to_parent_shard_map": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        4
+      ],
+      "version": 3
+    }
+  },
+  "validator_selection_config": {
+    "num_chunk_producer_seats": 100,
+    "num_chunk_validator_seats": 300,
+    "num_chunk_only_producer_seats": 0,
+    "minimum_validators_per_shard": 1,
+    "minimum_stake_ratio": [
+      1,
+      62500
+    ],
+    "chunk_producer_assignment_changes_limit": 5,
+    "shuffle_shard_assignment_for_chunk_producers": true
+  }
+}

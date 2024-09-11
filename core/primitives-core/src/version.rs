@@ -244,13 +244,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-
-            // Features that should not be included in Nightly yet:
-
-            // NOTE): DO NOT include this in Nightly yet, because there are some tests that assume that they
-            // always operate on the latest BlockHeader version (which is V4 for stable version and V5 for nightly).
-            // This is not possible until this feature is stabilized or modify all those tests.
-            ProtocolFeature::ChunkEndorsementsInBlockHeader => 200,
+            ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
         }
     }
 
@@ -263,7 +257,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 72;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

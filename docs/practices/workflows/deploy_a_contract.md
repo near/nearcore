@@ -7,7 +7,7 @@ contract on our local node.
 
 Let's start with creating a fresh local network with an account to which we'll
 deploy a contract. You might want to re-read [how to run a node](./run_a_node.md)
-to understand what's going one here:
+to understand what's going on here:
 
 ```console
 $ cargo run --profile dev-release -p neard -- init

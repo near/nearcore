@@ -9,7 +9,7 @@ The results give you counts of DB requests and some useful statistics such as
 trie node cache hits. It will NOT give you time measurements, use Graphana to
 observe those.
 
-The main uses cases in the past were to estimate the performance of new storage
+The main use cases in the past were to estimate the performance of new storage
 features (prefetcher, flat state) and to find out why specific contracts produce
 slow receipts.
 
@@ -62,7 +62,7 @@ Once you have collected an IO trace, you can inspect its content manually, or
 use existing tools to extract statistics. Let's start with the manual approach.
 
 ### Simple example trace: Estimator
-An estimator trace typical typically starts something like this:
+An estimator trace typically starts something like this:
 
 ```
 commit

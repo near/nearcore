@@ -358,3 +358,25 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
     update.commit()?;
     Ok(())
 }
+
+/// Migrates the database from version 40 to 41.
+///
+/// This involves deleting contents of PartialChunks column from the Cold DB of an archival node.
+/// This migration applies ONLY to the Cold DB.
+pub fn migrate_40_to_41(store: &Store, kind: DbKind, is_node_archival: bool) -> anyhow::Result<()> {
+    if !is_node_archival {
+        tracing::info!(target: "migrations", "No-op migration from 40 to 41 for non-archival node");
+        return Ok(());
+    }
+    if kind != DbKind::Cold {
+        tracing::info!(target: "migrations", ?kind, "No-op migration from 40 to 41 for non-Cold DB");
+        return Ok(());
+    }
+    let _span = tracing::info_span!(target: "migrations",
+        "Migration from 40 to 41: Deleting contents of PartialChunks column Cold DB of archival node")
+    .entered();
+    let mut update = store.store_update();
+    update.delete_all(DBCol::PartialChunks);
+    update.commit()?;
+    Ok(())
+}

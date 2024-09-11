@@ -1,6 +1,7 @@
 use crate::utils::open_rocksdb;
 use anyhow::Context;
 use near_chain::types::RuntimeAdapter;
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
@@ -24,14 +25,15 @@ pub struct LoadMemTrieCommand {
 }
 
 impl LoadMemTrieCommand {
-    pub fn run(&self, home: &Path) -> anyhow::Result<()> {
+    pub fn run(
+        &self,
+        home: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
-        let mut near_config = nearcore::config::load_config(
-            &home,
-            near_chain_configs::GenesisValidationMode::UnsafeFast,
-        )
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let mut near_config = nearcore::config::load_config(&home, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         near_config.config.store.load_mem_tries_for_tracked_shards = true;
 
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);

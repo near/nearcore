@@ -24,9 +24,7 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
 };
-use crate::update_shard::{
-    process_shard_update, ReshardingData, ShardUpdateReason, ShardUpdateResult,
-};
+use crate::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
     validate_transactions_order,
@@ -1649,9 +1647,25 @@ impl Chain {
             .entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        let hash = *header.prev_hash();
-        let prev_block = self.get_block(&hash)?;
-        let new_tail = prev_block.header().height();
+        let prev_hash = *header.prev_hash();
+        let prev_block = self.get_block(&prev_hash)?;
+
+        // The congestion control added a dependency on the prev block when
+        // applying chunks in a block. This means that we need to keep the
+        // blocks at sync hash, prev hash and prev prev hash.
+        // Due to epoch finalization restrictions these blocks have consecutive heights,
+        // so the height of the prev prev block is sync_height - 2.
+        let mut new_tail = prev_block.header().height().saturating_sub(1);
+
+        // In case there are missing chunks we need to keep more than just the
+        // sync hash block. The logic below adjusts the new_tail so that every
+        // shard is guaranteed to have at least one new chunk in the blocks
+        // leading to the sync hash block.
+        let min_height_included =
+            prev_block.chunks().iter().map(|chunk| chunk.height_included()).min().unwrap();
+
+        tracing::debug!(target: "sync", ?min_height_included, ?new_tail, "adjusting tail for missing chunks");
+        new_tail = std::cmp::min(new_tail, min_height_included.saturating_sub(1));
         let new_chunk_tail = prev_block.chunks().iter().map(|x| x.height_created()).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -1669,7 +1683,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_sender);
+        self.check_orphans(me, prev_hash, block_processing_artifacts, apply_chunks_done_sender);
         Ok(())
     }
 
@@ -3218,11 +3232,6 @@ impl Chain {
         }
         chain_store_update.remove_state_sync_info(*epoch_first_block);
 
-        // Remove all stored split state changes for resharding once catchup is completed.
-        // We only remove these after the catchup is completed to ensure that restarting the node
-        // in the middle of the catchup does not lead to the split state already being deleted from prior run
-        chain_store_update.remove_all_state_changes_for_resharding();
-
         chain_store_update.commit()?;
 
         for hash in affected_blocks.iter() {
@@ -3634,14 +3643,12 @@ impl Chain {
             cares_about_shard_this_epoch,
             cares_about_shard_next_epoch,
         );
-        let need_to_reshard = will_shard_layout_change && cares_about_shard_next_epoch;
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         Ok(ShardContext {
             shard_uid,
             cares_about_shard_this_epoch,
             will_shard_layout_change,
             should_apply_chunk,
-            need_to_reshard,
         })
     }
 
@@ -3661,33 +3668,6 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "get_update_shard_job").entered();
         let prev_hash = block.header().prev_hash();
         let shard_context = self.get_shard_context(me, block.header(), shard_id, mode)?;
-
-        // We can only perform resharding when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
-        // 1) if should_apply_chunk == true && resharding_state_roots.is_some(),
-        //     that means children shards are ready.
-        //    `apply_resharding_state_changes` will apply updates to the children shards
-        // 2) if should_apply_chunk == true && resharding_state_roots.is_none(),
-        //     that means children shards are not ready yet.
-        //    `apply_resharding_state_changes` will return `state_changes_for_resharding`,
-        //     which will be stored to the database in `process_apply_chunks`
-        // 3) if should_apply_chunk == false && resharding_state_roots.is_some()
-        //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
-        //    otherwise should_apply_chunk will be true
-        //    That means transactions have already been applied last time when apply_chunks are
-        //    called with mode NotCaughtUp, therefore `state_changes_for_resharding` have been
-        //    stored in the database. Then we can safely read that and apply that to the split
-        //    states
-        let resharding_state_roots =
-            if shard_context.need_to_reshard && mode != ApplyChunksMode::NotCaughtUp {
-                Some(Self::get_resharding_state_roots(
-                    self.chain_store(),
-                    self.epoch_manager.as_ref(),
-                    block,
-                    shard_id,
-                )?)
-            } else {
-                None
-            };
 
         let is_new_chunk = chunk_header.is_new_chunk(block.header().height());
         let shard_update_reason = if shard_context.should_apply_chunk {
@@ -3766,7 +3746,6 @@ impl Chain {
                     receipts,
                     block: block_context,
                     is_first_block_with_chunk_of_version,
-                    resharding_state_roots,
                     storage_context,
                 })
             } else {
@@ -3775,35 +3754,20 @@ impl Chain {
                     prev_chunk_extra: ChunkExtra::clone(
                         self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.as_ref(),
                     ),
-                    resharding_state_roots,
                     storage_context,
                 })
             }
-        } else if let Some(resharding_state_roots) = resharding_state_roots {
-            assert!(
-                mode == ApplyChunksMode::CatchingUp && shard_context.cares_about_shard_this_epoch
-            );
-            let state_changes =
-                self.chain_store().get_state_changes_for_resharding(block.hash(), shard_id)?;
-            ShardUpdateReason::Resharding(ReshardingData {
-                block_hash: *block.hash(),
-                block_height: block.header().height(),
-                state_changes,
-                resharding_state_roots,
-            })
         } else {
             return Ok(None);
         };
 
         let runtime = self.runtime_adapter.clone();
-        let epoch_manager = self.epoch_manager.clone();
         Ok(Some((
             shard_id,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
                 Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
-                    epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
                 )?)

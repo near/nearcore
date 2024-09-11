@@ -250,7 +250,13 @@ pub struct ShardsManagerActor {
     validator_signer: MutableValidatorSigner,
     store: ReadOnlyChunksStore,
 
+    /// Epoch manager used to access information about recent epochs (from Hot storage).
+    /// For building PartialChunks from Chunks of the garbage collected epochs, use `view_epoch_manager` instead.
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    /// ShardsManagerActor may need to access historical data to build PartialChunks from Chunks of
+    /// the garbage collected epochs. This also requires accessing epoch information from the split
+    /// (Hot + Cold) storage. The view epoch manager is used to access epoch info for this purpose only.
+    view_epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     peer_manager_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter: Sender<ShardsManagerResponse>,
@@ -294,6 +300,7 @@ impl Handler<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
 
 pub fn start_shards_manager(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    view_epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     network_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter_for_shards_manager: Sender<ShardsManagerResponse>,
@@ -316,6 +323,7 @@ pub fn start_shards_manager(
         Clock::real(),
         validator_signer,
         epoch_manager,
+        view_epoch_manager,
         shard_tracker,
         network_adapter,
         client_adapter_for_shards_manager,
@@ -337,6 +345,7 @@ impl ShardsManagerActor {
         clock: time::Clock,
         validator_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        view_epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         network_adapter: Sender<PeerManagerMessageRequest>,
         client_adapter: Sender<ShardsManagerResponse>,
@@ -350,6 +359,7 @@ impl ShardsManagerActor {
             validator_signer,
             store,
             epoch_manager: epoch_manager.clone(),
+            view_epoch_manager: view_epoch_manager.clone(),
             shard_tracker,
             peer_manager_adapter: network_adapter,
             client_adapter,
@@ -1035,7 +1045,7 @@ impl ShardsManagerActor {
         let present_receipts: HashMap<ShardId, _> = match make_outgoing_receipts_proofs(
             &header,
             &outgoing_receipts,
-            self.epoch_manager.as_ref(),
+            self.view_epoch_manager.as_ref(),
         ) {
             Ok(receipts) => receipts.map(|receipt| (receipt.1.to_shard_id, receipt)).collect(),
             Err(e) => {
@@ -2295,6 +2305,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
             mutable_validator_signer(&"test".parse().unwrap()),
+            epoch_manager.clone(),
             epoch_manager,
             shard_tracker,
             network_adapter.as_sender(),
@@ -2339,6 +2350,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2420,6 +2432,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -2450,6 +2463,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_chunk_part_owner),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2532,6 +2546,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
             validator,
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2623,6 +2638,7 @@ mod test {
             clock.clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -2699,6 +2715,7 @@ mod test {
             clock.clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -2767,6 +2784,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -2803,6 +2821,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -2835,6 +2854,7 @@ mod test {
         let shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2869,6 +2889,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -2902,6 +2923,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2945,6 +2967,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2993,6 +3016,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -3038,6 +3062,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -3063,6 +3088,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -3087,6 +3113,7 @@ mod test {
         let shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -3123,6 +3150,7 @@ mod test {
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
             Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
@@ -3155,6 +3183,7 @@ mod test {
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_chunk_part_owner),
+            Arc::new(fixture.epoch_manager.clone()),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),

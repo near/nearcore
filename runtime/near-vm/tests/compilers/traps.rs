@@ -1,3 +1,10 @@
+// TODO: Panics in function bodies in rust_panic_import and
+// rust_panic_start_function tests make ‘depends on never type fallback being
+// `()`’ compile-time warning trigger (with additional note: ‘in edition 2024,
+// the requirement `!: FromToNativeWasmType` will fail’).  I couldn’t figure out
+// proper annotation to make it go away.  Silence the warning for now.
+#![allow(dependency_on_unit_never_type_fallback)]
+
 use anyhow::Result;
 use near_vm_engine::RuntimeError;
 use near_vm_test_api::*;

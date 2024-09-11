@@ -31,7 +31,6 @@ use near_chain::chain::{
     BlockCatchUpResponse, ChunkStateWitnessMessage, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -209,7 +208,6 @@ pub struct SyncJobsSenderForClient {
     pub apply_state_parts: Sender<ApplyStatePartsRequest>,
     pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
-    pub resharding: Sender<ReshardingRequest>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -1616,7 +1614,6 @@ impl ClientActorInner {
                 &self.sync_jobs_sender.apply_state_parts,
                 &self.sync_jobs_sender.load_memtrie,
                 &self.sync_jobs_sender.block_catch_up,
-                &self.sync_jobs_sender.resharding,
                 Some(self.myself_sender.apply_chunks_done.clone()),
                 self.state_parts_future_spawner.as_ref(),
                 &validator_signer,
@@ -1793,7 +1790,6 @@ impl ClientActorInner {
             shards_to_sync,
             &self.sync_jobs_sender.apply_state_parts,
             &self.sync_jobs_sender.load_memtrie,
-            &self.sync_jobs_sender.resharding,
             self.state_parts_future_spawner.as_ref(),
             use_colour,
             self.client.runtime_adapter.clone(),
@@ -2091,6 +2087,7 @@ impl ClientActorInner {
         if &block_hash == header.prev_hash() {
             // The last block of the previous epoch.
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save prev hash block");
+            // Prev sync block will have its refcount increased later when processing sync block.
             if let Err(err) = self.client.chain.save_block(block) {
                 error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
             }
@@ -2102,6 +2099,11 @@ impl ClientActorInner {
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save extra block");
             if let Err(err) = self.client.chain.save_block(block) {
                 error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
+            } else {
+                // save_block() does not increase refcount, and for extra blocks we need to increase the refcount manually.
+                let mut store_update = self.client.chain.mut_chain_store().store_update();
+                store_update.inc_block_refcount(&block_hash).unwrap();
+                store_update.commit().unwrap();
             }
             return true;
         }
@@ -2134,19 +2136,6 @@ impl Handler<BlockCatchUpResponse> for ClientActorInner {
             );
         } else {
             panic!("block catch up processing result from unknown sync hash");
-        }
-    }
-}
-
-impl Handler<ReshardingResponse> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: ReshardingResponse) {
-        tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
-            // We are doing catchup
-            sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
-        } else {
-            self.client.state_sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
         }
     }
 }
