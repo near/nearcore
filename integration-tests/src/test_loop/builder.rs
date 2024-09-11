@@ -352,35 +352,6 @@ impl TestLoopBuilder {
         )
         .unwrap();
 
-        let shards_manager = ShardsManagerActor::new(
-            self.test_loop.clock(),
-            validator_signer.clone(),
-            epoch_manager.clone(),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            network_adapter.as_sender(),
-            client_adapter.as_sender(),
-            ReadOnlyChunksStore::new(store.clone()),
-            client.chain.head().unwrap(),
-            client.chain.header_head().unwrap(),
-            Duration::milliseconds(100),
-        );
-
-        let client_actor = ClientActorInner::new(
-            self.test_loop.clock(),
-            client,
-            client_adapter.as_multi_sender(),
-            peer_id.clone(),
-            network_adapter.as_multi_sender(),
-            noop().into_sender(),
-            None,
-            Default::default(),
-            None,
-            sync_jobs_adapter.as_multi_sender(),
-            Box::new(self.test_loop.future_spawner()),
-        )
-        .unwrap();
-
         // If this is an archival node and split storage is initialized, then create view-specific
         // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initiaze the
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
@@ -410,12 +381,41 @@ impl TestLoopBuilder {
             self.test_loop.clock(),
             validator_signer.clone(),
             chain_genesis.clone(),
-            view_epoch_manager,
+            view_epoch_manager.clone(),
             view_shard_tracker,
             view_runtime_adapter,
             network_adapter.as_multi_sender(),
             client_config.clone(),
             near_client::adversarial::Controls::default(),
+        )
+        .unwrap();
+
+        let shards_manager = ShardsManagerActor::new(
+            self.test_loop.clock(),
+            validator_signer.clone(),
+            epoch_manager.clone(),
+            view_epoch_manager,
+            shard_tracker.clone(),
+            network_adapter.as_sender(),
+            client_adapter.as_sender(),
+            ReadOnlyChunksStore::new(split_store.as_ref().unwrap_or(&store).clone()),
+            client.chain.head().unwrap(),
+            client.chain.header_head().unwrap(),
+            Duration::milliseconds(100),
+        );
+
+        let client_actor = ClientActorInner::new(
+            self.test_loop.clock(),
+            client,
+            client_adapter.as_multi_sender(),
+            peer_id.clone(),
+            network_adapter.as_multi_sender(),
+            noop().into_sender(),
+            None,
+            Default::default(),
+            None,
+            sync_jobs_adapter.as_multi_sender(),
+            Box::new(self.test_loop.future_spawner()),
         )
         .unwrap();
 
