@@ -11,7 +11,8 @@ use crate::trie::mem::metrics::MEM_TRIE_NUM_ROOTS;
 use crate::trie::MemTrieChanges;
 use crate::Trie;
 
-use super::arena::single_thread::{STArena, STArenaMemory};
+use super::arena::hybrid::{HybridArena, HybridArenaMemory};
+use super::arena::single_thread::STArena;
 use super::arena::Arena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
@@ -25,7 +26,7 @@ use super::updating::{construct_root_from_changes, MemTrieUpdate};
 /// its children nodes. The `roots` field of this struct logically
 /// holds an Rc of the root of each trie.
 pub struct MemTries {
-    arena: STArena,
+    arena: HybridArena,
     /// Maps a state root to a list of nodes that have the same root hash.
     /// The reason why this is a list is because we do not have a node
     /// deduplication mechanism so we can't guarantee that nodes of the
@@ -44,7 +45,7 @@ pub struct MemTries {
 impl MemTries {
     pub fn new(shard_uid: ShardUId) -> Self {
         Self {
-            arena: STArena::new(shard_uid.to_string()),
+            arena: STArena::new(shard_uid.to_string()).into(),
             roots: HashMap::new(),
             heights: Default::default(),
             shard_uid,
@@ -57,8 +58,12 @@ impl MemTries {
         arena: STArena,
         root: MemTrieNodeId,
     ) -> Self {
-        let mut tries =
-            Self { arena, roots: HashMap::new(), heights: Default::default(), shard_uid };
+        let mut tries = Self {
+            arena: arena.into(),
+            roots: HashMap::new(),
+            heights: Default::default(),
+            shard_uid,
+        };
         tries.insert_root(root.as_ptr(tries.arena.memory()).view().node_hash(), root, block_height);
         tries
     }
@@ -101,7 +106,7 @@ impl MemTries {
     pub(super) fn get_root(
         &self,
         state_root: &CryptoHash,
-    ) -> Result<MemTrieNodePtr<STArenaMemory>, StorageError> {
+    ) -> Result<MemTrieNodePtr<HybridArenaMemory>, StorageError> {
         assert_ne!(state_root, &CryptoHash::default());
         self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -154,7 +159,7 @@ impl MemTries {
         &self,
         root: CryptoHash,
         track_trie_changes: bool,
-    ) -> Result<MemTrieUpdate<STArenaMemory>, StorageError> {
+    ) -> Result<MemTrieUpdate<HybridArenaMemory>, StorageError> {
         let root_id =
             if root == CryptoHash::default() { None } else { Some(self.get_root(&root)?.id()) };
         Ok(MemTrieUpdate::new(
@@ -188,7 +193,7 @@ impl MemTries {
     }
 
     #[cfg(test)]
-    pub fn arena(&self) -> &STArena {
+    pub fn arena(&self) -> &HybridArena {
         &self.arena
     }
 

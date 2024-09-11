@@ -16,7 +16,7 @@ use crate::trie::iterator::TrieItem;
 use crate::trie::OptimizedValueRef;
 use crate::{NibbleSlice, Trie};
 
-use super::arena::single_thread::STArenaMemory;
+use super::arena::hybrid::HybridArenaMemory;
 use super::arena::ArenaMemory;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 
@@ -72,7 +72,7 @@ impl<'a, M: ArenaMemory> Crumb<'a, M> {
 /// The trail and the key_nibbles may have different lengths e.g. an extension trie node
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
 
-pub type STMemTrieIterator<'a> = MemTrieIterator<'a, STArenaMemory>;
+pub type STMemTrieIterator<'a> = MemTrieIterator<'a, HybridArenaMemory>;
 
 pub struct MemTrieIterator<'a, M: ArenaMemory> {
     root: Option<MemTrieNodePtr<'a, M>>,
