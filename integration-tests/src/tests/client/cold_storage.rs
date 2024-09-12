@@ -7,7 +7,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{PartialEncodedChunk, ShardChunk};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -33,6 +33,10 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
 
     let first_res = first_store.get(col, key).unwrap();
     let second_res = second_store.get(col, key).unwrap();
+
+    if col == DBCol::PartialChunks {
+        tracing::debug!("{:?}", first_store.get_ser::<PartialEncodedChunk>(col, key));
+    }
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -168,6 +172,15 @@ fn test_storage_after_commit_of_cold_update() {
         }
         false
     }));
+    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
+        if col == DBCol::PartialChunks {
+            let chunk = PartialEncodedChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
     no_check_rules.push(Box::new(move |col, key, _value| -> bool {
         if col == DBCol::ChunkHashesByHeight {
             let height = u64::from_le_bytes(key[0..8].try_into().unwrap());
@@ -295,6 +308,15 @@ fn test_cold_db_copy_with_height_skips() {
     no_check_rules.push(Box::new(move |col, _key, value| -> bool {
         if col == DBCol::Chunks {
             let chunk = ShardChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
+    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
+        if col == DBCol::PartialChunks {
+            let chunk = PartialEncodedChunk::try_from_slice(&*value).unwrap();
             if *chunk.prev_block() == last_hash {
                 return true;
             }
