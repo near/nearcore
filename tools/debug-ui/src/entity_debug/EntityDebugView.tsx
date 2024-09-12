@@ -1,7 +1,7 @@
 import { useMemo, useReducer } from 'react';
 import { Fetcher, FetcherContext } from './fetcher';
 import { AllQueriesContext, allQueriesReducer } from './all_queries';
-import { PinnedKeysContext, pinnedKeysReducer } from './pinned_keys';
+import { ColdStorageChoiceContext, PinnedKeysContext, pinnedKeysReducer } from './pinned_keys';
 import { AllQueriesDisplay } from './AllQueriesDisplay';
 import { PinnedKeysView } from './PinnedKeysView';
 import { EntityDataRootView } from './EntityDataRootView';
@@ -20,6 +20,10 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
         selectedIndex: -1,
     });
     const [pinnedKeys, pinnedKeysDispatcher] = useReducer(pinnedKeysReducer, []);
+    const [coldStorage, coldStorageDispatcher] = useReducer(
+        (_: boolean, value: boolean) => value,
+        false
+    );
     const selectedQueryResult =
         allQueries.selectedIndex === -1 ? null : allQueries.results[allQueries.selectedIndex];
 
@@ -60,7 +64,13 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
                         keys: pinnedKeys,
                         dispatch: pinnedKeysDispatcher,
                     }}>
-                    {render}
+                    <ColdStorageChoiceContext.Provider
+                        value={{
+                            coldStorage: coldStorage,
+                            dispatch: coldStorageDispatcher,
+                        }}>
+                        {render}
+                    </ColdStorageChoiceContext.Provider>
                 </PinnedKeysContext.Provider>
             </AllQueriesContext.Provider>
         </FetcherContext.Provider>

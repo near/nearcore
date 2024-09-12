@@ -23,7 +23,12 @@ config = cluster.load_config()
 binary_protocol_version = cluster.get_binary_protocol_version(config)
 logger.info(f"binary_protocol_version: {binary_protocol_version}")
 assert binary_protocol_version is not None
+
+BLOCK_HEADER_V1_PROTOCOL_VERSION = 24
+BLOCK_HEADER_V2_PROTOCOL_VERSION = 42
+BLOCK_HEADER_V3_PROTOCOL_VERSION = 50
 BLOCK_HEADER_V4_PROTOCOL_VERSION = 63
+BLOCK_HEADER_V5_PROTOCOL_VERSION = 145
 
 
 def serialize(msg: typing.Any) -> bytes:
@@ -79,6 +84,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
         2: messages.block.BlockHeaderInnerRestV2,
         3: messages.block.BlockHeaderInnerRestV3,
         4: messages.block.BlockHeaderInnerRestV4,
+        5: messages.block.BlockHeaderInnerRestV5,
     }[msg_version]
 
     inner_rest = inner_rest_msg()
@@ -109,6 +115,8 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
         for approval in header['approvals']
     ]
     inner_rest.latest_protocol_version = get_int('latest_protocol_version')
+    inner_rest.chunk_endorsements = messages.block.ChunkEndorsementsBitmap()
+    inner_rest.chunk_endorsements.inner = header['chunk_endorsements']
     inner_rest_blob = serialize(inner_rest)
     inner_rest_hash = sha256(inner_rest_blob)
 
@@ -195,7 +203,8 @@ class HashTestCase(unittest.TestCase):
             'signature':
                 'ed25519:5mGi9dyuyt7TnSpPFjbEWSJThDdiEV9NNQB11knXvRbxSv8XfBT5tdVVFypeqpZjeB3fD7qgJpWhTj3KvdGbcXdu',
             'latest_protocol_version':
-                50
+                50,
+            'chunk_endorsements': [[]],
         }
 
         for msg_ver, block_hash in (
@@ -203,6 +212,7 @@ class HashTestCase(unittest.TestCase):
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
             (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
             (4, '2QfdGyGWByEeL2ZSy8u2LoBa4pdDwf5KoDrr94W6oeB6'),
+            (5, '6mpkU5y79KpUKDkZKNiur1aTyynkaZ1AGjEAF7bhTZM6'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -214,16 +224,18 @@ class HashTestCase(unittest.TestCase):
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
             (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
             (4, '3Cdm4sS9b4jdypMezP8ta6p2ecyRSJC9uaGUJTY18MUH'),
+            (5, 'Gm93EbKp6NWvvxAKW61GL6Nbbysw2J8qw1fgQDBw5aVh'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
-        # Now try witohut epoch_sync_data_hash
+        # Now try without epoch_sync_data_hash
         header['epoch_sync_data_hash'] = None
         for msg_ver, block_hash in (
             (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
             (3, '82v8RAc66tWpdjRCsoSrgnzpU6JMhpjbWKmUEcfkzX6T'),
             (4, '9BYhkbWkKTLJj46goq5WPEzUJDf5juHJnBu2jjoHL7yc'),
+            (5, 'Hcx3Gwet25riHMKQzmERn7cAprrgRrBba199vrGBjyxd'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -234,6 +246,7 @@ class HashTestCase(unittest.TestCase):
             (2, '2WdpJD5dYPjEMn3EYbm1BhGgCAX7ksxJGTQm4xHazBxt'),
             (3, '3bx6vfbH8GrYp8UFMagiBgYyKMH63D7Qo5J7jCsNbh9o'),
             (4, 'CTDBpUpCdhdCjCMfaFD5r96PyKDK756aXw69toLYEaSH'),
+            (5, '5Mc2zDdXCrjMFKiBYtqyi8gsDQpaZHb9S7fvDppYR64c'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -292,7 +305,7 @@ class HashTestCase(unittest.TestCase):
         The cluster is started with a protocol version in which the first
         version of the BlockHeaderInnerRest has been used.
         """
-        self._test_block_hash(1, 24)
+        self._test_block_hash(1, BLOCK_HEADER_V1_PROTOCOL_VERSION)
 
     def test_block_hash_v2(self):
         """Starts a cluster using protocol version 42 and verifies block hashes.
@@ -300,7 +313,7 @@ class HashTestCase(unittest.TestCase):
         The cluster is started with a protocol version in which the second
         version of the BlockHeaderInnerRest has been used.
         """
-        self._test_block_hash(2, 42)
+        self._test_block_hash(2, BLOCK_HEADER_V2_PROTOCOL_VERSION)
 
     def test_block_hash_v3(self):
         """Starts a cluster using protocol version 50 and verifies block hashes.
@@ -308,17 +321,25 @@ class HashTestCase(unittest.TestCase):
         The cluster is started with a protocol version in which the third
         version of the BlockHeaderInnerRest has been used.
         """
-        self._test_block_hash(3, 50)
+        self._test_block_hash(3, BLOCK_HEADER_V3_PROTOCOL_VERSION)
 
-    if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
+    def test_block_hash_v4(self):
+        """Starts a cluster using protocol version 63 and verifies block hashes.
 
-        def test_block_hash_v4(self):
-            """Starts a cluster using protocol version BLOCK_HEADER_V4_PROTOCOL_VERSION and verifies block hashes.
+        The cluster is started with a protocol version in which the fourth
+        version of the BlockHeaderInnerRest has been used.
+        """
+        self._test_block_hash(4, BLOCK_HEADER_V4_PROTOCOL_VERSION)
 
-            The cluster is started with a protocol version in which the fourth
+    if binary_protocol_version >= BLOCK_HEADER_V5_PROTOCOL_VERSION:
+
+        def test_block_hash_v5(self):
+            """Starts a cluster using protocol version 145 and verifies block hashes.
+
+            The cluster is started with a protocol version in which the fifth
             version of the BlockHeaderInnerRest has been used.
             """
-            self._test_block_hash(4, BLOCK_HEADER_V4_PROTOCOL_VERSION)
+            self._test_block_hash(5, BLOCK_HEADER_V5_PROTOCOL_VERSION)
 
     def test_block_hash_latest(self):
         """Starts a cluster using latest protocol and verifies block hashes.
@@ -328,10 +349,10 @@ class HashTestCase(unittest.TestCase):
         BlockHeaderInnerRest message has been introduced and this test needs to
         be updated to support it.
         """
-        if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
-            self._test_block_hash(4)
+        if binary_protocol_version >= BLOCK_HEADER_V5_PROTOCOL_VERSION:
+            self._test_block_hash(5)
         else:
-            self._test_block_hash(3)
+            self._test_block_hash(4)
 
 
 if __name__ == '__main__':

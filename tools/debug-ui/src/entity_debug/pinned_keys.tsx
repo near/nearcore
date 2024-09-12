@@ -30,3 +30,11 @@ export const PinnedKeysContext = createContext<{
     keys: [],
     dispatch: () => {},
 });
+
+export const ColdStorageChoiceContext = createContext<{
+    coldStorage: boolean;
+    dispatch: React.Dispatch<boolean>;
+}>({
+    coldStorage: false,
+    dispatch: () => {},
+});

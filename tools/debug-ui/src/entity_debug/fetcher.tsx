@@ -6,6 +6,7 @@ import {
     EntityQuery,
     FieldSemantic,
     entityQueryOutputType,
+    EntityQueryWithParams,
 } from './types';
 import { fieldSemantics } from './fields';
 
@@ -13,8 +14,14 @@ import { fieldSemantics } from './fields';
 export class Fetcher {
     constructor(private addr: string) {}
 
-    async fetch(query: EntityQuery): Promise<EntityDataValueNode> {
-        const result = await fetchEntity(this.addr, query);
+    async fetch(query: EntityQuery, useColdStorage: boolean): Promise<EntityDataValueNode> {
+        const queryWithParams: EntityQueryWithParams = { ...query };
+        if (useColdStorage) {
+            // For compatibility with older node builds, do not include this field if
+            // it is false.
+            queryWithParams.use_cold_storage = true;
+        }
+        const result = await fetchEntity(this.addr, queryWithParams);
         const queryType: keyof EntityQuery = Object.keys(query)[0] as keyof EntityQuery;
         const entityType = entityQueryOutputType[queryType];
         const rootEntry = this._parseApiEntityDataValue(fieldSemantics[entityType], {

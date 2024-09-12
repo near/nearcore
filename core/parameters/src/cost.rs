@@ -103,6 +103,8 @@ impl ExtCostsConfig {
             ExtCosts::storage_read_base => SAFETY_MULTIPLIER * 18785615250,
             ExtCosts::storage_read_key_byte => SAFETY_MULTIPLIER * 10317511,
             ExtCosts::storage_read_value_byte => SAFETY_MULTIPLIER * 1870335,
+            ExtCosts::storage_large_read_overhead_base => 0,
+            ExtCosts::storage_large_read_overhead_byte => 0,
             ExtCosts::storage_remove_base => SAFETY_MULTIPLIER * 17824343500,
             ExtCosts::storage_remove_key_byte => SAFETY_MULTIPLIER * 12740128,
             ExtCosts::storage_remove_ret_value_byte => SAFETY_MULTIPLIER * 3843852,
@@ -268,6 +270,8 @@ pub enum ExtCosts {
     bls12381_p1_decompress_element = 80,
     bls12381_p2_decompress_base = 81,
     bls12381_p2_decompress_element = 82,
+    storage_large_read_overhead_base = 83,
+    storage_large_read_overhead_byte = 84,
 }
 
 // Type of an action, used in fees logic.
@@ -351,6 +355,12 @@ impl ExtCosts {
             ExtCosts::storage_read_base => Parameter::WasmStorageReadBase,
             ExtCosts::storage_read_key_byte => Parameter::WasmStorageReadKeyByte,
             ExtCosts::storage_read_value_byte => Parameter::WasmStorageReadValueByte,
+            ExtCosts::storage_large_read_overhead_base => {
+                Parameter::WasmStorageLargeReadOverheadBase
+            }
+            ExtCosts::storage_large_read_overhead_byte => {
+                Parameter::WasmStorageLargeReadOverheadByte
+            }
             ExtCosts::storage_remove_base => Parameter::WasmStorageRemoveBase,
             ExtCosts::storage_remove_key_byte => Parameter::WasmStorageRemoveKeyByte,
             ExtCosts::storage_remove_ret_value_byte => Parameter::WasmStorageRemoveRetValueByte,

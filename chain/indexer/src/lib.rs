@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
+use near_config_utils::DownloadConfigType;
 use tokio::sync::mpsc;
 
 use near_chain_configs::GenesisValidationMode;
@@ -43,7 +44,7 @@ pub struct InitConfigArgs {
     /// Specify a custom download URL for the records file.
     pub download_records_url: Option<String>,
     /// Download the verified NEAR config file automatically.
-    pub download_config: bool,
+    pub download_config: Option<DownloadConfigType>,
     /// Specify a custom download URL for the config file.
     pub download_config_url: Option<String>,
     /// Specify the boot nodes to bootstrap the network
