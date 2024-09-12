@@ -1,10 +1,9 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::mem::iter::MemTrieIterator;
+use self::mem::iter::STMemTrieIterator;
 use self::mem::lookup::memtrie_lookup;
 use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
-use self::mem::MemTries;
 use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
@@ -24,6 +23,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
+use mem::mem_tries::MemTries;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -1724,7 +1724,7 @@ impl<'a> TrieWithReadLock<'a> {
                         ))
                     })?)
                 };
-                Ok(TrieIterator::Memtrie(MemTrieIterator::new(root, self.trie)))
+                Ok(TrieIterator::Memtrie(STMemTrieIterator::new(root, self.trie)))
             }
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
         }
