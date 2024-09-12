@@ -70,13 +70,8 @@ pub enum FlatStateValue {
 }
 
 impl FlatStateValue {
-    /// Defines value size threshold for flat state inlining.
-    /// It means that values having size greater than the threshold will be stored
-    /// in FlatState as `FlatStateValue::Ref`, otherwise the whole value will be
-    /// stored as `FlatStateValue::Inlined`.
-    /// See the following comment for reasoning behind the threshold value:
-    /// <https://github.com/near/nearcore/issues/8243#issuecomment-1523049994>
-    pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
+    pub const INLINE_DISK_VALUE_THRESHOLD: usize =
+        near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 
     pub fn on_disk(value: &[u8]) -> Self {
         if value.len() <= Self::INLINE_DISK_VALUE_THRESHOLD {

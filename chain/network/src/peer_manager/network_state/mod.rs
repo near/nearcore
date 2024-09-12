@@ -245,7 +245,7 @@ impl NetworkState {
             peer.stop(Some(ban_reason));
         } else {
             if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::error!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "Failed to save peer data");
             }
         }
     }
@@ -401,7 +401,7 @@ impl NetworkState {
                 _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
             };
             if let Err(err) = res {
-                tracing::error!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "Failed to save peer data");
             }
 
             // Save the fact that we are disconnecting to the ConnectionStore,

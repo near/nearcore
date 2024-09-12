@@ -110,6 +110,8 @@ pub enum Parameter {
     WasmStorageReadBase,
     WasmStorageReadKeyByte,
     WasmStorageReadValueByte,
+    WasmStorageLargeReadOverheadBase,
+    WasmStorageLargeReadOverheadByte,
     WasmStorageRemoveBase,
     WasmStorageRemoveKeyByte,
     WasmStorageRemoveRetValueByte,
