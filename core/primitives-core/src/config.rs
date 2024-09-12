@@ -1,6 +1,18 @@
 use crate::types::Gas;
 use std::hash::Hash;
 
+/// Defines value size threshold for flat state inlining.
+/// It means that values having size greater than the threshold will be stored
+/// in FlatState as `FlatStateValue::Ref`, otherwise the whole value will be
+/// stored as `FlatStateValue::Inlined`.
+/// See the following comment for reasoning behind the threshold value:
+/// <https://github.com/near/nearcore/issues/8243#issuecomment-1523049994>
+///
+/// Note that this value then propagates to memtrie, and then to the "small read"
+/// costs. As such, changing it is a protocol change, and it should be turned
+/// into a protocol parameter if we ever want to change it.
+pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
+
 #[derive(
     Debug,
     Clone,
