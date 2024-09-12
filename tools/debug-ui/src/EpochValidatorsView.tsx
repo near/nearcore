@@ -10,16 +10,16 @@ interface ProducedAndExpected {
 }
 
 interface BlockProducer {
-    kind: 'BlockProducer'
+    kind: 'BlockProducer';
 }
 
 interface ChunkProducer {
-    kind: 'ChunkProducer'
+    kind: 'ChunkProducer';
     shards: number[];
 }
 
 interface ChunkValidator {
-    kind: 'ChunkValidator'
+    kind: 'ChunkValidator';
 }
 
 type ValidatorRole = BlockProducer | ChunkProducer | ChunkValidator;
@@ -74,8 +74,8 @@ class Validators {
         const validator = this.validator(accountId);
         validator.roles[epochIndex].push(role);
         validator.roles[epochIndex].sort((a, b) => {
-            return a.kind.localeCompare(b.kind)
-        })
+            return a.kind.localeCompare(b.kind);
+        });
     }
 
     sorted(): ValidatorInfo[] {
@@ -164,7 +164,10 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             shards: validatorInfo.shards,
         };
         if (validatorInfo.shards.length > 0) {
-            validators.addValidatorRole(validator.accountId, 0, { kind: 'ChunkProducer', shards: validatorInfo.shards });
+            validators.addValidatorRole(validator.accountId, 0, {
+                kind: 'ChunkProducer',
+                shards: validatorInfo.shards,
+            });
         }
     }
     for (const proposal of currentValidatorInfo.current_proposals) {
@@ -177,15 +180,20 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     }
     epochs.forEach((epochInfo, index) => {
         for (const blockProducer of epochInfo.block_producers) {
-            validators.addValidatorRole(blockProducer.account_id, index, { kind: 'BlockProducer'});
+            validators.addValidatorRole(blockProducer.account_id, index, { kind: 'BlockProducer' });
         }
         if (epochInfo.validator_info != null) {
             for (const validator of epochInfo.validator_info.current_validators) {
                 if (validator.num_expected_chunks > 0) {
-                    validators.addValidatorRole(validator.account_id, index, { kind: 'ChunkProducer', shards: validator.shards });
+                    validators.addValidatorRole(validator.account_id, index, {
+                        kind: 'ChunkProducer',
+                        shards: validator.shards,
+                    });
                 }
                 if (validator.num_expected_endorsements > 0) {
-                    validators.addValidatorRole(validator.account_id, index, { kind: 'ChunkValidator'});
+                    validators.addValidatorRole(validator.account_id, index, {
+                        kind: 'ChunkValidator',
+                    });
                 }
             }
         }
@@ -339,7 +347,9 @@ function renderRoles(roles: ValidatorRole[]): JSX.Element {
                 renderedItems.push(<span className="block-producer">BP</span>);
                 break;
             case 'ChunkProducer':
-                renderedItems.push(<span className="chunk-producer">CP({role.shards.join(",")})</span>);
+                renderedItems.push(
+                    <span className="chunk-producer">CP({role.shards.join(',')})</span>
+                );
                 break;
             case 'ChunkValidator':
                 renderedItems.push(<span className="chunk-validator">CV</span>);

@@ -89,17 +89,25 @@ pub enum EntityQuery {
     ValidatorAssignmentsAtHeight { block_height: BlockHeight, epoch_id: EpochId },
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct EntityQueryWithParams {
+    #[serde(flatten)]
+    pub query: EntityQuery,
+    #[serde(default)]
+    pub use_cold_storage: bool,
+}
+
 /// We use a trait for this, because jsonrpc does not have access to low-level
 /// blockchain data structures for implementing the queries.
 pub trait EntityDebugHandler: Sync + Send {
-    fn query(&self, query: EntityQuery) -> Result<EntityDataValue, RpcError>;
+    fn query(&self, query: EntityQueryWithParams) -> Result<EntityDataValue, RpcError>;
 }
 
 /// For tests.
 pub struct DummyEntityDebugHandler {}
 
 impl EntityDebugHandler for DummyEntityDebugHandler {
-    fn query(&self, _query: EntityQuery) -> Result<EntityDataValue, RpcError> {
+    fn query(&self, _query: EntityQueryWithParams) -> Result<EntityDataValue, RpcError> {
         Err(RpcError::new_internal_error(None, "Not implemented".to_string()))
     }
 }
