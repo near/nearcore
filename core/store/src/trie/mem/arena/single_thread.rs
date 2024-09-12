@@ -5,14 +5,9 @@ use super::{
 
 /// `ArenaMemory` implementation for `STArena` (single-threaded arena). Stores the in-memory trie
 /// data as large byte arrays called "chunks".
+#[derive(Default)]
 pub struct STArenaMemory {
     pub(super) chunks: Vec<Vec<u8>>,
-}
-
-impl STArenaMemory {
-    fn new() -> Self {
-        Self { chunks: Vec::new() }
-    }
 }
 
 impl ArenaMemory for STArenaMemory {
@@ -33,8 +28,8 @@ impl ArenaMemoryMut for STArenaMemory {
 /// To allocate, deallocate, or mutate any allocated memory, a mutable
 /// reference to the `STArena` is needed.
 pub struct STArena {
-    memory: STArenaMemory,
-    allocator: Allocator,
+    pub(super) memory: STArenaMemory,
+    pub(super) allocator: Allocator,
 }
 
 impl STArena {
@@ -43,7 +38,7 @@ impl STArena {
     /// can fit into virtual memory (which there are terabytes of). The actual
     /// memory usage will only be as much as is needed.
     pub fn new(name: String) -> Self {
-        Self { memory: STArenaMemory::new(), allocator: Allocator::new(name) }
+        Self { memory: Default::default(), allocator: Allocator::new(name) }
     }
 
     pub(crate) fn new_from_existing_chunks(
@@ -109,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_arena_ptr_and_slice() {
-        let mut arena = STArenaMemory::new();
+        let mut arena = STArenaMemory::default();
         arena.chunks.push(vec![0; 1000]);
         arena.chunks.push(vec![0; 1000]);
 

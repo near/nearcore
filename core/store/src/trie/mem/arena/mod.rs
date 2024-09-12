@@ -8,6 +8,8 @@ use super::flexible_data::encoding::BorshFixedSize;
 
 mod alloc;
 pub mod concurrent;
+mod frozen;
+pub mod hybrid;
 mod metrics;
 pub mod single_thread;
 
