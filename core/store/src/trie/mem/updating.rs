@@ -1,6 +1,5 @@
 use super::arena::{ArenaMemory, ArenaMut};
 use super::flexible_data::children::ChildrenView;
-use super::mem_tries::MemTries;
 use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
 use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap, TRIE_COSTS};
