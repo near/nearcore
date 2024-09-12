@@ -1,8 +1,6 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::mem::iter::STMemTrieIterator;
-use self::mem::lookup::memtrie_lookup;
 use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
 use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
@@ -1363,6 +1361,8 @@ impl Trie {
     /// The storage of memtries and the data therein are behind a lock, as thus unlike many other
     /// functions here, the access to the value reference is provided as an argument to the
     /// `map_result` closure.
+    ///
+    /// This function also takes care of the accounting cache for gas calculation purposes.
     fn lookup_from_memory<R: 'static>(
         &self,
         key: &[u8],
@@ -1372,16 +1372,9 @@ impl Trie {
         if self.root == Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let lock = self.memtries.as_ref().unwrap().read().unwrap();
-        let root = lock.get_root(&self.root).ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!(
-                "Failed to find root node {} in memtrie",
-                self.root
-            ))
-        })?;
-
         let mut accessed_nodes = Vec::new();
-        let mem_value = memtrie_lookup(root, key, Some(&mut accessed_nodes));
+        let lock = self.memtries.as_ref().unwrap().read().unwrap();
+        let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
         if charge_gas_for_trie_node_access {
             for (node_hash, serialized_node) in &accessed_nodes {
                 self.accounting_cache
@@ -1599,9 +1592,7 @@ impl Trie {
                 let mut trie_update = guard.update(self.root, true)?;
                 for (key, value) in changes {
                     match value {
-                        Some(arr) => {
-                            trie_update.insert(&key, arr);
-                        }
+                        Some(arr) => trie_update.insert(&key, arr),
                         None => trie_update.delete(&key),
                     }
                 }
@@ -1713,19 +1704,7 @@ impl<'a> TrieWithReadLock<'a> {
     /// Otherwise, it falls back to an iterator that traverses the on-disk trie.
     pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
         match &self.memtries {
-            Some(memtries) => {
-                let root = if self.trie.root == CryptoHash::default() {
-                    None
-                } else {
-                    Some(memtries.get_root(&self.trie.root).ok_or_else(|| {
-                        StorageError::StorageInconsistentState(format!(
-                            "Failed to find root node {} in memtrie",
-                            self.trie.root
-                        ))
-                    })?)
-                };
-                Ok(TrieIterator::Memtrie(STMemTrieIterator::new(root, self.trie)))
-            }
+            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie)?)),
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
         }
     }
