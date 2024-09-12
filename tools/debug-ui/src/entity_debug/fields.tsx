@@ -24,6 +24,8 @@ const chunkHash = stringField('chunk_hash');
 const epochId = stringField('epoch_id');
 const transactionHash = stringField('transaction_hash');
 const receiptId = stringField('receipt_id');
+const trieNodeHash = stringField('trie_node_hash');
+const trieValueHash = stringField('trie_value_hash');
 const accountId = stringField('account_id');
 const shardId = numericField('shard_id');
 const shardUId: FieldSemantic = {
@@ -333,6 +335,15 @@ const validatorAssignmentsAtHeight = {
     },
 };
 
+const rawTrieNode = {
+    struct: {
+        extension: nibbles,
+        value_hash: trieValueHash,
+        children: { array: trieNodeHash },
+        child: trieNodeHash,
+    },
+};
+
 export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     AllShards: { array: shardUId },
     Block: block,
@@ -341,6 +352,7 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     BlockInfo: blockInfo,
     BlockMerkleTree: undefined,
     BlockMiscData: blockMiscData,
+    Bytes: nibbles,
     Chunk: chunk,
     ChunkExtra: chunkExtra,
     EpochInfo: epochInfo,
@@ -350,6 +362,7 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     FlatStateChanges: flatStateChanges,
     FlatStateDeltaMetadata: flatStateDeltaMetadata,
     FlatStorageStatus: flatStorageStatus,
+    RawTrieNode: rawTrieNode,
     Receipt: receipt,
     ShardId: shardId,
     ShardLayout: undefined,

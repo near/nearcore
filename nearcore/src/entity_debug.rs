@@ -8,8 +8,7 @@ use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
-    EntityDataEntry, EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery,
-    EntityQueryWithParams,
+    EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery, EntityQueryWithParams,
 };
 use near_primitives::block::Tip;
 use near_primitives::challenge::{PartialState, TrieValue};
@@ -69,10 +68,7 @@ impl EntityDebugHandlerImpl {
                 let mut ret =
                     serialize_entity(&BlockView::from_author_block(author, block.clone()));
                 if let EntityDataValue::Struct(inner) = &mut ret {
-                    inner.entries.push(EntityDataEntry {
-                        name: "chunk_endorsements".to_owned(),
-                        value: serialize_entity(block.chunk_endorsements()),
-                    });
+                    inner.add("chunk_endorsements", serialize_entity(block.chunk_endorsements()));
                 }
                 Ok(ret)
             }
@@ -248,6 +244,52 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Outcome not found"))?;
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
             }
+            EntityQuery::RawTrieNodeByHash { trie_node_hash, shard_uid } => {
+                let node = store
+                    .get_ser::<RawTrieNodeWithSize>(
+                        DBCol::State,
+                        &TrieCachingStorage::get_key_from_shard_uid_and_hash(
+                            shard_uid,
+                            &trie_node_hash,
+                        ),
+                    )?
+                    .ok_or_else(|| anyhow!("Trie node not found"))?;
+                Ok(serialize_raw_trie_node(node))
+            }
+            EntityQuery::RawTrieRootByChunkHash { chunk_hash } => {
+                let chunk = store
+                    .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("Chunk not found"))?;
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_uid = shard_layout
+                    .shard_uids()
+                    .nth(chunk.shard_id() as usize)
+                    .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
+                let node = store
+                    .get_ser::<RawTrieNodeWithSize>(
+                        DBCol::State,
+                        &TrieCachingStorage::get_key_from_shard_uid_and_hash(
+                            shard_uid,
+                            &chunk.prev_state_root(),
+                        ),
+                    )?
+                    .ok_or_else(|| anyhow!("State root not found"))?;
+                Ok(serialize_raw_trie_node(node))
+            }
+            EntityQuery::RawTrieValueByHash { trie_value_hash, shard_uid } => {
+                let value = store
+                    .get(
+                        DBCol::State,
+                        &TrieCachingStorage::get_key_from_shard_uid_and_hash(
+                            shard_uid,
+                            &trie_value_hash,
+                        ),
+                    )?
+                    .ok_or_else(|| anyhow!("Trie value not found"))?;
+                Ok(serialize_entity(&hex::encode(value.as_slice())))
+            }
             EntityQuery::ReceiptById { receipt_id } => {
                 let receipt = store
                     .get_ser::<Receipt>(DBCol::Receipts, &borsh::to_vec(&receipt_id).unwrap())?
@@ -337,91 +379,7 @@ impl EntityDebugHandlerImpl {
                 let node = trie
                     .debug_get_node(&trie_path.path)?
                     .ok_or_else(|| anyhow!("Node not found"))?;
-                let mut entity_data = EntityDataStruct::new();
-                entity_data.entries.push(EntityDataEntry {
-                    name: "path".to_owned(),
-                    value: EntityDataValue::String(TriePath::nibbles_to_hex(&trie_path.path)),
-                });
-                match node {
-                    near_store::RawTrieNode::Leaf(extension, value) => {
-                        let extension_nibbles = NibbleSlice::from_encoded(&extension);
-                        let leaf_nibbles = trie_path
-                            .path
-                            .iter()
-                            .copied()
-                            .chain(extension_nibbles.0.iter())
-                            .collect::<Vec<_>>();
-                        let data = trie.retrieve_value(&value.hash)?;
-                        entity_data.entries.push(EntityDataEntry {
-                            name: "leaf_path".to_owned(),
-                            value: EntityDataValue::String(TriePath::nibbles_to_hex(&leaf_nibbles)),
-                        });
-                        entity_data.entries.push(EntityDataEntry {
-                            name: "value".to_owned(),
-                            value: EntityDataValue::String(hex::encode(&data)),
-                        });
-                    }
-                    near_store::RawTrieNode::BranchNoValue(children) => {
-                        for index in 0..16 {
-                            if let Some(_) = children[index] {
-                                let path = TriePath {
-                                    shard_uid: trie_path.shard_uid,
-                                    state_root: trie_path.state_root,
-                                    path: [&trie_path.path[..], &[index]].concat(),
-                                };
-                                entity_data.entries.push(EntityDataEntry {
-                                    name: format!("{:x}", index),
-                                    value: EntityDataValue::String(path.to_string()),
-                                });
-                            }
-                        }
-                    }
-                    near_store::RawTrieNode::BranchWithValue(value, children) => {
-                        let data = trie.retrieve_value(&value.hash)?;
-                        entity_data.entries.push(EntityDataEntry {
-                            name: "leaf_path".to_owned(),
-                            value: EntityDataValue::String(TriePath::nibbles_to_hex(
-                                &trie_path.path,
-                            )),
-                        });
-                        entity_data.entries.push(EntityDataEntry {
-                            name: "value".to_owned(),
-                            value: EntityDataValue::String(hex::encode(&data)),
-                        });
-                        for index in 0..16 {
-                            if let Some(_) = children[index] {
-                                let path = TriePath {
-                                    shard_uid: trie_path.shard_uid,
-                                    state_root: trie_path.state_root,
-                                    path: [&trie_path.path[..], &[index]].concat(),
-                                };
-                                entity_data.entries.push(EntityDataEntry {
-                                    name: format!("{:x}", index),
-                                    value: EntityDataValue::String(path.to_string()),
-                                });
-                            }
-                        }
-                    }
-                    near_store::RawTrieNode::Extension(extension, _) => {
-                        let extension_nibbles = NibbleSlice::from_encoded(&extension);
-                        let child_nibbles = trie_path
-                            .path
-                            .iter()
-                            .copied()
-                            .chain(extension_nibbles.0.iter())
-                            .collect::<Vec<_>>();
-                        let child_path = TriePath {
-                            shard_uid: trie_path.shard_uid,
-                            state_root: trie_path.state_root,
-                            path: child_nibbles,
-                        };
-                        entity_data.entries.push(EntityDataEntry {
-                            name: "extension".to_owned(),
-                            value: EntityDataValue::String(child_path.to_string()),
-                        });
-                    }
-                }
-                Ok(EntityDataValue::Struct(Box::new(entity_data)))
+                serialize_trie_node(trie_path, node, trie)
             }
             EntityQuery::TrieRootByChunkHash { chunk_hash } => {
                 let chunk = store
@@ -505,6 +463,106 @@ impl EntityDebugHandlerImpl {
             FlatStateValue::Inlined(data) => data,
         })
     }
+}
+
+fn serialize_trie_node(
+    trie_path: TriePath,
+    node: RawTrieNode,
+    trie: near_store::Trie,
+) -> Result<EntityDataValue, anyhow::Error> {
+    let mut entity_data = EntityDataStruct::new();
+    entity_data.add_string("path", &TriePath::nibbles_to_hex(&trie_path.path));
+    match node {
+        near_store::RawTrieNode::Leaf(extension, value) => {
+            let extension_nibbles = NibbleSlice::from_encoded(&extension);
+            let leaf_nibbles = trie_path
+                .path
+                .iter()
+                .copied()
+                .chain(extension_nibbles.0.iter())
+                .collect::<Vec<_>>();
+            let data = trie.retrieve_value(&value.hash)?;
+            entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&leaf_nibbles));
+            entity_data.add_string("value", &hex::encode(&data))
+        }
+        near_store::RawTrieNode::BranchNoValue(children) => {
+            for index in 0..16 {
+                if let Some(_) = children[index] {
+                    let path = TriePath {
+                        shard_uid: trie_path.shard_uid,
+                        state_root: trie_path.state_root,
+                        path: [&trie_path.path[..], &[index]].concat(),
+                    };
+                    entity_data.add_string(&format!("{:x}", index), &path.to_string());
+                }
+            }
+        }
+        near_store::RawTrieNode::BranchWithValue(value, children) => {
+            let data = trie.retrieve_value(&value.hash)?;
+            entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&trie_path.path));
+            entity_data.add_string("value", &hex::encode(&data));
+            for index in 0..16 {
+                if let Some(_) = children[index] {
+                    let path = TriePath {
+                        shard_uid: trie_path.shard_uid,
+                        state_root: trie_path.state_root,
+                        path: [&trie_path.path[..], &[index]].concat(),
+                    };
+                    entity_data.add_string(&format!("{:x}", index), &path.to_string());
+                }
+            }
+        }
+        near_store::RawTrieNode::Extension(extension, _) => {
+            let extension_nibbles = NibbleSlice::from_encoded(&extension);
+            let child_nibbles = trie_path
+                .path
+                .iter()
+                .copied()
+                .chain(extension_nibbles.0.iter())
+                .collect::<Vec<_>>();
+            let child_path = TriePath {
+                shard_uid: trie_path.shard_uid,
+                state_root: trie_path.state_root,
+                path: child_nibbles,
+            };
+            entity_data.add_string("extension", &child_path.to_string());
+        }
+    }
+    Ok(EntityDataValue::Struct(Box::new(entity_data)))
+}
+
+fn serialize_raw_trie_node(node: RawTrieNodeWithSize) -> EntityDataValue {
+    let mut entity_data = EntityDataStruct::new();
+    entity_data.add_string("memory_usage", &node.memory_usage.to_string());
+
+    match node.node {
+        RawTrieNode::Leaf(extension, value_ref) => {
+            let extension = NibbleSlice::from_encoded(&extension);
+            entity_data.add_string(
+                "extension",
+                &TriePath::nibbles_to_hex(&extension.0.iter().collect::<Vec<_>>()),
+            );
+            entity_data.add("value_hash", serialize_entity(&value_ref.hash));
+            entity_data.add_string("value_len", &value_ref.length.to_string());
+        }
+        RawTrieNode::BranchNoValue(children) => {
+            entity_data.add("children", serialize_entity(&children.0));
+        }
+        RawTrieNode::BranchWithValue(value_ref, children) => {
+            entity_data.add("children", serialize_entity(&children.0));
+            entity_data.add("value_hash", serialize_entity(&value_ref.hash));
+            entity_data.add_string("value_len", &value_ref.length.to_string());
+        }
+        RawTrieNode::Extension(extension, child) => {
+            let extension = NibbleSlice::from_encoded(&extension);
+            entity_data.add_string(
+                "extension",
+                &TriePath::nibbles_to_hex(&extension.0.iter().collect::<Vec<_>>()),
+            );
+            entity_data.add("child", serialize_entity(&child));
+        }
+    }
+    EntityDataValue::Struct(entity_data.into())
 }
 
 impl EntityDebugHandler for EntityDebugHandlerImpl {

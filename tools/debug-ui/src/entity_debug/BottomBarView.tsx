@@ -1,12 +1,14 @@
 import { useContext } from 'react';
 import { ColdStorageChoiceContext, PinnedKeysContext } from './pinned_keys';
-import './PinnedKeysView.scss';
+import './BottomBarView.scss';
+import { ShowAsciiCharactersInHexContext } from './view_options';
 
-export const PinnedKeysView = () => {
+export const BottomBarView = () => {
     const { keys, dispatch } = useContext(PinnedKeysContext);
     const { coldStorage, dispatch: setColdStorage } = useContext(ColdStorageChoiceContext);
+    const { showAscii, dispatch: setShowAscii } = useContext(ShowAsciiCharactersInHexContext);
     return (
-        <div className="pinned-keys">
+        <div className="bottom-bar">
             <div className="cold-storage-choice">
                 <input
                     id="cold-storage-checkbox"
@@ -31,6 +33,16 @@ export const PinnedKeysView = () => {
             {keys.length == 0 && (
                 <div className="pinned-keys-empty">(Click an entity key to pin it)</div>
             )}
+            <div className="spacer"></div>
+            <div className="show-ascii">
+                <input
+                    id="show-ascii-checkbox"
+                    type="checkbox"
+                    checked={showAscii}
+                    onChange={(e) => setShowAscii(e.target.checked)}
+                />
+                <label htmlFor="show-ascii-checkbox">Show ASCII in hex</label>
+            </div>
         </div>
     );
 };
