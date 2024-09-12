@@ -8,7 +8,7 @@ use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
-    BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
+    BlockHeaderInnerRestV5, BlockHeaderV1, BlockHeaderV2, BlockHeaderV3, BlockHeaderV5,
 };
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
@@ -24,6 +24,7 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
+use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
@@ -45,7 +46,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -773,6 +774,7 @@ pub struct BlockHeaderView {
     pub approvals: Vec<Option<Box<Signature>>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
+    pub chunk_endorsements: Option<Vec<Vec<u8>>>,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -815,12 +817,14 @@ impl From<BlockHeader> for BlockHeaderView {
             approvals: header.approvals().to_vec(),
             signature: header.signature().clone(),
             latest_protocol_version: header.latest_protocol_version(),
+            chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
         }
     }
 }
 
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
+        // TODO(#11900): Use BlockHeader::new to build the header.
         let inner_lite = BlockHeaderInnerLite {
             height: view.height,
             epoch_id: EpochId(view.epoch_id),
@@ -894,6 +898,46 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Arc::new(header))
+        } else if ProtocolFeature::ChunkEndorsementsInBlockHeader
+            .enabled(view.latest_protocol_version)
+        {
+            let chunk_endorsements = view.chunk_endorsements.map_or_else(
+                || ChunkEndorsementsBitmap::new(view.chunk_mask.len()),
+                |bytes| ChunkEndorsementsBitmap::from_bytes(bytes),
+            );
+            let mut header = BlockHeaderV5 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV5 {
+                    block_body_hash: view.block_body_hash.unwrap_or_default(),
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    next_gas_price: view.gas_price,
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    prev_height: view.prev_height.unwrap_or_default(),
+                    epoch_sync_data_hash: view.epoch_sync_data_hash,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                    chunk_endorsements,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV5(Arc::new(header))
         } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
