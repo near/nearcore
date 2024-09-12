@@ -371,7 +371,7 @@ impl PeerManagerActor {
                                             let result = async {
                                                 let stream = tcp::Stream::connect(
                                                     &request.peer_info,
-                                                    tcp::Tier::T2,
+                                                    tcp::Tier::T3,
                                                     &state.config.socket_options
                                                 ).await.context("tcp::Stream::connect()")?;
                                                 PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
