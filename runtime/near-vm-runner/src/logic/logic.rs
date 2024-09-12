@@ -3181,7 +3181,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
                 // Here we'll do u32 -> usize -> u64, which is always infallible
                 let read_len = read.len() as usize;
                 self.result_state.gas_counter.pay_per(storage_read_value_byte, read_len as u64)?;
-                if read_len >= INLINE_DISK_VALUE_THRESHOLD {
+                if read_len > INLINE_DISK_VALUE_THRESHOLD {
                     self.result_state.gas_counter.pay_base(storage_large_read_overhead_base)?;
                     self.result_state
                         .gas_counter
