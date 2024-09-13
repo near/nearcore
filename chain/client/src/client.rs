@@ -111,6 +111,12 @@ pub enum AdvProduceBlocksMode {
     OnlyValid,
 }
 
+pub struct CatchupState {
+    pub state_sync: StateSync,
+    pub state_downloads: HashMap<u64, ShardSyncDownload>,
+    pub catchup: BlocksCatchUpState,
+}
+
 pub struct Client {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behaviour on chain.
@@ -149,8 +155,7 @@ pub struct Client {
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
-    pub catchup_state_syncs:
-        HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>, BlocksCatchUpState)>,
+    pub catchup_state_syncs: HashMap<CryptoHash, CatchupState>,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
@@ -2472,12 +2477,12 @@ impl Client {
             let block_header = self.chain.get_block(&sync_hash)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let (state_sync, state_downloads, catchup) =
+            let CatchupState { state_sync, state_downloads, catchup } =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     tracing::debug!(target: "client", ?sync_hash, "inserting new state sync");
                     notify_state_sync = true;
-                    (
-                        StateSync::new(
+                    CatchupState {
+                        state_sync: StateSync::new(
                             self.clock.clone(),
                             network_adapter,
                             state_sync_timeout,
@@ -2485,9 +2490,9 @@ impl Client {
                             &self.config.state_sync.sync,
                             true,
                         ),
-                        shards_to_split,
-                        BlocksCatchUpState::new(sync_hash, *epoch_id),
-                    )
+                        state_downloads: shards_to_split,
+                        catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
+                    }
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
@@ -2791,7 +2796,9 @@ impl Client {
 impl Client {
     pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
         let mut ret = vec![];
-        for (sync_hash, (_, state_downloads, catchup)) in self.catchup_state_syncs.iter() {
+        for (sync_hash, CatchupState { state_downloads, catchup, .. }) in
+            self.catchup_state_syncs.iter()
+        {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
             let shard_sync_status: HashMap<_, _> = state_downloads
                 .iter()

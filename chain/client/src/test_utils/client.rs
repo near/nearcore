@@ -5,7 +5,7 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
-use crate::client::ProduceChunkResult;
+use crate::client::{CatchupState, ProduceChunkResult};
 use crate::Client;
 use actix_rt::{Arbiter, System};
 use itertools::Itertools;
@@ -317,7 +317,9 @@ pub fn run_catchup(
                 .into_iter()
                 .map(|res| res.1)
                 .collect_vec();
-            if let Some((_, _, catchup)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            if let Some(CatchupState { catchup, .. }) =
+                client.catchup_state_syncs.get_mut(&msg.sync_hash)
+            {
                 assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
                 catchup.processed_blocks.insert(msg.block_hash, results);
             } else {
