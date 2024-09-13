@@ -77,10 +77,6 @@ const UNRELIABLE_PEER_HORIZON: u64 = 60;
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_TIER2_PEERS: usize = 128;
 
-/// In Tier3 we serve requests over outbound connections and receive responses over inbound.
-/// The number of concurrent outbound connections is limited to conserve the resources of the node.
-pub const MAX_TIER3_OUTBOUND: usize = 5;
-
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
 /// (a.k.a. ones that we've been connected to in the past) with these odds.
 /// Otherwise, we'd pick any peer that we've heard about.
@@ -91,7 +87,7 @@ pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Durati
 /// How often to poll the NetworkState for closed connections we'd like to re-establish.
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 /// How often we should check for pending Tier3 requests
-const PROCESS_TIER3_REQUESTS_INTERVAL: time::Duration = time::Duration::seconds(15);
+const PROCESS_TIER3_REQUESTS_INTERVAL: time::Duration = time::Duration::seconds(2);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -354,54 +350,47 @@ impl PeerManagerActor {
                         loop {
                             interval.tick(&clock).await;
 
-                            let tier3 = state.tier3.load();
+                            // TODO: consider where exactly to throttle these
+                            if let Some(request) = state.tier3_requests.lock().pop_front() {
+                                tracing::info!(target: "db", "seving request from {}", request.peer_info);
+                                arbiter.spawn({
+                                    let clock = clock.clone();
+                                    let state = state.clone();
+                                    async move {
+                                        if let Some(response) = match request.body {
+                                            Tier3RequestBody::StatePartRequest(shard_id, sync_hash, part_id) => {
+                                                state
+                                                    .client
+                                                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                                                    .await
+                                                    .ok()
+                                                    .flatten()
+                                                    .map(|response| PeerMessage::VersionedStateResponse(*response.0))
+                                            }
+                                        } {
+                                            if !state.tier3.load().ready.contains_key(&request.peer_info.id) {
+                                                let result = async {
+                                                    let stream = tcp::Stream::connect(
+                                                        &request.peer_info,
+                                                        tcp::Tier::T3,
+                                                        &state.config.socket_options
+                                                    ).await.context("tcp::Stream::connect()")?;
+                                                    PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                                                    anyhow::Ok(())
+                                                }.await;
 
-                            let mut potential_outbound_connections =
-                                tier3.ready.values().filter(|peer| peer.peer_type == PeerType::Outbound).count()
-                                + tier3.outbound_handshakes.len();
-
-                            while potential_outbound_connections < MAX_TIER3_OUTBOUND {
-                                if let Some(request) = state.tier3_requests.lock().pop_front() {
-                                    // TODO: handle the case in which we already have
-                                    // a connection to the requesting node here
-                                    arbiter.spawn({
-                                        let clock = clock.clone();
-                                        let state = state.clone();
-                                        async move {
-                                            let result = async {
-                                                let stream = tcp::Stream::connect(
-                                                    &request.peer_info,
-                                                    tcp::Tier::T3,
-                                                    &state.config.socket_options
-                                                ).await.context("tcp::Stream::connect()")?;
-                                                PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
-                                                anyhow::Ok(())
-                                            }.await;
-
-                                            if let Err(ref err) = result {
-                                                tracing::info!(target: "network", err = format!("{:#}", err), "failed to connect to {}", request.peer_info);
-                                            } else {
-                                                if let Some(response) = match request.body {
-                                                    Tier3RequestBody::StatePartRequest(shard_id, sync_hash, part_id) => {
-                                                        state
-                                                            .client
-                                                            .send_async(StateRequestPart { shard_id, sync_hash, part_id })
-                                                            .await
-                                                            .ok()
-                                                            .flatten()
-                                                            .map(|response| PeerMessage::VersionedStateResponse(*response.0))
-                                                    }
-                                                } {
-                                                    state.tier3.send_message(request.peer_info.id, Arc::new(response));
+                                                if let Err(ref err) = result {
+                                                    tracing::info!(target: "network", err = format!("{:#}", err), "failed to connect to {}", request.peer_info);
                                                 }
                                             }
-                                        }
-                                    });
 
-                                    potential_outbound_connections += 1;
-                                } else {
-                                    break;
-                                }
+                                            state.tier3.send_message(request.peer_info.id, Arc::new(response));
+                                        }
+                                        else {
+                                            tracing::debug!(target: "network", "failed to produce response to request {:?}", request);
+                                        }
+                                    }
+                                });
                             }
                         }
                     }
@@ -857,7 +846,6 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
-                // TODO: send over Tier1 when applicable
                 match *self.state.my_public_addr.read() {
                     Some(addr) => {
                         if self.state.send_message_to_peer(
@@ -882,8 +870,8 @@ impl PeerManagerActor {
                         }
                     }
                     None => {
-                        // The node needs to know its own public address
-                        // to solicit a response via Tier3
+                        // The node needs to include its own public address in the request
+                        // so that the reponse can be sent over Tier3
                         NetworkResponses::RouteNotFound
                     }
                 }
