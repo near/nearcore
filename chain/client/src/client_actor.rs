@@ -627,10 +627,10 @@ impl Handler<StateResponse> for ClientActorInner {
         }
 
         // ... Or one of the catchups
-        if let Some((state_sync, shards_to_download, _)) =
+        if let Some((state_sync, state_downloads, _)) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+            if let Some(shard_download) = state_downloads.get_mut(&shard_id) {
                 state_sync.update_download_on_state_response_message(
                     shard_download,
                     hash,
@@ -2114,9 +2114,9 @@ impl ClientActorInner {
 impl Handler<ApplyStatePartsResponse> for ClientActorInner {
     fn handle(&mut self, msg: ApplyStatePartsResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+        if let Some((state_sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
-            sync.set_apply_result(msg.shard_id, msg.apply_result);
+            state_sync.set_apply_result(msg.shard_id, msg.apply_result);
         } else {
             self.client.state_sync.set_apply_result(msg.shard_id, msg.apply_result);
         }
@@ -2126,11 +2126,9 @@ impl Handler<ApplyStatePartsResponse> for ClientActorInner {
 impl Handler<BlockCatchUpResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockCatchUpResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((_, _, blocks_catch_up_state)) =
-            self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
-        {
-            assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-            blocks_catch_up_state.processed_blocks.insert(
+        if let Some((_, _, catchup)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+            catchup.processed_blocks.insert(
                 msg.block_hash,
                 msg.results.into_iter().map(|res| res.1).collect::<Vec<_>>(),
             );
@@ -2148,9 +2146,9 @@ impl Handler<LoadMemtrieResponse> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: LoadMemtrieResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+        if let Some((state_sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
-            sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
+            state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
         } else {
             // We are doing state sync
             self.client.state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);

@@ -2472,7 +2472,7 @@ impl Client {
             let block_header = self.chain.get_block(&sync_hash)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let (state_sync, shards_to_split, blocks_catch_up_state) =
+            let (state_sync, state_downloads, catchup) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     tracing::debug!(target: "client", ?sync_hash, "inserting new state sync");
                     notify_state_sync = true;
@@ -2491,7 +2491,7 @@ impl Client {
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Catchup");
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&state_downloads, false), "Catchup");
             let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
 
             let tracking_shards: Vec<u64> =
@@ -2520,7 +2520,7 @@ impl Client {
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
             // for other shards later.
-            let new_shard_sync = shards_to_split;
+            let new_shard_sync = state_downloads;
             match state_sync.run(
                 &me,
                 sync_hash,
@@ -2541,11 +2541,11 @@ impl Client {
                     self.chain.catchup_blocks_step(
                         &me,
                         &sync_hash,
-                        blocks_catch_up_state,
+                        catchup,
                         block_catch_up_task_scheduler,
                     )?;
 
-                    if blocks_catch_up_state.is_finished() {
+                    if catchup.is_finished() {
                         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
                         self.chain.finish_catchup_blocks(
@@ -2553,7 +2553,7 @@ impl Client {
                             &sync_hash,
                             &mut block_processing_artifacts,
                             apply_chunks_done_sender.clone(),
-                            &blocks_catch_up_state.done_blocks,
+                            &catchup.done_blocks,
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts, &signer);
@@ -2791,11 +2791,9 @@ impl Client {
 impl Client {
     pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
         let mut ret = vec![];
-        for (sync_hash, (_, shard_sync_state, block_catchup_state)) in
-            self.catchup_state_syncs.iter()
-        {
+        for (sync_hash, (_, state_downloads, catchup)) in self.catchup_state_syncs.iter() {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
-            let shard_sync_status: HashMap<_, _> = shard_sync_state
+            let shard_sync_status: HashMap<_, _> = state_downloads
                 .iter()
                 .map(|(shard_id, state)| (*shard_id, state.status.to_string()))
                 .collect();
@@ -2803,7 +2801,7 @@ impl Client {
                 sync_block_hash: *sync_hash,
                 sync_block_height,
                 shard_sync_status,
-                blocks_to_catchup: self.chain.get_block_catchup_status(block_catchup_state),
+                blocks_to_catchup: self.chain.get_block_catchup_status(catchup),
             });
         }
         Ok(ret)
