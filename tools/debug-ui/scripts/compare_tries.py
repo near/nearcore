@@ -3,25 +3,17 @@ This is useful when a node is stuck at InvalidStateRoot to debug why.'''
 import json
 import requests
 
-USE_COLD_STORAGE = False
-
 class EntityAPI:
     def __init__(self, host):
         self.endpoint = "http://{}/debug/api/entity".format(host)
 
-    def query(self, query_name, cold_storage=False, **kwargs):
+    def query(self, query_name, **kwargs):
         args = kwargs
         if len(args) == 0:
             args = None
-        if cold_storage:
-            query = {
-                query_name: args,
-                "use_cold_storage": cold_storage
-            }
-        else:
-            query = {
-                query_name: args,
-            }
+        query = {
+            query_name: args,
+        }
         result = requests.post(self.endpoint, json=query)
         return EntityDataValue.of(result.json())
     
