@@ -1,5 +1,5 @@
 use super::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
-use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaPos, ArenaWithDealloc};
+use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaWithDealloc};
 use crate::trie::mem::flexible_data::children::EncodedChildrenHeader;
 use crate::trie::mem::flexible_data::encoding::{BorshFixedSize, RawDecoder, RawEncoder};
 use crate::trie::mem::flexible_data::extension::EncodedExtensionHeader;
@@ -112,7 +112,7 @@ impl BorshFixedSize for BranchWithValueHeader {
 impl MemTrieNodeId {
     /// Encodes the data.
     pub(crate) fn new_impl(
-        arena: &mut impl Arena,
+        arena: &mut impl ArenaMut,
         node: InputMemTrieNode,
         node_hash: Option<CryptoHash>,
     ) -> Self {
@@ -227,7 +227,7 @@ impl MemTrieNodeId {
     }
 
     /// Increments the refcount, returning the new refcount.
-    pub(crate) fn add_ref(&self, memory: &mut impl ArenaMemory) -> u32 {
+    pub(crate) fn add_ref(&self, memory: &mut impl ArenaMemoryMut) -> u32 {
         // Refcount is always encoded as the first four bytes of the node memory.
         let refcount_memory = memory.raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());

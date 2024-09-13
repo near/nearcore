@@ -5,6 +5,22 @@
     font-size: 0.8em;
     padding: 2px 0;
 
+    .cold-storage-choice {
+        display: flex;
+        align-items: center;
+        border-right: 1px solid gray;
+        padding-right: 10px;
+
+        input {
+            margin-right: 4px;
+            cursor: pointer;
+        }
+
+        label {
+            cursor: pointer;
+        }
+    }
+
     .pinned-key {
         display: flex;
         align-items: center;

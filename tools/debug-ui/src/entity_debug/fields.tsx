@@ -80,8 +80,8 @@ const blockInfoV1V2 = {
         epoch_first_block: blockHash,
         epoch_id: epochId,
         proposals: { array: validatorStake },
-    }
-}
+    },
+};
 
 const blockInfo = {
     struct: {
@@ -163,7 +163,7 @@ const epochInfoV1V2V3V4 = {
             array: validatorStake,
         },
     },
-}
+};
 
 const epochInfo = {
     struct: {
@@ -222,21 +222,21 @@ const stateSyncDumpProgress = {
         AllDumped: {
             struct: {
                 epoch_id: epochId,
-            }
+            },
         },
         Skipped: {
             struct: {
                 epoch_id: epochId,
-            }
+            },
         },
         InProgress: {
             struct: {
                 epoch_id: epochId,
                 sync_hash: blockHash,
-            }
-        }
-    }
-}
+            },
+        },
+    },
+};
 
 const blockMiscData = {
     struct: {
@@ -250,7 +250,7 @@ const blockMiscData = {
         genesis_state_roots: { array: stateRoot },
         cold_head: tip,
         state_sync_dump_progress: stateSyncDumpProgress,
-    }
+    },
 };
 
 const flatStorageStatus = {

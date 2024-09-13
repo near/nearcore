@@ -60,9 +60,11 @@ export class EntityDataRootNode {
     constructor(
         /// The query that produces the data in this node.
         public query: EntityQuery,
+        /// Whether the query uses cold storage.
+        public useColdStorage: boolean,
         /// A promise that resolves to the result data.
         public entry: Promise<EntityDataValueNode>
-    ) { }
+    ) {}
 }
 
 /// A struct node.
@@ -73,26 +75,26 @@ export class EntityDataStructNode {
 /// The semantics of a field that enhances its display.
 export type FieldSemantic =
     | {
-        /// Customizes how the field should be displayed.
-        display?: CustomFieldDisplay;
-        /// If present, this field represents one or more entity keys,
-        /// and the parser provides the logic for parsing these keys out
-        /// of the field name and value. Typically it's just one key.
-        parser?: (key: string, value: string) => EntityKey[];
-        /// If present, this field should be a struct, and we specify the
-        /// semantic of each of its fields. Fields can be missing if it doesn't
-        /// have any customizations.
-        struct?: Record<string, FieldSemantic>;
-        /// If present, this field should be an array, and we specify the
-        /// semantic for each element of the array.
-        array?: FieldSemantic;
-        /// For struct or array fields, when displaying a node for the struct, if
-        /// titleKey is present then display the value of that child field as the
-        /// title of the struct node. This is useful for visualizing arrays where
-        /// otherwise each element of the array would have to be separately expanded
-        /// to know which element that is (for example an array of ValidatorStake).
-        titleKey?: string;
-    }
+          /// Customizes how the field should be displayed.
+          display?: CustomFieldDisplay;
+          /// If present, this field represents one or more entity keys,
+          /// and the parser provides the logic for parsing these keys out
+          /// of the field name and value. Typically it's just one key.
+          parser?: (key: string, value: string) => EntityKey[];
+          /// If present, this field should be a struct, and we specify the
+          /// semantic of each of its fields. Fields can be missing if it doesn't
+          /// have any customizations.
+          struct?: Record<string, FieldSemantic>;
+          /// If present, this field should be an array, and we specify the
+          /// semantic for each element of the array.
+          array?: FieldSemantic;
+          /// For struct or array fields, when displaying a node for the struct, if
+          /// titleKey is present then display the value of that child field as the
+          /// title of the struct node. This is useful for visualizing arrays where
+          /// otherwise each element of the array would have to be separately expanded
+          /// to know which element that is (for example an array of ValidatorStake).
+          titleKey?: string;
+      }
     /// Undefined means there's no special customization for this field.
     | undefined;
 
@@ -135,7 +137,7 @@ export type EntityQuery = {
     ChunkByHash?: { chunk_hash: string };
     ChunkExtraByBlockHashShardUId?: { block_hash: string; shard_uid: string };
     ChunkExtraByChunkHash?: { chunk_hash: string };
-    EpochInfoAggregator?: null,
+    EpochInfoAggregator?: null;
     EpochInfoByEpochId?: { epoch_id: string };
     FlatStateByTrieKey?: { trie_key: string };
     FlatStateChangesByBlockHash?: { block_hash: string };
@@ -159,6 +161,10 @@ export type EntityQuery = {
     TrieRootByChunkHash?: { chunk_hash: string };
     TrieRootByStateRoot?: { state_root: string; shard_uid: string };
     ValidatorAssignmentsAtHeight?: { block_height: number; epoch_id: string };
+};
+
+export type EntityQueryWithParams = EntityQuery & {
+    use_cold_storage?: boolean;
 };
 
 export type EntityQueryType = keyof EntityQuery;
