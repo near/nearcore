@@ -397,10 +397,10 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 69, "69.json"),
     include_config!("mainnet", 70, "70.json"),
     include_config!("mainnet", 71, "71.json"),
+    include_config!("mainnet", 73, "73.json"),
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
-    include_config!("mainnet", 145, "145.json"),
     // Epoch configs for testnet (genesis protool version is 29).
     include_config!("testnet", 29, "29.json"),
     include_config!("testnet", 48, "48.json"),
@@ -410,10 +410,10 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 69, "69.json"),
     include_config!("testnet", 70, "70.json"),
     include_config!("testnet", 71, "71.json"),
+    include_config!("testnet", 73, "73.json"),
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
-    include_config!("testnet", 145, "145.json"),
     // Epoch configs for mocknet (forknet) (genesis protool version is 29).
     // TODO(#11900): Check the forknet config and uncomment this.
     // include_config!("mocknet", 29, "29.json"),
@@ -423,9 +423,9 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     // include_config!("mocknet", 69, "69.json"),
     // include_config!("mocknet", 70, "70.json"),
     // include_config!("mocknet", 71, "71.json"),
+    // include_config!("mocknet", 73, "73.json"),
     // include_config!("mocknet", 100, "100.json"),
     // include_config!("mocknet", 101, "101.json"),
-    // include_config!("mocknet", 145, "145.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
