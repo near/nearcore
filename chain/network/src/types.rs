@@ -245,7 +245,12 @@ pub enum NetworkRequests {
     /// Request state header for given shard at given state root.
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        sync_prev_prev_hash: CryptoHash,
+        part_id: u64
+    },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account

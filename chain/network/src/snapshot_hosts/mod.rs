@@ -10,7 +10,6 @@ use crate::network_protocol::SnapshotHostInfoVerificationError;
 use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_part::PartId;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
@@ -42,10 +41,10 @@ pub struct Config {
     pub part_selection_cache_batch_size: u32,
 }
 
-pub(crate) fn priority_score(peer_id: &PeerId, part_id: &PartId) -> [u8; 32] {
+pub(crate) fn priority_score(peer_id: &PeerId, part_id: u64) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(peer_id.public_key().key_data());
-    h.update(part_id.idx.to_le_bytes());
+    h.update(part_id.to_le_bytes());
     h.finalize().into()
 }
 
@@ -145,23 +144,23 @@ struct PeerSelector {
 }
 
 impl PeerSelector {
-    fn next(&mut self, part_id: &PartId) -> Option<PeerId> {
-        self.selectors.entry(part_id.idx).or_default().next()
+    fn next(&mut self, part_id: u64) -> Option<PeerId> {
+        self.selectors.entry(part_id).or_default().next()
     }
 
-    fn len(&self, part_id: &PartId) -> usize {
-        match self.selectors.get(&part_id.idx) {
+    fn len(&self, part_id: u64) -> usize {
+        match self.selectors.get(&part_id) {
             Some(s) => s.len(),
             None => 0,
         }
     }
 
-    fn insert_peers<T: IntoIterator<Item = PartPriority>>(&mut self, part_id: &PartId, peers: T) {
-        self.selectors.entry(part_id.idx).or_default().insert_peers(peers);
+    fn insert_peers<T: IntoIterator<Item = PartPriority>>(&mut self, part_id: u64, peers: T) {
+        self.selectors.entry(part_id).or_default().insert_peers(peers);
     }
 
-    fn seen_peers(&self, part_id: &PartId) -> HashSet<PeerId> {
-        match self.selectors.get(&part_id.idx) {
+    fn seen_peers(&self, part_id: u64) -> HashSet<PeerId> {
+        match self.selectors.get(&part_id) {
             Some(s) => {
                 let mut ret = HashSet::new();
                 for p in s.peers.iter() {
@@ -174,15 +173,15 @@ impl PeerSelector {
     }
 
     // have we already returned every peer we know about?
-    fn tried_everybody(&self, part_id: &PartId) -> bool {
-        match self.selectors.get(&part_id.idx) {
+    fn tried_everybody(&self, part_id: u64) -> bool {
+        match self.selectors.get(&part_id) {
             Some(s) => s.tried_everybody(),
             None => true,
         }
     }
 
-    fn clear(&mut self, part_id: &PartId) {
-        self.selectors.remove(&part_id.idx);
+    fn clear(&mut self, part_id: u64) {
+        self.selectors.remove(&part_id);
     }
 }
 
@@ -220,7 +219,7 @@ impl Inner {
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        part_id: &PartId,
+        part_id: u64,
         max_entries_added: usize,
     ) {
         let selector = self.state_part_selectors.get(&shard_id).unwrap();
@@ -340,7 +339,7 @@ impl SnapshotHostsCache {
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        part_id: &PartId,
+        part_id: u64,
     ) -> Option<PeerId> {
         let mut inner = self.0.lock();
         let num_hosts = inner.hosts.len();
@@ -358,7 +357,7 @@ impl SnapshotHostsCache {
     // associated with it that we were going to use to respond to future calls to select_host()
     // TODO: get rid of the dead_code and hook this up to the decentralized state sync
     #[allow(dead_code)]
-    pub fn part_received(&self, _sync_hash: &CryptoHash, shard_id: ShardId, part_id: &PartId) {
+    pub fn part_received(&self, _sync_hash: &CryptoHash, shard_id: ShardId, part_id: u64) {
         let mut inner = self.0.lock();
         let selector = inner.state_part_selectors.entry(shard_id).or_default();
         selector.clear(part_id);
@@ -366,7 +365,7 @@ impl SnapshotHostsCache {
 
     // used for testing purposes only to check that we clear state after part_received() is called
     #[allow(dead_code)]
-    pub(crate) fn part_peer_state_len(&self, shard_id: ShardId, part_id: &PartId) -> usize {
+    pub(crate) fn part_peer_state_len(&self, shard_id: ShardId, part_id: u64) -> usize {
         let inner = self.0.lock();
         match inner.state_part_selectors.get(&shard_id) {
             Some(s) => s.len(part_id),

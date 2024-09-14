@@ -675,24 +675,38 @@ impl StateSync {
                 for ((part_id, download), target) in
                     parts_to_fetch(new_shard_sync_download).zip(possible_targets_sampler)
                 {
-                    sent_request_part(
-                        self.clock.clone(),
-                        target.clone(),
-                        part_id,
-                        shard_id,
-                        sync_hash,
-                        last_part_id_requested,
-                        requested_target,
-                        self.timeout,
-                    );
-                    request_part_from_peers(
-                        part_id,
-                        target,
-                        download,
-                        shard_id,
-                        sync_hash,
-                        &self.network_adapter,
-                    );
+                    // In flat storage snapshots are indexed according to the hash of the second to
+                    // last block in the epoch. When performing state sync the sync hash is defined
+                    // as the hash of the first block after the epoch. The request sent to the
+                    // network adapater needs to include the sync_prev_prev_hash so that a peer
+                    // hosting the correct snapshot can be selected.
+                    // TODO(saketh): consider whether we can unify things in a cleaner way
+                    if let Ok(header) = chain.get_block_header(&sync_hash) {
+                        if let Ok(prev_header) = chain.get_block_header(&header.prev_hash()) {
+                            let sync_prev_prev_hash = prev_header.prev_hash();
+
+                            sent_request_part(
+                                self.clock.clone(),
+                                target.clone(),
+                                part_id,
+                                shard_id,
+                                sync_hash,
+                                last_part_id_requested,
+                                requested_target,
+                                self.timeout,
+                            );
+
+                            request_part_from_peers(
+                                part_id,
+                                target,
+                                download,
+                                shard_id,
+                                sync_hash,
+                                *sync_prev_prev_hash,
+                                &self.network_adapter,
+                            );
+                        }
+                    }
                 }
             }
             StateSyncInner::External { chain_id, semaphore, external } => {
@@ -1304,10 +1318,12 @@ fn request_part_from_peers(
     download: &mut DownloadStatus,
     shard_id: ShardId,
     sync_hash: CryptoHash,
+    sync_prev_prev_hash: CryptoHash,
     network_adapter: &PeerManagerAdapter,
 ) {
     download.run_me.store(false, Ordering::SeqCst);
     download.state_requests_count += 1;
+    // TODO(saketh): clean this up now that targets are picked in peer manager
     download.last_target = Some(peer_id.clone());
     let run_me = download.run_me.clone();
 
@@ -1315,12 +1331,9 @@ fn request_part_from_peers(
         "StateSync",
         network_adapter
             .send_async(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id },
+                NetworkRequests::StateRequestPart { shard_id, sync_hash, sync_prev_prev_hash, part_id },
             ))
             .then(move |result| {
-                // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
-                //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.
-                //       Fortunately only once every 60 seconds (timeout value).
                 if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
                 {
                     // Send a StateRequestPart on the next iteration

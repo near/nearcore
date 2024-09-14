@@ -352,7 +352,6 @@ impl PeerManagerActor {
 
                             // TODO: consider where exactly to throttle these
                             if let Some(request) = state.tier3_requests.lock().pop_front() {
-                                tracing::info!(target: "db", "seving request from {}", request.peer_info);
                                 arbiter.spawn({
                                     let clock = clock.clone();
                                     let state = state.clone();
@@ -845,10 +844,19 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
-                match *self.state.my_public_addr.read() {
-                    Some(addr) => {
-                        if self.state.send_message_to_peer(
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, sync_prev_prev_hash, part_id } => {
+                let mut success = false;
+
+                // The node needs to include its own public address in the request
+                // so that the reponse can be sent over Tier3
+                if let Some(addr) = *self.state.my_public_addr.read() {
+                    if let Some(peer_id) = self.state.snapshot_hosts.select_host(
+                        &sync_prev_prev_hash,
+                        shard_id,
+                        part_id
+                    ) {
+                        tracing::info!(target: "db", "sending request for {} {} to {}", shard_id, part_id, peer_id);
+                        success = self.state.send_message_to_peer(
                             &self.clock,
                             tcp::Tier::T2,
                             self.state.sign_message(
@@ -863,17 +871,17 @@ impl PeerManagerActor {
                                     })
                                 }
                             ),
-                        ) {
-                            NetworkResponses::NoResponse
-                        } else {
-                            NetworkResponses::RouteNotFound
-                        }
+                        );
                     }
-                    None => {
-                        // The node needs to include its own public address in the request
-                        // so that the reponse can be sent over Tier3
-                        NetworkResponses::RouteNotFound
+                    else {
+                        tracing::debug!(target: "network", "no hosts available for {shard_id}, {sync_prev_prev_hash}");
                     }
+                }
+
+                if success {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, mut shards } => {
