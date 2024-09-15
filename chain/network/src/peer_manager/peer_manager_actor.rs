@@ -850,7 +850,7 @@ impl PeerManagerActor {
                 // The node needs to include its own public address in the request
                 // so that the reponse can be sent over Tier3
                 if let Some(addr) = *self.state.my_public_addr.read() {
-                    if let Some(peer_id) = self.state.snapshot_hosts.select_host(
+                    if let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
                         &sync_prev_prev_hash,
                         shard_id,
                         part_id

@@ -318,7 +318,7 @@ async fn run_select_peer_test(
                 assert!(err.is_none());
             }
             SelectPeerAction::CallSelect(wanted) => {
-                let peer = cache.select_host(sync_hash, 0, part_id);
+                let peer = cache.select_host_for_part(sync_hash, 0, part_id);
                 let wanted = match wanted {
                     Some(idx) => Some(&peers[*idx].peer_id),
                     None => None,
@@ -326,8 +326,9 @@ async fn run_select_peer_test(
                 assert!(peer.as_ref() == wanted, "got: {:?} want: {:?}", &peer, &wanted);
             }
             SelectPeerAction::PartReceived => {
+                assert!(cache.has_selector(0, part_id));
                 cache.part_received(sync_hash, 0, part_id);
-                assert_eq!(cache.part_peer_state_len(0, part_id), 0);
+                assert!(!cache.has_selector(0, part_id));
             }
         }
     }
@@ -348,7 +349,7 @@ async fn test_select_peer() {
         let info = Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, vec![0, 1, 2, 3], &key));
         peers.push((info, score));
     }
-    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| lscore.partial_cmp(rscore).unwrap());
+    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| lscore.partial_cmp(rscore).unwrap().reverse());
     let peers = peers.into_iter().map(|(info, _score)| info).collect::<Vec<_>>();
     tracing::debug!(
         "run_select_peer_test peers: {:?}",
