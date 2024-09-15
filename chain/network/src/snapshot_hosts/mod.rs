@@ -41,9 +41,10 @@ pub struct Config {
     pub part_selection_cache_batch_size: u32,
 }
 
-pub(crate) fn priority_score(peer_id: &PeerId, part_id: u64) -> [u8; 32] {
+pub(crate) fn priority_score(peer_id: &PeerId, shard_id: ShardId, part_id: u64) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(peer_id.public_key().key_data());
+    h.update(shard_id.to_le_bytes());
     h.update(part_id.to_le_bytes());
     h.finalize().into()
 }
@@ -233,7 +234,7 @@ impl Inner {
             {
                 continue;
             }
-            let score = priority_score(peer_id, part_id);
+            let score = priority_score(peer_id, shard_id, part_id);
             if new_peers.len() < max_entries_added {
                 new_peers.push(ReversePartPriority { peer_id: peer_id.clone(), score });
             } else {
