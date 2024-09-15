@@ -112,6 +112,11 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn stores_override_hot_only(mut self, stores: Vec<Store>) -> Self {
+        self.stores_override = Some(stores.into_iter().map(|store| (store, None)).collect());
+        self
+    }
+
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {

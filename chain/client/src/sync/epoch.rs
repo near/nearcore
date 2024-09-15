@@ -53,7 +53,7 @@ impl EpochSync {
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
     /// a new node or bring a far-behind node to a recent epoch.
     #[instrument(skip(store))]
-    fn derive_epoch_sync_proof(store: Store) -> Result<EpochSyncProof, Error> {
+    pub fn derive_epoch_sync_proof(store: Store) -> Result<EpochSyncProof, Error> {
         // Epoch sync initializes a new node with the first block of some epoch; we call that
         // epoch the "target epoch". In the context of talking about the proof or the newly
         // bootstrapped node, it is also called the "current epoch".
@@ -111,15 +111,48 @@ impl EpochSync {
             .get_ser::<EpochInfo>(DBCol::EpochInfo, next_epoch.0.as_bytes())?
             .ok_or_else(|| Error::EpochOutOfBounds(next_epoch))?;
 
-        // TODO: don't always generate from genesis
+        let genesis_epoch_info = store
+            .get_ser::<EpochInfo>(DBCol::EpochInfo, EpochId::default().0.as_bytes())?
+            .ok_or_else(|| Error::EpochOutOfBounds(EpochId::default()))?;
+
+        // If we have an existing (possibly and likely outdated) EpochSyncProof stored on disk,
+        // the last epoch we have a proof for is the "previous epoch" included in that EpochSyncProof.
+        // Otherwise, the last epoch we have a "proof" for is the genesis epoch.
+        let existing_epoch_sync_proof =
+            store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?;
+        let last_epoch_we_have_proof_for = existing_epoch_sync_proof
+            .as_ref()
+            .and_then(|existing_proof| {
+                existing_proof
+                    .past_epochs
+                    .last()
+                    .map(|last_epoch| *last_epoch.last_final_block_header.epoch_id())
+            })
+            .unwrap_or_else(EpochId::default);
+        let last_epoch_height_we_have_proof_for = existing_epoch_sync_proof
+            .as_ref()
+            .map(|existing_proof| existing_proof.last_epoch.epoch_info.epoch_height())
+            .unwrap_or_else(|| genesis_epoch_info.epoch_height());
+
+        // If the proof we stored is for the same epoch as current or older, then just return that.
+        if current_epoch_info.epoch_height() <= last_epoch_height_we_have_proof_for {
+            if let Some(existing_proof) = existing_epoch_sync_proof {
+                return Ok(existing_proof);
+            }
+            // Corner case for if the current epoch is genesis somehow.
+            return Err(Error::Other("Need at least three epochs to epoch sync".to_string()));
+        }
+
         let all_past_epochs = Self::get_all_past_epochs(
             &store,
-            EpochId::default(),
+            last_epoch_we_have_proof_for,
             next_epoch,
             &final_block_header_in_current_epoch,
         )?;
         if all_past_epochs.is_empty() {
-            return Err(Error::Other("Need at least three epochs to epoch sync".to_string()));
+            return Err(Error::Other(
+                "Programming error: past epochs should not be empty".to_string(),
+            ));
         }
         let prev_epoch = *all_past_epochs.last().unwrap().last_final_block_header.epoch_id();
         let prev_epoch_info = store
@@ -191,8 +224,14 @@ impl EpochSync {
                 Error::Other("Could not find merkle proof for first block".to_string())
             })?;
 
+        let all_past_epochs_including_old_proof = existing_epoch_sync_proof
+            .map(|proof| proof.past_epochs)
+            .unwrap_or_else(Vec::new)
+            .into_iter()
+            .chain(all_past_epochs.into_iter())
+            .collect();
         let proof = EpochSyncProof {
-            past_epochs: all_past_epochs,
+            past_epochs: all_past_epochs_including_old_proof,
             last_epoch: EpochSyncProofLastEpochData {
                 epoch_info: prev_epoch_info,
                 next_epoch_info: current_epoch_info,
@@ -405,16 +444,20 @@ impl EpochSync {
 
         // TODO(#11932): Verify the proof.
 
-        let last_header = proof.current_epoch.first_block_header_in_epoch;
         let mut store_update = chain.chain_store.store().store_update();
 
+        // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
+        // to faciliate epoch sync of other nodes.
+        store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
+
+        let last_header = proof.current_epoch.first_block_header_in_epoch;
         let mut update = chain.mut_chain_store().store_update();
         update.save_block_header_no_update_tree(last_header.clone())?;
         update.save_block_header_no_update_tree(
             proof.current_epoch.last_block_header_in_prev_epoch,
         )?;
         update.save_block_header_no_update_tree(
-            proof.current_epoch.second_last_block_header_in_prev_epoch,
+            proof.current_epoch.second_last_block_header_in_prev_epoch.clone(),
         )?;
         tracing::info!(
             "last final block of last past epoch: {:?}",
