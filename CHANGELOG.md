@@ -9,6 +9,23 @@
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
 * **Archival nodes only:** Clean-up the `PartialChunks` column in the Cold DB and stop writing `PartialChunks` to Cold DB.
 
+### 2.2.1
+
+This release patches a bug found in the 2.2.0 release
+
+# Non-protocol changes
+There was a bug in the integration between ethereum implicit accounts and the compiled contract cache which sometimes caused the nodes to get stuck. This would most often happen during state sync, but could also happen by itself. Please update your nodes to avoid getting stuck.
+
+A node that hits this bug will print an error about an `InvalidStateRoot` in the logs and then it'll be unable to sync.
+It's possible to recover a stalled node by clearing the compiled contract cache and rolling back one block:
+1. Stop the neard process
+2. Download the new version of neard
+3. Clear the compiled contract cache: rm -rf ~/.near/data/contracts
+4. Undo the last block: ./neard undo-block
+5. Start neard
+
+After that the node should be able to recover and sync with the rest of the network.
+
 ### 2.2.0
 
 ### Protocol Changes
