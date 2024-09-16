@@ -370,12 +370,24 @@ pub(crate) struct RuntimeContractExt<'a> {
 
 impl<'a> Contract for RuntimeContractExt<'a> {
     fn hash(&self) -> CryptoHash {
+        // For eth implicit accounts return the wallet contract code hash.
+        // The account.code_hash() contains hash of the magic bytes, not the contract hash.
+        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+            && self.account_id.get_account_type() == AccountType::EthImplicitAccount
+        {
+            // There are old eth implicit accounts without magic bytes in the code hash.
+            // Result can be None and it's a valid option. See https://github.com/near/nearcore/pull/11606
+            if let Some(wallet_contract) = wallet_contract(self.account.code_hash()) {
+                return *wallet_contract.hash();
+            }
+        }
+
         self.account.code_hash()
     }
 
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         let account_id = self.account_id;
-        let code_hash = self.hash();
+        let code_hash = self.account.code_hash();
         let version = self.current_protocol_version;
 
         if checked_feature!("stable", EthImplicitAccounts, version)
