@@ -182,7 +182,7 @@ impl Connection {
                 })
                 .await;
             if res.is_err() {
-                tracing::info!(
+                tracing::debug!(
                     "peer {} disconnected, while sending SyncAccountsData",
                     this.peer_info.id
                 );
@@ -234,7 +234,7 @@ impl Connection {
                 })
                 .await;
             if res.is_err() {
-                tracing::info!(
+                tracing::debug!(
                     "peer {} disconnected, while sending SyncSnapshotHosts",
                     this.peer_info.id
                 );

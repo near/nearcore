@@ -1,6 +1,6 @@
 use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
+use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::mem::node::{MemTrieNodeId, MemTrieNodePtr};
 use crate::trie::Children;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -37,7 +37,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
         self.mask.count_ones() as usize * size_of::<usize>()
     }
 
-    fn encode_flexible_data<M: ArenaMemory>(
+    fn encode_flexible_data<M: ArenaMemoryMut>(
         &self,
         children: &[Option<MemTrieNodeId>; 16],
         target: &mut ArenaSliceMut<M>,

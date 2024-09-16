@@ -35,6 +35,24 @@ impl ChunkEndorsementsBitmap {
         Self { inner: vec![Default::default(); num_shards] }
     }
 
+    /// Returns the bitmap specifically for the genesis block.
+    /// This matches the chunk endorsement signatures in the genesis block body,
+    /// which is an empty vector (no shards).
+    pub fn genesis() -> Self {
+        Self::new(0)
+    }
+
+    /// Creates an endorsement bitmap from the provided bytes.
+    pub fn from_bytes(bytes: Vec<Vec<u8>>) -> Self {
+        Self { inner: bytes }
+    }
+
+    /// Returns the endorsements bits as a vector of bytes.
+    /// The struct can be reconstructed by providing the output of this function to `new_from_bits`.
+    pub fn bytes(&self) -> Vec<Vec<u8>> {
+        self.inner.clone()
+    }
+
     // Creates an endorsement bitmap for all the shards.
     pub fn from_endorsements(shards_to_endorsements: Vec<Vec<bool>>) -> Self {
         let mut bitmap = ChunkEndorsementsBitmap::new(shards_to_endorsements.len());

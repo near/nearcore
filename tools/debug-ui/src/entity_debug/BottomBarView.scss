@@ -1,9 +1,25 @@
-.pinned-keys {
+.bottom-bar {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     font-size: 0.8em;
     padding: 2px 0;
+
+    .cold-storage-choice {
+        display: flex;
+        align-items: center;
+        border-right: 1px solid gray;
+        padding-right: 10px;
+
+        input {
+            margin-right: 4px;
+            cursor: pointer;
+        }
+
+        label {
+            cursor: pointer;
+        }
+    }
 
     .pinned-key {
         display: flex;
@@ -40,5 +56,25 @@
 
     .pinned-keys-empty {
         color: gray;
+    }
+
+    .spacer {
+        flex: 1;
+    }
+
+    .show-ascii {
+        display: flex;
+        align-items: center;
+        border-left: 1px solid gray;
+        padding-left: 10px;
+
+        input {
+            margin-right: 4px;
+            cursor: pointer;
+        }
+
+        label {
+            cursor: pointer;
+        }
     }
 }

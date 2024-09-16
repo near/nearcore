@@ -413,6 +413,7 @@ pub fn start_with_config_and_synchronization(
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
+        view_epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
@@ -443,6 +444,7 @@ pub fn start_with_config_and_synchronization(
     state_sync_dumper.start()?;
 
     let hot_store = storage.get_hot_store();
+    let cold_store = storage.get_cold_store();
 
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
@@ -464,7 +466,8 @@ pub fn start_with_config_and_synchronization(
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
             runtime: view_runtime,
-            store: hot_store,
+            hot_store,
+            cold_store,
         };
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,

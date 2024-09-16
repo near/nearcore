@@ -1429,7 +1429,7 @@ impl PeerActor {
                     } else {
                         #[cfg(test)]
                         self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::warn!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
+                        tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
                         metrics::ROUTED_MESSAGE_DROPPED
                             .with_label_values(&[msg.body_variant()])
                             .inc();
@@ -1555,7 +1555,7 @@ impl actix::Actor for PeerActor {
                 tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
             }
             Some(reason) => {
-                tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+                tracing::debug!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
 
                 // If we are on the inbound side of the connection, set a flag in the disconnect
                 // message advising the outbound side whether to attempt to re-establish the connection.
