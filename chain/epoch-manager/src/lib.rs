@@ -508,15 +508,7 @@ impl EpochManager {
             {
                 let mut sorted_validators = validator_block_chunk_stats
                     .iter()
-                    .map(|(account, stats)| {
-                        (
-                            get_sortable_validator_online_ratio(
-                                stats,
-                                Some(chunk_validator_only_kickout_threshold),
-                            ),
-                            account,
-                        )
-                    })
+                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
                     .collect::<Vec<_>>();
                 sorted_validators.sort();
                 sorted_validators
