@@ -1,4 +1,4 @@
-.pinned-keys {
+.bottom-bar {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -56,5 +56,25 @@
 
     .pinned-keys-empty {
         color: gray;
+    }
+
+    .spacer {
+        flex: 1;
+    }
+
+    .show-ascii {
+        display: flex;
+        align-items: center;
+        border-left: 1px solid gray;
+        padding-left: 10px;
+
+        input {
+            margin-right: 4px;
+            cursor: pointer;
+        }
+
+        label {
+            cursor: pointer;
+        }
     }
 }
