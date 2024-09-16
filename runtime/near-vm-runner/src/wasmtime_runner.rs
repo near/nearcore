@@ -144,12 +144,12 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
 
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
-    engine: Engine,
+    engine: wasmtime::Engine,
 }
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { config, engine: get_engine(&default_wasmtime_config(&config)) }
+        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
@@ -230,7 +230,7 @@ impl WasmtimeVM {
                             //
                             // There should definitely be some validation in near_vm to ensure
                             // we load what we think we load.
-                            let module = Module::deserialize(&self.engine, serialized_module)
+                            let module = Module::deserialize(&self.engine, &serialized_module)
                                 .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
                             Ok(to_any((compiled_contract_info.wasm_bytes, Ok(module))))
                         }
