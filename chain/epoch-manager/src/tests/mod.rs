@@ -2640,8 +2640,8 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         (3, ChunkStats::new_with_endorsement(60, 100)),
     ]);
     let chunk_stats_tracker = HashMap::from([
-        (0, chunk_stats0.clone().into_iter().collect()),
-        (1, chunk_stats1.clone().into_iter().collect()),
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2696,8 +2696,8 @@ fn test_chunk_validators_with_same_endorsement_ratio() {
         (3, ChunkStats::new_with_endorsement(65, 100)),
     ]);
     let chunk_stats_tracker = HashMap::from([
-        (0, chunk_stats0.clone().into_iter().collect()),
-        (1, chunk_stats1.clone().into_iter().collect()),
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
