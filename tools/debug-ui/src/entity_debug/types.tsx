@@ -12,6 +12,8 @@ export type EntityKeyType =
     | 'state_root'
     | 'transaction_hash'
     | 'trie_key'
+    | 'trie_node_hash'
+    | 'trie_value_hash'
     | 'trie_path';
 
 /// Each entity type represents a unique kind of output from an entity debug
@@ -24,6 +26,7 @@ export type EntityType =
     | 'BlockInfo'
     | 'BlockMerkleTree'
     | 'BlockMiscData'
+    | 'Bytes'
     | 'Chunk'
     | 'ChunkExtra'
     | 'EpochInfo'
@@ -33,6 +36,7 @@ export type EntityType =
     | 'FlatStateChanges'
     | 'FlatStateDeltaMetadata'
     | 'FlatStorageStatus'
+    | 'RawTrieNode'
     | 'Receipt'
     | 'ShardId'
     | 'ShardLayout'
@@ -148,6 +152,9 @@ export type EntityQuery = {
     OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
     OutcomeByTransactionHash?: { transaction_hash: string };
     OutcomeByTransactionHashAndBlockHash?: { transaction_hash: string; block_hash: string };
+    RawTrieNodeByHash?: { trie_node_hash: string; shard_uid: string };
+    RawTrieRootByChunkHash?: { chunk_hash: string };
+    RawTrieValueByHash?: { trie_value_hash: string; shard_uid: string };
     ReceiptById?: { receipt_id: string };
     ShardIdByAccountId?: { account_id: string };
     ShardLayoutByEpochId?: { epoch_id: string };
@@ -195,6 +202,9 @@ export const entityQueryTypes: EntityQueryType[] = [
     'OutcomeByReceiptIdAndBlockHash',
     'OutcomeByTransactionHash',
     'OutcomeByTransactionHashAndBlockHash',
+    'RawTrieNodeByHash',
+    'RawTrieRootByChunkHash',
+    'RawTrieValueByHash',
     'ReceiptById',
     'ShardIdByAccountId',
     'ShardLayoutByEpochId',
@@ -265,6 +275,9 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
         queryKey('transaction_hash'),
         implicitQueryKey('block_hash'),
     ],
+    RawTrieNodeByHash: [queryKey('trie_node_hash'), queryKey('shard_uid')],
+    RawTrieRootByChunkHash: [queryKey('chunk_hash')],
+    RawTrieValueByHash: [queryKey('trie_value_hash'), queryKey('shard_uid')],
     ReceiptById: [queryKey('receipt_id')],
     ShardIdByAccountId: [queryKey('account_id'), implicitQueryKey('epoch_id')],
     ShardLayoutByEpochId: [queryKey('epoch_id')],
@@ -303,6 +316,9 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
     OutcomeByTransactionHash: 'ExecutionOutcome',
     OutcomeByTransactionHashAndBlockHash: 'ExecutionOutcome',
+    RawTrieNodeByHash: 'RawTrieNode',
+    RawTrieRootByChunkHash: 'RawTrieNode',
+    RawTrieValueByHash: 'Bytes',
     ReceiptById: 'Receipt',
     ShardIdByAccountId: 'ShardId',
     ShardLayoutByEpochId: 'ShardLayout',
