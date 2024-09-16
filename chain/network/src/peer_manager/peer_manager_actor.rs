@@ -86,8 +86,11 @@ const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 /// How often to poll the NetworkState for closed connections we'd like to re-establish.
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
+
 /// How often we should check for pending Tier3 requests
 const PROCESS_TIER3_REQUESTS_INTERVAL: time::Duration = time::Duration::seconds(2);
+/// The length of time that a Tier3 connection is allowed to idle before it is stopped
+const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -386,7 +389,7 @@ impl PeerManagerActor {
                                             state.tier3.send_message(request.peer_info.id, Arc::new(response));
                                         }
                                         else {
-                                            tracing::debug!(target: "network", "failed to produce response to request {:?}", request);
+                                            tracing::debug!(target: "network", "client failed to produce response for {:?}", request);
                                         }
                                     }
                                 });
@@ -609,6 +612,29 @@ impl PeerManagerActor {
         }
     }
 
+    /// TIER3 connections are established ad-hoc to transmit individual large messages.
+    /// Here we terminate these "single-purpose" connections after an idle timeout.
+    ///
+    /// When a TIER3 connection is established the intended message is already prepared in-memory,
+    /// so there is no concern of the timeout falling in between the handshake and the payload.
+    ///
+    /// A finer detail is that as long as a TIER3 connection remains open it can be reused to
+    /// transmit additional TIER3 payloads intended for the same peer. In such cases the message
+    /// can be lost if the timeout is reached while it is in flight.
+    fn stop_tier3_idle_connections(&self) {
+        let now = self.clock.now();
+        let _ = self.state
+            .tier3
+            .load()
+            .ready
+            .values()
+            .filter(|p| {
+                now - p.last_time_received_message.load()
+                    > TIER3_IDLE_TIMEOUT
+            })
+            .map(|p| p.stop(None));
+    }
+
     /// Periodically monitor list of peers and:
     ///  - request new peers from connected peers,
     ///  - bootstrap outbound connections from known peers,
@@ -676,6 +702,9 @@ impl PeerManagerActor {
 
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
+
+        // Close Tier3 connections which have been idle for too long
+        self.stop_tier3_idle_connections();
 
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
@@ -855,7 +884,6 @@ impl PeerManagerActor {
                         shard_id,
                         part_id
                     ) {
-                        tracing::info!(target: "db", "sending request for {} {} to {}", shard_id, part_id, peer_id);
                         success = self.state.send_message_to_peer(
                             &self.clock,
                             tcp::Tier::T2,

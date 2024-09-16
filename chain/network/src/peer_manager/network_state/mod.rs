@@ -388,14 +388,19 @@ impl NetworkState {
         let clock = clock.clone();
         let conn = conn.clone();
         self.spawn(async move {
-            let peer_id = conn.peer_info.id.clone();
-            if conn.tier == tcp::Tier::T1 {
-                // There is no banning or routing table for TIER1.
-                // Just remove the connection from the network_state.
-                this.tier1.remove(&conn);
+            match conn.tier {
+                tcp::Tier::T1 => this.tier1.remove(&conn),
+                tcp::Tier::T2 => this.tier2.remove(&conn),
+                tcp::Tier::T3 => this.tier3.remove(&conn),
+            }
+
+            // The rest of this function has to do with banning or routing,
+            // which are applicable only for TIER2.
+            if conn.tier != tcp::Tier::T2 {
                 return;
             }
-            this.tier2.remove(&conn);
+
+            let peer_id = conn.peer_info.id.clone();
 
             // If the last edge we have with this peer represent a connection addition, create the edge
             // update that represents the connection removal.
