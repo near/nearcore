@@ -509,7 +509,7 @@ impl EpochManager {
             {
                 // Compares validator accounts by applying comparators in the following order:
                 // First by online ratio, if equal then by stake, if equal then by account id.
-                let online_ratio_comparator =
+                let validator_comparator =
                     |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
                         let cmp_ratio = left.0.cmp(&right.0);
                         if cmp_ratio != Ordering::Equal {
@@ -533,7 +533,7 @@ impl EpochManager {
                     .iter()
                     .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
                     .collect::<Vec<_>>();
-                sorted_validators.sort_by(online_ratio_comparator);
+                sorted_validators.sort_by(validator_comparator);
                 sorted_validators
                     .into_iter()
                     .map(|(_, account)| account.clone())
