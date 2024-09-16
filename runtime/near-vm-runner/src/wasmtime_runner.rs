@@ -144,12 +144,11 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
 
 pub(crate) struct WasmtimeVM {
     config: Arc<Config>,
-    engine: wasmtime::Engine,
 }
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
+        Self { config }
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
@@ -157,7 +156,8 @@ impl WasmtimeVM {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
-        let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
+        let engine = get_engine(&default_wasmtime_config(&self.config));
+        let serialized = engine.precompile_module(&prepared_code).map_err(|err| {
             tracing::error!(?err, "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
             CompilationError::WasmtimeCompileError { msg: err.to_string() }
         });
@@ -206,8 +206,11 @@ impl WasmtimeVM {
                         code.code().len() as u64,
                         match self.compile_and_cache(&code, cache)? {
                             Ok(serialized_module) => Ok(unsafe {
-                                Module::deserialize(&self.engine, serialized_module)
-                                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?
+                                Module::deserialize(
+                                    &get_engine(&default_wasmtime_config(&self.config)),
+                                    serialized_module,
+                                )
+                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?
                             }),
                             Err(err) => Err(err),
                         },
@@ -230,8 +233,11 @@ impl WasmtimeVM {
                             //
                             // There should definitely be some validation in near_vm to ensure
                             // we load what we think we load.
-                            let module = Module::deserialize(&self.engine, &serialized_module)
-                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                            let module = Module::deserialize(
+                                &get_engine(&default_wasmtime_config(&self.config)),
+                                &serialized_module,
+                            )
+                            .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
                             Ok(to_any((compiled_contract_info.wasm_bytes, Ok(module))))
                         }
                     }
@@ -327,7 +333,7 @@ impl crate::runner::VM for WasmtimeVM {
                     }
                 }
 
-                let mut store = Store::new(&self.engine, ());
+                let mut store = Store::new(module.engine(), ());
                 let memory = WasmtimeMemory::new(
                     &mut store,
                     self.config.limit_config.initial_memory_pages,
