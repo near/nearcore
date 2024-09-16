@@ -48,6 +48,8 @@ export function parseEntityKey(keyType: EntityKeyType, input: string): EntityKey
         case 'receipt_id':
         case 'transaction_hash':
         case 'state_root':
+        case 'trie_node_hash':
+        case 'trie_value_hash':
             // Length of 32-byte array encoded in base58 is 43 or 44 characters,
             // depending on whether we need additional character or not.
             //
