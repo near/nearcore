@@ -5,6 +5,8 @@ use anyhow::anyhow;
 use near_store::{DBCol, NodeStorage, Store};
 use strum::IntoEnumIterator;
 
+/// Opens RocksDB with Hot data from the `home` directory.
+/// This function ignores cold storage in the same home directory; to open RocksDB with cold data, use `cold_rocksdb_cold`.
 pub(crate) fn open_rocksdb(
     home: &Path,
     mode: near_store::Mode,
@@ -16,6 +18,24 @@ pub(crate) fn open_rocksdb(
     let db_path = store_config.path.as_ref().cloned().unwrap_or_else(|| home.join("data"));
     let rocksdb =
         near_store::db::RocksDB::open(&db_path, store_config, mode, near_store::Temperature::Hot)?;
+    Ok(rocksdb)
+}
+
+/// Opens RocksDB with Cold data from the `home` directory.
+/// This function ignores hot storage in the same home directory; to open RocksDB with hot data, use `cold_rocksdb`.
+pub(crate) fn open_rocksdb_cold(
+    home: &Path,
+    mode: near_store::Mode,
+) -> anyhow::Result<near_store::db::RocksDB> {
+    let config = nearcore::config::Config::from_file_skip_validation(
+        &home.join(nearcore::config::CONFIG_FILENAME),
+    )?;
+    let store_config = config.cold_store.as_ref().ok_or_else(|| {
+        anyhow!("Cold store is not configured, please configure it in the config file")
+    })?;
+    let db_path = store_config.path.as_ref().cloned().unwrap_or_else(|| home.join("cold-data"));
+    let rocksdb =
+        near_store::db::RocksDB::open(&db_path, store_config, mode, near_store::Temperature::Cold)?;
     Ok(rocksdb)
 }
 
