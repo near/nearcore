@@ -27,6 +27,7 @@ use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
+use num_rational::BigRational;
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
 use std::cmp::Ordering;
@@ -506,11 +507,33 @@ impl EpochManager {
             if ProtocolFeature::ChunkEndorsementsInBlockHeader
                 .enabled(epoch_info.protocol_version())
             {
+                // Compares validator accounts by applying comparators in the following order:
+                // First by online ratio, if equal then by stake, if equal then by account id.
+                let online_ratio_comparator =
+                    |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
+                        let cmp_ratio = left.0.cmp(&right.0);
+                        if cmp_ratio != Ordering::Equal {
+                            cmp_ratio
+                        } else {
+                            let left_stake =
+                                epoch_info.get_validator_stake(left.1).unwrap_or_default();
+                            let right_stake =
+                                epoch_info.get_validator_stake(right.1).unwrap_or_default();
+                            let cmp_stake = left_stake.cmp(&right_stake);
+                            if cmp_stake != Ordering::Equal {
+                                cmp_stake
+                            } else {
+                                let cmp_account_id = left.1.cmp(&right.1);
+                                cmp_account_id
+                            }
+                        }
+                    };
+
                 let mut sorted_validators = validator_block_chunk_stats
                     .iter()
                     .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
                     .collect::<Vec<_>>();
-                sorted_validators.sort();
+                sorted_validators.sort_by(online_ratio_comparator);
                 sorted_validators
                     .into_iter()
                     .map(|(_, account)| account.clone())

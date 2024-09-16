@@ -2603,9 +2603,8 @@ fn test_validator_kickout_determinism() {
     assert_eq!(kickouts1, kickouts2);
 }
 
-/// Tests the scenario that there are two chunk validators where the ordering of their endorsement ratio
-/// is the reverse of the ordering of their account ids. The exempted validator computation does not use
-/// the endorsement cutoff ratio, so the validator with the lower endorsement is kicked out.
+/// Tests the scenario that there are two chunk validators (test2 and test3) with different endorsement ratio, and
+/// so the validator with the lower endorsement ratio is kicked out.
 #[test]
 fn test_chunk_validators_with_different_endorsement_ratio() {
     if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
@@ -2660,10 +2659,66 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
     );
 }
 
-/// Tests the scenario that there are two chunk validators have the same online ratio, so we select
-/// the exempted validator based on the ordering of the account id.
+/// Tests the scenario that there are two chunk validators (test2 and test3) have the same online ratio but different stake,
+/// so the validator with the lower stake is kicked out.
 #[test]
-fn test_chunk_validators_with_same_endorsement_ratio() {
+fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
+    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
+        .for_protocol_version(PROTOCOL_VERSION);
+    // Set the max kickout stake percentage so that only one of the chunk validators
+    // is kicked out, and the other chunk validator is exempted from kickout.
+    // Both chunk validators have endorsement ratio lower than the kickout threshold.
+    epoch_config.validator_max_kickout_stake_perc = 30;
+    // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 500),
+        ("test3".parse().unwrap(), 499),
+    ];
+    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
+    let block_validator_tracker = HashMap::from([
+        (0, ValidatorStats { produced: 100, expected: 100 }),
+        (1, ValidatorStats { produced: 100, expected: 100 }),
+    ]);
+    let chunk_stats0 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (2, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats1 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (3, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats_tracker = HashMap::from([
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
+    ]);
+    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(
+        kickouts,
+        HashMap::from([(
+            "test3".parse().unwrap(),
+            NotEnoughChunkEndorsements { produced: 65, expected: 100 }
+        ),])
+    );
+}
+
+/// Tests the scenario that there are two chunk validators (test2 and test3) have the same online ratio and stake,
+/// so we select the exempted validator based on the ordering of the account id.
+#[test]
+fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
     if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
