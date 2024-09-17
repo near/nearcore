@@ -177,7 +177,7 @@ pub struct StoreOpener<'a> {
 }
 
 /// Opener for a single RocksDB instance.
-struct DBOpener<'a> {
+pub struct DBOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
@@ -483,7 +483,7 @@ impl<'a> DBOpener<'a> {
     ///
     /// The path to the database is resolved based on the path in config with
     /// given home_dir as base directory for resolving relative paths.
-    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
+    pub fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
         let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
         let path = config.path.as_deref().unwrap_or_else(|| std::path::Path::new(path));
         let path = home_dir.join(path);
@@ -518,7 +518,11 @@ impl<'a> DBOpener<'a> {
     /// new version.
     ///
     /// Use [`Self::create`] to create a new database.
-    fn open(&self, mode: Mode, want_version: DbVersion) -> std::io::Result<(RocksDB, DbMetadata)> {
+    pub fn open(
+        &self,
+        mode: Mode,
+        want_version: DbVersion,
+    ) -> std::io::Result<(RocksDB, DbMetadata)> {
         let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
         let metadata = DbMetadata::read(&db)?;
         if want_version != metadata.version {

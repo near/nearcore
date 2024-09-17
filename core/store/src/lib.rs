@@ -52,7 +52,7 @@ pub mod genesis;
 pub mod metadata;
 pub mod metrics;
 pub mod migrations;
-mod opener;
+pub mod opener;
 mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
