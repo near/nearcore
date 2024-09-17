@@ -13,7 +13,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
-use crate::sync::state::{StateSync, StateSyncResult};
+use crate::sync::state::StateSyncResult;
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{metrics, StatusResponse, SyncAdapter};
 use actix::Actor;
@@ -1587,8 +1587,7 @@ impl ClientActorInner {
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let sync_hash = header_head.last_block_hash;
-        let epoch_start_sync_hash =
-            StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+        let epoch_start_sync_hash = self.client.chain.get_epoch_start_sync_hash(&sync_hash)?;
 
         let genesis_hash = self.client.chain.genesis().hash();
         tracing::debug!(

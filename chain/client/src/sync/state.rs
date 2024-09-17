@@ -460,29 +460,6 @@ impl StateSync {
         self.load_memtrie_results.insert(shard_uid, result);
     }
 
-    /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
-    pub fn get_epoch_start_sync_hash(
-        chain: &Chain,
-        sync_hash: &CryptoHash,
-    ) -> Result<CryptoHash, near_chain::Error> {
-        let mut header = chain.get_block_header(sync_hash)?;
-        let mut epoch_id = *header.epoch_id();
-        let mut hash = *header.hash();
-        let mut prev_hash = *header.prev_hash();
-        loop {
-            if prev_hash == CryptoHash::default() {
-                return Ok(hash);
-            }
-            header = chain.get_block_header(&prev_hash)?;
-            if &epoch_id != header.epoch_id() {
-                return Ok(hash);
-            }
-            epoch_id = *header.epoch_id();
-            hash = *header.hash();
-            prev_hash = *header.prev_hash();
-        }
-    }
-
     // Function called when our node receives the network response with a part.
     pub fn received_requested_part(
         &mut self,
