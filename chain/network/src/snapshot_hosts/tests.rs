@@ -327,7 +327,7 @@ async fn run_select_peer_test(
             }
             SelectPeerAction::PartReceived => {
                 assert!(cache.has_selector(0, part_id));
-                cache.part_received(sync_hash, 0, part_id);
+                cache.part_received(0, part_id);
                 assert!(!cache.has_selector(0, part_id));
             }
         }
