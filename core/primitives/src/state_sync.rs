@@ -36,8 +36,9 @@ pub struct ShardStateSyncResponseHeaderV1 {
 /// Let shard_id be the shard ID of the shard this header is meant for
 /// As a shorthand,let B_sync = B[sync_hash], B_prev = B[B_sync.prev_hash]
 ///
-/// Also let B_prev_chunk be the block with height B_prev.chunks[shard_id].height_included
+/// Also let B_chunk be the block with height B_prev.chunks[shard_id].height_included
 /// that is an ancestor of B_sync. So, the last block with a new chunk before B_sync.
+/// And let B_prev_chunk = B[B_chunk.prev_hash]. So, the block before the last block with a new chunk before B_sync.
 ///
 /// Given these definitiions, the meaning of fields are explained below.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
