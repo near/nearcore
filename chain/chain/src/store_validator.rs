@@ -249,13 +249,6 @@ impl StoreValidator {
                 DBCol::StateDlInfos => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let state_sync_info = StateSyncInfo::try_from_slice(value_ref)?;
-                    // StateSyncInfo is valid
-                    self.check(
-                        &validate::state_sync_info_valid,
-                        &block_hash,
-                        &state_sync_info,
-                        col,
-                    );
                     // Block which can be indexed by StateSyncInfo exists
                     self.check(
                         &validate::state_sync_info_block_exists,

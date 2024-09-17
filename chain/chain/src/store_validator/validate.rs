@@ -715,15 +715,6 @@ pub(crate) fn outcome_indexed_by_block_hash(
     err!("Outcome id {:?} is not found in DBCol::OutcomeIds", outcome_id)
 }
 
-pub(crate) fn state_sync_info_valid(
-    _sv: &mut StoreValidator,
-    block_hash: &CryptoHash,
-    state_sync_info: &StateSyncInfo,
-) -> Result<(), StoreValidatorError> {
-    check_discrepancy!(state_sync_info.sync_hash, *block_hash, "Invalid StateSyncInfo stored");
-    Ok(())
-}
-
 pub(crate) fn state_sync_info_block_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
