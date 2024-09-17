@@ -4512,6 +4512,7 @@ impl Chain {
     }
 
     /// Check that sync_hash is the first block of an epoch.
+    /// TODO: allow the new way of computing the sync hash for syncing to the current epoch
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header()`.

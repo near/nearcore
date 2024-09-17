@@ -1584,6 +1584,7 @@ impl ClientActorInner {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
+    /// TODO: allow the new way of computing the sync hash for syncing to the current epoch
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let sync_hash = header_head.last_block_hash;
