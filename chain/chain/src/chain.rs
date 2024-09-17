@@ -781,8 +781,12 @@ impl Chain {
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
 
+            let protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+            let sync_hash =
+                if protocol_version < 72 { *block.header().hash() } else { CryptoHash::default() };
             let state_sync_info = StateSyncInfo {
-                sync_hash: *block.header().hash(),
+                sync_hash,
                 shards: shards_to_state_sync
                     .iter()
                     .map(|shard_id| {
@@ -3206,6 +3210,9 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
+        // TODO: remove the ones not in affected_blocks by breadth first searching from `epoch_first_block` and adding
+        // descendant blocks to the search when they're not equal to this hash, and then removing everything we see in that search
+        _catchup_start_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
         affected_blocks: &[CryptoHash],
@@ -4725,7 +4732,7 @@ pub struct ChunkStateWitnessMessage {
 ///     Otherwise results are committed, block is moved to done blocks and any blocks that
 ///     have this block as previous are added to pending
 pub struct BlocksCatchUpState {
-    /// Hash of first block of an epoch
+    /// Hash of the block where catchup will start from
     pub first_block_hash: CryptoHash,
     /// Epoch id
     pub epoch_id: EpochId,

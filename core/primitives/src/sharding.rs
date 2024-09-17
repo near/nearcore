@@ -56,11 +56,11 @@ impl From<CryptoHash> for ChunkHash {
     }
 }
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 /// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfo {
     /// The block we'll use as the "sync_hash" when state syncing. Previously, state sync
     /// used the first block of an epoch as the "sync_hash", and synced state to the epoch before.
