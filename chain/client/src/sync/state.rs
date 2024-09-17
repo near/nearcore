@@ -27,7 +27,7 @@ use crate::sync::external::{
 use borsh::BorshDeserialize;
 use futures::{future, FutureExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::SendAsync;
+use near_async::messaging::{SendAsync, CanSend};
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::{ApplyStatePartsRequest, LoadMemtrieRequest};
 use near_chain::near_chain_primitives;
@@ -38,9 +38,8 @@ use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest, StateSyncEvent,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -504,10 +503,18 @@ impl StateSync {
                     ) {
                         last_part_id_requested.remove(&(target.clone(), shard_id));
                     }
+
+                    self.network_adapter.send(StateSyncEvent::StatePartReceived (
+                        shard_id, part_id
+                    ));
                 }
             }
             StateSyncInner::External { .. } => {
-                // Do nothing.
+                // It is possible that we have previously made peer requests for this part
+                // before falling back to the External host.
+                self.network_adapter.send(StateSyncEvent::StatePartReceived (
+                    shard_id, part_id
+                ));
             }
         }
     }
@@ -1324,7 +1331,7 @@ fn request_part_from_peers(
     download.run_me.store(false, Ordering::SeqCst);
     download.state_requests_count += 1;
     // TODO(saketh): clean this up now that targets are picked in peer manager
-    download.last_target = Some(peer_id.clone());
+    download.last_target = Some(peer_id);
     let run_me = download.run_me.clone();
 
     near_performance_metrics::actix::spawn(

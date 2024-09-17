@@ -18,7 +18,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, Tier3RequestBody
+    SetChainInfo, SnapshotHostInfo, Tier3RequestBody, StateSyncEvent
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -1252,6 +1252,25 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
+    }
+}
+
+impl actix::Handler<WithSpanContext<StateSyncEvent>> for PeerManagerActor {
+    type Result = ();
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateSyncEvent>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        match msg {
+            StateSyncEvent::StatePartReceived(shard_id, part_id) => {
+                self.state.snapshot_hosts.part_received(shard_id, part_id);
+            }
+        }
     }
 }
 

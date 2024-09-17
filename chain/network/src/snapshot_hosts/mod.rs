@@ -129,7 +129,7 @@ impl PartPeerSelector {
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
-    /// The hash for the most recent active state sync
+    /// The hash for the most recent active state sync, inferred from part requests
     sync_hash: Option<CryptoHash>,
     /// Number of available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
@@ -158,7 +158,7 @@ impl Inner {
         if self.sync_hash == Some(d.sync_hash) {
             for shard_id in &d.shards {
                 self.hosts_for_shard
-                    .entry(shard_id.clone())
+                    .entry(*shard_id)
                     .or_insert(HashSet::default())
                     .insert(d.peer_id.clone());
             }
@@ -185,7 +185,7 @@ impl Inner {
             for (peer_id, info) in self.hosts.iter() {
                 if info.sync_hash == *sync_hash {
                     for shard_id in &info.shards {
-                        self.hosts_for_shard.entry(shard_id.clone())
+                        self.hosts_for_shard.entry(*shard_id)
                             .or_insert(HashSet::default())
                             .insert(peer_id.clone());
                         }
@@ -322,13 +322,11 @@ impl SnapshotHostsCache {
         self.0.lock().select_host_for_part(sync_hash, shard_id, part_id)
     }
 
-    /// Called when a state part is successfully received
-    /// so that the internal state can be cleaned up eagerly.
-    pub fn part_received(&self, sync_hash: &CryptoHash, shard_id: ShardId, part_id: u64) {
+    /// Triggered by state sync actor after processing a state part.
+    pub fn part_received(&self, shard_id: ShardId, part_id: u64) {
+        tracing::info!(target: "db", "clearing internal state for {} {}", shard_id, part_id);
         let mut inner = self.0.lock();
-        if inner.sync_hash == Some(*sync_hash) {
-            inner.peer_selector.remove(&(shard_id, part_id));
-        }
+        inner.peer_selector.remove(&(shard_id, part_id));
     }
 
     #[cfg(test)]
