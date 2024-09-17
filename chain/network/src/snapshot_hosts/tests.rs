@@ -349,7 +349,9 @@ async fn test_select_peer() {
         let info = Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, vec![0, 1, 2, 3], &key));
         peers.push((info, score));
     }
-    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| lscore.partial_cmp(rscore).unwrap().reverse());
+    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| {
+        lscore.partial_cmp(rscore).unwrap().reverse()
+    });
     let peers = peers.into_iter().map(|(info, _score)| info).collect::<Vec<_>>();
     tracing::debug!(
         "run_select_peer_test peers: {:?}",

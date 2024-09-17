@@ -68,7 +68,9 @@ impl Ord for StatePartHost {
         // std::collections:BinaryHeap used in PeerPartSelector is a max-heap.
         // We prefer hosts with the least num_requests, after which we break
         // ties according to the priority score and the peer_id.
-        self.num_requests.cmp(&other.num_requests).reverse()
+        self.num_requests
+            .cmp(&other.num_requests)
+            .reverse()
             .then_with(|| self.score.cmp(&other.score))
             .then_with(|| self.peer_id.cmp(&other.peer_id))
     }
@@ -85,7 +87,6 @@ impl StatePartHost {
         self.num_requests += 1;
     }
 }
-
 
 #[derive(Default)]
 struct PartPeerSelector {
@@ -122,7 +123,6 @@ impl PartPeerSelector {
         self.peers.iter().map(|p| p.peer_id.clone()).collect()
     }
 }
-
 
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
@@ -183,15 +183,17 @@ impl Inner {
             for (peer_id, info) in self.hosts.iter() {
                 if info.sync_hash == *sync_hash {
                     for shard_id in &info.shards {
-                        self.hosts_for_shard.entry(*shard_id)
+                        self.hosts_for_shard
+                            .entry(*shard_id)
                             .or_insert(HashSet::default())
                             .insert(peer_id.clone());
-                        }
+                    }
                 }
             }
         }
 
-        let selector = &mut self.peer_selector
+        let selector = &mut self
+            .peer_selector
             .entry((shard_id, part_id))
             .or_insert(PartPeerSelector::default());
 
@@ -233,7 +235,9 @@ pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 impl SnapshotHostsCache {
     pub fn new(config: Config) -> Self {
         Self(Mutex::new(Inner {
-            hosts: LruCache::new(NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap()),
+            hosts: LruCache::new(
+                NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
+            ),
             sync_hash: None,
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
