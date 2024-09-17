@@ -15,6 +15,7 @@ import {
 import { ColdStorageChoiceContext, PinnedKeysContext } from './pinned_keys';
 import { EntityDataRootView } from './EntityDataRootView';
 import './EntityDataValueView.scss';
+import { ShowAsciiCharactersInHexContext } from './view_options';
 
 export type EntityDataValueViewProps = {
     entry: EntityDataValueNode;
@@ -28,6 +29,7 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
     const [, setChildrenVersion] = useState(0);
     const { keys: pinnedKeys, dispatch: pinnedKeysDispatch } = useContext(PinnedKeysContext);
     const { coldStorage } = useContext(ColdStorageChoiceContext);
+    const { showAscii } = useContext(ShowAsciiCharactersInHexContext);
 
     const addQuery = useCallback(
         (query: EntityQuery) => {
@@ -58,12 +60,14 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
                         <span className="value-trie-path">
                             <span className="shard-uid">{shard_uid}</span>
                             <span className="state-root">{state_root}</span>
-                            <span className="nibbles">{visualizeNibbles(nibbles)}</span>
+                            <span className="nibbles">{visualizeNibbles(nibbles, showAscii)}</span>
                         </span>
                     );
                 }
             } else if (display === 'nibbles') {
-                entryValue = <span className="nibbles">{visualizeNibbles(entry.value)}</span>;
+                entryValue = (
+                    <span className="nibbles">{visualizeNibbles(entry.value, showAscii)}</span>
+                );
             }
         }
     } else if (entry.semantic?.titleKey !== undefined) {
@@ -106,9 +110,9 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
                             onClick={(e) =>
                                 e.currentTarget.classList.contains('selected')
                                     ? pinnedKeysDispatch({
-                                        type: 'remove-key',
-                                        keyType: key.type(),
-                                    })
+                                          type: 'remove-key',
+                                          keyType: key.type(),
+                                      })
                                     : pinnedKeysDispatch({ type: 'add-key', key })
                             }>
                             {selected ? '☑' : '☐'} {key.type()}
@@ -248,11 +252,11 @@ function getAvailableQueries(keys: EntityKey[], pinnedKeys: EntityKey[]): Availa
     return result;
 }
 
-function visualizeNibbles(nibbles: string): JSX.Element {
+function visualizeNibbles(nibbles: string, showAscii: boolean): JSX.Element {
     const children = [];
     for (let i = 0; i < Math.floor(nibbles.length / 2); i++) {
         const byte = parseInt(nibbles.substring(i * 2, i * 2 + 2), 16);
-        if (byte >= 0x20 && byte <= 0x7e) {
+        if (showAscii && byte >= 0x20 && byte <= 0x7e) {
             children.push(
                 <span className="ascii-char" key={i}>
                     {String.fromCharCode(byte)}

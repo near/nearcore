@@ -10,7 +10,7 @@ use near_schema_checker_lib::ProtocolSchema;
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub struct RawTrieNodeWithSize {
     pub node: RawTrieNode,
-    pub(super) memory_usage: u64,
+    pub memory_usage: u64,
 }
 
 impl RawTrieNodeWithSize {

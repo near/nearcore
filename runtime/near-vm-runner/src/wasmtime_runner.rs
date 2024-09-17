@@ -327,7 +327,7 @@ impl crate::runner::VM for WasmtimeVM {
                     }
                 }
 
-                let mut store = Store::new(&self.engine, ());
+                let mut store = Store::new(module.engine(), ());
                 let memory = WasmtimeMemory::new(
                     &mut store,
                     self.config.limit_config.initial_memory_pages,
