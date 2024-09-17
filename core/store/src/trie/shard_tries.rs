@@ -1,11 +1,10 @@
-use super::mem::MemTries;
+use super::mem::mem_tries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
 use crate::flat::store_helper::remove_all_state_values;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
-use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
@@ -373,14 +372,11 @@ impl ShardTries {
         block_height: BlockHeight,
     ) -> Option<StateRoot> {
         if let Some(memtries) = self.get_mem_tries(shard_uid) {
-            Some(apply_memtrie_changes(
-                &mut memtries.write().unwrap(),
-                trie_changes
-                    .mem_trie_changes
-                    .as_ref()
-                    .expect("Memtrie changes must be present if memtrie is loaded"),
-                block_height,
-            ))
+            let changes = trie_changes
+                .mem_trie_changes
+                .as_ref()
+                .expect("Memtrie changes must be present if memtrie is loaded");
+            Some(memtries.write().unwrap().apply_memtrie_changes(block_height, changes))
         } else {
             assert!(
                 trie_changes.mem_trie_changes.is_none(),

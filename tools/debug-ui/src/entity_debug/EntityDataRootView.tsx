@@ -40,7 +40,7 @@ export const EntityDataRootView = ({ node, removalCallback }: EntityDataRootView
         removalCallback!();
     }, [allQueriesDispatch, node, removalCallback]);
     const refreshCallback = useCallback(() => {
-        node.entry = fetcher!.fetch(node.query);
+        node.entry = fetcher!.fetch(node.query, node.useColdStorage);
         setVersion((v) => v + 1);
     }, [node, fetcher]);
     let content: JSX.Element;

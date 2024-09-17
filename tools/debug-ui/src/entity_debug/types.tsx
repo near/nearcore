@@ -12,6 +12,8 @@ export type EntityKeyType =
     | 'state_root'
     | 'transaction_hash'
     | 'trie_key'
+    | 'trie_node_hash'
+    | 'trie_value_hash'
     | 'trie_path';
 
 /// Each entity type represents a unique kind of output from an entity debug
@@ -24,6 +26,7 @@ export type EntityType =
     | 'BlockInfo'
     | 'BlockMerkleTree'
     | 'BlockMiscData'
+    | 'Bytes'
     | 'Chunk'
     | 'ChunkExtra'
     | 'EpochInfo'
@@ -33,6 +36,7 @@ export type EntityType =
     | 'FlatStateChanges'
     | 'FlatStateDeltaMetadata'
     | 'FlatStorageStatus'
+    | 'RawTrieNode'
     | 'Receipt'
     | 'ShardId'
     | 'ShardLayout'
@@ -60,9 +64,11 @@ export class EntityDataRootNode {
     constructor(
         /// The query that produces the data in this node.
         public query: EntityQuery,
+        /// Whether the query uses cold storage.
+        public useColdStorage: boolean,
         /// A promise that resolves to the result data.
         public entry: Promise<EntityDataValueNode>
-    ) { }
+    ) {}
 }
 
 /// A struct node.
@@ -73,26 +79,26 @@ export class EntityDataStructNode {
 /// The semantics of a field that enhances its display.
 export type FieldSemantic =
     | {
-        /// Customizes how the field should be displayed.
-        display?: CustomFieldDisplay;
-        /// If present, this field represents one or more entity keys,
-        /// and the parser provides the logic for parsing these keys out
-        /// of the field name and value. Typically it's just one key.
-        parser?: (key: string, value: string) => EntityKey[];
-        /// If present, this field should be a struct, and we specify the
-        /// semantic of each of its fields. Fields can be missing if it doesn't
-        /// have any customizations.
-        struct?: Record<string, FieldSemantic>;
-        /// If present, this field should be an array, and we specify the
-        /// semantic for each element of the array.
-        array?: FieldSemantic;
-        /// For struct or array fields, when displaying a node for the struct, if
-        /// titleKey is present then display the value of that child field as the
-        /// title of the struct node. This is useful for visualizing arrays where
-        /// otherwise each element of the array would have to be separately expanded
-        /// to know which element that is (for example an array of ValidatorStake).
-        titleKey?: string;
-    }
+          /// Customizes how the field should be displayed.
+          display?: CustomFieldDisplay;
+          /// If present, this field represents one or more entity keys,
+          /// and the parser provides the logic for parsing these keys out
+          /// of the field name and value. Typically it's just one key.
+          parser?: (key: string, value: string) => EntityKey[];
+          /// If present, this field should be a struct, and we specify the
+          /// semantic of each of its fields. Fields can be missing if it doesn't
+          /// have any customizations.
+          struct?: Record<string, FieldSemantic>;
+          /// If present, this field should be an array, and we specify the
+          /// semantic for each element of the array.
+          array?: FieldSemantic;
+          /// For struct or array fields, when displaying a node for the struct, if
+          /// titleKey is present then display the value of that child field as the
+          /// title of the struct node. This is useful for visualizing arrays where
+          /// otherwise each element of the array would have to be separately expanded
+          /// to know which element that is (for example an array of ValidatorStake).
+          titleKey?: string;
+      }
     /// Undefined means there's no special customization for this field.
     | undefined;
 
@@ -135,7 +141,7 @@ export type EntityQuery = {
     ChunkByHash?: { chunk_hash: string };
     ChunkExtraByBlockHashShardUId?: { block_hash: string; shard_uid: string };
     ChunkExtraByChunkHash?: { chunk_hash: string };
-    EpochInfoAggregator?: null,
+    EpochInfoAggregator?: null;
     EpochInfoByEpochId?: { epoch_id: string };
     FlatStateByTrieKey?: { trie_key: string };
     FlatStateChangesByBlockHash?: { block_hash: string };
@@ -146,6 +152,9 @@ export type EntityQuery = {
     OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
     OutcomeByTransactionHash?: { transaction_hash: string };
     OutcomeByTransactionHashAndBlockHash?: { transaction_hash: string; block_hash: string };
+    RawTrieNodeByHash?: { trie_node_hash: string; shard_uid: string };
+    RawTrieRootByChunkHash?: { chunk_hash: string };
+    RawTrieValueByHash?: { trie_value_hash: string; shard_uid: string };
     ReceiptById?: { receipt_id: string };
     ShardIdByAccountId?: { account_id: string };
     ShardLayoutByEpochId?: { epoch_id: string };
@@ -159,6 +168,10 @@ export type EntityQuery = {
     TrieRootByChunkHash?: { chunk_hash: string };
     TrieRootByStateRoot?: { state_root: string; shard_uid: string };
     ValidatorAssignmentsAtHeight?: { block_height: number; epoch_id: string };
+};
+
+export type EntityQueryWithParams = EntityQuery & {
+    use_cold_storage?: boolean;
 };
 
 export type EntityQueryType = keyof EntityQuery;
@@ -189,6 +202,9 @@ export const entityQueryTypes: EntityQueryType[] = [
     'OutcomeByReceiptIdAndBlockHash',
     'OutcomeByTransactionHash',
     'OutcomeByTransactionHashAndBlockHash',
+    'RawTrieNodeByHash',
+    'RawTrieRootByChunkHash',
+    'RawTrieValueByHash',
     'ReceiptById',
     'ShardIdByAccountId',
     'ShardLayoutByEpochId',
@@ -259,6 +275,9 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
         queryKey('transaction_hash'),
         implicitQueryKey('block_hash'),
     ],
+    RawTrieNodeByHash: [queryKey('trie_node_hash'), queryKey('shard_uid')],
+    RawTrieRootByChunkHash: [queryKey('chunk_hash')],
+    RawTrieValueByHash: [queryKey('trie_value_hash'), queryKey('shard_uid')],
     ReceiptById: [queryKey('receipt_id')],
     ShardIdByAccountId: [queryKey('account_id'), implicitQueryKey('epoch_id')],
     ShardLayoutByEpochId: [queryKey('epoch_id')],
@@ -297,6 +316,9 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
     OutcomeByTransactionHash: 'ExecutionOutcome',
     OutcomeByTransactionHashAndBlockHash: 'ExecutionOutcome',
+    RawTrieNodeByHash: 'RawTrieNode',
+    RawTrieRootByChunkHash: 'RawTrieNode',
+    RawTrieValueByHash: 'Bytes',
     ReceiptById: 'Receipt',
     ShardIdByAccountId: 'ShardId',
     ShardLayoutByEpochId: 'ShardLayout',

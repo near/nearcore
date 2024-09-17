@@ -4,7 +4,7 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{MissingTrieValueContext, StorageError, Trie};
 
-use super::mem::iter::MemTrieIterator;
+use super::mem::iter::STMemTrieIterator;
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
@@ -428,7 +428,7 @@ impl<'a> Iterator for DiskTrieIterator<'a> {
 
 pub enum TrieIterator<'a> {
     Disk(DiskTrieIterator<'a>),
-    Memtrie(MemTrieIterator<'a>),
+    Memtrie(STMemTrieIterator<'a>),
 }
 
 impl<'a> Iterator for TrieIterator<'a> {

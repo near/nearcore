@@ -93,7 +93,6 @@ use near_primitives::views::{
 use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::trie::mem::resharding::RetainMode;
-use near_store::trie::mem::updating::apply_memtrie_changes;
 use near_store::DBCol;
 use near_store::{get_genesis_state_roots, PartialStorage};
 use node_runtime::bootstrap_congestion_info;
@@ -1899,7 +1898,7 @@ impl Chain {
                 mem_trie_update.cut(boundary_account.clone(), retain_mode);
             let partial_storage = PartialStorage { nodes: partial_state };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
-            let new_state_root = apply_memtrie_changes(&mut mem_tries, &mem_changes, block_height);
+            let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
             let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
             *new_chunk_extra.state_root_mut() = new_state_root;
 

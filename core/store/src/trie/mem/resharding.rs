@@ -7,7 +7,7 @@ use super::node::MemTrieNodeView;
 use super::updating::{
     MemTrieUpdate, OldOrUpdatedNodeId, UpdatedMemTrieNode, UpdatedMemTrieNodeId,
 };
-use super::{arena::STArenaMemory, node::MemTrieNodePtr};
+use super::{arena::ArenaMemory, node::MemTrieNodePtr};
 use itertools::Itertools;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
@@ -55,7 +55,7 @@ impl UpdatesTracker {
     }
 }
 
-impl<'a> MemTrieUpdate<'a> {
+impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// Cut the trie, separating entries by the boundary account.
     /// Leaves the left or right part of the trie, depending on the retain mode.
     ///
@@ -127,8 +127,8 @@ impl<'a> MemTrieUpdate<'a> {
 /// `updates_tracker` track changes to the trie caused by the deletion.
 ///
 /// Returns id of the node after deletion applied.
-fn delete_multi_range_recursive<'a>(
-    root: MemTrieNodePtr<'a, STArenaMemory>,
+fn delete_multi_range_recursive<'a, M: ArenaMemory>(
+    root: MemTrieNodePtr<'a, M>,
     key_nibbles: Vec<u8>,
     intervals_nibbles: &[Range<Vec<u8>>],
     updates_tracker: &mut UpdatesTracker,
@@ -144,8 +144,7 @@ fn delete_multi_range_recursive<'a>(
 
     let node_view = root.view();
 
-    let mut resolve_branch = |children: &ChildrenView<'a, STArenaMemory>,
-                              mut value: Option<&ValueView>| {
+    let mut resolve_branch = |children: &ChildrenView<'a, M>, mut value: Option<&ValueView>| {
         let mut new_children = [None; 16];
         let mut changed = false;
 
@@ -286,7 +285,7 @@ mod tests {
 
     use crate::{
         trie::{
-            mem::{iter::MemTrieIterator, updating::apply_memtrie_changes, MemTries},
+            mem::{iter::MemTrieIterator, mem_tries::MemTries},
             trie_storage::TrieMemoryPartialStorage,
         },
         Trie,
@@ -311,12 +310,12 @@ mod tests {
             update.insert(&key, value);
         }
         let memtrie_changes = update.to_mem_trie_changes_only();
-        let state_root = apply_memtrie_changes(&mut memtries, &memtrie_changes, 0);
+        let state_root = memtries.apply_memtrie_changes(0, &memtrie_changes);
 
         let mut update = memtries.update(state_root, false).unwrap();
         let (mut trie_changes, _) = update.delete_multi_range(&[removal_range]);
         let memtrie_changes = trie_changes.mem_trie_changes.take().unwrap();
-        let new_state_root = apply_memtrie_changes(&mut memtries, &memtrie_changes, 1);
+        let new_state_root = memtries.apply_memtrie_changes(1, &memtrie_changes);
 
         let state_root_ptr = memtries.get_root(&new_state_root).unwrap();
         let trie = Trie::new(Arc::new(TrieMemoryPartialStorage::default()), new_state_root, None);

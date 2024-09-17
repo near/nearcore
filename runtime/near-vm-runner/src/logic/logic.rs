@@ -14,6 +14,7 @@ use near_parameters::vm::{Config, StorageGetMode};
 use near_parameters::{
     transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
 };
+use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
@@ -3175,8 +3176,21 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .checked_sub(&nodes_before)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
         self.result_state.gas_counter.add_trie_fees(&nodes_delta)?;
-        let read =
-            Self::deref_value(&mut self.result_state.gas_counter, storage_read_value_byte, read?)?;
+        let read = match read? {
+            Some(read) => {
+                // Here we'll do u32 -> usize -> u64, which is always infallible
+                let read_len = read.len() as usize;
+                self.result_state.gas_counter.pay_per(storage_read_value_byte, read_len as u64)?;
+                if read_len > INLINE_DISK_VALUE_THRESHOLD {
+                    self.result_state.gas_counter.pay_base(storage_large_read_overhead_base)?;
+                    self.result_state
+                        .gas_counter
+                        .pay_per(storage_large_read_overhead_byte, read_len as u64)?;
+                }
+                Some(read.deref()?)
+            }
+            None => None,
+        };
 
         #[cfg(feature = "io_trace")]
         tracing::trace!(
