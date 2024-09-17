@@ -1,7 +1,7 @@
 use super::arena::STArenaMemory;
 use super::flexible_data::children::ChildrenView;
 use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
-use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
+use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
 use super::MemTries;
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap, TRIE_COSTS};
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
@@ -141,6 +141,10 @@ impl<'a> MemTrieUpdate<'a> {
         };
         assert_eq!(trie_update.convert_existing_to_updated(root), 0usize);
         trie_update
+    }
+
+    pub fn get_root(&self) -> Option<MemTrieNodePtr<STArenaMemory>> {
+        self.root.map(|id| id.as_ptr(self.arena))
     }
 
     /// Internal function to take a node from the array of updated nodes, setting it
@@ -691,13 +695,15 @@ impl<'a> MemTrieUpdate<'a> {
     }
 
     /// For each node in `ordered_nodes`, computes its hash and serialized data.
-    /// The `ordered_nodes` is expected to come from `post_order_traverse_updated_nodes`,
-    /// and updated_nodes are indexed by the node IDs in `ordered_nodes`.
-    fn compute_hashes_and_serialized_nodes(
+    /// `ordered_nodes` is expected to follow the post-order traversal of the
+    /// updated nodes.
+    /// `updated_nodes` must be indexed by the node IDs in `ordered_nodes`.
+    pub(crate) fn compute_hashes_and_serialized_nodes(
+        &self,
         ordered_nodes: &Vec<UpdatedMemTrieNodeId>,
         updated_nodes: &Vec<Option<UpdatedMemTrieNode>>,
-        arena: &STArenaMemory,
     ) -> Vec<(UpdatedMemTrieNodeId, CryptoHash, Vec<u8>)> {
+        let arena = self.arena;
         let mut result = Vec::<(CryptoHash, u64, Vec<u8>)>::new();
         for _ in 0..updated_nodes.len() {
             result.push((CryptoHash::default(), 0, Vec::new()));
@@ -782,26 +788,22 @@ impl<'a> MemTrieUpdate<'a> {
 
     /// Converts the changes to memtrie changes. Also returns the list of new nodes inserted,
     /// in hash and serialized form.
-    fn to_mem_trie_changes_internal(
-        shard_uid: String,
-        arena: &STArenaMemory,
-        updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
-    ) -> (MemTrieChanges, Vec<(CryptoHash, Vec<u8>)>) {
+    fn to_mem_trie_changes_internal(self) -> (MemTrieChanges, Vec<(CryptoHash, Vec<u8>)>) {
         MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES
-            .with_label_values(&[&shard_uid])
-            .inc_by(updated_nodes.len() as u64);
+            .with_label_values(&[&self.shard_uid])
+            .inc_by(self.updated_nodes.len() as u64);
         let mut ordered_nodes = Vec::new();
-        Self::post_order_traverse_updated_nodes(0, &updated_nodes, &mut ordered_nodes);
+        Self::post_order_traverse_updated_nodes(0, &self.updated_nodes, &mut ordered_nodes);
 
         let nodes_hashes_and_serialized =
-            Self::compute_hashes_and_serialized_nodes(&ordered_nodes, &updated_nodes, arena);
+            self.compute_hashes_and_serialized_nodes(&ordered_nodes, &self.updated_nodes);
 
         let node_ids_with_hashes = nodes_hashes_and_serialized
             .iter()
             .map(|(node_id, hash, _)| (*node_id, *hash))
             .collect();
         (
-            MemTrieChanges { node_ids_with_hashes, updated_nodes },
+            MemTrieChanges { node_ids_with_hashes, updated_nodes: self.updated_nodes },
             nodes_hashes_and_serialized
                 .into_iter()
                 .map(|(_, hash, serialized)| (hash, serialized))
@@ -811,19 +813,19 @@ impl<'a> MemTrieUpdate<'a> {
 
     /// Converts the updates to memtrie changes only.
     pub fn to_mem_trie_changes_only(self) -> MemTrieChanges {
-        let Self { arena, updated_nodes, shard_uid, .. } = self;
-        let (mem_trie_changes, _) =
-            Self::to_mem_trie_changes_internal(shard_uid, arena, updated_nodes);
+        let (mem_trie_changes, _) = self.to_mem_trie_changes_internal();
         mem_trie_changes
     }
 
     /// Converts the updates to trie changes as well as memtrie changes.
-    pub(crate) fn to_trie_changes(self) -> (TrieChanges, TrieAccesses) {
-        let Self { root, arena, shard_uid, tracked_trie_changes, updated_nodes } = self;
-        let TrieChangesTracker { mut refcount_changes, accesses } =
-            tracked_trie_changes.expect("Cannot to_trie_changes for memtrie changes only");
-        let (mem_trie_changes, hashes_and_serialized) =
-            Self::to_mem_trie_changes_internal(shard_uid, arena, updated_nodes);
+    pub(crate) fn to_trie_changes(mut self) -> (TrieChanges, TrieAccesses) {
+        let old_root =
+            self.root.map(|root| root.as_ptr(self.arena).view().node_hash()).unwrap_or_default();
+        let TrieChangesTracker { mut refcount_changes, accesses } = self
+            .tracked_trie_changes
+            .take()
+            .expect("Cannot to_trie_changes for memtrie changes only");
+        let (mem_trie_changes, hashes_and_serialized) = self.to_mem_trie_changes_internal();
 
         // We've accounted for the dereferenced nodes, as well as value addition/subtractions.
         // The only thing left is to increment refcount for all new nodes.
@@ -834,9 +836,7 @@ impl<'a> MemTrieUpdate<'a> {
 
         (
             TrieChanges {
-                old_root: root
-                    .map(|root| root.as_ptr(arena).view().node_hash())
-                    .unwrap_or_default(),
+                old_root,
                 new_root: mem_trie_changes
                     .node_ids_with_hashes
                     .last()
