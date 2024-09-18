@@ -1853,7 +1853,7 @@ impl Chain {
     /// memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete resharding, proper memtries are to be
     /// created later.
-    fn process_instant_resharding_storage_update(
+    fn process_memtrie_resharding_storage_update(
         &mut self,
         block: &Block,
         shard_uid: ShardUId,
@@ -1882,8 +1882,15 @@ impl Chain {
         let Some(mem_tries) = tries.get_mem_tries(shard_uid) else {
             // TODO(#12019): what if node doesn't have memtrie? just pause
             // processing?
-            return Ok(());
+            error!(
+                "Memtrie not loaded. Cannot process memtrie resharding storage
+                 update for block {:?}, shard {:?}",
+                block_hash, shard_uid
+            );
+            return Err(Error::Other("Memtrie not loaded".to_string()));
         };
+
+        // TODO(#12019): take proper boundary account.
         let boundary_account = AccountId::from_str("boundary.near").unwrap();
 
         // TODO(#12019): leave only tracked shards.
@@ -1895,15 +1902,18 @@ impl Chain {
             let mut mem_trie_update = mem_tries.update(*chunk_extra.state_root(), false)?;
 
             let (trie_changes, partial_state) =
-                mem_trie_update.cut(boundary_account.clone(), retain_mode);
+                mem_trie_update.retain_split_shard(boundary_account.clone(), retain_mode);
             let partial_storage = PartialStorage { nodes: partial_state };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
-            let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
-            *new_chunk_extra.state_root_mut() = new_state_root;
+            // TODO(#12019): set all fields of `ChunkExtra`. Consider stronger
+            // typing. Clarify where it should happen when `State` and
+            // `FlatState` update is implemented.
+            let mut child_chunk_extra = ChunkExtra::clone(&chunk_extra);
+            *child_chunk_extra.state_root_mut() = new_state_root;
 
             let mut chain_store_update = ChainStoreUpdate::new(&mut self.chain_store);
-            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, new_chunk_extra);
+            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),
@@ -2028,7 +2038,7 @@ impl Chain {
 
             if need_storage_update {
                 // TODO(#12019): consider adding to catchup flow.
-                self.process_instant_resharding_storage_update(&block, shard_uid)?;
+                self.process_memtrie_resharding_storage_update(&block, shard_uid)?;
 
                 // Update flat storage head to be the last final block. Note that this update happens
                 // in a separate db transaction from the update from block processing. This is intentional

@@ -793,16 +793,16 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         let mut ordered_nodes = Vec::new();
         Self::post_order_traverse_updated_nodes(0, &self.updated_nodes, &mut ordered_nodes);
 
-        let nodes_hashes_and_serialized =
+        let hashes_and_serialized_nodes =
             self.compute_hashes_and_serialized_nodes(&ordered_nodes, &self.updated_nodes);
 
-        let node_ids_with_hashes = nodes_hashes_and_serialized
+        let node_ids_with_hashes = hashes_and_serialized_nodes
             .iter()
             .map(|(node_id, hash, _)| (*node_id, *hash))
             .collect();
         (
             MemTrieChanges { node_ids_with_hashes, updated_nodes: self.updated_nodes },
-            nodes_hashes_and_serialized
+            hashes_and_serialized_nodes
                 .into_iter()
                 .map(|(_, hash, serialized)| (hash, serialized))
                 .collect(),
