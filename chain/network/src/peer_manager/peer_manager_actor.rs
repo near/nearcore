@@ -4,7 +4,8 @@ use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
-    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, StatePartRequest
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
+    StatePartRequest,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -18,7 +19,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, Tier3RequestBody, StateSyncEvent
+    SetChainInfo, SnapshotHostInfo, StateSyncEvent, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -623,15 +624,13 @@ impl PeerManagerActor {
     /// can be lost if the timeout is reached while it is in flight.
     fn stop_tier3_idle_connections(&self) {
         let now = self.clock.now();
-        let _ = self.state
+        let _ = self
+            .state
             .tier3
             .load()
             .ready
             .values()
-            .filter(|p| {
-                now - p.last_time_received_message.load()
-                    > TIER3_IDLE_TIMEOUT
-            })
+            .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
             .map(|p| p.stop(None));
     }
 
@@ -873,7 +872,12 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, sync_prev_prev_hash, part_id } => {
+            NetworkRequests::StateRequestPart {
+                shard_id,
+                sync_hash,
+                sync_prev_prev_hash,
+                part_id,
+            } => {
                 let mut success = false;
 
                 // The node needs to include its own public address in the request
@@ -882,26 +886,23 @@ impl PeerManagerActor {
                     if let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
                         &sync_prev_prev_hash,
                         shard_id,
-                        part_id
+                        part_id,
                     ) {
-                        success = self.state.send_message_to_peer(
-                            &self.clock,
-                            tcp::Tier::T2,
-                            self.state.sign_message(
+                        success =
+                            self.state.send_message_to_peer(
                                 &self.clock,
-                                RawRoutedMessage {
-                                    target: PeerIdOrHash::PeerId(peer_id),
-                                    body: RoutedMessageBody::StatePartRequest(StatePartRequest{
-                                        shard_id,
-                                        sync_hash,
-                                        part_id,
-                                        addr,
-                                    })
-                                }
-                            ),
-                        );
-                    }
-                    else {
+                                tcp::Tier::T2,
+                                self.state.sign_message(
+                                    &self.clock,
+                                    RawRoutedMessage {
+                                        target: PeerIdOrHash::PeerId(peer_id),
+                                        body: RoutedMessageBody::StatePartRequest(
+                                            StatePartRequest { shard_id, sync_hash, part_id, addr },
+                                        ),
+                                    },
+                                ),
+                            );
+                    } else {
                         tracing::debug!(target: "network", "no hosts available for {shard_id}, {sync_prev_prev_hash}");
                     }
                 }

@@ -90,7 +90,6 @@ impl StatePartHost {
     }
 }
 
-
 #[derive(Default)]
 struct PartPeerSelector {
     /// Ordered collection of available hosts for some desired state part

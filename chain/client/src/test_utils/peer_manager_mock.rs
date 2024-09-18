@@ -1,4 +1,6 @@
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent};
+use near_network::types::{
+    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
+};
 
 pub struct PeerManagerMock {
     handle: Box<

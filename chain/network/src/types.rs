@@ -249,7 +249,7 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
-        part_id: u64
+        part_id: u64,
     },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },

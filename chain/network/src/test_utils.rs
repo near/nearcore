@@ -1,7 +1,7 @@
 use crate::network_protocol::PeerInfo;
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent
+    SetChainInfo, StateSyncEvent,
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};

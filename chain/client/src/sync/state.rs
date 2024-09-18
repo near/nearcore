@@ -27,7 +27,7 @@ use crate::sync::external::{
 use borsh::BorshDeserialize;
 use futures::{future, FutureExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{SendAsync, CanSend};
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::{ApplyStatePartsRequest, LoadMemtrieRequest};
 use near_chain::near_chain_primitives;
@@ -39,7 +39,8 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest, StateSyncEvent,
+    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    PeerManagerMessageRequest, StateSyncEvent,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -142,9 +143,7 @@ impl StateSync {
         catchup: bool,
     ) -> Self {
         let external = match sync_config {
-            SyncConfig::Peers => {
-                None
-            }
+            SyncConfig::Peers => None,
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
                 num_concurrent_requests,
@@ -461,9 +460,7 @@ impl StateSync {
         _sync_hash: CryptoHash,
     ) {
         // TODO: where is the part validated though?
-        self.network_adapter.send(StateSyncEvent::StatePartReceived (
-            shard_id, part_id
-        ));
+        self.network_adapter.send(StateSyncEvent::StatePartReceived(shard_id, part_id));
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
@@ -555,18 +552,18 @@ impl StateSync {
             near_performance_metrics::actix::spawn(
                 std::any::type_name::<Self>(),
                 self.network_adapter
-                .send_async(PeerManagerMessageRequest::NetworkRequests(
+                    .send_async(PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id },
-                ))
-                .then(move |result| {
-                    if let Ok(NetworkResponses::RouteNotFound) =
-                        result.map(|f| f.as_network_response())
-                    {
-                        // Send a StateRequestHeader on the next iteration
-                        run_me.store(true, Ordering::SeqCst);
-                    }
-                    future::ready(())
-                }),
+                    ))
+                    .then(move |result| {
+                        if let Ok(NetworkResponses::RouteNotFound) =
+                            result.map(|f| f.as_network_response())
+                        {
+                            // Send a StateRequestHeader on the next iteration
+                            run_me.store(true, Ordering::SeqCst);
+                        }
+                        future::ready(())
+                    }),
             );
         }
     }
@@ -585,8 +582,11 @@ impl StateSync {
         // Parts are ordered such that its index match its part_id.
         let mut peer_requests_sent = 0;
         for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
-            if self.external.is_some() && download.state_requests_count >= EXTERNAL_STORAGE_FALLBACK_THRESHOLD {
-                let StateSyncExternal { chain_id, semaphore, external } = self.external.as_ref().unwrap();
+            if self.external.is_some()
+                && download.state_requests_count >= EXTERNAL_STORAGE_FALLBACK_THRESHOLD
+            {
+                let StateSyncExternal { chain_id, semaphore, external } =
+                    self.external.as_ref().unwrap();
                 if semaphore.available_permits() > 0 {
                     let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                     let epoch_id = sync_block_header.epoch_id();
@@ -1224,7 +1224,12 @@ fn request_part_from_peers(
         "StateSync",
         network_adapter
             .send_async(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::StateRequestPart { shard_id, sync_hash, sync_prev_prev_hash, part_id },
+                NetworkRequests::StateRequestPart {
+                    shard_id,
+                    sync_hash,
+                    sync_prev_prev_hash,
+                    part_id,
+                },
             ))
             .then(move |result| {
                 if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())

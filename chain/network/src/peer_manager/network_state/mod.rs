@@ -782,12 +782,8 @@ impl NetworkState {
                 // TODO: cap the size of this queue,
                 // perhaps preferentially allowing requests made by validators
                 self.tier3_requests.lock().push_back(Tier3Request {
-                    peer_info: PeerInfo {
-                        id: peer_id,
-                        addr: Some(request.addr),
-                        account_id: None,
-                    },
-                    body: Tier3RequestBody::StatePartRequest (
+                    peer_info: PeerInfo { id: peer_id, addr: Some(request.addr), account_id: None },
+                    body: Tier3RequestBody::StatePartRequest(
                         request.shard_id,
                         request.sync_hash,
                         request.part_id,

@@ -308,7 +308,9 @@ impl PeerActor {
         // Override force_encoding for outbound Tier1 and Tier3 connections;
         // Tier1Handshake and Tier3Handshake are supported only with proto encoding.
         let force_encoding = match &stream.type_ {
-            tcp::StreamType::Outbound { tier, .. } if tier == &tcp::Tier::T1 || tier == &tcp::Tier::T3 => {
+            tcp::StreamType::Outbound { tier, .. }
+                if tier == &tcp::Tier::T1 || tier == &tcp::Tier::T3 =>
+            {
                 Some(Encoding::Proto)
             }
             _ => force_encoding,
@@ -1156,7 +1158,9 @@ impl PeerActor {
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) | PeerMessage::Tier3Handshake(_) => {
+            PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
@@ -1202,7 +1206,9 @@ impl PeerActor {
 
                 // Record our own IP address as observed by the peer.
                 if self.network_state.my_public_addr.read().is_none() {
-                    if let Some(my_peer_info) = direct_peers.iter().find(|peer_info| peer_info.id == node_id) {
+                    if let Some(my_peer_info) =
+                        direct_peers.iter().find(|peer_info| peer_info.id == node_id)
+                    {
                         if let Some(addr) = my_peer_info.addr {
                             let mut my_public_addr = self.network_state.my_public_addr.write();
                             *my_public_addr = Some(addr);
