@@ -60,6 +60,8 @@ struct StatePartHost {
     /// Priority score computed over the peer_id, shard_id, and part_id
     score: [u8; 32],
     /// The number of times we have already queried this host for this part
+    /// TODO: consider storing this on disk, so we can remember who hasn't
+    /// been able to provide us with the parts across restarts
     num_requests: usize,
 }
 
@@ -129,7 +131,7 @@ struct Inner {
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
     /// The hash for the most recent active state sync, inferred from part requests
     sync_hash: Option<CryptoHash>,
-    /// Number of available hosts for the active state sync, by shard
+    /// Available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
     /// Local data structures used to distribute state part requests among known hosts
     peer_selector: HashMap<(ShardId, u64), PartPeerSelector>,
@@ -192,10 +194,8 @@ impl Inner {
             }
         }
 
-        let selector = &mut self
-            .peer_selector
-            .entry((shard_id, part_id))
-            .or_insert(PartPeerSelector::default());
+        let selector =
+            self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
 
         // Insert more hosts into the selector if needed
         let available_hosts = self.hosts_for_shard.get(&shard_id)?;
