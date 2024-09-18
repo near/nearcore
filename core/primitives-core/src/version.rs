@@ -225,7 +225,8 @@ impl ProtocolFeature {
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
             ProtocolFeature::IncreaseStorageProofSizeSoftLimit
-            | ProtocolFeature::ChunkEndorsementV2 => 72,
+            | ProtocolFeature::ChunkEndorsementV2
+            | ProtocolFeature::ChunkEndorsementsInBlockHeader => 72,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -244,7 +245,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
         }
     }
 
