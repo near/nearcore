@@ -675,24 +675,32 @@ impl StateSync {
                 for ((part_id, download), target) in
                     parts_to_fetch(new_shard_sync_download).zip(possible_targets_sampler)
                 {
-                    sent_request_part(
-                        self.clock.clone(),
-                        target.clone(),
-                        part_id,
-                        shard_id,
-                        sync_hash,
-                        last_part_id_requested,
-                        requested_target,
-                        self.timeout,
-                    );
-                    request_part_from_peers(
-                        part_id,
-                        target,
-                        download,
-                        shard_id,
-                        sync_hash,
-                        &self.network_adapter,
-                    );
+                    // The request sent to the network adapater needs to include the sync_prev_prev_hash
+                    // so that a peer hosting the correct snapshot can be selected.
+                    if let Ok(header) = chain.get_block_header(&sync_hash) {
+                        if let Ok(prev_header) = chain.get_block_header(&header.prev_hash()) {
+                            let sync_prev_prev_hash = prev_header.prev_hash();
+                            sent_request_part(
+                                self.clock.clone(),
+                                target.clone(),
+                                part_id,
+                                shard_id,
+                                sync_hash,
+                                last_part_id_requested,
+                                requested_target,
+                                self.timeout,
+                            );
+                            request_part_from_peers(
+                                part_id,
+                                target,
+                                download,
+                                shard_id,
+                                sync_hash,
+                                *sync_prev_prev_hash,
+                                &self.network_adapter,
+                            );
+                        }
+                    }
                 }
             }
             StateSyncInner::External { chain_id, semaphore, external } => {
@@ -1304,18 +1312,24 @@ fn request_part_from_peers(
     download: &mut DownloadStatus,
     shard_id: ShardId,
     sync_hash: CryptoHash,
+    sync_prev_prev_hash: CryptoHash,
     network_adapter: &PeerManagerAdapter,
 ) {
     download.run_me.store(false, Ordering::SeqCst);
     download.state_requests_count += 1;
-    download.last_target = Some(peer_id.clone());
+    download.last_target = Some(peer_id);
     let run_me = download.run_me.clone();
 
     near_performance_metrics::actix::spawn(
         "StateSync",
         network_adapter
             .send_async(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id },
+                NetworkRequests::StateRequestPart {
+                    shard_id,
+                    sync_hash,
+                    sync_prev_prev_hash,
+                    part_id,
+                },
             ))
             .then(move |result| {
                 // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph

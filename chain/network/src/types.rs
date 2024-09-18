@@ -245,7 +245,12 @@ pub enum NetworkRequests {
     /// Request state header for given shard at given state root.
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        sync_prev_prev_hash: CryptoHash,
+        part_id: u64,
+    },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
@@ -497,4 +502,18 @@ pub struct AccountIdOrPeerTrackingShard {
     pub only_archival: bool,
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// An inbound request to which a response should be sent over Tier3
+pub struct Tier3Request {
+    /// Target peer to send the response to
+    pub peer_info: PeerInfo,
+    /// Contents of the request
+    pub body: Tier3RequestBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Tier3RequestBody {
+    StatePartRequest(ShardId, CryptoHash, u64),
 }

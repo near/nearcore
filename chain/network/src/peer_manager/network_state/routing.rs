@@ -210,9 +210,14 @@ impl NetworkState {
 
         tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
         let from = &conn.peer_info.id;
+
         match conn.tier {
             tcp::Tier::T1 => self.tier1_route_back.lock().insert(&clock, msg.hash(), from.clone()),
             tcp::Tier::T2 => self.tier2_route_back.lock().insert(&clock, msg.hash(), from.clone()),
+            tcp::Tier::T3 => {
+                // TIER3 connections are direct by design; no routing is performed
+                debug_assert!(false)
+            }
         }
     }
 
