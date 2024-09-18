@@ -2631,7 +2631,13 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         ("test2".parse().unwrap(), 500),
         ("test3".parse().unwrap(), 500),
     ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
         (1, ValidatorStats { produced: 100, expected: 100 }),
@@ -2687,7 +2693,13 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         ("test2".parse().unwrap(), 500),
         ("test3".parse().unwrap(), 499),
     ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
         (1, ValidatorStats { produced: 100, expected: 100 }),
@@ -2743,7 +2755,13 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         ("test2".parse().unwrap(), 500),
         ("test3".parse().unwrap(), 500),
     ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
         (1, ValidatorStats { produced: 100, expected: 100 }),
