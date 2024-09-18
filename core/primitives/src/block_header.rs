@@ -593,6 +593,161 @@ impl BlockHeader {
         clock: near_time::Clock,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
+        Self::new_impl(
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
+            height,
+            prev_hash,
+            block_body_hash,
+            prev_state_root,
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root,
+            chunk_tx_root,
+            outcome_root,
+            timestamp,
+            challenges_root,
+            random_value,
+            prev_validator_proposals,
+            chunk_mask,
+            block_ordinal,
+            epoch_id,
+            next_epoch_id,
+            next_gas_price,
+            total_supply,
+            challenges_result,
+            Some(signer),
+            None, // signature
+            last_final_block,
+            last_ds_final_block,
+            epoch_sync_data_hash,
+            approvals,
+            next_bp_hash,
+            block_merkle_root,
+            prev_height,
+            clock,
+            chunk_endorsements,
+        )
+    }
+
+    /// Creates a new BlockHeader from information in the view of an existing block.
+    ///
+    /// Panics if the hash of the created header does not match the `hash` in the arguments.   
+    #[cfg(feature = "clock")]
+    pub fn from_view(
+        expected_hash: &CryptoHash,
+        epoch_protocol_version: ProtocolVersion,
+        height: BlockHeight,
+        prev_hash: CryptoHash,
+        block_body_hash: CryptoHash,
+        prev_state_root: MerkleHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
+        chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
+        timestamp: u64,
+        challenges_root: MerkleHash,
+        random_value: CryptoHash,
+        prev_validator_proposals: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
+        block_ordinal: NumBlocks,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_gas_price: Balance,
+        total_supply: Balance,
+        challenges_result: ChallengesResult,
+        signature: Signature,
+        last_final_block: CryptoHash,
+        last_ds_final_block: CryptoHash,
+        epoch_sync_data_hash: Option<CryptoHash>,
+        approvals: Vec<Option<Box<Signature>>>,
+        next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
+        prev_height: BlockHeight,
+        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
+    ) -> Self {
+        let header = Self::new_impl(
+            epoch_protocol_version,
+            epoch_protocol_version,
+            height,
+            prev_hash,
+            block_body_hash,
+            prev_state_root,
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root,
+            chunk_tx_root,
+            outcome_root,
+            timestamp,
+            challenges_root,
+            random_value,
+            prev_validator_proposals,
+            chunk_mask,
+            block_ordinal,
+            epoch_id,
+            next_epoch_id,
+            next_gas_price,
+            total_supply,
+            challenges_result,
+            None, // signer
+            Some(signature),
+            last_final_block,
+            last_ds_final_block,
+            epoch_sync_data_hash,
+            approvals,
+            next_bp_hash,
+            block_merkle_root,
+            prev_height,
+            near_time::Clock::real(),
+            chunk_endorsements,
+        );
+        // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
+        // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
+        // of the header changes.
+        if header.hash() != expected_hash {
+            tracing::debug!(height, header_hash=?header.hash(), ?expected_hash, "Hash of the created header does not match expected hash");
+        }
+        header
+    }
+
+    #[cfg(feature = "clock")]
+    fn new_impl(
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
+        height: BlockHeight,
+        prev_hash: CryptoHash,
+        block_body_hash: CryptoHash,
+        prev_state_root: MerkleHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
+        chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
+        timestamp: u64,
+        challenges_root: MerkleHash,
+        random_value: CryptoHash,
+        prev_validator_proposals: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
+        block_ordinal: NumBlocks,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_gas_price: Balance,
+        total_supply: Balance,
+        challenges_result: ChallengesResult,
+        signer: Option<&ValidatorSigner>,
+        signature: Option<Signature>,
+        last_final_block: CryptoHash,
+        last_ds_final_block: CryptoHash,
+        epoch_sync_data_hash: Option<CryptoHash>,
+        approvals: Vec<Option<Box<Signature>>>,
+        next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
+        prev_height: BlockHeight,
+        clock: near_time::Clock,
+        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
+    ) -> Self {
+        assert_ne!(
+            signer.is_some(),
+            signature.is_some(),
+            "Exactly one of signer or signature must be provided"
+        );
         let inner_lite = BlockHeaderInnerLite {
             height,
             epoch_id,
@@ -604,10 +759,7 @@ impl BlockHeader {
             block_merkle_root,
         };
 
-        if chunk_endorsements.is_some() {
-            debug_assert!(ProtocolFeature::ChunkEndorsementsInBlockHeader
-                .enabled(this_epoch_protocol_version));
-            let chunk_endorsements = chunk_endorsements.unwrap();
+        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(this_epoch_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV5 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -630,13 +782,32 @@ impl BlockHeader {
                     next_epoch_protocol_version,
                     clock,
                 ),
-                chunk_endorsements,
+                chunk_endorsements: chunk_endorsements.unwrap_or_else(|| {
+                    panic!(
+                        "Chunk endorsements bitmap is required at protocol version {}",
+                        this_epoch_protocol_version
+                    )
+                }),
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) = if let Some(signer) = signer {
+                signer.sign_block_header_parts(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                )
+            } else {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (
+                    hash,
+                    signature.unwrap_or_else(|| {
+                        panic!("Signature is required when signer is not provided")
+                    }),
+                )
+            };
             Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
                 prev_hash,
                 inner_lite,
@@ -668,11 +839,25 @@ impl BlockHeader {
                     clock,
                 ),
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) = if let Some(signer) = signer {
+                signer.sign_block_header_parts(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                )
+            } else {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (
+                    hash,
+                    signature.unwrap_or_else(|| {
+                        panic!("Signature is required when signer is not provided")
+                    }),
+                )
+            };
             Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash,
                 inner_lite,
@@ -699,6 +884,7 @@ impl BlockHeader {
                 total_supply,
                 challenges_result,
                 signer,
+                signature,
                 last_final_block,
                 last_ds_final_block,
                 epoch_sync_data_hash,
@@ -730,7 +916,8 @@ impl BlockHeader {
         next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: &ValidatorSigner,
+        signer: Option<&ValidatorSigner>,
+        signature: Option<Signature>,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
         epoch_sync_data_hash: Option<CryptoHash>,
@@ -763,11 +950,25 @@ impl BlockHeader {
                 approvals,
                 latest_protocol_version: crate::version::PROTOCOL_VERSION,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) = if let Some(signer) = signer {
+                signer.sign_block_header_parts(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                )
+            } else {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (
+                    hash,
+                    signature.unwrap_or_else(|| {
+                        panic!("Signature is required when signer is not provided")
+                    }),
+                )
+            };
             Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash,
                 inner_lite,
@@ -795,11 +996,25 @@ impl BlockHeader {
                 approvals,
                 latest_protocol_version: crate::version::PROTOCOL_VERSION,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) = if let Some(signer) = signer {
+                signer.sign_block_header_parts(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                )
+            } else {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (
+                    hash,
+                    signature.unwrap_or_else(|| {
+                        panic!("Signature is required when signer is not provided")
+                    }),
+                )
+            };
             Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash,
                 inner_lite,
@@ -830,11 +1045,25 @@ impl BlockHeader {
                     clock,
                 ),
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) = if let Some(signer) = signer {
+                signer.sign_block_header_parts(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                )
+            } else {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (
+                    hash,
+                    signature.unwrap_or_else(|| {
+                        panic!("Signature is required when signer is not provided")
+                    }),
+                )
+            };
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
                 inner_lite,
