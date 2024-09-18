@@ -37,6 +37,10 @@ impl EntityDataStruct {
     pub fn add(&mut self, name: &str, value: EntityDataValue) {
         self.entries.push(EntityDataEntry { name: name.to_string(), value });
     }
+
+    pub fn add_string(&mut self, name: &str, value: &str) {
+        self.add(name, EntityDataValue::String(value.to_string()));
+    }
 }
 
 /// All queries supported by the Entity Debug UI.
@@ -74,6 +78,9 @@ pub enum EntityQuery {
     OutcomeByReceiptIdAndBlockHash { receipt_id: CryptoHash, block_hash: CryptoHash },
     OutcomeByTransactionHash { transaction_hash: CryptoHash },
     OutcomeByTransactionHashAndBlockHash { transaction_hash: CryptoHash, block_hash: CryptoHash },
+    RawTrieNodeByHash { trie_node_hash: CryptoHash, shard_uid: ShardUId },
+    RawTrieRootByChunkHash { chunk_hash: CryptoHash },
+    RawTrieValueByHash { trie_value_hash: CryptoHash, shard_uid: ShardUId },
     ReceiptById { receipt_id: CryptoHash },
     ShardIdByAccountId { account_id: String, epoch_id: EpochId },
     ShardLayoutByEpochId { epoch_id: EpochId },
