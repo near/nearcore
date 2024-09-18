@@ -27,6 +27,7 @@ use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
+use num_rational::BigRational;
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
 use std::cmp::Ordering;
@@ -506,19 +507,30 @@ impl EpochManager {
             if ProtocolFeature::ChunkEndorsementsInBlockHeader
                 .enabled(epoch_info.protocol_version())
             {
+                // Compares validator accounts by applying comparators in the following order:
+                // First by online ratio, if equal then by stake, if equal then by account id.
+                let validator_comparator =
+                    |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
+                        let cmp_online_ratio = left.0.cmp(&right.0);
+                        cmp_online_ratio.then_with(|| {
+                            // Note: The unwrap operations below must not fail because the accounts ids are
+                            // taken from the validators in the same epoch info above.
+                            let cmp_stake = epoch_info
+                                .get_validator_stake(left.1)
+                                .unwrap()
+                                .cmp(&epoch_info.get_validator_stake(right.1).unwrap());
+                            cmp_stake.then_with(|| {
+                                let cmp_account_id = left.1.cmp(&right.1);
+                                cmp_account_id
+                            })
+                        })
+                    };
+
                 let mut sorted_validators = validator_block_chunk_stats
                     .iter()
-                    .map(|(account, stats)| {
-                        (
-                            get_sortable_validator_online_ratio(
-                                stats,
-                                Some(chunk_validator_only_kickout_threshold),
-                            ),
-                            account,
-                        )
-                    })
+                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
                     .collect::<Vec<_>>();
-                sorted_validators.sort();
+                sorted_validators.sort_by(validator_comparator);
                 sorted_validators
                     .into_iter()
                     .map(|(_, account)| account.clone())
