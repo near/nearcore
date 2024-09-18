@@ -515,10 +515,12 @@ impl EpochManager {
                         if cmp_ratio != Ordering::Equal {
                             cmp_ratio
                         } else {
+                            // Note: The unwrap operations below must not fail because the accounts ids are
+                            // taken from the validators in the same epoch info above. 
                             let left_stake =
-                                epoch_info.get_validator_stake(left.1).unwrap_or_default();
+                                epoch_info.get_validator_stake(left.1).unwrap();
                             let right_stake =
-                                epoch_info.get_validator_stake(right.1).unwrap_or_default();
+                                epoch_info.get_validator_stake(right.1).unwrap();
                             let cmp_stake = left_stake.cmp(&right_stake);
                             if cmp_stake != Ordering::Equal {
                                 cmp_stake
