@@ -141,10 +141,6 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         trie_update
     }
 
-    pub fn get_root(&self) -> Option<MemTrieNodePtr<M>> {
-        self.root.map(|id| id.as_ptr(self.memory))
-    }
-
     /// Internal function to take a node from the array of updated nodes, setting it
     /// to None. It is expected that place_node is then called to return the node to
     /// the same slot.
