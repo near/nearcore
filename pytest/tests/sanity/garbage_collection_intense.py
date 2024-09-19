@@ -85,11 +85,22 @@ assert 'SuccessValue' in res['result']['status']
 time.sleep(1)
 
 nodes[1].stop_checking_store()
+latest_block_height = 0
+tx_groups_sent = 0
 
 while True:
     block_id = nodes[1].get_latest_block()
-    if int(block_id.height) > TARGET_HEIGHT:
+
+    block_height = int(block_id.height)
+    if block_height > TARGET_HEIGHT:
         break
+    if block_height > latest_block_height:
+        latest_block_height = block_height
+        tx_groups_sent = 0
+    if tx_groups_sent >= 4:
+        continue
+    tx_groups_sent += 1
+    
     for i in range(1, 20):
         start = 0
         block_hash = nodes[1].get_latest_block().hash_bytes
