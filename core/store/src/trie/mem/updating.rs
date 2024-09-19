@@ -43,7 +43,7 @@ pub enum UpdatedMemTrieNode {
 }
 
 /// Keeps values and internal nodes accessed on updating memtrie.
-pub(crate) struct TrieAccesses {
+pub struct TrieAccesses {
     /// Hashes and encoded trie nodes.
     pub nodes: HashMap<CryptoHash, Arc<[u8]>>,
     /// Hashes of accessed values - because values themselves are not
@@ -148,12 +148,12 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// Internal function to take a node from the array of updated nodes, setting it
     /// to None. It is expected that place_node is then called to return the node to
     /// the same slot.
-    fn take_node(&mut self, index: UpdatedMemTrieNodeId) -> UpdatedMemTrieNode {
+    pub(crate) fn take_node(&mut self, index: UpdatedMemTrieNodeId) -> UpdatedMemTrieNode {
         self.updated_nodes.get_mut(index).unwrap().take().expect("Node taken twice")
     }
 
     /// Does the opposite of take_node; returns the node to the specified ID.
-    fn place_node(&mut self, index: UpdatedMemTrieNodeId, node: UpdatedMemTrieNode) {
+    pub(crate) fn place_node(&mut self, index: UpdatedMemTrieNodeId, node: UpdatedMemTrieNode) {
         assert!(self.updated_nodes[index].is_none(), "Node placed twice");
         self.updated_nodes[index] = Some(node);
     }
@@ -195,7 +195,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     }
 
     /// If the ID was old, converts it to an updated one.
-    fn ensure_updated(&mut self, node: OldOrUpdatedNodeId) -> UpdatedMemTrieNodeId {
+    pub(crate) fn ensure_updated(&mut self, node: OldOrUpdatedNodeId) -> UpdatedMemTrieNodeId {
         match node {
             OldOrUpdatedNodeId::Old(node_id) => self.convert_existing_to_updated(Some(node_id)),
             OldOrUpdatedNodeId::Updated(node_id) => node_id,

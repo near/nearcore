@@ -1899,10 +1899,11 @@ impl Chain {
             (children_shard_uids[1], RetainMode::Right),
         ] {
             let mut mem_tries = mem_tries.write().unwrap();
-            let mut mem_trie_update = mem_tries.update(*chunk_extra.state_root(), false)?;
+            let mem_trie_update = mem_tries.update(*chunk_extra.state_root(), true)?;
 
-            let (trie_changes, partial_state) =
+            let (trie_changes, _) =
                 mem_trie_update.retain_split_shard(boundary_account.clone(), retain_mode);
+            let partial_state = PartialState::default();
             let partial_storage = PartialStorage { nodes: partial_state };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
