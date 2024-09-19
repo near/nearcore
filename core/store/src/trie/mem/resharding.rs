@@ -18,7 +18,7 @@ enum RetainDecision {
     /// Retain the whole subtree.
     RetainAll,
     /// The whole subtree is not retained.
-    NoRetain,
+    DiscardAll,
     /// Descend into all child subtrees.
     Descend,
 }
@@ -78,12 +78,14 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         let decision = retain_decision(&key_nibbles, intervals_nibbles);
         match decision {
             RetainDecision::RetainAll => return,
-            RetainDecision::NoRetain => {
+            RetainDecision::DiscardAll => {
                 let _ = self.take_node(node_id);
                 self.place_node(node_id, UpdatedMemTrieNode::Empty);
                 return;
             }
-            RetainDecision::Descend => {}
+            RetainDecision::Descend => {
+                // We need to descend into all children. The logic follows below.
+            }
         }
 
         let node = self.take_node(node_id);
@@ -163,8 +165,10 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
         // If key can be extended to be equal to start or end of the interval,
         // its subtree may have keys inside the interval. At the same time,
         // it can be extended with bytes which would fall outside the interval.
+        //
         // For example, if key is "a" and interval is "ab".."cd", subtree may
-        // contain "aa" which must be excluded.
+        // contain both "aa" which must be excluded and "ac" which must be
+        // retained.
         if interval.start.starts_with(key) || interval.end.starts_with(key) {
             should_descend = true;
             continue;
@@ -183,7 +187,7 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
     if should_descend {
         RetainDecision::Descend
     } else {
-        RetainDecision::NoRetain
+        RetainDecision::DiscardAll
     }
 }
 

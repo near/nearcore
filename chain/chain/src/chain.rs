@@ -1951,7 +1951,6 @@ impl Chain {
             should_save_state_transition_data,
         )?;
         chain_update.commit()?;
-
         Ok(new_head)
     }
 
