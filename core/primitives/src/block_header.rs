@@ -593,9 +593,12 @@ impl BlockHeader {
         clock: near_time::Clock,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
+        let latest_protocol_version =
+            crate::version::get_protocol_version(next_epoch_protocol_version, clock);
         Self::new_impl(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
+            latest_protocol_version,
             height,
             prev_hash,
             block_body_hash,
@@ -624,7 +627,6 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
             prev_height,
-            clock,
             chunk_endorsements,
         )
     }
@@ -632,7 +634,6 @@ impl BlockHeader {
     /// Creates a new BlockHeader from information in the view of an existing block.
     ///
     /// Panics if the hash of the created header does not match the `hash` in the arguments.   
-    #[cfg(feature = "clock")]
     pub fn from_view(
         expected_hash: &CryptoHash,
         epoch_protocol_version: ProtocolVersion,
@@ -668,6 +669,7 @@ impl BlockHeader {
         let header = Self::new_impl(
             epoch_protocol_version,
             epoch_protocol_version,
+            epoch_protocol_version,
             height,
             prev_hash,
             block_body_hash,
@@ -696,7 +698,6 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
             prev_height,
-            near_time::Clock::real(),
             chunk_endorsements,
         );
         // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
@@ -708,10 +709,10 @@ impl BlockHeader {
         header
     }
 
-    #[cfg(feature = "clock")]
     fn new_impl(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
         block_body_hash: CryptoHash,
@@ -740,7 +741,6 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
-        clock: near_time::Clock,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
@@ -776,10 +776,7 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
+                latest_protocol_version,
                 chunk_endorsements,
             };
             let (hash, signature) =
@@ -810,10 +807,7 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
+                latest_protocol_version,
             };
             let (hash, signature) =
                 Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
@@ -830,6 +824,7 @@ impl BlockHeader {
                 inner_lite,
                 this_epoch_protocol_version,
                 next_epoch_protocol_version,
+                latest_protocol_version,
                 prev_hash,
                 prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
@@ -849,7 +844,6 @@ impl BlockHeader {
                 epoch_sync_data_hash,
                 approvals,
                 prev_height,
-                clock,
             )
         }
     }
@@ -858,11 +852,11 @@ impl BlockHeader {
     /// This function still preserves code for old block header versions. These code are no longer
     /// used in production, but we still have features tests in the code that uses them.
     /// So we still keep the old code here.
-    #[cfg(feature = "clock")]
     fn old_impl(
         inner_lite: BlockHeaderInnerLite,
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         prev_hash: CryptoHash,
         prev_chunk_outgoing_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -882,7 +876,6 @@ impl BlockHeader {
         epoch_sync_data_hash: Option<CryptoHash>,
         approvals: Vec<Option<Box<Signature>>>,
         prev_height: BlockHeight,
-        clock: near_time::Clock,
     ) -> Self {
         let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
@@ -907,7 +900,7 @@ impl BlockHeader {
                 last_final_block,
                 last_ds_final_block,
                 approvals,
-                latest_protocol_version: crate::version::PROTOCOL_VERSION,
+                latest_protocol_version,
             };
             let (hash, signature) =
                 Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
@@ -936,7 +929,7 @@ impl BlockHeader {
                 last_final_block,
                 last_ds_final_block,
                 approvals,
-                latest_protocol_version: crate::version::PROTOCOL_VERSION,
+                latest_protocol_version,
             };
             let (hash, signature) =
                 Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
@@ -965,10 +958,7 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
+                latest_protocol_version,
             };
             let (hash, signature) =
                 Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
@@ -1036,6 +1026,7 @@ impl BlockHeader {
         Self::new_impl(
             genesis_protocol_version,
             genesis_protocol_version,
+            genesis_protocol_version,
             height,
             CryptoHash::default(), // prev_hash
             block_body_hash,
@@ -1064,7 +1055,6 @@ impl BlockHeader {
             next_bp_hash,
             CryptoHash::default(), // block_merkle_root,
             0,                     // prev_height
-            near_time::Clock::real(),
             Some(ChunkEndorsementsBitmap::genesis()),
         )
     }
