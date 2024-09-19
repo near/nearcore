@@ -417,9 +417,11 @@ impl BlockHeader {
 
     pub fn init(&mut self) {
         match self {
-            BlockHeader::BlockHeaderV1(header) => Arc::make_mut(header).init(),
-            BlockHeader::BlockHeaderV2(header) => Arc::make_mut(header).init(),
-            BlockHeader::BlockHeaderV3(header) => Arc::make_mut(header).init(),
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
+                unreachable!("old header should not appear in tests")
+            }
             BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header).init(),
             BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).init(),
         }
