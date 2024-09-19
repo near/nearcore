@@ -1,7 +1,7 @@
 use super::arena::{ArenaMemory, ArenaMut};
 use super::flexible_data::children::ChildrenView;
 use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
-use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
+use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap, TRIE_COSTS};
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::hash::{hash, CryptoHash};
