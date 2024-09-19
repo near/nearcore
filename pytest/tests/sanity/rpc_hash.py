@@ -296,8 +296,9 @@ class HashTestCase(unittest.TestCase):
                 if got_all_set and got_some_unset and count >= 10:
                     break
         finally:
-            for node in nodes:
-                node.cleanup()
+            print('FINALLY')
+            # for node in nodes:
+            #     node.cleanup()
 
     def test_block_hash_v1(self):
         """Starts a cluster using protocol version 24 and verifies block hashes.
