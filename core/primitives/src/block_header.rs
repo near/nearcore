@@ -559,6 +559,7 @@ impl BlockHeader {
         combine_hash(&hash_inner, &prev_hash)
     }
 
+    /// Creates BlockHeader for a newly produced block.
     #[cfg(feature = "clock")]
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
@@ -631,9 +632,7 @@ impl BlockHeader {
         )
     }
 
-    /// Creates a new BlockHeader from information in the view of an existing block.
-    ///
-    /// Panics if the hash of the created header does not match the `hash` in the arguments.   
+    /// Creates a new BlockHeader from information in the view of an existing block.  
     pub fn from_view(
         expected_hash: &CryptoHash,
         epoch_protocol_version: ProtocolVersion,
@@ -709,6 +708,7 @@ impl BlockHeader {
         header
     }
 
+    /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
     fn new_impl(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
