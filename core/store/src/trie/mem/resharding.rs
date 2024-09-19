@@ -28,7 +28,8 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// Leaves the left or right part of the trie, depending on the retain mode.
     ///
     /// Returns the changes to be applied to in-memory trie and the proof of
-    /// the split operation.
+    /// the split operation. Doesn't modifies trie itself, it's a caller's
+    /// responsibility to apply the changes.
     pub fn retain_split_shard(
         self,
         _boundary_account: AccountId,
@@ -188,12 +189,12 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
 
 // TODO(#12074): tests for
 // - multiple retain ranges
+// - result is empty, or no changes are made
 // - removing keys one-by-one gives the same result as corresponding range retain
 // - `retain_split_shard` API
 // - all results of squashing branch
 // - checking not accessing not-inlined nodes
 // - proof correctness
-// - (maybe) retain result is empty or complete tree
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
