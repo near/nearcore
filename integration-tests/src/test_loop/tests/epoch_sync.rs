@@ -338,7 +338,7 @@ fn test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     let final_head_height_old = setup.chain_final_head_height(0);
     let final_head_height_new = setup.chain_final_head_height(4);
     sanity_check_epoch_sync_proof(&new_proof, final_head_height_new, &setup.genesis.config);
-    // Test loop shutdown mechainsm should not have left any new block messages unhandled,
+    // Test loop shutdown mechanism should not have left any new block messages unhandled,
     // so the nodes should be at the same height in the end.
     assert_eq!(final_head_height_old, final_head_height_new);
     assert_eq!(old_proof, new_proof);

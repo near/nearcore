@@ -112,6 +112,7 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Like stores_override, but all cold stores are None.
     pub fn stores_override_hot_only(mut self, stores: Vec<Store>) -> Self {
         self.stores_override = Some(stores.into_iter().map(|store| (store, None)).collect());
         self

@@ -143,18 +143,19 @@ impl EpochSync {
             return Err(Error::Other("Need at least three epochs to epoch sync".to_string()));
         }
 
-        let all_past_epochs = Self::get_all_past_epochs(
+        let all_past_epochs_since_last_proof = Self::get_past_epoch_proofs_in_range(
             &store,
             last_epoch_we_have_proof_for,
             next_epoch,
             &final_block_header_in_current_epoch,
         )?;
-        if all_past_epochs.is_empty() {
+        if all_past_epochs_since_last_proof.is_empty() {
             return Err(Error::Other(
                 "Programming error: past epochs should not be empty".to_string(),
             ));
         }
-        let prev_epoch = *all_past_epochs.last().unwrap().last_final_block_header.epoch_id();
+        let prev_epoch =
+            *all_past_epochs_since_last_proof.last().unwrap().last_final_block_header.epoch_id();
         let prev_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, prev_epoch.0.as_bytes())?
             .ok_or_else(|| Error::EpochOutOfBounds(prev_epoch))?;
@@ -228,7 +229,7 @@ impl EpochSync {
             .map(|proof| proof.past_epochs)
             .unwrap_or_else(Vec::new)
             .into_iter()
-            .chain(all_past_epochs.into_iter())
+            .chain(all_past_epochs_since_last_proof.into_iter())
             .collect();
         let proof = EpochSyncProof {
             past_epochs: all_past_epochs_including_old_proof,
@@ -259,7 +260,7 @@ impl EpochSync {
     /// (both exclusive). `current_epoch_any_header` is any block header in the current epoch,
     /// which is the epoch before `next_epoch`.
     #[instrument(skip(store, current_epoch_any_header))]
-    fn get_all_past_epochs(
+    fn get_past_epoch_proofs_in_range(
         store: &Store,
         after_epoch: EpochId,
         next_epoch: EpochId,
