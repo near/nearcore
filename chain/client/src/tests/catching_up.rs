@@ -101,8 +101,9 @@ enum ReceiptsSyncPhases {
 pub struct StateRequestStruct {
     pub shard_id: u64,
     pub sync_hash: CryptoHash,
+    pub sync_prev_prev_hash: Option<CryptoHash>,
     pub part_id: Option<u64>,
-    pub peer_id: PeerId,
+    pub peer_id: Option<PeerId>,
 }
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
@@ -268,8 +269,9 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 let srs = StateRequestStruct {
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
+                                    sync_prev_prev_hash: None,
                                     part_id: None,
-                                    peer_id: peer_id.clone(),
+                                    peer_id: Some(peer_id.clone()),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))
@@ -283,16 +285,17 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                         if let NetworkRequests::StateRequestPart {
                             shard_id,
                             sync_hash,
+                            sync_prev_prev_hash,
                             part_id,
-                            peer_id,
                         } = msg
                         {
                             if sync_hold {
                                 let srs = StateRequestStruct {
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
+                                    sync_prev_prev_hash: Some(*sync_prev_prev_hash),
                                     part_id: Some(*part_id),
-                                    peer_id: peer_id.clone(),
+                                    peer_id: None,
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))

@@ -13,7 +13,7 @@ use crate::state_witness::{
 };
 use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo,
+    SetChainInfo, StateSyncEvent,
 };
 use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -186,6 +186,10 @@ impl TestLoopNetworkSharedState {
 
 impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
     fn handle(&mut self, _msg: SetChainInfo) {}
+}
+
+impl Handler<StateSyncEvent> for TestLoopPeerManagerActor {
+    fn handle(&mut self, _msg: StateSyncEvent) {}
 }
 
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {

@@ -216,6 +216,9 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 panic!("Tier1Handshake is not supported in Borsh encoding")
             }
             mem::PeerMessage::Tier2Handshake(h) => net::PeerMessage::Handshake((&h).into()),
+            mem::PeerMessage::Tier3Handshake(_) => {
+                panic!("Tier3Handshake is not supported in Borsh encoding")
+            }
             mem::PeerMessage::HandshakeFailure(pi, hfr) => {
                 net::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
