@@ -15,4 +15,3 @@ wasm_storage_read_value_byte: { old: 5_611_005, new: { gas: 5_611_004, compute: 
 wasm_storage_large_read_overhead_base: { old: 0, new: { gas: 1, compute: 41_000_000_000 } }
 wasm_storage_large_read_overhead_byte: { old: 0, new: { gas: 1, compute: 3_111_005 } }
 wasm_touching_trie_node: { old: { gas: 16_101_955_926, compute: 110_000_000_000 }, new: { gas: 16_101_955_926, compute: 20_000_000_000 } }
-
