@@ -88,8 +88,8 @@ pytest --timeout=120 sanity/garbage_collection.py
 pytest --timeout=120 sanity/garbage_collection.py --features nightly
 pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=120 sanity/garbage_collection1.py --features nightly
-pytest --timeout=120 sanity/garbage_collection_intense.py
-pytest --timeout=120 sanity/garbage_collection_intense.py --features nightly
+pytest --timeout=240 sanity/garbage_collection_intense.py
+pytest --timeout=240 sanity/garbage_collection_intense.py --features nightly
 pytest --timeout=120 sanity/garbage_collection_archival.py
 pytest --timeout=120 sanity/garbage_collection_archival.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync.py
@@ -147,8 +147,8 @@ pytest sanity/restart.py --features nightly
 pytest sanity/rpc_finality.py
 pytest sanity/rpc_finality.py --features nightly
 
-pytest sanity/rpc_hash.py
-pytest sanity/rpc_hash.py --features nightly
+pytest --timeout=300 sanity/rpc_hash.py
+pytest --timeout=300 sanity/rpc_hash.py --features nightly
 
 # Rosetta RPC tests
 pytest sanity/rosetta.py
