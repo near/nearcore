@@ -323,7 +323,6 @@ impl SnapshotHostsCache {
     }
 
     /// Triggered by state sync actor after processing a state part.
-    #[allow(dead_code)]
     pub fn part_received(&self, shard_id: ShardId, part_id: u64) {
         let mut inner = self.0.lock();
         inner.peer_selector.remove(&(shard_id, part_id));
