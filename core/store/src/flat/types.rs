@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq, serde::Serialize)]
@@ -85,7 +85,7 @@ impl Into<i64> for &FlatStorageStatus {
             },
             // 20..30 is reserved for resharding statuses.
             FlatStorageStatus::Resharding(resharding_status) => match resharding_status {
-                FlatStorageReshardingStatus::SplittingParent => 20,
+                FlatStorageReshardingStatus::SplittingParent(_) => 20,
                 FlatStorageReshardingStatus::CreatingChild => 21,
                 FlatStorageReshardingStatus::CatchingUp(_) => 22,
             },
@@ -143,21 +143,13 @@ pub enum FlatStorageCreationStatus {
 /// After all elements have been copied the new flat storages will be behind the chain head. To remediate this issue
 /// they will enter a catching up phase. The parent shard, instead, must be removed and cleaned up.
 #[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]
 pub enum FlatStorageReshardingStatus {
     /// Resharding phase entered when a shard is being split.
     /// Copy key-value pairs from this shard (the parent) to children shards.
-    /// TODO(Trisfald): probably store latest status of splitting operation
-    SplittingParent,
+    /// Includes the latest AccountID moved from parent to child.
+    SplittingParent(Option<AccountId>),
     /// Resharding phase entered when a shard is being split.
     /// This shard (child) is being built from state taken from its parent.
     CreatingChild,

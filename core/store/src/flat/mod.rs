@@ -44,7 +44,7 @@ pub use metrics::FlatStorageCreationMetrics;
 pub use storage::FlatStorage;
 pub use types::{
     BlockInfo, FetchingStateStatus, FlatStateIterator, FlatStorageCreationStatus, FlatStorageError,
-    FlatStorageReadyStatus, FlatStorageStatus,
+    FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
 };
 
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";

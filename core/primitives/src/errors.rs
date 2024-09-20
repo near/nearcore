@@ -133,6 +133,9 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String),
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String),
+    /// Indicates that a resharding operation on flat storage is already in progress,
+    /// when it wasn't expected to be so.
+    FlatStorageReshardingAlreadyInProgress,
 }
 
 impl std::fmt::Display for StorageError {

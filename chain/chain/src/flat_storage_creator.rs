@@ -9,6 +9,7 @@
 //! `CatchingUp`: moves flat storage head forward, so it may reach chain final head.
 //! `Ready`: flat storage is created and it is up-to-date.
 
+use crate::flat_storage_resharder::FlatStorageResharder;
 use crate::types::RuntimeAdapter;
 use crate::{ChainStore, ChainStoreAccess};
 use assert_matches::assert_matches;
@@ -414,9 +415,9 @@ impl FlatStorageShardCreator {
                 panic!("initiated flat storage creation for shard {shard_id} while it is disabled");
             }
             // If the flat storage is undergoing resharding it means it was previously created successfully,
-            // but resharding itself hasn't been finished and must be resumed
+            // but resharding itself hasn't been finished.
+            // This case is a no-op because the flat storage resharder has already been created in `create_flat_storage_for_current_epoch`.
             FlatStorageStatus::Resharding(_) => {
-                todo!("create FlatStorageResharder");
                 return Ok(true);
             }
         };
@@ -434,10 +435,13 @@ pub struct FlatStorageCreator {
 impl FlatStorageCreator {
     /// For each of tracked shards, either creates flat storage if it is already stored on DB,
     /// or starts migration to flat storage which updates DB in background and creates flat storage afterwards.
+    ///
+    /// Also resumes any resharding operation which was already in progress.
     pub fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         chain_store: &ChainStore,
+        flat_storage_resharder: &FlatStorageResharder,
         num_threads: usize,
     ) -> Result<Option<Self>, Error> {
         let flat_storage_manager = runtime.get_flat_storage_manager();
@@ -451,6 +455,7 @@ impl FlatStorageCreator {
             &epoch_manager,
             &flat_storage_manager,
             &runtime,
+            &flat_storage_resharder,
         )?;
 
         // Create flat storage for the shards in the next epoch. This only
@@ -478,6 +483,7 @@ impl FlatStorageCreator {
         epoch_manager: &Arc<dyn EpochManagerAdapter>,
         flat_storage_manager: &FlatStorageManager,
         runtime: &Arc<dyn RuntimeAdapter>,
+        flat_storage_resharder: &FlatStorageResharder,
     ) -> Result<HashMap<ShardUId, FlatStorageShardCreator>, Error> {
         let epoch_id = &chain_head.epoch_id;
         tracing::debug!(target: "store", ?epoch_id, "creating flat storage for the current epoch");
@@ -504,8 +510,8 @@ impl FlatStorageCreator {
                     );
                 }
                 FlatStorageStatus::Disabled => {}
-                FlatStorageStatus::Resharding(_) => {
-                    todo!("create FlatStorageResharder");
+                FlatStorageStatus::Resharding(status) => {
+                    flat_storage_resharder.resume(&shard_uid, &status)?;
                 }
             }
         }
