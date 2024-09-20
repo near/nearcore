@@ -459,7 +459,10 @@ impl StateSync {
         shard_id: ShardId,
         _sync_hash: CryptoHash,
     ) {
-        // TODO: where is the part validated though?
+        // TODO(saketh): We are not performing any validation of parts upon receipt. Only once all
+        // the parts are received will they be applied, and in that process, validated. It would be
+        // better to apply (or at least validate) individual parts on receipt so that we can
+        // re-request a part if we received a bad one.
         self.network_adapter.send(StateSyncEvent::StatePartReceived(shard_id, part_id));
     }
 
