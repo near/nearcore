@@ -933,7 +933,7 @@ impl EncodedShardChunkBody {
     }
 }
 
-#[derive(BorshSerialize, Debug, Clone)]
+#[derive(BorshSerialize, Debug, Clone, ProtocolSchema)]
 pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
