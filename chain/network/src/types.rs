@@ -515,5 +515,12 @@ pub struct Tier3Request {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tier3RequestBody {
-    StatePartRequest(ShardId, CryptoHash, u64),
+    StatePart(StatePartRequestBody),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StatePartRequestBody {
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+    pub part_id: u64,
 }

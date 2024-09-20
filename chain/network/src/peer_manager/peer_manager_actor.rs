@@ -19,7 +19,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, Tier3RequestBody,
+    SetChainInfo, SnapshotHostInfo, Tier3RequestBody, StatePartRequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -360,7 +360,7 @@ impl PeerManagerActor {
                                     let state = state.clone();
                                     async move {
                                         let tier3_response = match request.body {
-                                            Tier3RequestBody::StatePartRequest(shard_id, sync_hash, part_id) => {
+                                            Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
                                                 match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
                                                     Ok(Some(client_response)) => {
                                                         PeerMessage::VersionedStateResponse(*client_response.0)
