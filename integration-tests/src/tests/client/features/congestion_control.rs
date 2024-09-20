@@ -5,7 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
-use near_parameters::RuntimeConfigStore;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountId;
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
 use near_primitives::errors::{
@@ -25,34 +25,37 @@ use std::sync::Arc;
 
 const CONTRACT_ID: &str = "contract.test0";
 
-fn get_config(
+fn get_runtime_config(
     config_store: &RuntimeConfigStore,
     protocol_version: ProtocolVersion,
 ) -> Arc<near_parameters::RuntimeConfig> {
     let mut config = config_store.get_config(protocol_version).clone();
     let mut_config = Arc::make_mut(&mut config);
 
-    // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-    let wasm_config = Arc::make_mut(&mut mut_config.wasm_config);
-    wasm_config.regular_op_cost = u32::MAX;
+    adjust_runtime_config(mut_config);
 
     config
 }
 
-fn setup_runtime(
-    sender_id: AccountId,
-    protocol_version: ProtocolVersion,
-    check_state_stored_receipt_migration: bool,
-) -> TestEnv {
-    let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
-    genesis.config.epoch_length = 10;
-    genesis.config.protocol_version = protocol_version;
-    // Chain must be sharded to test cross-shard congestion control.
-    genesis.config.shard_layout = ShardLayout::v1_test();
+// Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
+fn adjust_runtime_config(config: &mut RuntimeConfig) {
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
+    wasm_config.regular_op_cost = u32::MAX;
+}
 
+fn get_runtime_configs(
+    protocol_version: ProtocolVersion,
+    use_test_runtime: bool,
+    check_state_stored_receipt_migration: bool,
+) -> Vec<RuntimeConfigStore> {
+    if use_test_runtime {
+        let mut config = RuntimeConfig::test();
+        adjust_runtime_config(&mut config);
+        return vec![RuntimeConfigStore::with_one_config(config)];
+    }
     let config_store = RuntimeConfigStore::new(None);
-    let pre_config = get_config(&config_store, protocol_version);
-    let post_config = get_config(&config_store, PROTOCOL_VERSION);
+    let pre_config = get_runtime_config(&config_store, protocol_version);
+    let post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
 
     // Checking the migration from Receipt to StateStoredReceipt requires the
     // relevant config to be disabled before the protocol upgrade and enabled
@@ -62,9 +65,33 @@ fn setup_runtime(
         assert!(true == post_config.use_state_stored_receipt);
     }
 
-    let runtime_configs = vec![RuntimeConfigStore::new_custom(
+    vec![RuntimeConfigStore::new_custom(
         [(protocol_version, pre_config), (PROTOCOL_VERSION, post_config)].into_iter().collect(),
-    )];
+    )]
+}
+
+/// Set up the runtime with the given protocol version and runtime configs.
+/// The `use_test_runtime` flag is used to enable the test runtime, which has
+/// custom gas costs. The `check_state_stored_receipt_migration` flag is used to
+/// indicate that the test should check the migration from Receipt to StateStoredReceipt.
+fn setup_runtime(
+    sender_id: AccountId,
+    protocol_version: ProtocolVersion,
+    use_test_runtime: bool,
+    check_state_stored_receipt_migration: bool,
+) -> TestEnv {
+    let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
+    genesis.config.epoch_length = 10;
+    genesis.config.protocol_version = protocol_version;
+
+    // Chain must be sharded to test cross-shard congestion control.
+    genesis.config.shard_layout = ShardLayout::v1_test();
+
+    let runtime_configs = get_runtime_configs(
+        protocol_version,
+        use_test_runtime,
+        check_state_stored_receipt_migration,
+    );
 
     TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
@@ -194,6 +221,7 @@ fn test_protocol_upgrade_simple() {
     let mut env = setup_runtime(
         "test0".parse().unwrap(),
         ProtocolFeature::CongestionControl.protocol_version() - 1,
+        false,
         true,
     );
 
@@ -267,6 +295,7 @@ fn test_protocol_upgrade_under_congestion() {
     let mut env = setup_runtime(
         sender_id.clone(),
         ProtocolFeature::CongestionControl.protocol_version() - 1,
+        false,
         true,
     );
 
@@ -501,7 +530,7 @@ fn test_transaction_limit_for_local_congestion() {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let sender_id = contract_id.clone();
     let dummy_receiver: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_runtime("test0".parse().unwrap(), PROTOCOL_VERSION, false);
+    let env = setup_runtime("test0".parse().unwrap(), PROTOCOL_VERSION, true, false);
 
     let (
         remote_tx_included_without_congestion,
@@ -573,10 +602,10 @@ fn test_transaction_limit_for_remote_congestion() {
 }
 
 /// Test that clients stop including transactions to fully congested receivers.
-///
-///
 #[test]
 fn test_transaction_filtering() {
+    init_test_logger();
+
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -611,7 +640,7 @@ fn measure_remote_tx_limit(upper_limit_congestion: f64) -> (usize, usize, usize,
     let remote_id: AccountId = "test0".parse().unwrap();
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let dummy_id: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_runtime(remote_id.clone(), PROTOCOL_VERSION, false);
+    let env = setup_runtime(remote_id.clone(), PROTOCOL_VERSION, true, false);
 
     let tip = env.clients[0].chain.head().unwrap();
     let remote_shard_id =
@@ -679,7 +708,8 @@ fn measure_tx_limit(
     let mut remote_tx_included_without_congestion = 0;
     let mut local_tx_included_without_congestion = 0;
     for i in 2..timeout {
-        env.produce_block(0, tip.height + i);
+        let height = tip.height + i;
+        env.produce_block(0, height);
 
         let sender_chunk = head_chunk(&env, remote_shard_id);
         let contract_chunk = head_chunk(&env, contract_shard_id);
@@ -734,7 +764,7 @@ fn measure_tx_limit(
 #[test]
 fn test_rpc_client_rejection() {
     let sender_id: AccountId = "test0".parse().unwrap();
-    let mut env = setup_runtime(sender_id.clone(), PROTOCOL_VERSION, false);
+    let mut env = setup_runtime(sender_id.clone(), PROTOCOL_VERSION, true, false);
 
     // prepare a contract to call
     setup_contract(&mut env);

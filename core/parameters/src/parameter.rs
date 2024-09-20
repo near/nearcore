@@ -221,7 +221,7 @@ pub enum Parameter {
     MinTxGas,
     RejectTxCongestionThreshold,
 
-    // Receipt State Storage
+    // Use the StateStoredReceipt structure when storing receipts in State.
     UseStateStoredReceipt,
 }
 

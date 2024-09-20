@@ -1,6 +1,6 @@
 use super::{to_yocto, GAS_PRICE};
 use crate::config::safe_add_gas;
-use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
+use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use crate::tests::{create_receipt_with_actions, MAX_ATTACHED_GAS};
 use crate::total_prepaid_exec_fees;
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
@@ -1222,7 +1222,8 @@ fn test_congestion_delayed_receipts_accounting() {
         let congestion = apply_result.congestion_info.unwrap();
         let expected_delayed_gas =
             (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
-        let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+        let expected_receipts_bytes =
+            (n - 1) * compute_receipt_congestion_size(&receipts[0]).unwrap() as u64;
 
         assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
         assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());

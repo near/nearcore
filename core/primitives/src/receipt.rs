@@ -113,10 +113,15 @@ pub struct StateStoredReceiptV0<'a> {
     pub metadata: StateStoredReceiptMetadata,
 }
 
+/// The metadata associated with the receipt stored in state.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct StateStoredReceiptMetadata {
-    pub gas: Gas,
-    pub size: u64,
+    /// The congestion gas of the receipt when it was stored in the state.
+    /// Please see [compute_receipt_congestion_gas] for more details.
+    pub congestion_gas: Gas,
+    /// The congestion size of the receipt when it was stored in the state.
+    /// Please see [compute_receipt_congestion_size] for more details.
+    pub congestion_size: u64,
 }
 
 /// The tag that is used to differentiate between the Receipt and StateStoredReceipt.
@@ -125,6 +130,10 @@ const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
 /// This is a convenience struct for handling the migration from [Receipt] to
 /// [StateStoredReceipt]. Both variants can be directly serialized and
 /// deserialized to this struct.
+///
+/// This structure is only meant as a migration vehicle and should not be used
+/// for other purposes. In order to make any changes to how receipts are stored
+/// in state the StateStoredReceipt should be used. It supports versioning.
 ///
 /// The receipt in both variants is stored as a Cow to allow for both owned and
 /// borrowed ownership. The owned receipt should be used when pulling receipts
@@ -761,7 +770,7 @@ mod tests {
     }
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
-        let metadata = StateStoredReceiptMetadata { gas: 42, size: 43 };
+        let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
         let receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
         let serialized_receipt = borsh::to_vec(&receipt).unwrap();
@@ -814,7 +823,7 @@ mod tests {
         // StateStoredReceipt can be deserialized as ReceiptOrStateStoredReceipt
         {
             let receipt = get_receipt_v0();
-            let metadata = StateStoredReceiptMetadata { gas: 42, size: 43 };
+            let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
             let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
             let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
@@ -846,7 +855,7 @@ mod tests {
         // ReceiptOrStateStoredReceipt::StateStoredReceipt
         {
             let receipt = get_receipt_v0();
-            let metadata = StateStoredReceiptMetadata { gas: 42, size: 43 };
+            let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
             let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
             let receipt_or_state_stored_receipt =
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);

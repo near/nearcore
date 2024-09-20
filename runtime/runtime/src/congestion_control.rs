@@ -201,7 +201,7 @@ impl ReceiptSinkV2<'_> {
         for receipt_result in self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie) {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
-            let size = receipt_size(&receipt)?;
+            let size = receipt_congestion_size(&receipt)?;
             let receipt = receipt.into_receipt();
 
             match Self::try_forward(
@@ -243,7 +243,7 @@ impl ReceiptSinkV2<'_> {
         let shard = epoch_info_provider
             .account_id_to_shard_id(receipt.receiver_id(), &apply_state.epoch_id)?;
 
-        let size = compute_receipt_size(&receipt)?;
+        let size = compute_receipt_congestion_size(&receipt)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
 
         match Self::try_forward(
@@ -320,7 +320,8 @@ impl ReceiptSinkV2<'_> {
     ) -> Result<(), RuntimeError> {
         let receipt = match use_state_stored_receipt {
             true => {
-                let metadata = StateStoredReceiptMetadata { gas, size };
+                let metadata =
+                    StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
                 let receipt = StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
@@ -347,7 +348,9 @@ pub(crate) fn receipt_congestion_gas(
         ReceiptOrStateStoredReceipt::Receipt(receipt) => {
             compute_receipt_congestion_gas(receipt, config)
         }
-        ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => Ok(receipt.metadata().gas),
+        ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
+            Ok(receipt.metadata().congestion_gas)
+        }
     }
 }
 
@@ -426,7 +429,7 @@ pub fn bootstrap_congestion_info(
         delayed_receipts_gas =
             safe_add_gas_to_u128(delayed_receipts_gas, gas).map_err(int_overflow_to_storage_err)?;
 
-        let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
+        let memory = receipt_congestion_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
         receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
     }
 
@@ -438,7 +441,8 @@ pub fn bootstrap_congestion_info(
                 receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?;
             buffered_receipts_gas = safe_add_gas_to_u128(buffered_receipts_gas, gas)
                 .map_err(int_overflow_to_storage_err)?;
-            let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
+            let memory =
+                receipt_congestion_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
             receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
         }
     }
@@ -474,11 +478,12 @@ impl DelayedReceiptQueueWrapper {
         config: &RuntimeConfig,
     ) -> Result<(), RuntimeError> {
         let gas = compute_receipt_congestion_gas(&receipt, &config)?;
-        let size = compute_receipt_size(&receipt)? as u64;
+        let size = compute_receipt_congestion_size(&receipt)? as u64;
 
         let receipt = match config.use_state_stored_receipt {
             true => {
-                let metadata = StateStoredReceiptMetadata { gas, size };
+                let metadata =
+                    StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
                 let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
@@ -499,7 +504,7 @@ impl DelayedReceiptQueueWrapper {
         let receipt = self.queue.pop(trie_update)?;
         if let Some(receipt) = &receipt {
             let delayed_gas = receipt_congestion_gas(receipt, &config)?;
-            let delayed_bytes = receipt_size(receipt)? as u64;
+            let delayed_bytes = receipt_congestion_size(receipt)? as u64;
             self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
         }
@@ -525,19 +530,23 @@ impl DelayedReceiptQueueWrapper {
 /// Get the receipt size from the receipt that was retrieved from the state.
 /// If it is a [Receipt], the size will be computed.
 /// If it s the [StateStoredReceipt], the size will be read from the metadata.
-pub(crate) fn receipt_size(
+pub(crate) fn receipt_congestion_size(
     receipt: &ReceiptOrStateStoredReceipt,
 ) -> Result<u64, IntegerOverflowError> {
     match receipt {
-        ReceiptOrStateStoredReceipt::Receipt(receipt) => compute_receipt_size(receipt),
-        ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => Ok(receipt.metadata().size),
+        ReceiptOrStateStoredReceipt::Receipt(receipt) => compute_receipt_congestion_size(receipt),
+        ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
+            Ok(receipt.metadata().congestion_size)
+        }
     }
 }
 
 /// Calculate the size of a receipt before it is pushed into a state queue or
 /// buffer. Please note that this method should only be used when storing
 /// receipts into state. It should not be used for retrieving receipts from the state.
-pub(crate) fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowError> {
+pub(crate) fn compute_receipt_congestion_size(
+    receipt: &Receipt,
+) -> Result<u64, IntegerOverflowError> {
     let size = borsh::object_length(&receipt).map_err(|_| IntegerOverflowError)?;
     size.try_into().map_err(|_| IntegerOverflowError)
 }
