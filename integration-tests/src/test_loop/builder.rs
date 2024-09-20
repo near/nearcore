@@ -39,7 +39,7 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::partial_encoded_chunks_dropper;
+use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
@@ -60,6 +60,8 @@ pub(crate) struct TestLoopBuilder {
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
+    /// Whether test loop should drop all endorsements from the given account.
+    drop_endorsements_from: Option<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
@@ -81,6 +83,7 @@ impl TestLoopBuilder {
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
+            drop_endorsements_from: None,
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
@@ -121,6 +124,11 @@ impl TestLoopBuilder {
 
     pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
         self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
+        self
+    }
+
+    pub(crate) fn drop_endorsements_from(mut self, account_id: &str) -> Self {
+        self.drop_endorsements_from = Some(account_id.parse().unwrap());
         self
     }
 
@@ -517,6 +525,11 @@ impl TestLoopBuilder {
                     epoch_manager_adapters[idx].clone(),
                     account_id.clone(),
                 ));
+            }
+
+            if let Some(account_id) = &self.drop_endorsements_from {
+                peer_manager_actor
+                    .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
             }
 
             self.test_loop.register_actor_for_index(

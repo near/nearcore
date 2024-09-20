@@ -75,3 +75,17 @@ pub fn partial_encoded_chunks_dropper(
         return None;
     })
 }
+
+/// Handler to drop all network messages containing chunk endorsements sent from a given chunk-validator account.
+pub fn chunk_endorsement_dropper(
+    validator: AccountId,
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+    Box::new(move |request| {
+        if let NetworkRequests::ChunkEndorsement(_target, endorsement) = &request {
+            if endorsement.validator_account() == &validator {
+                return None;
+            }
+        }
+        Some(request)
+    })
+}

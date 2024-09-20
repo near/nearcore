@@ -6,7 +6,7 @@ pub struct RpcQueryRequest {
     pub request: near_primitives::views::QueryRequest,
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]

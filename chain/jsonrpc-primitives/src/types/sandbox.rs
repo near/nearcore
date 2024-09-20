@@ -9,7 +9,7 @@ pub struct RpcSandboxPatchStateRequest {
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct RpcSandboxPatchStateResponse {}
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxPatchStateError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -39,7 +39,7 @@ pub struct RpcSandboxFastForwardRequest {
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct RpcSandboxFastForwardResponse {}
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxFastForwardError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
