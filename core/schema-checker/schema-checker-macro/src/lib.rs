@@ -176,14 +176,7 @@ mod helper {
             }
             _ => {
                 println!("Unsupported type: {:?}", ty);
-                quote! {
-                    {
-                        const fn create_array() -> [std::any::TypeId; 1] {
-                            [std::any::TypeId::of::<#ty>()]
-                        }
-                        (stringify!(#ty), &create_array())
-                    }
-                }
+                quote! { (stringify!(#ty), &[std::any::TypeId::of::<#ty>()]) }
             }
         }
     }
