@@ -10,7 +10,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 
 const NUM_ACCOUNTS: usize = 8;
-const NUM_PRODUCER_ACCOUNTS: usize = 6;
+const NUM_PRODUCER_ACCOUNTS: usize = 4;
 
 fn create_accounts() -> Vec<AccountId> {
     (0..NUM_ACCOUNTS).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>()
@@ -52,6 +52,17 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
             .drop_endorsements_from(account_id.as_str()),
     };
 
+    let num_validator_mandates_per_shard = match &test_case {
+        // Target giving one mandate to each chunk validator, which results in
+        // every chunk validator validating only one shard in most cases.
+        // As a result, when we drop the chunk, we also zero-out all the endorsements
+        // of the corresponding chunk validator.
+        TestCase::DropChunksValidatedBy(_) => 1,
+        // Target giving 6 mandates to each chunk validator, so that if we drop all the
+        // endorsements from one of the validators, this will not result in missing any chunks.
+        TestCase::DropEndorsementsFrom(_) => 6,
+    };
+
     // Only chunk validator-only node can be kicked out for low endorsement stats.
     let account_to_kickout =
         if chunk_validators_only.contains(&test_case.selected_account().as_str()) {
@@ -69,9 +80,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .validators_desired_roles(block_and_chunk_producers, chunk_validators_only)
         // Set up config to kick out only chunk validators for low performance.
         .kickouts_for_chunk_validators_only()
-        // Target giving one mandate to each chunk validator, which results in
-        // every chunk validator validating only one shard in most cases.
-        .target_validator_mandates_per_shard(1);
+        .target_validator_mandates_per_shard(num_validator_mandates_per_shard);
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
@@ -83,25 +92,35 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
     // Run chain until our targeted chunk validator is (not) kicked out.
     let client_handle = node_datas[0].client_sender.actor_handle();
     let initial_validators = get_epoch_all_validators(&test_loop.data.get(&client_handle).client);
-    assert_eq!(initial_validators.len(), 8);
+    assert_eq!(initial_validators.len(), NUM_ACCOUNTS);
     assert!(initial_validators.contains(&test_case.selected_account().to_string()));
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
-        let validators = get_epoch_all_validators(client);
         let tip = client.chain.head().unwrap();
+
+        // Check the number of missed chunks for each test case.
+        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+        let num_missed_chunks = block.header().chunk_mask().iter().filter(|c| !**c).count();
+        match &test_case {
+            TestCase::DropChunksValidatedBy(_) => assert!(num_missed_chunks <= 1,
+                "At most one chunk must be missed when dropping chunks validated by the selected account"),
+            TestCase::DropEndorsementsFrom(_) => assert_eq!(num_missed_chunks, 0,
+                "No chunk must be missed when dropping endorsements from the selected account"),
+        }
+
+        let validators = get_epoch_all_validators(client);
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
-
         if let Some(account_id) = &account_to_kickout {
             assert!(epoch_height < 4);
-            return if validators.len() == 7 {
+            return if validators.len() == NUM_ACCOUNTS - 1 {
                 assert!(!validators.contains(&account_id.to_string()));
                 true
             } else {
                 false
             };
         } else {
-            assert_eq!(validators.len(), 8, "No kickouts are expected");
+            assert_eq!(validators.len(), NUM_ACCOUNTS, "No kickouts are expected");
             epoch_height >= 4
         }
     };
