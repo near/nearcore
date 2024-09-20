@@ -58,9 +58,9 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         // As a result, when we drop the chunk, we also zero-out all the endorsements
         // of the corresponding chunk validator.
         TestCase::DropChunksValidatedBy(_) => 1,
-        // Target giving 6 mandates to each chunk validator, so that if we drop all the
+        // Target giving a large number of mandates to each chunk validator, so that if we drop all the
         // endorsements from one of the validators, this will not result in missing any chunks.
-        TestCase::DropEndorsementsFrom(_) => 6,
+        TestCase::DropEndorsementsFrom(_) => 16,
     };
 
     // Only chunk validator-only node can be kicked out for low endorsement stats.
@@ -99,15 +99,13 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         let tip = client.chain.head().unwrap();
 
         // Check the number of missed chunks for each test case.
-        if account_to_kickout.is_some() {
-            let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-            let num_missed_chunks = block.header().chunk_mask().iter().filter(|c| !**c).count();
-            match &test_case {
-                TestCase::DropChunksValidatedBy(_) => assert!(num_missed_chunks <= 1,
-                    "At most one chunk must be missed when dropping chunks validated by the selected account"),
-                TestCase::DropEndorsementsFrom(_) => assert_eq!(num_missed_chunks, 0,
-                    "No chunk must be missed when dropping endorsements from the selected account"),
-            }
+        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+        let num_missed_chunks = block.header().chunk_mask().iter().filter(|c| !**c).count();
+        match &test_case {
+            TestCase::DropChunksValidatedBy(_) => assert!(num_missed_chunks <= 1,
+                "At most one chunk must be missed when dropping chunks validated by the selected account"),
+            TestCase::DropEndorsementsFrom(_) => assert_eq!(num_missed_chunks, 0,
+                "No chunk must be missed when dropping endorsements from the selected account"),
         }
 
         let validators = get_epoch_all_validators(client);
