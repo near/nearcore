@@ -54,7 +54,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                     ..NibbleSlice::new(&range.end).iter().collect_vec()
             })
             .collect_vec();
-        // let root = self.get_root().unwrap();
+
         // TODO(#12074): consider handling the case when no changes are made.
         // TODO(#12074): restore proof as well.
         self.retain_multi_range_recursive(0, vec![], &intervals_nibbles);
@@ -62,13 +62,12 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     }
 
     /// Recursive implementation of the algorithm of retaining keys belonging to
-    /// any of the ranges given in `intervals` from the trie.
+    /// any of the ranges given in `intervals` from the trie. All changes are
+    /// applied in `updated_nodes`.
     ///
     /// `node_id` is the root of subtree being explored.
     /// `key_nibbles` is the key corresponding to `root`.
     /// `intervals_nibbles` is the list of ranges to be retained.
-    ///
-    /// Returns id of the node after retain applied.
     fn retain_multi_range_recursive(
         &mut self,
         node_id: usize,
@@ -110,8 +109,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                     value = None;
                 }
 
-                for i in 0..16 {
-                    let child = &mut children[i];
+                for (i, child) in children.iter_mut().enumerate() {
                     let Some(old_child_id) = child.take() else {
                         continue;
                     };
