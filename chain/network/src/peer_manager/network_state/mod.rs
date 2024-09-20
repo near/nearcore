@@ -28,7 +28,9 @@ use crate::state_witness::{
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::types::{ChainInfo, PeerType, ReasonForBan, Tier3Request, Tier3RequestBody, StatePartRequestBody};
+use crate::types::{
+    ChainInfo, PeerType, ReasonForBan, StatePartRequestBody, Tier3Request, Tier3RequestBody,
+};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
