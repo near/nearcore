@@ -714,7 +714,7 @@ impl ClientActorInner {
                 continue;
             }
             // Compute total stake and endorsed stake.
-            let mut endorsed_chunk_validators = HashSet::new();
+            let mut endorsed_chunk_validators = HashMap::new();
             for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
                 let Some(signature) = signature else { continue };
                 let Ok((validator, _)) = self.client.epoch_manager.get_validator_by_account_id(
@@ -731,10 +731,10 @@ impl ClientActorInner {
                 ) {
                     continue;
                 }
-                endorsed_chunk_validators.insert(account_id);
+                endorsed_chunk_validators.insert(account_id, *signature.clone());
             }
             let endorsement_stats =
-                chunk_validator_assignments.compute_endorsement_stats(&endorsed_chunk_validators);
+                chunk_validator_assignments.compute_endorsement_stats(endorsed_chunk_validators);
             chunk_endorsements.insert(
                 chunk_header.chunk_hash(),
                 endorsement_stats.endorsed_stake as f64 / endorsement_stats.total_stake as f64,
