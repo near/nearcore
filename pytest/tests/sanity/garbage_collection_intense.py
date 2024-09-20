@@ -100,7 +100,7 @@ while True:
     if tx_groups_sent >= 4:
         continue
     tx_groups_sent += 1
-    
+
     for i in range(1, 20):
         start = 0
         block_hash = nodes[1].get_latest_block().hash_bytes
