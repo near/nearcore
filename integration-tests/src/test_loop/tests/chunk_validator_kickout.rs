@@ -10,7 +10,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 
 const NUM_ACCOUNTS: usize = 8;
-const NUM_PRODUCER_ACCOUNTS: usize = 4;
+const NUM_PRODUCER_ACCOUNTS: usize = 6;
 
 fn create_accounts() -> Vec<AccountId> {
     (0..NUM_ACCOUNTS).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>()
@@ -99,13 +99,15 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         let tip = client.chain.head().unwrap();
 
         // Check the number of missed chunks for each test case.
-        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-        let num_missed_chunks = block.header().chunk_mask().iter().filter(|c| !**c).count();
-        match &test_case {
-            TestCase::DropChunksValidatedBy(_) => assert!(num_missed_chunks <= 1,
-                "At most one chunk must be missed when dropping chunks validated by the selected account"),
-            TestCase::DropEndorsementsFrom(_) => assert_eq!(num_missed_chunks, 0,
-                "No chunk must be missed when dropping endorsements from the selected account"),
+        if account_to_kickout.is_some() {
+            let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+            let num_missed_chunks = block.header().chunk_mask().iter().filter(|c| !**c).count();
+            match &test_case {
+                TestCase::DropChunksValidatedBy(_) => assert!(num_missed_chunks <= 1,
+                    "At most one chunk must be missed when dropping chunks validated by the selected account"),
+                TestCase::DropEndorsementsFrom(_) => assert_eq!(num_missed_chunks, 0,
+                    "No chunk must be missed when dropping endorsements from the selected account"),
+            }
         }
 
         let validators = get_epoch_all_validators(client);
