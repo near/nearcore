@@ -28,7 +28,9 @@ use crate::state_witness::{
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::types::{ChainInfo, PeerType, ReasonForBan, Tier3Request, Tier3RequestBody};
+use crate::types::{
+    ChainInfo, PeerType, ReasonForBan, StatePartRequestBody, Tier3Request, Tier3RequestBody,
+};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
@@ -784,11 +786,11 @@ impl NetworkState {
             RoutedMessageBody::StatePartRequest(request) => {
                 self.tier3_requests.lock().push_back(Tier3Request {
                     peer_info: PeerInfo { id: peer_id, addr: Some(request.addr), account_id: None },
-                    body: Tier3RequestBody::StatePartRequest(
-                        request.shard_id,
-                        request.sync_hash,
-                        request.part_id,
-                    ),
+                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                        shard_id: request.shard_id,
+                        sync_hash: request.sync_hash,
+                        part_id: request.part_id,
+                    }),
                 });
                 None
             }
