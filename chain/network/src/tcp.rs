@@ -26,6 +26,11 @@ pub enum Tier {
     /// consensus messages. Also, Tier1 peer discovery actually happens on Tier2 network, i.e.
     /// Tier2 network is necessary to bootstrap Tier1 connections.
     T2,
+    /// Tier3 connections are created ad hoc to directly transfer large messages, e.g. state parts.
+    /// Requests for state parts are routed over Tier2. A node receiving such a request initiates a
+    /// direct Tier3 connections to send the response. By sending large responses over dedicated
+    /// connections we avoid delaying other messages and we minimize network bandwidth usage.
+    T3,
 }
 
 #[derive(Clone, Debug)]
