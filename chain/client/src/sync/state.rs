@@ -677,8 +677,12 @@ impl StateSync {
                 {
                     // The request sent to the network adapater needs to include the sync_prev_prev_hash
                     // so that a peer hosting the correct snapshot can be selected.
-                    if let Ok(header) = chain.get_block_header(&sync_hash) {
-                        if let Ok(prev_header) = chain.get_block_header(&header.prev_hash()) {
+                    let prev_header = chain
+                        .get_block_header(&sync_hash)
+                        .map(|header| chain.get_block_header(&header.prev_hash()));
+
+                    match prev_header {
+                        Ok(Ok(prev_header)) => {
                             let sync_prev_prev_hash = prev_header.prev_hash();
                             sent_request_part(
                                 self.clock.clone(),
@@ -699,6 +703,12 @@ impl StateSync {
                                 *sync_prev_prev_hash,
                                 &self.network_adapter,
                             );
+                        }
+                        Ok(Err(err)) => {
+                            tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "could not get prev header");
+                        }
+                        Err(err) => {
+                            tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "could not get header");
                         }
                     }
                 }
