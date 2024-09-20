@@ -55,6 +55,10 @@ impl ArenaMemory for HybridArenaMemory {
 }
 
 impl ArenaMemoryMut for HybridArenaMemory {
+    fn is_mutable(&self, pos: ArenaPos) -> bool {
+        pos.chunk >= self.chunks_offset()
+    }
+
     fn raw_slice_mut(&mut self, mut pos: ArenaPos, len: usize) -> &mut [u8] {
         debug_assert!(!pos.is_invalid());
         assert!(pos.chunk >= self.chunks_offset(), "Cannot mutate shared memory");

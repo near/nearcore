@@ -39,3 +39,16 @@ impl Arena for FrozenArena {
         &self.memory
     }
 }
+
+impl FrozenArena {
+    /// Number of active allocations (alloc calls minus dealloc calls).
+    #[cfg(test)]
+    pub fn num_active_allocs(&self) -> usize {
+        self.active_allocs_count
+    }
+
+    #[cfg(test)]
+    pub fn active_allocs_bytes(&self) -> usize {
+        self.active_allocs_bytes
+    }
+}
