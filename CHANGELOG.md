@@ -6,7 +6,7 @@
 **No Changes**
 
 ### Non-protocol Changes
-**No Changes**
+* **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
 
 ## 2.1.0
 

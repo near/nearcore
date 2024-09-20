@@ -436,8 +436,6 @@ impl DBCol {
             | DBCol::NextBlockHashes
             | DBCol::OutcomeIds
             | DBCol::OutgoingReceipts
-            // TODO can be changed to reconstruction on request instead of saving in cold storage.
-            | DBCol::PartialChunks
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
@@ -473,6 +471,8 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => false,
             // Deprecated.
             DBCol::_ReceiptIdToShardId => false,
+            // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
+            DBCol::PartialChunks => false,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
