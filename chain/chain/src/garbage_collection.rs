@@ -11,7 +11,7 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
-use near_store::flat::store_helper;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
@@ -710,9 +710,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            let mut store_update = self.store().store_update();
-            store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
-            self.merge(store_update);
+            let mut store_update = self.store().store_update().flat_store_update();
+            store_update.remove_delta(shard_uid, block_hash);
+            self.merge(store_update.store_update());
         }
 
         // 2. Delete block_hash-indexed data

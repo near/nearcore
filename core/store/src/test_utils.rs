@@ -1,7 +1,6 @@
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
-use crate::flat::{
-    store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
-};
+use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
     get, get_delayed_receipt_indices, get_promise_yield_indices, DBCol, NodeStorage, ShardTries,
@@ -123,7 +122,7 @@ impl TestTriesBuilder {
         let shard_uids = (0..self.num_shards)
             .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: self.shard_version })
             .collect::<Vec<_>>();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.clone(),
             TrieConfig {
@@ -135,14 +134,13 @@ impl TestTriesBuilder {
             StateSnapshotConfig::default(),
         );
         if self.enable_flat_storage {
-            let mut store_update = tries.store_update();
+            let mut store_update = tries.store_update().flat_store_update();
             for shard_id in 0..self.num_shards {
                 let shard_uid = ShardUId {
                     version: self.shard_version,
                     shard_id: shard_id.try_into().unwrap(),
                 };
-                store_helper::set_flat_storage_status(
-                    &mut store_update,
+                store_update.set_flat_storage_status(
                     shard_uid,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus {
                         flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
@@ -220,17 +218,15 @@ pub fn test_populate_flat_storage(
     prev_block_hash: &CryptoHash,
     changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) {
-    let mut store_update = tries.store_update();
-    store_helper::set_flat_storage_status(
-        &mut store_update,
+    let mut store_update = tries.store_update().flat_store_update();
+    store_update.set_flat_storage_status(
         shard_uid,
         crate::flat::FlatStorageStatus::Ready(FlatStorageReadyStatus {
             flat_head: BlockInfo { hash: *block_hash, prev_hash: *prev_block_hash, height: 1 },
         }),
     );
     for (key, value) in changes {
-        store_helper::set_flat_state_value(
-            &mut store_update,
+        store_update.set(
             shard_uid,
             key.clone(),
             value.as_ref().map(|value| FlatStateValue::on_disk(value)),

@@ -15,6 +15,7 @@ use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutc
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
@@ -360,10 +361,7 @@ pub fn apply_chain_range(
                 shard_id,
                 &shard_layout,
             );
-            let flat_head = match near_store::flat::store_helper::get_flat_storage_status(
-                &read_store,
-                shard_uid,
-            ) {
+            let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
                 Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
                 status => {
                     panic!("cannot create flat storage for shard {shard_id} with status {status:?}")

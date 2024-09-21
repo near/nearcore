@@ -21,6 +21,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
@@ -202,8 +203,10 @@ impl GenesisBuilder {
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        let mut flat_store_update = store_update.flat_store_update();
         near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
-            .apply_to_flat_state(&mut store_update, shard_uid);
+            .apply_to_flat_state(&mut flat_store_update, shard_uid);
+        store_update = flat_store_update.store_update();
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root);

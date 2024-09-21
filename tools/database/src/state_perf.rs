@@ -1,5 +1,7 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
+use near_store::adapter::flat_store::FlatStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 use std::path::Path;
@@ -12,8 +14,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
-use near_store::flat::store_helper::iter_flat_state_entries;
-use near_store::{Store, TrieStorage};
+use near_store::TrieStorage;
 
 use crate::utils::open_rocksdb;
 
@@ -38,7 +39,10 @@ impl StatePerfCommand {
         let mut perf_context = PerfContext::new();
         let total_samples = self.warmup_samples + self.samples;
         for (sample_i, (shard_uid, value_ref)) in
-            generate_state_requests(store.clone(), total_samples).into_iter().enumerate().progress()
+            generate_state_requests(store.flat_store(), total_samples)
+                .into_iter()
+                .enumerate()
+                .progress()
         {
             let trie_storage = near_store::TrieDBStorage::new(store.clone(), shard_uid);
             let include_sample = sample_i >= self.warmup_samples;
@@ -159,7 +163,7 @@ impl PerfContext {
     }
 }
 
-fn generate_state_requests(store: Store, samples: usize) -> Vec<(ShardUId, ValueRef)> {
+fn generate_state_requests(store: FlatStoreAdapter, samples: usize) -> Vec<(ShardUId, ValueRef)> {
     eprintln!("Generate {samples} requests to State");
     let shard_uids = ShardLayout::get_simple_nightshade_layout().shard_uids().collect::<Vec<_>>();
     let num_shards = shard_uids.len();
@@ -168,8 +172,8 @@ fn generate_state_requests(store: Store, samples: usize) -> Vec<(ShardUId, Value
     for shard_uid in shard_uids {
         let shard_samples = samples / num_shards;
         let mut keys_read = std::collections::HashSet::new();
-        for value_ref in iter_flat_state_entries(shard_uid, &store, None, None)
-            .flat_map(|res| res.map(|(_, value)| value.to_value_ref()))
+        for value_ref in
+            store.iter(shard_uid).flat_map(|res| res.map(|(_, value)| value.to_value_ref()))
         {
             if value_ref.length > 4096 || !keys_read.insert(value_ref.hash) {
                 continue;

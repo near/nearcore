@@ -1,9 +1,7 @@
-use crate::flat::store_helper;
+use crate::adapter::flat_store::FlatStoreAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
-
-use crate::Store;
 
 use super::types::FlatStateIterator;
 use super::FlatStorage;
@@ -21,7 +19,7 @@ pub struct FlatStorageChunkView {
     /// Used to access flat state stored at the head of flat storage.
     /// It should store all trie keys and values/value refs for the state on top of
     /// flat_storage.head, except for delayed receipt keys.
-    store: Store,
+    store: FlatStoreAdapter,
     /// The block for which key-value pairs of its state will be retrieved. The flat state
     /// will reflect the state AFTER the block is applied.
     block_hash: CryptoHash,
@@ -31,7 +29,7 @@ pub struct FlatStorageChunkView {
 }
 
 impl FlatStorageChunkView {
-    pub fn new(store: Store, block_hash: CryptoHash, flat_storage: FlatStorage) -> Self {
+    pub fn new(store: FlatStoreAdapter, block_hash: CryptoHash, flat_storage: FlatStorage) -> Self {
         Self { store, block_hash, flat_storage }
     }
     /// Returns value reference using raw trie key, taken from the state
@@ -49,12 +47,8 @@ impl FlatStorageChunkView {
         self.flat_storage.contains_key(&self.block_hash, key)
     }
 
-    pub fn iter_flat_state_entries<'a>(
-        &'a self,
-        from: Option<&[u8]>,
-        to: Option<&[u8]>,
-    ) -> FlatStateIterator<'a> {
-        store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
+    pub fn iter_range<'a>(&'a self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator<'a> {
+        self.store.iter_range(self.flat_storage.shard_uid(), from, to)
     }
 
     pub fn get_head_hash(&self) -> CryptoHash {

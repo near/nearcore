@@ -90,8 +90,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::trie::mem::resharding::RetainMode;
 use near_store::DBCol;
 use near_store::{get_genesis_state_roots, PartialStorage};
@@ -482,7 +483,7 @@ impl Chain {
                 // must be set here.
                 let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
                 let genesis_epoch_id = genesis.header().epoch_id();
-                let mut tmp_store_update = store_update.store().store_update();
+                let mut tmp_store_update = store_update.store().store_update().flat_store_update();
                 for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
                     flat_storage_manager.set_flat_storage_for_genesis(
                         &mut tmp_store_update,
@@ -491,7 +492,7 @@ impl Chain {
                         genesis.header().height(),
                     )
                 }
-                store_update.merge(tmp_store_update);
+                store_update.merge(tmp_store_update.store_update());
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -3021,9 +3022,8 @@ impl Chain {
 
         tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
-        let mut store_update = self.runtime_adapter.store().store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        let mut store_update = self.runtime_adapter.store().store_update().flat_store_update();
+        store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
                 flat_head: near_store::flat::BlockInfo {

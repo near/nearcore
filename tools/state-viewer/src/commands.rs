@@ -1311,9 +1311,7 @@ fn get_state_stats_group_by<'a>(
     // the account id.
     let type_iters = COLUMNS_WITH_ACCOUNT_ID_IN_KEY
         .iter()
-        .map(|(type_byte, _)| {
-            chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
-        })
+        .map(|(type_byte, _)| chunk_view.iter_range(Some(&[*type_byte]), Some(&[*type_byte + 1])))
         .into_iter();
 
     // Filter out any errors.

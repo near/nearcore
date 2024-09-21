@@ -119,8 +119,7 @@ impl Trie {
             Some(NibbleSlice::nibbles_to_bytes(&nibbles_end))
         };
 
-        Ok(flat_storage_chunk_view
-            .iter_flat_state_entries(key_begin.as_deref(), key_end.as_deref()))
+        Ok(flat_storage_chunk_view.iter_range(key_begin.as_deref(), key_end.as_deref()))
     }
 
     /// Determines the boundaries of a state part by accessing the Trie (i.e. State column).
@@ -518,6 +517,7 @@ mod tests {
 
     use near_primitives::hash::{hash, CryptoHash};
 
+    use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
     use crate::trie::iterator::CrumbStatus;
     use crate::trie::{
@@ -1204,7 +1204,7 @@ mod tests {
         let changes_for_delta =
             state_items.into_iter().map(|(k, v)| (k, Some(FlatStateValue::inlined(&v))));
         let delta = FlatStateChanges::from(changes_for_delta);
-        let mut store_update = tries.store_update();
+        let mut store_update = tries.store_update().flat_store_update();
         delta.apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
 
@@ -1251,7 +1251,7 @@ mod tests {
         // Remove some key from state part from flat storage.
         // Check that state part creation succeeds but generated state part
         // is invalid.
-        let mut store_update = tries.store_update();
+        let mut store_update = tries.store_update().flat_store_update();
         let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
         delta.apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();

@@ -1,3 +1,4 @@
+use crate::adapter::StoreAdapter;
 use crate::config::StateSnapshotType;
 use crate::db::STATE_SNAPSHOT_KEY;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
@@ -214,7 +215,7 @@ impl ShardTries {
         // It is fine to create a separate FlatStorageManager, because
         // it is used only for reading flat storage in the snapshot a
         // doesn't introduce memory overhead.
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         *state_snapshot_lock = Some(StateSnapshot::new(
             store,
             prev_block_hash,
@@ -357,7 +358,7 @@ impl ShardTries {
         let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
         let storage = opener.open_in_mode(Mode::ReadOnly)?;
         let store = storage.get_hot_store();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
         let shard_uids = get_shard_uids_fn(snapshot_hash)?;
         let mut guard = self.state_snapshot().write().unwrap();

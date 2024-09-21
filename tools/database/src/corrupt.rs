@@ -2,7 +2,9 @@ use crate::utils::open_state_snapshot;
 use anyhow::anyhow;
 use clap::Parser;
 use near_primitives::shard_layout::{ShardLayout, ShardVersion};
-use near_store::{flat::FlatStorageManager, ShardUId, StoreUpdate};
+use near_store::adapter::flat_store::FlatStoreUpdateAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::{flat::FlatStorageManager, ShardUId};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -13,7 +15,7 @@ pub(crate) struct CorruptStateSnapshotCommand {
 
 impl CorruptStateSnapshotCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        let store = open_state_snapshot(home, near_store::Mode::ReadWrite)?;
+        let store = open_state_snapshot(home, near_store::Mode::ReadWrite)?.flat_store();
         let flat_storage_manager = FlatStorageManager::new(store.clone());
 
         let mut store_update = store.store_update();
@@ -41,7 +43,7 @@ impl CorruptStateSnapshotCommand {
 }
 
 fn corrupt(
-    store_update: &mut StoreUpdate,
+    store_update: &mut FlatStoreUpdateAdapter,
     flat_storage_manager: &FlatStorageManager,
     shard_uid: ShardUId,
 ) -> Result<(), anyhow::Error> {
