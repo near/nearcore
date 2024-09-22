@@ -12,7 +12,7 @@ use crate::flat::{
 };
 use crate::{DBCol, Store, StoreUpdate};
 
-use super::{StoreAdapter, StoreUpdateAdapter};
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 
 #[derive(Clone)]
 pub struct FlatStoreAdapter {
@@ -30,8 +30,8 @@ impl FlatStoreAdapter {
         Self { store }
     }
 
-    pub fn store_update(&self) -> FlatStoreUpdateAdapter {
-        FlatStoreUpdateAdapter::new(self.store.store_update())
+    pub fn store_update(&self) -> FlatStoreUpdateAdapter<'static> {
+        FlatStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
     pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> Result<bool, FlatStorageError> {
@@ -103,7 +103,7 @@ impl FlatStoreAdapter {
         block_hash: CryptoHash,
         prev_hash: CryptoHash,
     ) -> Result<Option<BlockWithChangesInfo>, FlatStorageError> {
-        let key = KeyForFlatStateDelta { shard_uid, block_hash }.to_bytes();
+        let key = KeyForFlatStateDelta { shard_uid, block_hash: prev_hash }.to_bytes();
         let prev_delta_metadata: Option<FlatStateDeltaMetadata> =
             self.store.get_ser(DBCol::FlatStateDeltaMetadata, &key).map_err(|err| {
                 FlatStorageError::StorageInternalError(format!(
@@ -195,19 +195,35 @@ impl FlatStoreAdapter {
     }
 }
 
-pub struct FlatStoreUpdateAdapter {
-    store_update: StoreUpdate,
+pub struct FlatStoreUpdateAdapter<'a> {
+    store_update: StoreUpdateHolder<'a>,
 }
 
-impl StoreUpdateAdapter for FlatStoreUpdateAdapter {
-    fn store_update(self) -> StoreUpdate {
-        self.store_update
+impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
+    fn into(self) -> StoreUpdate {
+        match self.store_update {
+            StoreUpdateHolder::Reference(_) => panic!("converting borrowed store update"),
+            StoreUpdateHolder::Owned(store_update) => store_update,
+        }
     }
 }
 
-impl FlatStoreUpdateAdapter {
-    pub fn new(store_update: StoreUpdate) -> Self {
-        Self { store_update }
+impl<'a> StoreUpdateAdapter for FlatStoreUpdateAdapter<'a> {
+    fn store_update(&mut self) -> &mut StoreUpdate {
+        &mut self.store_update
+    }
+}
+
+impl<'a> FlatStoreUpdateAdapter<'a> {
+    pub fn new(store_update: &'a mut StoreUpdate) -> Self {
+        Self { store_update: StoreUpdateHolder::Reference(store_update) }
+    }
+
+    pub fn commit(self) -> io::Result<()> {
+        match self.store_update {
+            StoreUpdateHolder::Reference(_) => panic!("committing borrowed store update"),
+            StoreUpdateHolder::Owned(store_update) => store_update.commit(),
+        }
     }
 
     pub fn set(&mut self, shard_uid: ShardUId, key: Vec<u8>, value: Option<FlatStateValue>) {
@@ -298,7 +314,11 @@ mod tests {
             let val: Vec<u8> = vec![0, 1, 2, i as u8];
 
             // Add value to FlatState
-            store_update.set(*shard_uid, key.clone(), Some(FlatStateValue::inlined(&val)));
+            store_update.flat_store_update().set(
+                *shard_uid,
+                key.clone(),
+                Some(FlatStateValue::inlined(&val)),
+            );
 
             store_update.commit().unwrap();
         }

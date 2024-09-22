@@ -15,7 +15,7 @@ use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutc
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;

@@ -458,7 +458,7 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdateAdapter for StoreUpdate {
-    fn store_update(self) -> StoreUpdate {
+    fn store_update(&mut self) -> &mut StoreUpdate {
         self
     }
 }

@@ -97,11 +97,11 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<bool, near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "sync", "clear_flat_state").entered();
-        let mut store_update = msg.runtime_adapter.store().store_update().flat_store_update();
+        let mut store_update = msg.runtime_adapter.store().store_update();
         let success = msg
             .runtime_adapter
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)?;
+            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update.flat_store_update())?;
         store_update.commit()?;
         Ok(success)
     }

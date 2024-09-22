@@ -134,13 +134,13 @@ impl TestTriesBuilder {
             StateSnapshotConfig::default(),
         );
         if self.enable_flat_storage {
-            let mut store_update = tries.store_update().flat_store_update();
+            let mut store_update = tries.store_update();
             for shard_id in 0..self.num_shards {
                 let shard_uid = ShardUId {
                     version: self.shard_version,
                     shard_id: shard_id.try_into().unwrap(),
                 };
-                store_update.set_flat_storage_status(
+                store_update.flat_store_update().set_flat_storage_status(
                     shard_uid,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus {
                         flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
@@ -218,7 +218,8 @@ pub fn test_populate_flat_storage(
     prev_block_hash: &CryptoHash,
     changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) {
-    let mut store_update = tries.store_update().flat_store_update();
+    let mut store_update = tries.store_update();
+    let mut store_update = store_update.flat_store_update();
     store_update.set_flat_storage_status(
         shard_uid,
         crate::flat::FlatStorageStatus::Ready(FlatStorageReadyStatus {

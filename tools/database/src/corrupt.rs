@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use near_primitives::shard_layout::{ShardLayout, ShardVersion};
 use near_store::adapter::flat_store::FlatStoreUpdateAdapter;
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::adapter::StoreAdapter;
 use near_store::{flat::FlatStorageManager, ShardUId};
 use std::path::PathBuf;
 

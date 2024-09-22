@@ -148,9 +148,9 @@ impl TestEnv {
             for shard_uid in
                 epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids()
             {
-                let mut store_update = store.store_update().flat_store_update();
+                let mut store_update = store.store_update();
                 flat_storage_manager.set_flat_storage_for_genesis(
-                    &mut store_update,
+                    &mut store_update.flat_store_update(),
                     shard_uid,
                     &genesis_hash,
                     0,
@@ -301,7 +301,7 @@ impl TestEnv {
                 },
             };
             let new_store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.merge(new_store_update.store_update());
+            store_update.merge(new_store_update.into());
         }
         store_update.commit().unwrap();
 

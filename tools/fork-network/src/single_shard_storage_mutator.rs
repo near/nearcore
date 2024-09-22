@@ -152,8 +152,8 @@ impl SingleShardStorageMutator {
         let num_updates = self.updates.len();
         tracing::info!(?shard_uid, num_updates, "commit");
         let flat_state_changes = FlatStateChanges::from_raw_key_value(&self.updates);
-        let mut update = self.shard_tries.store_update().flat_store_update();
-        flat_state_changes.apply_to_flat_state(&mut update, *shard_uid);
+        let mut update = self.shard_tries.store_update();
+        flat_state_changes.apply_to_flat_state(&mut update.flat_store_update(), *shard_uid);
 
         let trie_changes = self
             .shard_tries
@@ -164,7 +164,6 @@ impl SingleShardStorageMutator {
             num_trie_node_insertions = trie_changes.insertions().len(),
             num_trie_node_deletions = trie_changes.deletions().len()
         );
-        let mut update = update.store_update();
         let state_root = self.shard_tries.apply_all(&trie_changes, *shard_uid, &mut update);
         self.shard_tries.apply_memtrie_changes(&trie_changes, *shard_uid, fake_block_height);
         // We may not have loaded memtries (some commands don't need to), so check.

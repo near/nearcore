@@ -1204,8 +1204,8 @@ mod tests {
         let changes_for_delta =
             state_items.into_iter().map(|(k, v)| (k, Some(FlatStateValue::inlined(&v))));
         let delta = FlatStateChanges::from(changes_for_delta);
-        let mut store_update = tries.store_update().flat_store_update();
-        delta.apply_to_flat_state(&mut store_update, shard_uid);
+        let mut store_update = tries.store_update();
+        delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
 
         let (partial_state, nibbles_begin, nibbles_end) =
@@ -1251,9 +1251,9 @@ mod tests {
         // Remove some key from state part from flat storage.
         // Check that state part creation succeeds but generated state part
         // is invalid.
-        let mut store_update = tries.store_update().flat_store_update();
+        let mut store_update = tries.store_update();
         let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
-        delta.apply_to_flat_state(&mut store_update, shard_uid);
+        delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
 
         assert_matches!(

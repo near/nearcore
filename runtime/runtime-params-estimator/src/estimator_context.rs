@@ -15,7 +15,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
@@ -379,7 +379,7 @@ impl Testbed<'_> {
         let mut flat_store_update = store.flat_store().store_update();
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut flat_store_update, shard_uid);
-        store_update.merge(flat_store_update.store_update());
+        store_update.merge(flat_store_update.into());
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
         if let Some(congestion_info) = apply_result.congestion_info {

@@ -710,9 +710,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            let mut store_update = self.store().store_update().flat_store_update();
-            store_update.remove_delta(shard_uid, block_hash);
-            self.merge(store_update.store_update());
+            let mut store_update = self.store().store_update();
+            store_update.flat_store_update().remove_delta(shard_uid, block_hash);
+            self.merge(store_update);
         }
 
         // 2. Delete block_hash-indexed data

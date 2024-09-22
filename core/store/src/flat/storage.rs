@@ -9,7 +9,6 @@ use near_primitives::types::BlockHeight;
 use tracing::{debug, warn};
 
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::adapter::StoreUpdateAdapter;
 use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::BlockInfo;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
@@ -450,7 +449,7 @@ impl FlatStorage {
     pub fn add_delta(
         &self,
         delta: FlatStateDelta,
-    ) -> Result<FlatStoreUpdateAdapter, FlatStorageError> {
+    ) -> Result<FlatStoreUpdateAdapter<'static>, FlatStorageError> {
         let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_uid = guard.shard_uid;
         let block = &delta.metadata.block;
@@ -514,7 +513,7 @@ fn missing_delta_error(block_hash: &CryptoHash) -> FlatStorageError {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+    use crate::adapter::StoreAdapter;
     use crate::flat::delta::{
         BlockWithChangesInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
     };
@@ -699,7 +698,6 @@ mod tests {
         let mut chain = MockChain::linear_chain(10);
         let shard_uid = ShardUId::single_shard();
         let store = create_test_store().flat_store();
-        let flat_store_adapter = store.flat_store();
         let mut store_update = store.store_update();
         store_update.set_flat_storage_status(
             shard_uid,
@@ -772,10 +770,7 @@ mod tests {
         // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
         // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
         flat_storage.update_flat_head_impl(&chain.get_block_hash(5), true).unwrap();
-        assert_eq!(
-            flat_store_adapter.get(shard_uid, &[1]).unwrap(),
-            Some(FlatStateValue::value_ref(&[5]))
-        );
+        assert_eq!(store.get(shard_uid, &[1]).unwrap(), Some(FlatStateValue::value_ref(&[5])));
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 5);
         assert_eq!(chunk_view0.get_value(&[1]).unwrap(), None);
@@ -792,11 +787,8 @@ mod tests {
         flat_storage.update_flat_head_impl(&chain.get_block_hash(10), true).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
-        assert_eq!(flat_store_adapter.get(shard_uid, &[1]).unwrap(), None);
-        assert_eq!(
-            flat_store_adapter.get(shard_uid, &[2]).unwrap(),
-            Some(FlatStateValue::value_ref(&[1]))
-        );
+        assert_eq!(store.get(shard_uid, &[1]).unwrap(), None);
+        assert_eq!(store.get(shard_uid, &[2]).unwrap(), Some(FlatStateValue::value_ref(&[1])));
         assert_eq!(chunk_view0.get_value(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_value(&[2]).unwrap(), Some(FlatStateValue::value_ref(&[1])));
         assert_matches!(store.get_delta(shard_uid, chain.get_block_hash(10)).unwrap(), None);

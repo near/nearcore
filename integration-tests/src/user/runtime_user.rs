@@ -136,10 +136,8 @@ impl RuntimeUser {
                 &mut update,
             );
             if use_flat_storage {
-                let mut flat_store_update = update.flat_store_update();
                 near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-                    .apply_to_flat_state(&mut flat_store_update, ShardUId::single_shard());
-                update = flat_store_update.store_update();
+                    .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;

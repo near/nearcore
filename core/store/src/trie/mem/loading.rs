@@ -423,7 +423,8 @@ mod tests {
         let shard_uid = ShardUId { version: 1, shard_id: 1 };
 
         // Populate the initial flat storage state at block 0.
-        let mut store_update = shard_tries.store_update().flat_store_update();
+        let mut store_update = shard_tries.store_update();
+        let mut store_update = store_update.flat_store_update();
         store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
@@ -537,7 +538,7 @@ mod tests {
                     &state_changes,
                 )
                 .unwrap()
-                .store_update(),
+                .into(),
         );
         store_update.commit().unwrap();
 

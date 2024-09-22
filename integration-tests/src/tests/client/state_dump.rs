@@ -302,10 +302,13 @@ fn run_state_sync_with_dumped_parts(
         let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
         let runtime_client_0 = Arc::clone(&env.clients[0].runtime_adapter);
         let client_0_store = runtime_client_0.store();
-        let mut store_update = runtime_client_1.store().store_update().flat_store_update();
+        let mut store_update = runtime_client_1.store().store_update();
         assert!(runtime_client_1
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(ShardUId::single_shard(), &mut store_update)
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
             .unwrap());
         store_update.commit().unwrap();
 
