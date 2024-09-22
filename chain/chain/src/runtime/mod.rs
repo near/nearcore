@@ -1245,8 +1245,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
         // TODO: `apply_to_flat_state` inserts values with random writes, which can be time consuming.
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
-        let mut store_update = store_update.flat_store_update();
-        flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
+        flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }

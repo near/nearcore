@@ -187,7 +187,7 @@ pub fn load_trie_from_flat_state_and_delta(
 #[cfg(test)]
 mod tests {
     use super::load_trie_from_flat_state_and_delta;
-    use crate::adapter::StoreUpdateAdapter;
+    use crate::adapter::{StoreAdapter, StoreUpdateCommit};
     use crate::flat::test_utils::MockChain;
     use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
@@ -423,8 +423,7 @@ mod tests {
         let shard_uid = ShardUId { version: 1, shard_id: 1 };
 
         // Populate the initial flat storage state at block 0.
-        let mut store_update = shard_tries.store_update();
-        let mut store_update = store_update.flat_store_update();
+        let mut store_update = shard_tries.get_store().flat_store().store_update();
         store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),

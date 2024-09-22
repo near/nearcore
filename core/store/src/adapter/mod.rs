@@ -1,5 +1,6 @@
 pub mod flat_store;
 
+use std::io;
 use std::ops::{Deref, DerefMut};
 
 use crate::{Store, StoreUpdate};
@@ -29,6 +30,15 @@ impl DerefMut for StoreUpdateHolder<'_> {
     }
 }
 
+impl Into<StoreUpdate> for StoreUpdateHolder<'static> {
+    fn into(self) -> StoreUpdate {
+        match self {
+            StoreUpdateHolder::Reference(_) => panic!("converting borrowed store update"),
+            StoreUpdateHolder::Owned(store_update) => store_update,
+        }
+    }
+}
+
 pub trait StoreAdapter {
     fn store(&self) -> Store;
 
@@ -42,5 +52,18 @@ pub trait StoreUpdateAdapter: Sized {
 
     fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())
+    }
+}
+
+pub trait StoreUpdateCommit: Sized {
+    fn commit(self) -> io::Result<()>;
+}
+
+impl<T> StoreUpdateCommit for T
+where
+    T: Into<StoreUpdate>,
+{
+    fn commit(self) -> io::Result<()> {
+        self.into().commit()
     }
 }

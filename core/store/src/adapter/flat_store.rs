@@ -201,10 +201,7 @@ pub struct FlatStoreUpdateAdapter<'a> {
 
 impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
     fn into(self) -> StoreUpdate {
-        match self.store_update {
-            StoreUpdateHolder::Reference(_) => panic!("converting borrowed store update"),
-            StoreUpdateHolder::Owned(store_update) => store_update,
-        }
+        self.store_update.into()
     }
 }
 
@@ -217,13 +214,6 @@ impl<'a> StoreUpdateAdapter for FlatStoreUpdateAdapter<'a> {
 impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn new(store_update: &'a mut StoreUpdate) -> Self {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
-    }
-
-    pub fn commit(self) -> io::Result<()> {
-        match self.store_update {
-            StoreUpdateHolder::Reference(_) => panic!("committing borrowed store update"),
-            StoreUpdateHolder::Owned(store_update) => store_update.commit(),
-        }
     }
 
     pub fn set(&mut self, shard_uid: ShardUId, key: Vec<u8>, value: Option<FlatStateValue>) {
@@ -299,7 +289,7 @@ mod tests {
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
 
-    use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+    use crate::adapter::{StoreAdapter, StoreUpdateAdapter, StoreUpdateCommit};
     use crate::test_utils::create_test_store;
 
     #[test]
