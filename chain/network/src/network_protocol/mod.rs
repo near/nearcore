@@ -8,7 +8,6 @@ mod proto_conv;
 mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -545,8 +544,7 @@ pub enum RoutedMessageBody {
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     _UnusedChunkStateWitness,
-    /// TODO(ChunkEndorsementV2): Deprecate once we move to VersionedChunkEndorsement
-    ChunkEndorsement(ChunkEndorsementV1),
+    _UnusedChunkEndorsement,
     ChunkStateWitnessAck(ChunkStateWitnessAck),
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
@@ -576,8 +574,7 @@ impl RoutedMessageBody {
     // we may be the block_producer.
     pub fn allow_sending_to_self(&self) -> bool {
         match self {
-            RoutedMessageBody::ChunkEndorsement(_)
-            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
@@ -630,7 +627,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
             RoutedMessageBody::_UnusedChunkStateWitness => write!(f, "ChunkStateWitness"),
-            RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
+            RoutedMessageBody::_UnusedChunkEndorsement => write!(f, "ChunkEndorsement"),
             RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
                 f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash).finish()
             }

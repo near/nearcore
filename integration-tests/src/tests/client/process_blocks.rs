@@ -48,7 +48,7 @@ use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
@@ -2273,8 +2273,9 @@ fn test_validate_chunk_extra() {
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
         let outcome_root = Block::compute_outcome_root(block.chunks().iter());
         block.mut_header().set_prev_outcome_root(outcome_root);
-        let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), &validator_signer);
-        block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature))]]);
+        let endorsement =
+            ChunkEndorsement::new(EpochId::default(), &chunk_header, &validator_signer);
+        block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]]);
         let body_hash = block.compute_block_body_hash().unwrap();
         block.mut_header().set_block_body_hash(body_hash);
         block.mut_header().resign(&validator_signer);

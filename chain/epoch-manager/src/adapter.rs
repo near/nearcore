@@ -10,9 +10,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsementV1, ChunkEndorsementV2,
-};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -415,15 +413,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error>;
 
-    fn verify_chunk_endorsement(
-        &self,
-        chunk_header: &ShardChunkHeader,
-        endorsement: &ChunkEndorsementV1,
-    ) -> Result<bool, Error>;
-
     fn verify_chunk_endorsement_signature(
         &self,
-        endorsement: &ChunkEndorsementV2,
+        endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error>;
 
     fn verify_partial_witness_signature(
@@ -1038,36 +1030,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
-    // TODO(ChunkEndorsementV2): Deprecate this after shifting to ChunkEndorsementV2
-    fn verify_chunk_endorsement(
-        &self,
-        chunk_header: &ShardChunkHeader,
-        endorsement: &ChunkEndorsementV1,
-    ) -> Result<bool, Error> {
-        if &chunk_header.chunk_hash() != endorsement.chunk_hash() {
-            return Err(Error::InvalidChunkEndorsement);
-        }
-        let epoch_manager = self.read();
-        let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        // Note that we are using the chunk_header.height_created param here to determine the chunk validators
-        // This only works when height created for a chunk is the same as the height_included during block production
-        let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
-            &epoch_id,
-            chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
-        if !chunk_validator_assignments.contains(&endorsement.account_id) {
-            return Err(Error::NotAValidator(format!("verify chunk endorsement")));
-        }
-        let validator =
-            epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id)?;
-        Ok(endorsement.verify(validator.public_key()))
-    }
-
     fn verify_chunk_endorsement_signature(
         &self,
-        endorsement: &ChunkEndorsementV2,
+        endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error> {
         let epoch_manager = self.read();
         let epoch_id = endorsement.chunk_production_key().epoch_id;

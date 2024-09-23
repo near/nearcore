@@ -38,7 +38,6 @@ use near_async::time;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
 use std::collections::VecDeque;
@@ -758,11 +757,6 @@ impl NetworkState {
             }
             RoutedMessageBody::ChunkStateWitnessAck(ack) => {
                 self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
-                None
-            }
-            RoutedMessageBody::ChunkEndorsement(endorsement) => {
-                let endorsement = ChunkEndorsement::V1(endorsement);
-                self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {

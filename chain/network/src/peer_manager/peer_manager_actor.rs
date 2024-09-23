@@ -31,7 +31,6 @@ use near_o11y::{handler_debug_span, handler_trace_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -1100,13 +1099,11 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {
-                let msg = match endorsement {
-                    ChunkEndorsement::V1(endorsement) => {
-                        RoutedMessageBody::ChunkEndorsement(endorsement)
-                    }
-                    _ => RoutedMessageBody::VersionedChunkEndorsement(endorsement),
-                };
-                self.state.send_message_to_account(&self.clock, &target, msg);
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::VersionedChunkEndorsement(endorsement),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {

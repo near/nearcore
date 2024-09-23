@@ -4,16 +4,17 @@ use std::sync::Arc;
 
 use lru::LruCache;
 use near_chain_primitives::Error;
+use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV2;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use near_store::Store;
 
-use crate::stateless_validation::validate::validate_chunk_endorsement;
+use super::validate::validate_chunk_endorsement;
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
@@ -25,12 +26,11 @@ pub struct ChunkEndorsementTracker {
     /// Used to find the chain HEAD when validating partial witnesses.
     store: Store,
     /// We store the validated chunk endorsements received from chunk validators.
-    /// Interior mutability is required to update the cache in process_chunk_endorsement & compute_chunk_endorsements.
-    chunk_endorsements: LruCache<ChunkProductionKey, HashMap<AccountId, ChunkEndorsementV2>>,
+    chunk_endorsements: LruCache<ChunkProductionKey, HashMap<AccountId, (ChunkHash, Signature)>>,
 }
 
 impl ChunkEndorsementTracker {
-    pub(crate) fn new(epoch_manager: Arc<dyn EpochManagerAdapter>, store: Store) -> Self {
+    pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>, store: Store) -> Self {
         Self {
             epoch_manager,
             store,
@@ -41,9 +41,9 @@ impl ChunkEndorsementTracker {
     }
 
     // Validate the chunk endorsement and store it in the cache.
-    pub(crate) fn process_chunk_endorsement(
+    pub fn process_chunk_endorsement(
         &mut self,
-        endorsement: ChunkEndorsementV2,
+        endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
         // Check if we have already received chunk endorsement from this validator.
         let key = endorsement.chunk_production_key();
@@ -57,13 +57,13 @@ impl ChunkEndorsementTracker {
         if validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
             self.chunk_endorsements
                 .get_or_insert_mut(key, || HashMap::new())
-                .insert(account_id.clone(), endorsement);
+                .insert(account_id.clone(), (endorsement.chunk_hash(), endorsement.signature()));
         };
         Ok(())
     }
 
     /// This function is called by block producer potentially multiple times if there's not enough stake.
-    pub(crate) fn collect_chunk_endorsements(
+    pub fn collect_chunk_endorsements(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
@@ -97,8 +97,8 @@ impl ChunkEndorsementTracker {
         let entry = self.chunk_endorsements.get_or_insert(key, || HashMap::new());
         let validator_signatures = entry
             .into_iter()
-            .filter(|(_, endorsement)| endorsement.chunk_hash() == &chunk_header.chunk_hash())
-            .map(|(account_id, endorsement)| (account_id, endorsement.signature()))
+            .filter(|(_, (chunk_hash, _))| chunk_hash == &chunk_header.chunk_hash())
+            .map(|(account_id, (_, signature))| (account_id, signature.clone()))
             .collect();
 
         Ok(chunk_validator_assignments.compute_endorsement_state(validator_signatures))
