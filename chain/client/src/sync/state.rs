@@ -1,4 +1,4 @@
-//! State sync is trying to fetch the 'full state' from the peers (which can be multiple GB).
+//! State sync is trying to fetch the 'full state' (which can be multiple GB).
 //! It happens after HeaderSync and before BlockSync (but only if the node sees that it is 'too much behind').
 //! See <https://near.github.io/nearcore/architecture/how/sync.html> for more detailed information.
 //! Such state can be downloaded only at special heights (currently - at the beginning of the current and previous
@@ -9,16 +9,16 @@
 //! many parts it consists of, hash of the root etc).
 //! Then it tries downloading the rest of the data in 'parts' (usually the part is around 1MB in size).
 //!
-//! For downloading - the code is picking the potential target nodes (all direct peers that are tracking the shard
-//! (and are high enough) + validators from that epoch that were tracking the shard)
-//! Then for each part that we're missing, we're 'randomly' picking a target from whom we'll request it - but we make
-//! sure to not request more than MAX_STATE_PART_REQUESTS from each.
+//! Optionally, it is possible to configure a cloud storage location where state headers and parts
+//! are available. The behavior is currently as follows:
+//!     - State Headers: If external storage is configured, we will get the headers there.
+//!     Otherwise, we will send requests to random peers for the state headers.
+//!     - State Parts: In the network crate we track which nodes in the network can serve parts for
+//!     which shards. If no external storage is configured, parts are obtained from peers
+//!     accordingly. If external storage is configure, we attempt first to obtain parts from the
+//!     peers in the network before falling back to the external storage.
 //!
-//! WARNING: with the current design, we're putting quite a load on the validators - as we request a lot of data from
-//!         them (if you assume that we have 100 validators and 30 peers - we send 100/130 of requests to validators).
-//!         Currently validators defend against it, by having a rate limiters - but we should improve the algorithm
-//!         here to depend more on local peers instead.
-//!
+//! This is an intermediate approach in the process of eliminating external storage entirely.
 
 use crate::metrics;
 use crate::sync::external::{
@@ -515,6 +515,8 @@ impl StateSync {
     ) {
         let header_download = new_shard_sync_download.get_header_download_mut().unwrap();
         if let Some(StateSyncExternal { chain_id, external, .. }) = &self.external {
+            // TODO(saketh): Eventually we aim to deprecate the external storage and rely only on
+            // peers in the network for getting state headers.
             let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
             let epoch_id = sync_block_header.epoch_id();
             let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
@@ -531,6 +533,9 @@ impl StateSync {
                 self.state_parts_mpsc_tx.clone(),
             );
         } else {
+            // TODO(saketh): We need to rework the way we get headers from peers entirely.
+            // Currently it is assumed that one of the direct peers of the node is able to generate
+            // the shard header.
             let peer_id = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
             tracing::debug!(target: "sync", ?peer_id, shard_id, ?sync_hash, ?possible_targets, "request_shard_header");
             assert!(header_download.run_me.load(Ordering::SeqCst));
@@ -575,6 +580,8 @@ impl StateSync {
             if self.external.is_some()
                 && download.state_requests_count >= EXTERNAL_STORAGE_FALLBACK_THRESHOLD
             {
+                // TODO(saketh): After we have sufficient confidence that requesting state parts
+                // from peers is working well, we will eliminate the external storage entirely.
                 let StateSyncExternal { chain_id, semaphore, external } =
                     self.external.as_ref().unwrap();
                 if semaphore.available_permits() == 0 {
