@@ -241,10 +241,12 @@ impl TrieUpdate {
         }
         TrieCacheModeGuard(previous, switch)
     }
-}
 
-impl crate::TrieAccess for TrieUpdate {
-    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+    fn get_from_updates(
+        &self,
+        key: &TrieKey,
+        fallback: impl FnOnce(&[u8]) -> Result<Option<Vec<u8>>, StorageError>,
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
@@ -253,19 +255,17 @@ impl crate::TrieAccess for TrieUpdate {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        self.trie.get(&key)
+        fallback(&key)
+    }
+}
+
+impl crate::TrieAccess for TrieUpdate {
+    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        self.get_from_updates(key, |k| self.trie.get(k))
     }
 
-    fn get_no_side_effects(&self, orig_key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = orig_key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_ref().map(<Vec<u8>>::clone));
-            }
-        }
-        self.trie.get_no_side_effects(orig_key)
+    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        self.get_from_updates(key, |_| self.trie.get_no_side_effects(&key))
     }
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
