@@ -2,7 +2,7 @@ use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::{
     get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
-    Trie, TrieUpdate,
+    Trie, TrieAccess as _, TrieUpdate,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;

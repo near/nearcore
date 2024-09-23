@@ -313,7 +313,6 @@ impl SnapshotHostsCache {
     }
 
     /// Given a state part request, selects a peer host to which the request should be sent.
-    #[allow(dead_code)]
     pub fn select_host_for_part(
         &self,
         sync_hash: &CryptoHash,

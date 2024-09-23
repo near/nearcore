@@ -991,6 +991,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
+            | DBCol::EpochSyncProof
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             => unreachable!(),
