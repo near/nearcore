@@ -27,7 +27,7 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceiptV0, ReceivedData,
+    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -1769,6 +1769,8 @@ impl Runtime {
                 .delayed_receipts
                 .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
                 .expect("queue is not empty");
+            let receipt = receipt.into_receipt();
+
             if let Some(nsi) = &mut next_schedule_after {
                 *nsi = nsi.saturating_sub(1);
                 if *nsi == 0 {
@@ -2455,6 +2457,18 @@ impl MaybeRefReceipt for Receipt {
 impl<'a> MaybeRefReceipt for &'a Receipt {
     fn as_ref(&self) -> &Receipt {
         *self
+    }
+}
+
+impl MaybeRefReceipt for ReceiptOrStateStoredReceipt<'_> {
+    fn as_ref(&self) -> &Receipt {
+        self.get_receipt()
+    }
+}
+
+impl<'a> MaybeRefReceipt for &'a ReceiptOrStateStoredReceipt<'a> {
+    fn as_ref(&self) -> &Receipt {
+        self.get_receipt()
     }
 }
 

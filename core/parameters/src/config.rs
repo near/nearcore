@@ -31,6 +31,9 @@ pub struct RuntimeConfig {
     pub congestion_control_config: CongestionControlConfig,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfig,
+
+    /// Whether receipts should be stored as [StateStoredReceipt].
+    pub use_state_stored_receipt: bool,
 }
 
 impl RuntimeConfig {
@@ -59,6 +62,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            use_state_stored_receipt: runtime_config.use_state_stored_receipt,
         }
     }
 
@@ -75,6 +79,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            use_state_stored_receipt: runtime_config.use_state_stored_receipt,
         }
     }
 

@@ -1,6 +1,8 @@
 use crate::{get, get_pure, set, TrieAccess, TrieUpdate};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
-use near_primitives::receipt::{BufferedReceiptIndices, Receipt, TrieQueueIndices};
+use near_primitives::receipt::{
+    BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 
@@ -77,7 +79,7 @@ pub trait TrieQueue {
     fn push(
         &mut self,
         state_update: &mut TrieUpdate,
-        receipt: &Receipt,
+        receipt: &ReceiptOrStateStoredReceipt,
     ) -> Result<(), IntegerOverflowError> {
         self.debug_check_unchanged(state_update);
 
@@ -91,7 +93,10 @@ pub trait TrieQueue {
         Ok(())
     }
 
-    fn pop(&mut self, state_update: &mut TrieUpdate) -> Result<Option<Receipt>, StorageError> {
+    fn pop(
+        &mut self,
+        state_update: &mut TrieUpdate,
+    ) -> Result<Option<ReceiptOrStateStoredReceipt>, StorageError> {
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();
@@ -99,7 +104,7 @@ pub trait TrieQueue {
             return Ok(None);
         }
         let key = self.trie_key(indices.first_index);
-        let receipt: Receipt = get(state_update, &key)?.ok_or_else(|| {
+        let receipt: ReceiptOrStateStoredReceipt = get(state_update, &key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Receipt #{} should be in the state",
                 indices.first_index
@@ -255,7 +260,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
 }
 
 impl<'a> Iterator for ReceiptIterator<'a> {
-    type Item = Result<Receipt, StorageError>;
+    type Item = Result<ReceiptOrStateStoredReceipt<'a>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
@@ -292,9 +297,12 @@ impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::*;
     use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
+    use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardUId;
 
     #[test]
@@ -410,10 +418,13 @@ mod tests {
         queue: &mut impl TrieQueue,
     ) {
         for receipt in input_receipts {
-            queue.push(trie, receipt).expect("pushing must not fail");
+            let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
+            queue.push(trie, &receipt).expect("pushing must not fail");
         }
-        let iterated_receipts: Vec<Receipt> =
+        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
             queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
+        let iterated_receipts: Vec<Receipt> =
+            iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
 
         // check 1: receipts should be in queue and contained in the iterator
         assert_eq!(input_receipts, iterated_receipts, "receipts were not recorded in queue");
@@ -428,13 +439,16 @@ mod tests {
         queue: &mut impl TrieQueue,
     ) {
         // check 2: assert newly loaded queue still contains the receipts
-        let iterated_receipts: Vec<Receipt> =
+        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
             queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
+        let iterated_receipts: Vec<Receipt> =
+            iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
         assert_eq!(input_receipts, iterated_receipts, "receipts were not persisted correctly");
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
         while let Some(receipt) = queue.pop(trie).expect("pop must not fail") {
+            let receipt = receipt.into_receipt();
             popped.push(receipt);
         }
         assert_eq!(input_receipts, popped, "receipts were not popped correctly");
