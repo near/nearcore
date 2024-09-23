@@ -1799,7 +1799,7 @@ impl Chain {
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
         // 2) Start creating snapshot if needed.
-        if let Err(err) = self.process_snapshot() {
+        if let Err(err) = self.process_snapshot(me) {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
 
@@ -3863,7 +3863,7 @@ impl Chain {
     }
 
     /// Function to create or delete a snapshot if necessary.
-    fn process_snapshot(&mut self) -> Result<(), Error> {
+    fn process_snapshot(&mut self, me: &Option<AccountId>) -> Result<(), Error> {
         let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot()?;
         if !make_snapshot && !delete_snapshot {
             return Ok(());
@@ -3874,10 +3874,21 @@ impl Chain {
             let prev_hash = head.prev_block_hash;
             let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(&prev_hash)?;
             let shard_layout = &self.epoch_manager.get_shard_layout_from_prev_block(&prev_hash)?;
-            let shard_uids = shard_layout.shard_uids().collect();
+            let tracked_shards = shard_layout
+                .shard_uids()
+                .filter(|shard_uid| {
+                    self.shard_tracker.care_about_shard(
+                        me.as_ref(),
+                        &prev_hash,
+                        shard_uid.shard_id(),
+                        true,
+                    )
+                })
+                .collect();
+
             let last_block = self.get_block(&head.last_block_hash)?;
             let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-            make_snapshot_callback(prev_hash, epoch_height, shard_uids, last_block);
+            make_snapshot_callback(prev_hash, epoch_height, tracked_shards, last_block);
         } else if delete_snapshot {
             let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
             delete_snapshot_callback();
