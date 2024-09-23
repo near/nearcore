@@ -530,7 +530,6 @@ impl RunCmd {
                 rpc_servers,
                 cold_store_loop_handle,
                 mut state_sync_dumper,
-                flat_state_migration_handle,
                 resharding_handle,
                 ..
             } = nearcore::start_with_config_and_synchronization(
@@ -557,7 +556,6 @@ impl RunCmd {
             }
             state_sync_dumper.stop();
             resharding_handle.stop();
-            flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
