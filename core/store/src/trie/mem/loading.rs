@@ -536,7 +536,8 @@ mod tests {
                     shard_uid,
                     &state_changes,
                 )
-                .unwrap(),
+                .unwrap()
+                .into(),
         );
         store_update.commit().unwrap();
 

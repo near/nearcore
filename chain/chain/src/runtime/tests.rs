@@ -301,7 +301,7 @@ impl TestEnv {
                 },
             };
             let new_store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.merge(new_store_update);
+            store_update.merge(new_store_update.into());
         }
         store_update.commit().unwrap();
 
