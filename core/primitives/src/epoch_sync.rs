@@ -1,9 +1,8 @@
-use crate::block_header::BlockHeader;
 use crate::epoch_block_info::BlockInfo;
 use crate::epoch_info::EpochInfo;
-use crate::merkle::PartialMerkleTree;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
+use crate::{block_header::BlockHeader, merkle::MerklePathItem};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
@@ -105,14 +104,11 @@ pub struct EpochSyncProofCurrentEpochData {
     /// to prove this like the other cases, because the first block header may not have a
     /// consecutive height afterwards.
     pub first_block_header_in_epoch: BlockHeader,
-    // TODO(#11932): can this be proven or derived?
-    pub first_block_info_in_epoch: BlockInfo,
     // The last two block headers are also needed for various purposes after epoch sync.
     // TODO(#11931): do we really need these?
     pub last_block_header_in_prev_epoch: BlockHeader,
     pub second_last_block_header_in_prev_epoch: BlockHeader,
-    // TODO(#11932): I'm not sure if this can be used to prove the block against the merkle root
-    // included in the final block in this next epoch (included in LastEpochData). We may need to
-    // include another merkle proof.
-    pub merkle_proof_for_first_block: PartialMerkleTree,
+    // Used to prove the block against the merkle root
+    // included in the final block in this next epoch (included in LastEpochData).
+    pub merkle_proof_for_first_block: Vec<MerklePathItem>,
 }

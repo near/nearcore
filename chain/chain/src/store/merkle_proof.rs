@@ -5,7 +5,9 @@ use near_primitives::{
     hash::CryptoHash,
     merkle::{combine_hash, Direction, MerklePath, MerklePathItem, PartialMerkleTree},
     types::{MerkleHash, NumBlocks},
+    utils::index_to_bytes,
 };
+use near_store::{DBCol, Store};
 
 /// Implement block merkle proof retrieval.
 
@@ -192,5 +194,28 @@ fn combine_maybe_hashes(
             None
         }
         _ => None,
+    }
+}
+
+impl MerkleProofAccess for Store {
+    fn get_block_merkle_tree(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
+        match self.get_ser::<PartialMerkleTree>(
+            DBCol::BlockMerkleTree,
+            &borsh::to_vec(&block_hash).unwrap(),
+        )? {
+            Some(block_merkle_tree) => Ok(Arc::new(block_merkle_tree)),
+            None => {
+                Err(Error::Other(format!("Could not find merkle proof for block {}", block_hash)))
+            }
+        }
+    }
+
+    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
+        self.get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?.ok_or(
+            Error::Other(format!("Could not find block hash from ordinal {}", block_ordinal)),
+        )
     }
 }

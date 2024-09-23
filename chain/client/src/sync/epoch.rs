@@ -6,7 +6,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
@@ -23,10 +23,11 @@ use near_primitives::epoch_sync::{
     EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::verify_hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::utils::compression::CompressedData;
+use near_primitives::utils::{compression::CompressedData, index_to_bytes};
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -243,23 +244,10 @@ impl EpochSync {
             )?
             .ok_or_else(|| Error::Other("Could not find first block of next epoch".to_string()))?;
 
-        let first_block_info_of_current_epoch = store
-            .get_ser::<BlockInfo>(
-                DBCol::BlockInfo,
-                block_info_for_final_block_of_current_epoch.epoch_first_block().as_bytes(),
-            )?
-            .ok_or_else(|| {
-                Error::Other("Could not find first block info of next epoch".to_string())
-            })?;
-
-        let merkle_proof_for_first_block_of_current_epoch = chain_store
-            .get_block_proof(
-                first_block_of_current_epoch.hash(),
-                final_block_header_in_current_epoch.hash(),
-            )
-            .ok_or_else(|| {
-                Error::Other("Could not find merkle proof for first block".to_string())
-            })?;
+        let merkle_proof_for_first_block_of_current_epoch = store.get_block_proof(
+            first_block_of_current_epoch.hash(),
+            final_block_header_in_current_epoch.hash(),
+        )?;
 
         let all_past_epochs_including_old_proof = existing_epoch_sync_proof
             .map(|proof| proof.past_epochs)
@@ -282,7 +270,6 @@ impl EpochSync {
             },
             current_epoch: EpochSyncProofCurrentEpochData {
                 first_block_header_in_epoch: first_block_of_current_epoch,
-                first_block_info_in_epoch: first_block_info_of_current_epoch,
                 last_block_header_in_prev_epoch: last_block_of_prev_epoch,
                 second_last_block_header_in_prev_epoch: second_last_block_of_prev_epoch,
                 merkle_proof_for_first_block: merkle_proof_for_first_block_of_current_epoch,
@@ -521,15 +508,20 @@ impl EpochSync {
             proof.last_epoch.next_next_epoch_info,
         )?;
 
+        let last_epoch_data = &proof.past_epochs[proof.past_epochs.len() - 2];
+        let last_epoch_last_final_block_height = last_epoch_data.last_final_block_header.height();
+        let first_block_info_in_epoch =
+            BlockInfo::from_header(&last_header, last_epoch_last_final_block_height);
+
         store_update.insert_ser(
             DBCol::BlockInfo,
-            &borsh::to_vec(proof.current_epoch.first_block_info_in_epoch.hash()).unwrap(),
-            &proof.current_epoch.first_block_info_in_epoch,
+            &borsh::to_vec(first_block_info_in_epoch.hash()).unwrap(),
+            &first_block_info_in_epoch,
         )?;
 
         store_update.set_ser(
             DBCol::BlockOrdinal,
-            &borsh::to_vec(&proof.current_epoch.merkle_proof_for_first_block.size()).unwrap(),
+            &index_to_bytes(last_header.block_ordinal()),
             last_header.hash(),
         )?;
 
@@ -587,7 +579,6 @@ impl EpochSync {
 
         Self::verify_epoch_sync_data_hash(
             &last_epoch,
-            // TODO should use block_producers from current epoch instead of last epoch
             &past_epochs.last().unwrap().block_producers,
             epoch_manager,
         )?;
@@ -601,14 +592,19 @@ impl EpochSync {
 
     fn verify_current_epoch_data(
         current_epoch: &EpochSyncProofCurrentEpochData,
-        _final_block_header: &BlockHeader,
+        final_block_header: &BlockHeader,
     ) -> Result<(), Error> {
         // Verify first_block_header_in_epoch
-        let _first_block_header = &current_epoch.first_block_header_in_epoch;
-        // TODO
-
-        // Verify first_block_info_in_epoch?
-        // TODO
+        let first_block_header = &current_epoch.first_block_header_in_epoch;
+        if !verify_hash(
+            *final_block_header.block_merkle_root(),
+            &current_epoch.merkle_proof_for_first_block,
+            *first_block_header.hash(),
+        ) {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid merkle_proof_for_first_block".to_string(),
+            ));
+        }
 
         Ok(())
     }

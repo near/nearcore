@@ -12,8 +12,8 @@ use near_async::time::{Clock, Duration};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::ChainStore;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
+use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
 use near_client::test_utils::{
