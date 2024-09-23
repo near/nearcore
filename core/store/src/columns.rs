@@ -300,6 +300,12 @@ pub enum DBCol {
     /// - *Rows*: only one key with 0 bytes.
     /// - *Column type*: `EpochSyncProof`
     EpochSyncProof,
+    /// Mapping of ShardUId to the underlying ShardUId database key prefix for the State column.
+    /// It could be parent shard after resharding, ancestor shard in case of many resharding,
+    /// or just map shard to itself if there was no resharding or we updated the mapping during state sync.
+    /// - *Rows*: `ShardUId`
+    /// - *Column type*: `ShardUId`
+    ShardUIdMapping,
 }
 
 /// Defines different logical parts of a db key.
@@ -502,7 +508,8 @@ impl DBCol {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
-            | DBCol::EpochSyncProof => false,
+            | DBCol::EpochSyncProof
+            | DBCol::ShardUIdMapping => false,
         }
     }
 
@@ -575,6 +582,7 @@ impl DBCol {
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
+            DBCol::ShardUIdMapping => &[DBKeyType::ShardUId],
         }
     }
 }

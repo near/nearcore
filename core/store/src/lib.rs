@@ -36,6 +36,8 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
+use shard_uid_mapping::{replace_shard_uid_key_prefix, retrieve_shard_uid_from_db_key};
+use std::borrow::Cow;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
@@ -57,6 +59,7 @@ pub mod metrics;
 pub mod migrations;
 mod opener;
 mod rocksdb_metrics;
+mod shard_uid_mapping;
 mod sync_utils;
 pub mod test_utils;
 pub mod trie;
@@ -65,6 +68,7 @@ pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
     checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
 };
+use crate::shard_uid_mapping::ShardUIdMapping;
 
 /// Specifies temperature of a storage.
 ///
@@ -112,6 +116,7 @@ pub struct NodeStorage {
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+    shard_uid_mapping: ShardUIdMapping,
 }
 
 impl StoreAdapter for Store {
@@ -193,7 +198,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
-        Store { storage: self.hot_storage.clone() }
+        Store::new(self.hot_storage.clone())
     }
 
     /// Returns the cold store. The cold store is only available in archival
@@ -205,7 +210,7 @@ impl NodeStorage {
     /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            Some(cold_storage) => Some(Store::new(cold_storage.clone())),
             None => None,
         }
     }
@@ -217,7 +222,7 @@ impl NodeStorage {
     pub fn get_recovery_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => {
-                Some(Store { storage: Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())) })
+                Some(Store::new(Arc::new(crate::db::RecoveryDB::new(cold_storage.clone()))))
             }
             None => None,
         }
@@ -231,7 +236,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        self.get_split_db().map(|split_db| Store { storage: split_db })
+        self.get_split_db().map(|split_db| Store::new(split_db))
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
@@ -293,26 +298,68 @@ impl NodeStorage {
 
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { storage }
+        let shard_uid_mapping = ShardUIdMapping::new();
+        Self { storage, shard_uid_mapping }
+    }
+
+    fn get_impl(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        let value = if column.is_rc() {
+            self.storage.get_with_rc_stripped(column, &key)
+        } else {
+            self.storage.get_raw_bytes(column, &key)
+        }?;
+        Ok(value)
+    }
+
+    fn read_shard_uid_mapping_from_db(&self, shard_uid: ShardUId) -> io::Result<ShardUId> {
+        let mapped_shard_uid =
+            self.get_ser::<ShardUId>(DBCol::ShardUIdMapping, &shard_uid.to_bytes())?;
+        Ok(self.shard_uid_mapping.update(&shard_uid, mapped_shard_uid))
+    }
+
+    fn get_impl_state(&self, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        let shard_uid = retrieve_shard_uid_from_db_key(key)?;
+        let mut mapping_synchronized_with_db = false;
+        let mapped_shard_uid = match self.shard_uid_mapping.map(&shard_uid) {
+            Some(mapped_shard_uid) => mapped_shard_uid,
+            None => {
+                mapping_synchronized_with_db = true;
+                self.read_shard_uid_mapping_from_db(shard_uid)?
+            }
+        };
+        let mapped_key = if shard_uid != mapped_shard_uid {
+            Cow::Owned(replace_shard_uid_key_prefix(key, mapped_shard_uid))
+        } else {
+            Cow::Borrowed(key)
+        };
+        let mut value = self.get_impl(DBCol::State, &mapped_key)?;
+        if value.is_none() && !mapping_synchronized_with_db {
+            let db_mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+            if db_mapped_shard_uid != mapped_shard_uid {
+                let mapped_key = replace_shard_uid_key_prefix(key, db_mapped_shard_uid);
+                value = self.get_impl(DBCol::State, &mapped_key)?;
+            }
+        }
+        Ok(value)
     }
 
     /// Fetches value from given column.
     ///
-    /// If the key does not exist in the column returns `None`.  Otherwise
+    /// If the key does not exist in the column returns `None`. Otherwise
     /// returns the data as [`DBSlice`] object.  The object dereferences into
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        let value = if column.is_rc() {
-            self.storage.get_with_rc_stripped(column, key)
+        let value = if column == DBCol::State {
+            self.get_impl_state(key)?
         } else {
-            self.storage.get_raw_bytes(column, key)
-        }?;
+            self.get_impl(column, key)?
+        };
         tracing::trace!(
             target: "store",
             db_op = "get",
             col = %column,
-            key = %StorageKey(key),
+            key = %StorageKey(&key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -327,7 +374,11 @@ impl Store {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new(Arc::clone(&self.storage))
+        StoreUpdate {
+            transaction: DBTransaction::new(),
+            storage: Arc::clone(&self.storage),
+            _shard_uid_mapping: self.shard_uid_mapping.clone(),
+        }
     }
 
     pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
@@ -345,6 +396,7 @@ impl Store {
     }
 
     pub fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        assert!(col != DBCol::State, "can't iter prefix of State column");
         self.storage.iter_prefix(col, key_prefix)
     }
 
@@ -355,6 +407,8 @@ impl Store {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
+        // That would fail if called ScanDbColumnCmd for State column.
+        assert!(col != DBCol::State, "can't range iter State column");
         self.storage.iter_range(col, lower_bound, upper_bound)
     }
 
@@ -363,6 +417,7 @@ impl Store {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+        assert!(col != DBCol::State, "can't iter prefix ser of State column");
         self.storage
             .iter_prefix(col, key_prefix)
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
@@ -456,6 +511,8 @@ impl Store {
 pub struct StoreUpdate {
     transaction: DBTransaction,
     storage: Arc<dyn Database>,
+    // TODO(reshardingV3) Currently unused, see TODO inside `commit()` method.
+    _shard_uid_mapping: ShardUIdMapping,
 }
 
 impl StoreUpdateAdapter for StoreUpdate {
@@ -469,10 +526,6 @@ impl StoreUpdate {
         Some(num) => num,
         None => panic!(),
     };
-
-    pub(crate) fn new(db: Arc<dyn Database>) -> Self {
-        StoreUpdate { transaction: DBTransaction::new(), storage: db }
-    }
 
     /// Inserts a new value into the database.
     ///
@@ -598,6 +651,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
+        // It would panic if called with `State` column.
         assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
@@ -609,6 +663,7 @@ impl StoreUpdate {
     /// Deletes the given key range from the database including `from`
     /// and excluding `to` keys.
     pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
+        assert!(column != DBCol::State, "can't range delete State column");
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
 
@@ -733,6 +788,7 @@ impl StoreUpdate {
                 }
             }
         }
+        // TODO(reshardingV3) Use shard_uid_mapping for ops referencing State column.
         self.storage.write(self.transaction)
     }
 }

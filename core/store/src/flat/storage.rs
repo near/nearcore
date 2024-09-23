@@ -460,7 +460,7 @@ impl FlatStorage {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }
         let mut store_update = guard.store.store_update();
-        store_update.set_delta(shard_uid, &delta);
+        store_helper::set_delta(&mut store_update, shard_uid, &delta);
         let cached_changes: CachedFlatStateChanges = delta.changes.into();
         guard.deltas.insert(
             block_hash,
