@@ -120,7 +120,7 @@ pub struct StateStoredReceiptMetadata {
     /// Please see [compute_receipt_congestion_gas] for more details.
     pub congestion_gas: Gas,
     /// The congestion size of the receipt when it was stored in the state.
-    /// Please see [compute_receipt_congestion_size] for more details.
+    /// Please see [compute_receipt_size] for more details.
     pub congestion_size: u64,
 }
 

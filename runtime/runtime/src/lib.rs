@@ -1766,7 +1766,7 @@ impl Runtime {
             // want to store invalid receipts in state as delayed.
             validate_receipt(
                 &processing_state.apply_state.config.wasm_config.limit_config,
-                &receipt,
+                receipt,
                 protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
@@ -1777,7 +1777,7 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    &receipt,
+                    receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {
