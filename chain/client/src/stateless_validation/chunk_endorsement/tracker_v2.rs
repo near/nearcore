@@ -73,9 +73,10 @@ impl ChunkEndorsementTracker {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             // Return an endorsed empty array of chunk endorsements for older protocol versions.
-            let mut endorsement_stats = ChunkEndorsementsState::default();
-            endorsement_stats.is_endorsed = true;
-            return Ok(endorsement_stats);
+            return Ok(ChunkEndorsementsState {
+                is_endorsed: true,
+                ..ChunkEndorsementsState::default()
+            });
         }
 
         let height_created = chunk_header.height_created();
@@ -100,6 +101,6 @@ impl ChunkEndorsementTracker {
             .map(|(account_id, endorsement)| (account_id, endorsement.signature()))
             .collect();
 
-        Ok(chunk_validator_assignments.compute_endorsement_stats(validator_signatures))
+        Ok(chunk_validator_assignments.compute_endorsement_state(validator_signatures))
     }
 }

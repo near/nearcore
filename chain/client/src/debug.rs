@@ -733,11 +733,11 @@ impl ClientActorInner {
                 }
                 endorsed_chunk_validators.insert(account_id, *signature.clone());
             }
-            let endorsement_stats =
-                chunk_validator_assignments.compute_endorsement_stats(endorsed_chunk_validators);
+            let endorsement_state =
+                chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
             chunk_endorsements.insert(
                 chunk_header.chunk_hash(),
-                endorsement_stats.endorsed_stake as f64 / endorsement_stats.total_stake as f64,
+                endorsement_state.endorsed_stake as f64 / endorsement_state.total_stake as f64,
             );
         }
         Some(chunk_endorsements)

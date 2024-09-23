@@ -53,7 +53,7 @@ impl ChunkValidatorAssignments {
         &self.assignments
     }
 
-    pub fn compute_endorsement_stats(
+    pub fn compute_endorsement_state(
         &self,
         mut validator_signatures: HashMap<&AccountId, Signature>,
     ) -> ChunkEndorsementsState {
@@ -75,7 +75,7 @@ impl ChunkValidatorAssignments {
         // Signatures are empty if the chunk is not endorsed
         let is_endorsed = has_enough_stake(total_stake, endorsed_stake);
         if !is_endorsed {
-            signatures = vec![];
+            signatures.clear();
         }
         ChunkEndorsementsState {
             total_stake,

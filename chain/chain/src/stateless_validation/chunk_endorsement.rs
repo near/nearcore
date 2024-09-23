@@ -107,10 +107,10 @@ pub fn validate_chunk_endorsements_in_block(
             endorsed_chunk_validators.insert(account_id, *signature.clone());
         }
 
-        let endorsement_stats =
-            chunk_validator_assignments.compute_endorsement_stats(endorsed_chunk_validators);
-        if !endorsement_stats.is_endorsed {
-            tracing::error!(target: "chain", ?endorsement_stats, "Chunk does not have enough stake to be endorsed");
+        let endorsement_state =
+            chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
+        if !endorsement_state.is_endorsed {
+            tracing::error!(target: "chain", ?endorsement_state, "Chunk does not have enough stake to be endorsed");
             return Err(Error::InvalidChunkEndorsement);
         }
 

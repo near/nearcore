@@ -203,9 +203,10 @@ impl ChunkEndorsementTrackerInner {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if !checked_feature!("stable", StatelessValidation, protocol_version) {
             // Return an empty array of chunk endorsements for older protocol versions.
-            let mut endorsement_stats = ChunkEndorsementsState::default();
-            endorsement_stats.is_endorsed = true;
-            return Ok(endorsement_stats);
+            return Ok(ChunkEndorsementsState {
+                is_endorsed: true,
+                ..ChunkEndorsementsState::default()
+            });
         }
 
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
@@ -230,6 +231,6 @@ impl ChunkEndorsementTrackerInner {
             .map(|(account_id, endorsement)| (account_id, endorsement.signature.clone()))
             .collect();
 
-        Ok(chunk_validator_assignments.compute_endorsement_stats(validator_signatures))
+        Ok(chunk_validator_assignments.compute_endorsement_state(validator_signatures))
     }
 }
