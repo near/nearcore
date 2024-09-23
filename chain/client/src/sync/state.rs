@@ -577,39 +577,41 @@ impl StateSync {
             {
                 let StateSyncExternal { chain_id, semaphore, external } =
                     self.external.as_ref().unwrap();
-                if semaphore.available_permits() > 0 {
-                    let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
-                    let epoch_id = sync_block_header.epoch_id();
-                    let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
-                    let epoch_height = epoch_info.epoch_height();
-
-                    let (state_root, state_num_parts) = state_root_and_part_count
-                        .get_or_insert_with(|| {
-                            let shard_state_header =
-                                chain.get_state_header(shard_id, sync_hash).unwrap();
-                            (
-                                shard_state_header.chunk_prev_state_root(),
-                                shard_state_header.num_state_parts(),
-                            )
-                        });
-
-                    request_part_from_external_storage(
-                        part_id,
-                        download,
-                        shard_id,
-                        sync_hash,
-                        epoch_id,
-                        epoch_height,
-                        *state_num_parts,
-                        &chain_id.clone(),
-                        *state_root,
-                        semaphore.clone(),
-                        external.clone(),
-                        runtime_adapter.clone(),
-                        state_parts_future_spawner,
-                        self.state_parts_mpsc_tx.clone(),
-                    );
+                if semaphore.available_permits() == 0 {
+                    continue;
                 }
+
+                let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
+                let epoch_id = sync_block_header.epoch_id();
+                let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
+                let epoch_height = epoch_info.epoch_height();
+
+                let (state_root, state_num_parts) =
+                    state_root_and_part_count.get_or_insert_with(|| {
+                        let shard_state_header =
+                            chain.get_state_header(shard_id, sync_hash).unwrap();
+                        (
+                            shard_state_header.chunk_prev_state_root(),
+                            shard_state_header.num_state_parts(),
+                        )
+                    });
+
+                request_part_from_external_storage(
+                    part_id,
+                    download,
+                    shard_id,
+                    sync_hash,
+                    epoch_id,
+                    epoch_height,
+                    *state_num_parts,
+                    &chain_id.clone(),
+                    *state_root,
+                    semaphore.clone(),
+                    external.clone(),
+                    runtime_adapter.clone(),
+                    state_parts_future_spawner,
+                    self.state_parts_mpsc_tx.clone(),
+                );
             } else {
                 if peer_requests_sent >= MAX_STATE_PART_REQUEST {
                     continue;
