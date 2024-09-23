@@ -1,11 +1,13 @@
 use crate::epoch_block_info::BlockInfo;
 use crate::epoch_info::EpochInfo;
+use crate::merkle::PartialMerkleTree;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
 use crate::{block_header::BlockHeader, merkle::MerklePathItem};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
+use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 
@@ -73,6 +75,9 @@ pub struct EpochSyncProofPastEpochData {
     /// Since it has a consecutive height from the final block, the approvals are guaranteed to
     /// be endorsements which directly endorse the final block.
     pub approvals_for_last_final_block: Vec<Option<Box<Signature>>>,
+    /// Protocol version for this epoch. This is verified together with `block_producers`
+    /// against the `next_bp_hash` of the `last_final_block_header` of the epoch before this.
+    pub protocol_version: ProtocolVersion,
 }
 
 /// Data needed to initialize the epoch sync boundary.
@@ -111,4 +116,8 @@ pub struct EpochSyncProofCurrentEpochData {
     // Used to prove the block against the merkle root
     // included in the final block in this next epoch (included in LastEpochData).
     pub merkle_proof_for_first_block: Vec<MerklePathItem>,
+    // Partial merkle tree for the first block in this next epoch.
+    // It is necessary and sufficient to calculate next blocks merkle roots.
+    // It is proven using `first_block_header_in_epoch`.
+    pub partial_merkle_tree_for_first_block: PartialMerkleTree,
 }

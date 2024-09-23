@@ -2064,7 +2064,10 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
         }
     }
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
+        let proof = env.clients[0]
+            .chain
+            .compute_past_block_proof_in_merkle_tree_of_later_block(block.hash(), head.hash())
+            .unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -2081,8 +2084,13 @@ fn test_block_merkle_proof() {
 fn test_block_merkle_proof_same_hash() {
     let env = TestEnv::default_builder().mock_epoch_managers().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let proof =
-        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
+    let proof = env.clients[0]
+        .chain
+        .compute_past_block_proof_in_merkle_tree_of_later_block(
+            genesis_block.hash(),
+            genesis_block.hash(),
+        )
+        .unwrap();
     assert!(proof.is_empty());
 }
 

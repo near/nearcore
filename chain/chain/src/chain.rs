@@ -586,15 +586,14 @@ impl Chain {
     ) -> Result<CryptoHash, Error> {
         let bps = epoch_manager.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
         let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect_vec();
-        Self::compute_bp_hash_from_validator_stakes(&validator_stakes, epoch_manager, prev_epoch_id)
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
+        Self::compute_bp_hash_from_validator_stakes(&validator_stakes, protocol_version)
     }
 
     pub fn compute_bp_hash_from_validator_stakes(
         validator_stakes: &Vec<ValidatorStake>,
-        epoch_manager: &dyn EpochManagerAdapter,
-        prev_epoch_id: EpochId,
+        protocol_version: ProtocolVersion,
     ) -> Result<CryptoHash, Error> {
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
             Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {

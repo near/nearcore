@@ -1196,7 +1196,10 @@ impl Handler<GetBlockProof> for ViewClientActorInner {
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
         self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
         let block_header_lite = block_header.into();
-        let proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
+        let proof = self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
+            &msg.block_hash,
+            &msg.head_block_hash,
+        )?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
     }
 }

@@ -10,7 +10,10 @@ use near_primitives::{
 use near_store::{DBCol, Store};
 
 /// Implement block merkle proof retrieval.
-
+///
+/// The logic was originally a part of `Chain` implementation.
+/// This trait is introduced because we want to support `Store` when we don't have the `ChainStore`,
+/// but we want to support `ChainStore`` if we have it so we can make use of the caches.
 pub trait MerkleProofAccess {
     fn get_block_merkle_tree(
         &self,
@@ -19,16 +22,8 @@ pub trait MerkleProofAccess {
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
 
-    fn get_block_merkle_tree_from_ordinal(
-        &self,
-        block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
-        let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
-        self.get_block_merkle_tree(&block_hash)
-    }
-
     /// Get merkle proof for block with hash `block_hash` in the merkle tree of `head_block_hash`.
-    fn get_block_proof(
+    fn compute_past_block_proof_in_merkle_tree_of_later_block(
         &self,
         block_hash: &CryptoHash,
         head_block_hash: &CryptoHash,
@@ -60,7 +55,8 @@ pub trait MerkleProofAccess {
             let direction = if cur_index % 2 == 0 { Direction::Left } else { Direction::Right };
             let maybe_hash = if cur_index % 2 == 1 {
                 // node not immediately available. Needs to be reconstructed
-                self.reconstruct_merkle_tree_node(
+                reconstruct_merkle_tree_node(
+                    self,
                     cur_index,
                     level,
                     counter,
@@ -68,7 +64,7 @@ pub trait MerkleProofAccess {
                     &mut tree_nodes,
                 )?
             } else {
-                self.get_merkle_tree_node(cur_index, level, counter, tree_size, &mut tree_nodes)?
+                get_merkle_tree_node(self, cur_index, level, counter, tree_size, &mut tree_nodes)?
             };
             if let Some(hash) = maybe_hash {
                 path.push(MerklePathItem { hash, direction });
@@ -80,104 +76,115 @@ pub trait MerkleProofAccess {
         }
         Ok(path)
     }
+}
 
-    /// Get node at given position (index, level). If the node does not exist, return `None`.
-    fn get_merkle_tree_node(
-        &self,
-        index: u64,
-        level: u64,
-        counter: u64,
-        tree_size: u64,
-        tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
-    ) -> Result<Option<MerkleHash>, Error> {
-        if let Some(hash) = tree_nodes.get(&(index, level)) {
-            Ok(*hash)
-        } else {
-            if level == 0 {
-                let maybe_hash = if index >= tree_size {
-                    None
-                } else {
-                    Some(self.get_block_hash_from_ordinal(index)?)
-                };
-                tree_nodes.insert((index, level), maybe_hash);
-                Ok(maybe_hash)
+fn get_block_merkle_tree_from_ordinal(
+    this: &(impl MerkleProofAccess + ?Sized),
+    block_ordinal: NumBlocks,
+) -> Result<Arc<PartialMerkleTree>, Error> {
+    let block_hash = this.get_block_hash_from_ordinal(block_ordinal)?;
+    this.get_block_merkle_tree(&block_hash)
+}
+
+/// Get node at given position (index, level). If the node does not exist, return `None`.
+fn get_merkle_tree_node(
+    this: &(impl MerkleProofAccess + ?Sized),
+    index: u64,
+    level: u64,
+    counter: u64,
+    tree_size: u64,
+    tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
+) -> Result<Option<MerkleHash>, Error> {
+    if let Some(hash) = tree_nodes.get(&(index, level)) {
+        Ok(*hash)
+    } else {
+        if level == 0 {
+            let maybe_hash = if index >= tree_size {
+                None
             } else {
-                let cur_tree_size = (index + 1) * counter;
-                let maybe_hash = if cur_tree_size > tree_size {
-                    if index * counter <= tree_size {
-                        let left_hash = self.get_merkle_tree_node(
-                            index * 2,
-                            level - 1,
-                            counter / 2,
-                            tree_size,
-                            tree_nodes,
-                        )?;
-                        let right_hash = self.reconstruct_merkle_tree_node(
-                            index * 2 + 1,
-                            level - 1,
-                            counter / 2,
-                            tree_size,
-                            tree_nodes,
-                        )?;
-                        combine_maybe_hashes(left_hash, right_hash)
-                    } else {
-                        None
-                    }
+                Some(this.get_block_hash_from_ordinal(index)?)
+            };
+            tree_nodes.insert((index, level), maybe_hash);
+            Ok(maybe_hash)
+        } else {
+            let cur_tree_size = (index + 1) * counter;
+            let maybe_hash = if cur_tree_size > tree_size {
+                if index * counter <= tree_size {
+                    let left_hash = get_merkle_tree_node(
+                        this,
+                        index * 2,
+                        level - 1,
+                        counter / 2,
+                        tree_size,
+                        tree_nodes,
+                    )?;
+                    let right_hash = reconstruct_merkle_tree_node(
+                        this,
+                        index * 2 + 1,
+                        level - 1,
+                        counter / 2,
+                        tree_size,
+                        tree_nodes,
+                    )?;
+                    combine_maybe_hashes(left_hash, right_hash)
                 } else {
-                    Some(
-                        *self
-                            .get_block_merkle_tree_from_ordinal(cur_tree_size)?
-                            .get_path()
-                            .last()
-                            .ok_or_else(|| Error::Other("Merkle tree node missing".to_string()))?,
-                    )
-                };
-                tree_nodes.insert((index, level), maybe_hash);
-                Ok(maybe_hash)
-            }
+                    None
+                }
+            } else {
+                Some(
+                    *get_block_merkle_tree_from_ordinal(this, cur_tree_size)?
+                        .get_path()
+                        .last()
+                        .ok_or_else(|| Error::Other("Merkle tree node missing".to_string()))?,
+                )
+            };
+            tree_nodes.insert((index, level), maybe_hash);
+            Ok(maybe_hash)
         }
     }
+}
 
-    /// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
-    fn reconstruct_merkle_tree_node(
-        &self,
-        index: u64,
-        level: u64,
-        counter: u64,
-        tree_size: u64,
-        tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
-    ) -> Result<Option<MerkleHash>, Error> {
-        if let Some(hash) = tree_nodes.get(&(index, level)) {
-            Ok(*hash)
-        } else {
-            if level == 0 {
-                let maybe_hash = if index >= tree_size {
-                    None
-                } else {
-                    Some(self.get_block_hash_from_ordinal(index)?)
-                };
-                tree_nodes.insert((index, level), maybe_hash);
-                Ok(maybe_hash)
+/// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
+fn reconstruct_merkle_tree_node(
+    this: &(impl MerkleProofAccess + ?Sized),
+    index: u64,
+    level: u64,
+    counter: u64,
+    tree_size: u64,
+    tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
+) -> Result<Option<MerkleHash>, Error> {
+    if let Some(hash) = tree_nodes.get(&(index, level)) {
+        Ok(*hash)
+    } else {
+        if level == 0 {
+            let maybe_hash = if index >= tree_size {
+                None
             } else {
-                let left_hash = self.get_merkle_tree_node(
-                    index * 2,
-                    level - 1,
-                    counter / 2,
-                    tree_size,
-                    tree_nodes,
-                )?;
-                let right_hash = self.reconstruct_merkle_tree_node(
-                    index * 2 + 1,
-                    level - 1,
-                    counter / 2,
-                    tree_size,
-                    tree_nodes,
-                )?;
-                let maybe_hash = combine_maybe_hashes(left_hash, right_hash);
-                tree_nodes.insert((index, level), maybe_hash);
+                Some(this.get_block_hash_from_ordinal(index)?)
+            };
+            tree_nodes.insert((index, level), maybe_hash);
+            Ok(maybe_hash)
+        } else {
+            let left_hash = get_merkle_tree_node(
+                this,
+                index * 2,
+                level - 1,
+                counter / 2,
+                tree_size,
+                tree_nodes,
+            )?;
+            let right_hash = reconstruct_merkle_tree_node(
+                this,
+                index * 2 + 1,
+                level - 1,
+                counter / 2,
+                tree_size,
+                tree_nodes,
+            )?;
+            let maybe_hash = combine_maybe_hashes(left_hash, right_hash);
+            tree_nodes.insert((index, level), maybe_hash);
 
-                Ok(maybe_hash)
-            }
+            Ok(maybe_hash)
         }
     }
 }
