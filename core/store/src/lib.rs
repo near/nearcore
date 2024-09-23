@@ -614,11 +614,7 @@ impl StoreUpdate {
     /// Merge another store update into this one.
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
-    pub fn merge<T>(&mut self, other: T)
-    where
-        T: Into<StoreUpdate>,
-    {
-        let other = other.into();
+    pub fn merge(&mut self, other: StoreUpdate) {
         assert!(core::ptr::addr_eq(Arc::as_ptr(&self.storage), Arc::as_ptr(&other.storage)));
         self.transaction.merge(other.transaction)
     }

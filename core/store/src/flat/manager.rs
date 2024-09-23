@@ -1,5 +1,7 @@
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR};
+use crate::StoreUpdate;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -132,7 +134,7 @@ impl FlatStorageManager {
         height: BlockHeight,
         shard_uid: ShardUId,
         state_changes: &[RawStateChangesWithTrieKey],
-    ) -> Result<FlatStoreUpdateAdapter<'static>, StorageError> {
+    ) -> Result<StoreUpdate, StorageError> {
         let prev_block_with_changes = if state_changes.is_empty() {
             // The current block has no flat state changes.
             // Find the last block with flat state changes by looking it up in
@@ -161,7 +163,7 @@ impl FlatStorageManager {
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
             debug!(target: "store", %shard_uid, "Add delta for flat storage creation");
             let mut store_update = self.0.store.store_update();
-            store_update.set_delta(shard_uid, &delta);
+            store_update.flat_store_update().set_delta(shard_uid, &delta);
             store_update
         };
 

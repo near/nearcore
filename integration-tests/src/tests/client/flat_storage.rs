@@ -13,7 +13,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
-use near_store::adapter::{StoreAdapter, StoreUpdateCommit};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     FetchingStateStatus, FlatStorageCreationStatus, FlatStorageManager, FlatStorageReadyStatus,
     FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
@@ -175,7 +175,7 @@ fn test_flat_storage_creation_sanity() {
 
         let mut store_update = store.store_update();
         get_flat_storage_manager(&env)
-            .remove_flat_storage_for_shard(shard_uid, &mut store_update)
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())
             .unwrap();
         store_update.commit().unwrap();
     }
@@ -268,7 +268,7 @@ fn test_flat_storage_creation_two_shards() {
 
         let mut store_update = store.store_update();
         get_flat_storage_manager(&env)
-            .remove_flat_storage_for_shard(shard_uids[0], &mut store_update)
+            .remove_flat_storage_for_shard(shard_uids[0], &mut store_update.flat_store_update())
             .unwrap();
         store_update.commit().unwrap();
     }
@@ -342,10 +342,11 @@ fn test_flat_storage_creation_start_from_state_part() {
             panic!("expected FlatStorageStatus::Ready, got: {status:?}");
         };
         let mut store_update = store.store_update();
+        let mut flat_store_update = store_update.flat_store_update();
         for key in trie_keys[1].iter() {
-            store_update.set(shard_uid, key.clone(), None);
+            flat_store_update.set(shard_uid, key.clone(), None);
         }
-        store_update.set_flat_storage_status(
+        flat_store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(
                 FetchingStateStatus {
@@ -404,7 +405,7 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
         // Remove flat storage.
         let mut store_update = store.store_update();
         get_flat_storage_manager(&env)
-            .remove_flat_storage_for_shard(shard_uid, &mut store_update)
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())
             .unwrap();
         store_update.commit().unwrap();
     }

@@ -10,7 +10,7 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::flat_store::FlatStoreAdapter;
-use near_store::adapter::{StoreAdapter, StoreUpdateCommit};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
 };
@@ -240,8 +240,9 @@ impl FlatStorageCommand {
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
         let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
-        let mut store_update = store.flat_store().store_update();
-        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        let mut store_update = store.store_update();
+        flat_storage_manager
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
         store_update.commit()?;
         Ok(())
     }
@@ -552,8 +553,9 @@ impl FlatStorageCommand {
             // used to simulate applying chunks from past blocks, and in that
             // simulations future deltas should not exist.
             let mut store_update = flat_store.store_update();
-            prev_delta.apply_to_flat_state(&mut store_update, shard_uid);
-            store_update.set_flat_storage_status(
+            let mut flat_store_update = store_update.flat_store_update();
+            prev_delta.apply_to_flat_state(&mut flat_store_update, shard_uid);
+            flat_store_update.set_flat_storage_status(
                 shard_uid,
                 FlatStorageStatus::Ready(near_store::flat::FlatStorageReadyStatus {
                     flat_head: near_store::flat::BlockInfo {
