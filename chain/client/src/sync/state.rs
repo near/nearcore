@@ -570,6 +570,7 @@ impl StateSync {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
         let mut peer_requests_sent = 0;
+        let mut state_root_and_part_count: Option<(CryptoHash, u64)> = None;
         for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
             if self.external.is_some()
                 && download.state_requests_count >= EXTERNAL_STORAGE_FALLBACK_THRESHOLD
@@ -582,9 +583,15 @@ impl StateSync {
                     let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
                     let epoch_height = epoch_info.epoch_height();
 
-                    let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();
-                    let state_root = shard_state_header.chunk_prev_state_root();
-                    let state_num_parts = shard_state_header.num_state_parts();
+                    let (state_root, state_num_parts) = state_root_and_part_count
+                        .get_or_insert_with(|| {
+                            let shard_state_header =
+                                chain.get_state_header(shard_id, sync_hash).unwrap();
+                            (
+                                shard_state_header.chunk_prev_state_root(),
+                                shard_state_header.num_state_parts(),
+                            )
+                        });
 
                     request_part_from_external_storage(
                         part_id,
@@ -593,9 +600,9 @@ impl StateSync {
                         sync_hash,
                         epoch_id,
                         epoch_height,
-                        state_num_parts,
+                        *state_num_parts,
                         &chain_id.clone(),
-                        state_root,
+                        *state_root,
                         semaphore.clone(),
                         external.clone(),
                         runtime_adapter.clone(),
