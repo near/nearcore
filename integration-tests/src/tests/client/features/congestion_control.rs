@@ -43,43 +43,9 @@ fn adjust_runtime_config(config: &mut RuntimeConfig) {
     wasm_config.regular_op_cost = u32::MAX;
 }
 
-fn get_runtime_configs(
-    protocol_version: ProtocolVersion,
-    use_test_runtime: bool,
-    check_state_stored_receipt_migration: bool,
-) -> Vec<RuntimeConfigStore> {
-    if use_test_runtime {
-        let mut config = RuntimeConfig::test();
-        adjust_runtime_config(&mut config);
-        return vec![RuntimeConfigStore::with_one_config(config)];
-    }
-    let config_store = RuntimeConfigStore::new(None);
-    let pre_config = get_runtime_config(&config_store, protocol_version);
-    let post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
-
-    // Checking the migration from Receipt to StateStoredReceipt requires the
-    // relevant config to be disabled before the protocol upgrade and enabled
-    // after the protocol upgrade.
-    if check_state_stored_receipt_migration {
-        assert!(false == pre_config.use_state_stored_receipt);
-        assert!(true == post_config.use_state_stored_receipt);
-    }
-
-    vec![RuntimeConfigStore::new_custom(
-        [(protocol_version, pre_config), (PROTOCOL_VERSION, post_config)].into_iter().collect(),
-    )]
-}
-
-/// Set up the runtime with the given protocol version and runtime configs.
-/// The `use_test_runtime` flag is used to enable the test runtime, which has
-/// custom gas costs. The `check_state_stored_receipt_migration` flag is used to
-/// indicate that the test should check the migration from Receipt to StateStoredReceipt.
-fn setup_runtime(
-    sender_id: AccountId,
-    protocol_version: ProtocolVersion,
-    use_test_runtime: bool,
-    check_state_stored_receipt_migration: bool,
-) -> TestEnv {
+/// Set up the test runtime with the given protocol version and runtime configs.
+/// The test version of runtime has custom gas cost.
+fn setup_test_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
     genesis.config.epoch_length = 10;
     genesis.config.protocol_version = protocol_version;
@@ -87,11 +53,39 @@ fn setup_runtime(
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
 
-    let runtime_configs = get_runtime_configs(
-        protocol_version,
-        use_test_runtime,
-        check_state_stored_receipt_migration,
-    );
+    let mut config = RuntimeConfig::test();
+    adjust_runtime_config(&mut config);
+    let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
+
+    TestEnv::builder(&genesis.config)
+        .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
+        .build()
+}
+
+/// Set up the real runtime with the given protocol version and runtime configs.
+/// This runtime is suitable for testing protocol upgrade and the migration from
+/// Receipt to StateStoredReceipt.
+fn setup_real_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
+    let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
+    genesis.config.epoch_length = 10;
+    genesis.config.protocol_version = protocol_version;
+
+    // Chain must be sharded to test cross-shard congestion control.
+    genesis.config.shard_layout = ShardLayout::v1_test();
+
+    let config_store = RuntimeConfigStore::new(None);
+    let pre_config = get_runtime_config(&config_store, protocol_version);
+    let post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+
+    // Checking the migration from Receipt to StateStoredReceipt requires the
+    // relevant config to be disabled before the protocol upgrade and enabled
+    // after the protocol upgrade.
+    assert!(false == pre_config.use_state_stored_receipt);
+    assert!(true == post_config.use_state_stored_receipt);
+
+    let runtime_configs = vec![RuntimeConfigStore::new_custom(
+        [(protocol_version, pre_config), (PROTOCOL_VERSION, post_config)].into_iter().collect(),
+    )];
 
     TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
@@ -218,11 +212,9 @@ fn test_protocol_upgrade_simple() {
         return;
     }
 
-    let mut env = setup_runtime(
+    let mut env = setup_real_runtime(
         "test0".parse().unwrap(),
         ProtocolFeature::CongestionControl.protocol_version() - 1,
-        false,
-        true,
     );
 
     // Produce a few blocks to get out of initial state.
@@ -292,11 +284,9 @@ fn test_protocol_upgrade_under_congestion() {
     }
 
     let sender_id: AccountId = "test0".parse().unwrap();
-    let mut env = setup_runtime(
+    let mut env = setup_real_runtime(
         sender_id.clone(),
         ProtocolFeature::CongestionControl.protocol_version() - 1,
-        false,
-        true,
     );
 
     // prepare a contract to call
@@ -530,7 +520,7 @@ fn test_transaction_limit_for_local_congestion() {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let sender_id = contract_id.clone();
     let dummy_receiver: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_runtime("test0".parse().unwrap(), PROTOCOL_VERSION, true, false);
+    let env = setup_test_runtime("test0".parse().unwrap(), PROTOCOL_VERSION);
 
     let (
         remote_tx_included_without_congestion,
@@ -640,7 +630,7 @@ fn measure_remote_tx_limit(upper_limit_congestion: f64) -> (usize, usize, usize,
     let remote_id: AccountId = "test0".parse().unwrap();
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let dummy_id: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_runtime(remote_id.clone(), PROTOCOL_VERSION, true, false);
+    let env = setup_test_runtime(remote_id.clone(), PROTOCOL_VERSION);
 
     let tip = env.clients[0].chain.head().unwrap();
     let remote_shard_id =
@@ -764,7 +754,7 @@ fn measure_tx_limit(
 #[test]
 fn test_rpc_client_rejection() {
     let sender_id: AccountId = "test0".parse().unwrap();
-    let mut env = setup_runtime(sender_id.clone(), PROTOCOL_VERSION, true, false);
+    let mut env = setup_test_runtime(sender_id.clone(), PROTOCOL_VERSION);
 
     // prepare a contract to call
     setup_contract(&mut env);
