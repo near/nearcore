@@ -1,4 +1,4 @@
-use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter, StoreUpdateCommit};
 use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
@@ -218,16 +218,15 @@ pub fn test_populate_flat_storage(
     prev_block_hash: &CryptoHash,
     changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) {
-    let mut store_update = tries.store_update();
-    let mut flat_store_update = store_update.flat_store_update();
-    flat_store_update.set_flat_storage_status(
+    let mut store_update = tries.get_store().flat_store().store_update();
+    store_update.set_flat_storage_status(
         shard_uid,
         crate::flat::FlatStorageStatus::Ready(FlatStorageReadyStatus {
             flat_head: BlockInfo { hash: *block_hash, prev_hash: *prev_block_hash, height: 1 },
         }),
     );
     for (key, value) in changes {
-        flat_store_update.set(
+        store_update.set(
             shard_uid,
             key.clone(),
             value.as_ref().map(|value| FlatStateValue::on_disk(value)),

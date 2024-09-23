@@ -15,7 +15,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter, StoreUpdateCommit};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
@@ -81,7 +81,7 @@ impl<'c> EstimatorContext<'c> {
         let flat_store = store.flat_store();
         let flat_storage_manager = FlatStorageManager::new(flat_store.clone());
         let mut store_update = flat_store.store_update();
-        store_update.flat_store_update().set_flat_storage_status(
+        store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
                 flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),

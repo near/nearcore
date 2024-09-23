@@ -2106,8 +2106,11 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Merge another StoreUpdate into this one
-    pub fn merge(&mut self, store_update: StoreUpdate) {
-        self.store_updates.push(store_update);
+    pub fn merge<T>(&mut self, store_update: T)
+    where
+        T: Into<StoreUpdate>,
+    {
+        self.store_updates.push(store_update.into());
     }
 
     fn write_col_misc<T: BorshSerialize>(

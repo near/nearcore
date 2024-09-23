@@ -12,7 +12,7 @@ use crate::flat::{
 };
 use crate::{DBCol, Store, StoreUpdate};
 
-use super::{StoreAdapter, StoreUpdateAdapter};
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 
 #[derive(Clone)]
 pub struct FlatStoreAdapter {
@@ -28,6 +28,10 @@ impl StoreAdapter for FlatStoreAdapter {
 impl FlatStoreAdapter {
     pub fn new(store: Store) -> Self {
         Self { store }
+    }
+
+    pub fn store_update(&self) -> FlatStoreUpdateAdapter<'static> {
+        FlatStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
     pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> Result<bool, FlatStorageError> {
@@ -192,7 +196,13 @@ impl FlatStoreAdapter {
 }
 
 pub struct FlatStoreUpdateAdapter<'a> {
-    store_update: &'a mut StoreUpdate,
+    store_update: StoreUpdateHolder<'a>,
+}
+
+impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
+    fn into(self) -> StoreUpdate {
+        self.store_update.into()
+    }
 }
 
 impl<'a> StoreUpdateAdapter for FlatStoreUpdateAdapter<'a> {
@@ -203,7 +213,7 @@ impl<'a> StoreUpdateAdapter for FlatStoreUpdateAdapter<'a> {
 
 impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn new(store_update: &'a mut StoreUpdate) -> Self {
-        Self { store_update }
+        Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
     pub fn set(&mut self, shard_uid: ShardUId, key: Vec<u8>, value: Option<FlatStateValue>) {
@@ -279,7 +289,7 @@ mod tests {
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
 
-    use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+    use crate::adapter::{StoreAdapter, StoreUpdateAdapter, StoreUpdateCommit};
     use crate::test_utils::create_test_store;
 
     #[test]
