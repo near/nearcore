@@ -1,4 +1,4 @@
-use crate::{get, set, TrieAccess, TrieUpdate};
+use crate::{get, get_pure, set, TrieAccess, TrieUpdate};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
     BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
@@ -14,6 +14,7 @@ pub struct ReceiptIterator<'a> {
     indices: std::ops::Range<u64>,
     trie_queue: &'a dyn TrieQueue,
     trie: &'a dyn TrieAccess,
+    side_effects: bool,
 }
 
 /// Type safe access to delayed receipts queue stored in the state. Only use one
@@ -149,15 +150,18 @@ pub trait TrieQueue {
         self.indices().len()
     }
 
-    fn iter<'a>(&'a self, trie: &'a dyn TrieAccess) -> ReceiptIterator<'a>
+    fn iter<'a>(&'a self, trie: &'a dyn TrieAccess, side_effects: bool) -> ReceiptIterator<'a>
     where
         Self: Sized,
     {
-        self.debug_check_unchanged(trie);
+        if side_effects {
+            self.debug_check_unchanged(trie);
+        }
         ReceiptIterator {
             indices: self.indices().first_index..self.indices().next_available_index,
             trie_queue: self,
             trie,
+            side_effects,
         }
     }
 
@@ -261,7 +265,9 @@ impl<'a> Iterator for ReceiptIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
         let key = self.trie_queue.trie_key(index);
-        let result = match get(self.trie, &key) {
+        let value =
+            if self.side_effects { get(self.trie, &key) } else { get_pure(self.trie, &key) };
+        let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
                 "Receipt referenced by index should be in the state".to_owned(),
@@ -276,7 +282,9 @@ impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
-        let result = match get(self.trie, &key) {
+        let value =
+            if self.side_effects { get(self.trie, &key) } else { get_pure(self.trie, &key) };
+        let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
                 "Receipt referenced by index should be in the state".to_owned(),
@@ -414,7 +422,7 @@ mod tests {
             queue.push(trie, &receipt).expect("pushing must not fail");
         }
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
-            queue.iter(trie).collect::<Result<_, _>>().expect("iterating should not fail");
+            queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
             iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
 
@@ -432,7 +440,7 @@ mod tests {
     ) {
         // check 2: assert newly loaded queue still contains the receipts
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
-            queue.iter(trie).collect::<Result<_, _>>().expect("iterating should not fail");
+            queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
             iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
         assert_eq!(input_receipts, iterated_receipts, "receipts were not persisted correctly");

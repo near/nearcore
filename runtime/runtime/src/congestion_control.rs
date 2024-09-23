@@ -12,7 +12,7 @@ use near_primitives::receipt::{
 use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::receipts_column_helper::{
-    DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
+    DelayedReceiptQueue, ReceiptIterator, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -198,7 +198,9 @@ impl ReceiptSinkV2<'_> {
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
         let mut num_forwarded = 0;
-        for receipt_result in self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie) {
+        for receipt_result in
+            self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie, true)
+        {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
             let size = receipt_size(&receipt)?;
@@ -426,7 +428,7 @@ pub fn bootstrap_congestion_info(
     let mut buffered_receipts_gas: u128 = 0;
 
     let delayed_receipt_queue = &DelayedReceiptQueue::load(trie)?;
-    for receipt_result in delayed_receipt_queue.iter(trie) {
+    for receipt_result in delayed_receipt_queue.iter(trie, true) {
         let receipt = receipt_result?;
         let gas = receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?;
         delayed_receipts_gas =
@@ -438,7 +440,7 @@ pub fn bootstrap_congestion_info(
 
     let mut outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
     for shard in outgoing_buffers.shards() {
-        for receipt_result in outgoing_buffers.to_shard(shard).iter(trie) {
+        for receipt_result in outgoing_buffers.to_shard(shard).iter(trie, true) {
             let receipt = receipt_result?;
             let gas =
                 receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?;
@@ -513,6 +515,10 @@ impl DelayedReceiptQueueWrapper {
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
         }
         Ok(receipt)
+    }
+
+    pub(crate) fn peek_iter<'a>(&'a self, trie_update: &'a TrieUpdate) -> ReceiptIterator<'a> {
+        self.queue.iter(trie_update, false)
     }
 
     pub(crate) fn len(&self) -> u64 {

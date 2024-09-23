@@ -293,6 +293,13 @@ pub enum DBCol {
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
     LatestWitnessesByIndex,
+    /// A valid epoch sync proof that proves the transition from the genesis to some epoch,
+    /// beyond which we keep all headers in this node. Nodes bootstrapped via Epoch Sync will
+    /// have this column, which allows it to compute a more recent EpochSyncProof using block
+    /// headers collected after the stored EpochSyncProof.
+    /// - *Rows*: only one key with 0 bytes.
+    /// - *Column type*: `EpochSyncProof`
+    EpochSyncProof,
 }
 
 /// Defines different logical parts of a db key.
@@ -494,7 +501,8 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => false,
+            | DBCol::FlatStorageStatus
+            | DBCol::EpochSyncProof => false,
         }
     }
 
@@ -566,6 +574,7 @@ impl DBCol {
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
+            DBCol::EpochSyncProof => &[DBKeyType::Empty],
         }
     }
 }
