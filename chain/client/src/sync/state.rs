@@ -452,20 +452,6 @@ impl StateSync {
         }
     }
 
-    // Function called when our node receives the network response with a part.
-    pub fn received_requested_part(
-        &mut self,
-        part_id: u64,
-        shard_id: ShardId,
-        _sync_hash: CryptoHash,
-    ) {
-        // TODO(saketh): We are not performing any validation of parts upon receipt. Only once all
-        // the parts are received will they be applied, and in that process, validated. It would be
-        // better to apply (or at least validate) individual parts on receipt so that we can
-        // re-request a part if we received a bad one.
-        self.network_adapter.send(StateSyncEvent::StatePartReceived(shard_id, part_id));
-    }
-
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
     fn request_shard(
         &mut self,
@@ -709,10 +695,6 @@ impl StateSync {
         state_response: ShardStateSyncResponse,
         chain: &mut Chain,
     ) {
-        if let Some(part_id) = state_response.part_id() {
-            // Mark that we have received this part (this will update info on pending parts from peers etc).
-            self.received_requested_part(part_id, shard_id, hash);
-        }
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
                 let header_download = shard_sync_download.get_header_download_mut().unwrap();
@@ -753,6 +735,9 @@ impl StateSync {
                             &data,
                         ) {
                             Ok(()) => {
+                                tracing::debug!(target: "sync", %shard_id, %hash, part_id, "Received correct start part");
+                                self.network_adapter
+                                    .send(StateSyncEvent::StatePartReceived(shard_id, part_id));
                                 shard_sync_download.downloads[part_id as usize].done = true;
                             }
                             Err(err) => {
