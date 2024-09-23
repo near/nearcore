@@ -205,6 +205,13 @@ impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
     }
 }
 
+impl FlatStoreUpdateAdapter<'static> {
+    pub fn commit(self) -> io::Result<()> {
+        let store_update: StoreUpdate = self.into();
+        store_update.commit()
+    }
+}
+
 impl<'a> StoreUpdateAdapter for FlatStoreUpdateAdapter<'a> {
     fn store_update(&mut self) -> &mut StoreUpdate {
         &mut self.store_update
@@ -289,7 +296,7 @@ mod tests {
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
 
-    use crate::adapter::{StoreAdapter, StoreUpdateAdapter, StoreUpdateCommit};
+    use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::test_utils::create_test_store;
 
     #[test]

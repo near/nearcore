@@ -13,7 +13,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
-use near_store::adapter::{StoreAdapter, StoreUpdateCommit};
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{
     FetchingStateStatus, FlatStorageCreationStatus, FlatStorageManager, FlatStorageReadyStatus,
     FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,

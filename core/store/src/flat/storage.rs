@@ -9,7 +9,6 @@ use near_primitives::types::BlockHeight;
 use tracing::{debug, warn};
 
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::adapter::StoreUpdateCommit;
 use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::BlockInfo;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
@@ -514,7 +513,7 @@ fn missing_delta_error(block_hash: &CryptoHash) -> FlatStorageError {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapter::{StoreAdapter, StoreUpdateCommit};
+    use crate::adapter::StoreAdapter;
     use crate::flat::delta::{
         BlockWithChangesInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
     };

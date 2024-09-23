@@ -21,7 +21,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_store::adapter::flat_store::FlatStoreAdapter;
-use near_store::adapter::{StoreAdapter, StoreUpdateCommit};
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{
     BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStorageCreationMetrics,
     FlatStorageCreationStatus, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,

@@ -1,4 +1,4 @@
-use crate::adapter::{StoreAdapter, StoreUpdateAdapter, StoreUpdateCommit};
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};

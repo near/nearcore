@@ -1,6 +1,5 @@
 pub mod flat_store;
 
-use std::io;
 use std::ops::{Deref, DerefMut};
 
 use crate::{Store, StoreUpdate};
@@ -52,18 +51,5 @@ pub trait StoreUpdateAdapter: Sized {
 
     fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())
-    }
-}
-
-pub trait StoreUpdateCommit: Sized {
-    fn commit(self) -> io::Result<()>;
-}
-
-impl<T> StoreUpdateCommit for T
-where
-    T: Into<StoreUpdate>,
-{
-    fn commit(self) -> io::Result<()> {
-        self.into().commit()
     }
 }

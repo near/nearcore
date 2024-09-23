@@ -187,7 +187,7 @@ pub fn load_trie_from_flat_state_and_delta(
 #[cfg(test)]
 mod tests {
     use super::load_trie_from_flat_state_and_delta;
-    use crate::adapter::{StoreAdapter, StoreUpdateCommit};
+    use crate::adapter::StoreAdapter;
     use crate::flat::test_utils::MockChain;
     use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
