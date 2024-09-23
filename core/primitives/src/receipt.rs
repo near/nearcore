@@ -153,6 +153,13 @@ impl ReceiptOrStateStoredReceipt<'_> {
             ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.into_receipt(),
         }
     }
+
+    pub fn get_receipt(&self) -> &Receipt {
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(receipt) => receipt,
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.get_receipt(),
+        }
+    }
 }
 
 impl<'a> StateStoredReceipt<'a> {
@@ -171,6 +178,12 @@ impl<'a> StateStoredReceipt<'a> {
     pub fn into_receipt(self) -> Receipt {
         match self {
             StateStoredReceipt::V0(v0) => v0.receipt.into_owned(),
+        }
+    }
+
+    pub fn get_receipt(&self) -> &Receipt {
+        match self {
+            StateStoredReceipt::V0(v0) => &v0.receipt,
         }
     }
 
