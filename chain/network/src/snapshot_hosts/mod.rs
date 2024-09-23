@@ -308,8 +308,17 @@ impl SnapshotHostsCache {
         (newly_inserted_data, err)
     }
 
+    /// Skips signature verification. Used only for the local node's own information.
+    pub fn insert_skip_verify(self: &Self, my_info: Arc<SnapshotHostInfo>) {
+        let _ = self.0.lock().try_insert(my_info);
+    }
+
     pub fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
         self.0.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
+    }
+
+    pub(crate) fn get_host_info(&self, peer_id: &PeerId) -> Option<Arc<SnapshotHostInfo>> {
+        self.0.lock().hosts.peek(peer_id).cloned()
     }
 
     /// Given a state part request, selects a peer host to which the request should be sent.
