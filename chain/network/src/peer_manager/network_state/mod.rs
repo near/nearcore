@@ -68,6 +68,9 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
 
+/// Limit number of pending tier3 requests to avoid OOM.
+pub(crate) const LIMIT_TIER3_REQUESTS: usize = 60;
+
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
         Ok(Self {
@@ -784,14 +787,21 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {
-                self.tier3_requests.lock().push_back(Tier3Request {
-                    peer_info: PeerInfo { id: peer_id, addr: Some(request.addr), account_id: None },
-                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                        shard_id: request.shard_id,
-                        sync_hash: request.sync_hash,
-                        part_id: request.part_id,
-                    }),
-                });
+                let mut queue = self.tier3_requests.lock();
+                if queue.len() < LIMIT_TIER3_REQUESTS {
+                    queue.push_back(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: peer_id,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                            part_id: request.part_id,
+                        }),
+                    });
+                }
                 None
             }
             body => {

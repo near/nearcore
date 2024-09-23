@@ -170,6 +170,8 @@ pub enum ProtocolFeature {
     // in order to calculate the rewards and kickouts for the chunk validators.
     // This feature introduces BlockHeaderV5.
     ChunkEndorsementsInBlockHeader,
+    /// Store receipts in State in the StateStoredReceipt format.
+    StateStoredReceipt,
 }
 
 impl ProtocolFeature {
@@ -226,7 +228,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixMinStakeRatio => 71,
             ProtocolFeature::IncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::ChunkEndorsementV2
-            | ProtocolFeature::ChunkEndorsementsInBlockHeader => 72,
+            | ProtocolFeature::ChunkEndorsementsInBlockHeader
+            | ProtocolFeature::StateStoredReceipt => 72,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later

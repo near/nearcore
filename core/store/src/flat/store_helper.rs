@@ -2,10 +2,7 @@
 //! TODO(#8577): remove this file and move functions to the corresponding structs
 
 use super::delta::{FlatStateDelta, FlatStateDeltaMetadata};
-use super::types::{
-    FlatStateIterator, FlatStateValuesInliningMigrationStatus, FlatStorageResult, FlatStorageStatus,
-};
-use crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY;
+use super::types::{FlatStateIterator, FlatStorageResult, FlatStorageStatus};
 use crate::flat::delta::{BlockWithChangesInfo, FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
 use crate::flat::FlatStorageReadyStatus;
@@ -145,34 +142,6 @@ pub fn decode_flat_state_db_key(key: &[u8]) -> io::Result<(ShardUId, Vec<u8>)> {
         io::Error::other(format!("failed to decode shard_uid as part of FlatState key: {err}"))
     })?;
     Ok((shard_uid, trie_key.to_vec()))
-}
-
-pub fn get_flat_state_values_inlining_migration_status(
-    store: &Store,
-) -> FlatStorageResult<FlatStateValuesInliningMigrationStatus> {
-    store
-        .get_ser(DBCol::Misc, FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY)
-        .map(|status| status.unwrap_or(FlatStateValuesInliningMigrationStatus::Empty))
-        .map_err(|err| {
-            FlatStorageError::StorageInternalError(format!(
-                "failed to read FlatState values inlining migration status: {err}"
-            ))
-        })
-}
-
-pub fn set_flat_state_values_inlining_migration_status(
-    store: &Store,
-    status: FlatStateValuesInliningMigrationStatus,
-) -> FlatStorageResult<()> {
-    let mut store_update = store.store_update();
-    store_update
-        .set_ser(DBCol::Misc, FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY, &status)
-        .expect("Borsh should not have failed here");
-    store_update.commit().map_err(|err| {
-        FlatStorageError::StorageInternalError(format!(
-            "failed to commit FlatState values inlining migration status: {err}"
-        ))
-    })
 }
 
 pub fn get_flat_state_value(

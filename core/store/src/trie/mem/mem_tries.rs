@@ -171,7 +171,7 @@ impl MemTries {
     }
 
     /// Returns an iterator over the memtrie for the given trie root.
-    pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator, StorageError> {
+    pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator<'a>, StorageError> {
         let root = if trie.root == CryptoHash::default() {
             None
         } else {
