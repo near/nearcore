@@ -220,8 +220,8 @@ mod tests {
         // Generate naive result and state root.
         let mut retain_result_naive = initial_entries
             .iter()
+            .filter(|&(key, _)| retain_multi_ranges.iter().any(|range| range.contains(key)))
             .cloned()
-            .filter(|(key, _)| retain_multi_ranges.iter().any(|range| range.contains(key)))
             .collect_vec();
         retain_result_naive.sort();
 
