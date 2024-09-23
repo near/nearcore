@@ -47,7 +47,7 @@ impl FlatStorageChunkView {
         self.flat_storage.contains_key(&self.block_hash, key)
     }
 
-    pub fn iter_range<'a>(&'a self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator<'a> {
+    pub fn iter_range(&self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator {
         self.store.iter_range(self.flat_storage.shard_uid(), from, to)
     }
 
