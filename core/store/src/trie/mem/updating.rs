@@ -508,19 +508,27 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             }
         }
 
-        // Correctness can be shown by induction on path prefix.
+        // We may need to change node type to keep the trie structure unique.
         for node_id in path.into_iter().rev() {
             self.squash_node(node_id);
         }
     }
 
-    /// As we delete a key, it may be necessary to change the types of the nodes
-    /// along the path from the root to the key, in order to keep the trie
-    /// structure unique. For example, if a branch node has only one child and
-    /// no value, it must be converted to an extension node. If that extension
-    /// node also has a parent that is an extension node, they must be combined
-    /// into a single extension node. This function takes care of all these
-    /// cases.
+    /// When we delete keys, it may be necessary to change types of some nodes,
+    /// in order to keep the trie structure unique. For example, if a branch
+    /// had two children, but after deletion ended up with one child and no
+    /// value, it must be converted to an extension node. Or, if an extension
+    /// node ended up having a child which is also an extension node, they must
+    /// be combined into a single extension node. This function takes care of
+    /// all these cases for a single node.
+    ///
+    /// To restructure trie correctly, this function must be called in
+    /// post-order traversal for every modified node. It may be proven by
+    /// induction on subtrees.
+    /// For single key removal, it is called for every node on the path from
+    /// the leaf to the root.
+    /// For range removal, it is called in the end of recursive range removal
+    /// function, which is the definition of post-order traversal.
     pub(crate) fn squash_node(&mut self, node_id: UpdatedMemTrieNodeId) {
         let node = self.take_node(node_id);
         match node {

@@ -1,3 +1,12 @@
+/// Utilties for generating vectors of nibbles from human-readable strings.
+///
+/// Input for a single vector is a hex string, e.g. 5da3593f.
+/// It has even length, as tries support only keys in bytes, thus keys of
+/// odd nibble length do not occur.
+/// Each symbol is interpreted as a nibble (half-byte).
+/// Result is a vector of decoded hexes as nibbles, e.g.
+/// [5, 13, 10, 3, 5, 9, 3, 15].
+
 pub(crate) fn hex_to_nibbles(hex: &str) -> Vec<u8> {
     if hex == "_" {
         return vec![];
@@ -6,12 +15,15 @@ pub(crate) fn hex_to_nibbles(hex: &str) -> Vec<u8> {
     hex::decode(hex).unwrap()
 }
 
-pub(crate) fn all_nibbles(hexes: &str) -> Vec<Vec<u8>> {
+/// Converts a string of hex strings separated by whitespaces into a vector of
+/// vectors of nibbles. For example, "01 02 10" is converted to
+/// [[0, 1], [0, 2], [1, 0]].
+pub(crate) fn multi_hex_to_nibbles(hexes: &str) -> Vec<Vec<u8>> {
     hexes.split_whitespace().map(|x| hex_to_nibbles(x)).collect()
 }
 
-pub(crate) fn full_16ary_tree_keys() -> Vec<Vec<u8>> {
-    all_nibbles(
+pub(crate) fn all_two_nibble_nibbles() -> Vec<Vec<u8>> {
+    multi_hex_to_nibbles(
         "
         00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f
         10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f

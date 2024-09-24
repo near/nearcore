@@ -138,16 +138,15 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 let child_key = [key_nibbles, extension_nibbles].concat();
                 self.retain_multi_range_recursive(new_child_id, child_key, intervals_nibbles);
 
-                self.place_node(
-                    node_id,
-                    UpdatedMemTrieNode::Extension {
-                        extension,
-                        child: OldOrUpdatedNodeId::Updated(new_child_id),
-                    },
-                );
+                let node = UpdatedMemTrieNode::Extension {
+                    extension,
+                    child: OldOrUpdatedNodeId::Updated(new_child_id),
+                };
+                self.place_node(node_id, node);
             }
         }
 
+        // We may need to change node type to keep the trie structure unique.
         self.squash_node(node_id);
     }
 }
@@ -206,7 +205,7 @@ mod tests {
             mem::{
                 iter::MemTrieIterator,
                 mem_tries::MemTries,
-                nibbles_utils::{all_nibbles, full_16ary_tree_keys, hex_to_nibbles},
+                nibbles_utils::{all_two_nibble_nibbles, hex_to_nibbles, multi_hex_to_nibbles},
             },
             trie_storage::TrieMemoryPartialStorage,
         },
@@ -346,7 +345,7 @@ mod tests {
     /// Checks case when branch and extension nodes are explored but completely
     /// removed.
     fn test_descend_and_remove() {
-        let keys = all_nibbles("00 0000 0011");
+        let keys = multi_hex_to_nibbles("00 0000 0011");
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![hex_to_nibbles("0001")..hex_to_nibbles("0010")];
         run(initial_entries, retain_ranges);
@@ -355,7 +354,7 @@ mod tests {
     #[test]
     /// Checks case when branch is converted to leaf.
     fn test_branch_to_leaf() {
-        let keys = all_nibbles("ba bc ca");
+        let keys = multi_hex_to_nibbles("ba bc ca");
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![hex_to_nibbles("bc")..hex_to_nibbles("be")];
         run(initial_entries, retain_ranges);
@@ -364,7 +363,7 @@ mod tests {
     #[test]
     /// Checks case when branch with value is converted to leaf.
     fn test_branch_with_value_to_leaf() {
-        let keys = all_nibbles("d4 d4a3 d4b9 d5 e6");
+        let keys = multi_hex_to_nibbles("d4 d4a3 d4b9 d5 e6");
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![hex_to_nibbles("d4")..hex_to_nibbles("d4a0")];
         run(initial_entries, retain_ranges);
@@ -373,7 +372,7 @@ mod tests {
     #[test]
     /// Checks case when branch without value is converted to extension.
     fn test_branch_to_extension() {
-        let keys = all_nibbles("21 2200 2201");
+        let keys = multi_hex_to_nibbles("21 2200 2201");
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![hex_to_nibbles("2200")..hex_to_nibbles("2202")];
         run(initial_entries, retain_ranges);
@@ -383,7 +382,7 @@ mod tests {
     /// Checks case when result is a single key, and all nodes on the way are
     /// squashed, in particular, extension nodes are joined into one.
     fn test_extend_extensions() {
-        let keys = all_nibbles("dd d0 d1 dddd00 dddd01 dddddd");
+        let keys = multi_hex_to_nibbles("dd d0 d1 dddd00 dddd01 dddddd");
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![hex_to_nibbles("dddddd")..hex_to_nibbles("ddddde")];
         run(initial_entries, retain_ranges);
@@ -392,7 +391,7 @@ mod tests {
     #[test]
     /// Checks case when branch is visited but not restructured.
     fn test_branch_not_restructured() {
-        let keys = all_nibbles("60 61 62 70");
+        let keys = multi_hex_to_nibbles("60 61 62 70");
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![hex_to_nibbles("61")..hex_to_nibbles("71")];
         run(initial_entries, retain_ranges);
@@ -402,7 +401,7 @@ mod tests {
     /// Checks case with branching on every step but when only prefixes of some
     /// key are retained.
     fn test_branch_prefixes() {
-        let keys = all_nibbles(
+        let keys = multi_hex_to_nibbles(
             "
             00     
             10
@@ -432,7 +431,7 @@ mod tests {
     #[test]
     /// Checks multiple ranges retain on full 16-ary tree.
     fn test_full_16ary() {
-        let keys = full_16ary_tree_keys();
+        let keys = all_two_nibble_nibbles();
         let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
         let retain_ranges = vec![
             hex_to_nibbles("0f")..hex_to_nibbles("10"),

@@ -195,7 +195,7 @@ mod tests {
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
-    use crate::trie::mem::nibbles_utils::{all_nibbles, full_16ary_tree_keys};
+    use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
@@ -308,42 +308,42 @@ mod tests {
 
     #[test]
     fn test_memtrie_root_is_leaf() {
-        check(all_nibbles("_"));
-        check(all_nibbles("00"));
-        check(all_nibbles("01"));
-        check(all_nibbles("ff"));
-        check(all_nibbles("0123456789abcdef"));
+        check(multi_hex_to_nibbles("_"));
+        check(multi_hex_to_nibbles("00"));
+        check(multi_hex_to_nibbles("01"));
+        check(multi_hex_to_nibbles("ff"));
+        check(multi_hex_to_nibbles("0123456789abcdef"));
     }
 
     #[test]
     fn test_memtrie_root_is_extension() {
-        check(all_nibbles("1234 13 14"));
-        check(all_nibbles("12345678 1234abcd"));
+        check(multi_hex_to_nibbles("1234 13 14"));
+        check(multi_hex_to_nibbles("12345678 1234abcd"));
     }
 
     #[test]
     fn test_memtrie_root_is_branch() {
-        check(all_nibbles("11 22"));
-        check(all_nibbles("12345678 22345678 32345678"));
-        check(all_nibbles("11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff"));
+        check(multi_hex_to_nibbles("11 22"));
+        check(multi_hex_to_nibbles("12345678 22345678 32345678"));
+        check(multi_hex_to_nibbles("11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff"));
     }
 
     #[test]
     fn test_memtrie_root_is_branch_with_value() {
-        check(all_nibbles("_ 11"));
+        check(multi_hex_to_nibbles("_ 11"));
     }
 
     #[test]
     fn test_memtrie_prefix_patterns() {
-        check(all_nibbles("10 21 2210 2221 222210 222221 22222210 22222221"));
-        check(all_nibbles("11111112 11111120 111112 111120 1112 1120 12 20"));
-        check(all_nibbles("11 1111 111111 11111111 1111111111 111111111111"));
-        check(all_nibbles("_ 11 1111 111111 11111111 1111111111 111111111111"));
+        check(multi_hex_to_nibbles("10 21 2210 2221 222210 222221 22222210 22222221"));
+        check(multi_hex_to_nibbles("11111112 11111120 111112 111120 1112 1120 12 20"));
+        check(multi_hex_to_nibbles("11 1111 111111 11111111 1111111111 111111111111"));
+        check(multi_hex_to_nibbles("_ 11 1111 111111 11111111 1111111111 111111111111"));
     }
 
     #[test]
     fn test_full_16ary_trees() {
-        check(full_16ary_tree_keys())
+        check(all_two_nibble_nibbles())
     }
 
     #[test]
