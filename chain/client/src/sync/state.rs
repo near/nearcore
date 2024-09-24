@@ -640,6 +640,7 @@ impl StateSync {
                             sync_hash,
                             *sync_prev_prev_hash,
                             &self.network_adapter,
+                            state_parts_future_spawner,
                         );
 
                         peer_requests_sent += 1;
@@ -1229,12 +1230,13 @@ fn request_part_from_peers(
     sync_hash: CryptoHash,
     sync_prev_prev_hash: CryptoHash,
     network_adapter: &PeerManagerAdapter,
+    state_parts_future_spawner: &dyn FutureSpawner,
 ) {
     download.run_me.store(false, Ordering::SeqCst);
     download.state_requests_count += 1;
     let run_me = download.run_me.clone();
 
-    near_performance_metrics::actix::spawn(
+    state_parts_future_spawner.spawn(
         "StateSync",
         network_adapter
             .send_async(PeerManagerMessageRequest::NetworkRequests(

@@ -280,6 +280,7 @@ fn network_message_to_client_handler(
                 .send(EpochSyncResponseMessage { from_peer: my_peer_id.clone(), proof });
             None
         }
+        NetworkRequests::StateRequestPart { .. } => None,
 
         _ => Some(request),
     })
