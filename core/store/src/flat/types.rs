@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_schema_checker_lib::ProtocolSchema;
@@ -148,8 +149,7 @@ pub enum FlatStorageCreationStatus {
 pub enum FlatStorageReshardingStatus {
     /// Resharding phase entered when a shard is being split.
     /// Copy key-value pairs from this shard (the parent) to children shards.
-    /// Includes the latest AccountID moved from parent to child.
-    SplittingParent(Option<AccountId>),
+    SplittingParent(SplittingParentStatus),
     /// Resharding phase entered when a shard is being split.
     /// This shard (child) is being built from state taken from its parent.
     CreatingChild,
@@ -179,6 +179,21 @@ pub struct FetchingStateStatus {
     pub num_parts_in_step: u64,
     /// Total number of state parts.
     pub num_parts: u64,
+}
+
+/// Current step of resharding flat storage - splitting parent.
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+)]
+pub struct SplittingParentStatus {
+    /// UId of the left child shard. Will contain everything lesser than boundary account.
+    pub left_child_shard: ShardUId,
+    /// UId of the right child shard. Will contain everything greater or equal than boundary account.
+    pub right_child_shard: ShardUId,
+    /// The new shard layout.
+    pub shard_layout: ShardLayout,
+    /// The latest AccountID moved from parent to child.
+    pub latest_account_moved: Option<AccountId>,
 }
 
 pub type FlatStateIterator<'a> =

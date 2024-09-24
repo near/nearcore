@@ -178,7 +178,7 @@ pub struct Client {
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Takes care of performing resharding on the flat storage.
-    flat_storage_resharder: FlatStorageResharder,
+    pub flat_storage_resharder: FlatStorageResharder,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
     /// A map storing the last time a block was requested for state sync.
@@ -272,8 +272,7 @@ impl Client {
             async_computation_spawner.clone(),
             validator_signer.clone(),
         )?;
-        let flat_storage_resharder =
-            FlatStorageResharder::new(epoch_manager.clone(), runtime_adapter.clone());
+        let flat_storage_resharder = FlatStorageResharder::new(runtime_adapter.clone());
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
             epoch_manager.clone(),
