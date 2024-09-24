@@ -46,13 +46,6 @@ impl From<FlatStorageError> for StorageError {
 
 pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
-pub enum FlatStateValuesInliningMigrationStatus {
-    Empty,
-    InProgress,
-    Finished,
-}
-
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]
