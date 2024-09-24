@@ -1233,21 +1233,21 @@ mod tests {
     }
 
     fn test_clear_column(store: Store) {
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
-            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
+            store_update.increment_refcount(DBCol::State, &[3; 8], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
     }
 
     #[test]
