@@ -319,10 +319,13 @@ impl Store {
         Ok(self.shard_uid_mapping.update(&shard_uid, mapped_shard_uid))
     }
 
-    /// Specialized `get` implementation for State column.
+    /// Specialized `get` implementation for State column that replaces shard_uid prefix
+    /// with a mapped value according to mapping strategy in Resharding V3.
     ///
-    /// Replace db key shard_uid prefix using in-memory mapping,
-    /// falling back to a mapping stored in the database.
+    /// It first uses the in-memory `shard_uid_mapping` and attempts to read from storage.
+    /// If the node was not found in storage, it tries to update the in-memory mapping with
+    /// the mapping stored in `DBCol::ShardUIdMapping`.
+    /// If it was different, then we do the second attempt to read from storage.
     fn get_impl_state(&self, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let shard_uid = retrieve_shard_uid_from_db_key(key)?;
         let mut mapping_synchronized_with_db = false;
@@ -1363,9 +1366,9 @@ mod tests {
         {
             let store = crate::test_utils::create_test_store();
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
+            store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
             store_update.commit().unwrap();
             store.save_state_to_file(tmp.path()).unwrap();
         }
@@ -1376,9 +1379,9 @@ mod tests {
             std::io::Read::read_to_end(tmp.as_file_mut(), &mut buffer).unwrap();
             #[rustfmt::skip]
             assert_eq!(&[
-                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 1,
+                /* column: */ 0, /* key len: */ 8, 0, 0, 0, /* key: */ 1, 1, 1, 1, 1, 1, 1, 1,
                                  /* val len: */ 9, 0, 0, 0, /* val: */ 1, 1, 0, 0, 0, 0, 0, 0, 0,
-                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 2,
+                /* column: */ 0, /* key len: */ 8, 0, 0, 0, /* key: */ 2, 2, 2, 2, 2, 2, 2, 2,
                                  /* val len: */ 9, 0, 0, 0, /* val: */ 2, 2, 0, 0, 0, 0, 0, 0, 0,
                 /* end mark: */ 255,
             ][..], buffer.as_slice());
@@ -1387,22 +1390,22 @@ mod tests {
         {
             // Fresh storage, should have no data.
             let store = crate::test_utils::create_test_store();
-            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
-            assert_eq!(None, store.get(DBCol::State, &[2]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[1; 8]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[2; 8]).unwrap());
 
             // Read data from file.
             store.load_state_from_file(tmp.path()).unwrap();
-            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1]).unwrap().as_deref());
-            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1; 8]).unwrap().as_deref());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).unwrap().as_deref());
 
             // Key &[2] should have refcount of two so once decreased it should
             // still exist.
             let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
-            store_update.decrement_refcount(DBCol::State, &[2]);
+            store_update.decrement_refcount(DBCol::State, &[1; 8]);
+            store_update.decrement_refcount(DBCol::State, &[2; 8]);
             store_update.commit().unwrap();
-            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
-            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+            assert_eq!(None, store.get(DBCol::State, &[1; 8]).unwrap());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).unwrap().as_deref());
         }
 
         // Verify detection of corrupt file.
