@@ -181,20 +181,18 @@ check-protocol-schema:
 
 
     # Run the checker
-    # if ! RUSTFLAGS="--cfg enable_const_type_id" \
-    #     {{ with_macos_incremental }} \
-    #     cargo +nightly run -p protocol-schema-check --profile dev-artifacts; then
-    #     if ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1; then
-    #         echo "Nightly run failed with rustc-ice, falling back to stable with RUSTC_BOOTSTRAP=1."
-    #         echo "This is extremely hacky measure which takes place only when Rust nightly is broken."
-    #         RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
-    #         {{ with_macos_incremental }} \
-    #         cargo run -p protocol-schema-check --profile dev-artifacts
-    #     else
-    #         echo "Nightly run failed"
-    #         exit 1
-    #     fi
-    # fi
+    RUSTFLAGS="--cfg enable_const_type_id" \
+        cargo +nightly run -p protocol-schema-check --profile dev-artifacts || { \
+            ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1 && { \
+                echo "Nightly run failed with rustc-ice, falling back to stable with RUSTC_BOOTSTRAP=1."; \
+                echo "This is extremely hacky measure which takes place only when Rust nightly is broken."; \
+                RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
+                    cargo run -p protocol-schema-check --profile dev-artifacts; \
+            } || { \
+                echo "Nightly run failed"; \
+                exit 1; \
+            }; \
+        }
 
 check_build_public_libraries:
     cargo check {{public_libraries}}
