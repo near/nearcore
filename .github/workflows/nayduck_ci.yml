@@ -1,0 +1,52 @@
+name: CI Nayduck tests
+on:
+  merge_group:
+
+jobs:
+  nayduck_tests:
+    runs-on: "ubuntu-latest"
+    timeout-minutes: 60
+
+    steps:
+      - name: Install JQ json processor
+        run: sudo apt install jq
+      
+      - name: Install required python modules
+        run: |
+          pip3 install -r pytest/requirements.txt
+
+      - name: Run Nayduck tests and wait for results
+        run: |
+          NEW_TEST=$(python3 scripts/nayduck.py  --test-file nightly/ci.txt)
+          RUN_ID=$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|g')
+
+          # wait all the tests to finish
+          while true; do
+            TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
+            TESTS_NOT_READY=$( jq -e '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING" ) ' <<< ${TEST_RESULTS} )
+            if [ -z "$TESTS_NOT_READY" ]; then break; fi
+            sleep 15
+          done
+
+          UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[] | select(.status != "PASSED" ) ' <<< ${TEST_RESULTS} )
+          if [ -z "$UNSUCCESSFUL_TESTS" ]; then
+            echo "Nayduck CI tests passed."
+            echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"
+          else
+            echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
+            echo "Fix them before merging"
+            exit 1
+          fi
+
+
+
+
+
+
+# result=$( python3 scripts/nayduck.py --test-file nightly/ci.txt )
+# (venv) ➜  nearcore git:(nayduck-rearrange) ✗ echo $result      
+# Scheduling tests for: 
+# branch - nayduck-rearrange 
+# commit hash - 6ed7320f2fcb9b7023677717c59754a19b14d136
+# Sending request ...
+# Success.  https://nayduck.nearone.org/#/run/283
