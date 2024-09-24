@@ -174,7 +174,7 @@ check-protocol-schema:
     
     # Test that checker is not broken
     RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
-        cargo +nightly test -p protocol-schema-check --profile dev-artifacts
+        cargo test -p protocol-schema-check --profile dev-artifacts
 
     # Run the checker
     RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
