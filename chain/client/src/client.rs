@@ -158,9 +158,9 @@ pub struct Client {
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
-    /// A mapping from the first block of an epoch that we know needs to be state synced for some shards
-    /// to a tracker that will find an appropriate sync_hash for state sync
-    catchup_tracker: HashMap<CryptoHash, NewChunkTracker>,
+    /// A mapping from an epoch that we know needs to be state synced for some shards
+    /// to a tracker that will find an appropriate sync_hash for state sync to that epoch
+    catchup_tracker: HashMap<EpochId, NewChunkTracker>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs: HashMap<CryptoHash, CatchupState>,
@@ -2611,7 +2611,7 @@ impl Client {
                     }
                 }
             } else {
-                let new_chunk_tracker = match self.catchup_tracker.entry(epoch_first_block) {
+                let new_chunk_tracker = match self.catchup_tracker.entry(*block_header.epoch_id()) {
                     std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                     std::collections::hash_map::Entry::Vacant(e) => {
                         let shard_ids = self.epoch_manager.shard_ids(block_header.epoch_id())?;
