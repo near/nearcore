@@ -905,13 +905,15 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::TestTriesBuilder;
+    use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::mem_tries::MemTries;
     use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
-    use near_primitives::types::StateRoot;
+    use near_primitives::types::{BlockHeight, StateRoot};
     use rand::Rng;
     use std::collections::{HashMap, HashSet};
 
@@ -957,7 +959,6 @@ mod tests {
             let mut update = self.mem.update(self.state_root, false).unwrap_or_else(|_| {
                 panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
             });
-
             for (key, value) in changes {
                 if let Some(value) = value {
                     update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value));
@@ -1327,5 +1328,72 @@ mod tests {
             }
             tries.check_consistency_across_all_changes_and_apply(changes);
         }
+    }
+
+    fn insert_changes_to_memtrie(
+        memtrie: &mut MemTries,
+        prev_state_root: CryptoHash,
+        block_height: BlockHeight,
+        changes: &str,
+    ) -> CryptoHash {
+        let changes = parse_changes(changes);
+        let mut update = memtrie.update(prev_state_root, false).unwrap();
+
+        for (key, value) in changes {
+            if let Some(value) = value {
+                update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value));
+            } else {
+                update.delete(&key);
+            }
+        }
+
+        let changes = update.to_mem_trie_changes_only();
+        memtrie.apply_memtrie_changes(block_height, &changes)
+    }
+
+    #[test]
+    fn test_gc_hybrid_memtrie() {
+        let state_root = StateRoot::default();
+        let mut memtrie = MemTries::new(ShardUId::single_shard());
+        assert!(!memtrie.arena.has_shared_memory());
+
+        // Insert in some initial data for height 0
+        let changes = "
+            ff00 = 0000
+            ff01 = 0100
+            ff0101 = 0101
+        ";
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 0, changes);
+
+        // Freeze the current memory in memtrie
+        let frozen_arena = memtrie.arena.freeze();
+        let hybrid_arena =
+            HybridArena::from_frozen("test_hybrid".to_string(), frozen_arena.clone());
+        memtrie.arena = hybrid_arena;
+        assert!(memtrie.arena.has_shared_memory());
+
+        // Insert in some more data for height 1 in hybrid memtrie
+        // Try to make sure we share some node allocations (ff01 and ff0101) with height 0
+        // Node ff01 effectively has a refcount of 2, one from height 0 and one from height 1
+
+        let changes = "
+            ff0000 = 1000
+            ff0001 = 1001
+        ";
+        insert_changes_to_memtrie(&mut memtrie, state_root, 1, changes);
+
+        // Now try to garbage collect the height 0 root
+        // Memory consumption should not change as height 0 is frozen
+        let num_active_allocs = memtrie.arena.num_active_allocs();
+        let active_allocs_bytes = memtrie.arena.active_allocs_bytes();
+        memtrie.delete_until_height(1);
+        assert_eq!(memtrie.arena.num_active_allocs(), num_active_allocs);
+        assert_eq!(memtrie.arena.active_allocs_bytes(), active_allocs_bytes);
+
+        // Now try to garbage collect the height 1 root
+        // The final memory allocation should be what we had during the time of freezing
+        memtrie.delete_until_height(2);
+        assert_eq!(memtrie.arena.num_active_allocs(), frozen_arena.num_active_allocs());
+        assert_eq!(memtrie.arena.active_allocs_bytes(), frozen_arena.active_allocs_bytes());
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use itertools::Itertools;
 use near_chain_primitives::Error;
@@ -79,7 +79,7 @@ pub fn validate_chunk_endorsements_in_block(
         // Verify that the signature in block body are valid for given chunk_validator.
         // Signature can be either None, or Some(signature).
         // We calculate the stake of the chunk_validators for who we have the signature present.
-        let mut endorsed_chunk_validators = HashSet::new();
+        let mut endorsed_chunk_validators = HashMap::new();
         for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
             let Some(signature) = signature else { continue };
             let (validator, _) = epoch_manager.get_validator_by_account_id(
@@ -104,13 +104,13 @@ pub fn validate_chunk_endorsements_in_block(
             }
 
             // Add validators with signature in endorsed_chunk_validators. We later use this to check stake.
-            endorsed_chunk_validators.insert(account_id);
+            endorsed_chunk_validators.insert(account_id, *signature.clone());
         }
 
-        let endorsement_stats =
-            chunk_validator_assignments.compute_endorsement_stats(&endorsed_chunk_validators);
-        if !endorsement_stats.has_enough_stake() {
-            tracing::error!(target: "chain", ?endorsement_stats, "Chunk does not have enough stake to be endorsed");
+        let endorsement_state =
+            chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
+        if !endorsement_state.is_endorsed {
+            tracing::error!(target: "chain", ?endorsement_state, "Chunk does not have enough stake to be endorsed");
             return Err(Error::InvalidChunkEndorsement);
         }
 
