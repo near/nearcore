@@ -7,6 +7,8 @@ pub mod loading;
 mod lookup;
 pub mod mem_tries;
 pub mod metrics;
+#[cfg(test)]
+pub(crate) mod nibbles_utils;
 pub mod node;
 mod parallel_loader;
 pub mod resharding;

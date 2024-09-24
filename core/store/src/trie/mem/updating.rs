@@ -508,75 +508,85 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             }
         }
 
-        self.squash_nodes(path);
+        // We may need to change node type to keep the trie structure unique.
+        for node_id in path.into_iter().rev() {
+            self.squash_node(node_id);
+        }
     }
 
-    /// As we delete a key, it may be necessary to change the types of the nodes
-    /// along the path from the root to the key, in order to keep the trie
-    /// structure unique. For example, if a branch node has only one child and
-    /// no value, it must be converted to an extension node. If that extension
-    /// node also has a parent that is an extension node, they must be combined
-    /// into a single extension node. This function takes care of all these
-    /// cases.
-    fn squash_nodes(&mut self, path: Vec<UpdatedMemTrieNodeId>) {
-        // Correctness can be shown by induction on path prefix.
-        for node_id in path.into_iter().rev() {
-            let node = self.take_node(node_id);
-            match node {
-                UpdatedMemTrieNode::Empty => {
-                    // Empty node will be absorbed by its parent node, so defer that.
-                    self.place_node(node_id, UpdatedMemTrieNode::Empty);
-                }
-                UpdatedMemTrieNode::Leaf { .. } => {
-                    // It's impossible that we would squash a leaf node, because if we
-                    // had deleted a leaf it would become Empty instead.
-                    unreachable!();
-                }
-                UpdatedMemTrieNode::Branch { mut children, value } => {
-                    // Remove any children that are now empty (removed).
-                    for child in children.iter_mut() {
-                        if let Some(OldOrUpdatedNodeId::Updated(child_node_id)) = child {
-                            if let UpdatedMemTrieNode::Empty =
-                                self.updated_nodes[*child_node_id as usize].as_ref().unwrap()
-                            {
-                                *child = None;
-                            }
+    /// When we delete keys, it may be necessary to change types of some nodes,
+    /// in order to keep the trie structure unique. For example, if a branch
+    /// had two children, but after deletion ended up with one child and no
+    /// value, it must be converted to an extension node. Or, if an extension
+    /// node ended up having a child which is also an extension node, they must
+    /// be combined into a single extension node. This function takes care of
+    /// all these cases for a single node.
+    ///
+    /// To restructure trie correctly, this function must be called in
+    /// post-order traversal for every modified node. It may be proven by
+    /// induction on subtrees.
+    /// For single key removal, it is called for every node on the path from
+    /// the leaf to the root.
+    /// For range removal, it is called in the end of recursive range removal
+    /// function, which is the definition of post-order traversal.
+    pub(crate) fn squash_node(&mut self, node_id: UpdatedMemTrieNodeId) {
+        let node = self.take_node(node_id);
+        match node {
+            UpdatedMemTrieNode::Empty => {
+                // Empty node will be absorbed by its parent node, so defer that.
+                self.place_node(node_id, UpdatedMemTrieNode::Empty);
+            }
+            UpdatedMemTrieNode::Leaf { .. } => {
+                // It's impossible that we would squash a leaf node, because if we
+                // had deleted a leaf it would become Empty instead.
+                unreachable!();
+            }
+            UpdatedMemTrieNode::Branch { mut children, value } => {
+                // Remove any children that are now empty (removed).
+                for child in children.iter_mut() {
+                    if let Some(OldOrUpdatedNodeId::Updated(child_node_id)) = child {
+                        if let UpdatedMemTrieNode::Empty =
+                            self.updated_nodes[*child_node_id as usize].as_ref().unwrap()
+                        {
+                            *child = None;
                         }
                     }
-                    let num_children = children.iter().filter(|node| node.is_some()).count();
-                    if num_children == 0 {
-                        // Branch with zero children becomes leaf. It's not possible for it to
-                        // become empty, because a branch had at least two children or a value
-                        // and at least one child, so deleting a single value could not
-                        // eliminate both of them.
-                        let leaf_node = UpdatedMemTrieNode::Leaf {
-                            extension: NibbleSlice::new(&[])
-                                .encoded(true)
-                                .into_vec()
-                                .into_boxed_slice(),
-                            value: value.unwrap(),
-                        };
-                        self.place_node(node_id, leaf_node);
-                    } else if num_children == 1 && value.is_none() {
-                        // Branch with 1 child but no value becomes extension.
-                        let (idx, child) = children
-                            .into_iter()
-                            .enumerate()
-                            .find_map(|(idx, node)| node.map(|node| (idx, node)))
-                            .unwrap();
-                        let extension = NibbleSlice::new(&[(idx << 4) as u8])
-                            .encoded_leftmost(1, false)
-                            .into_vec()
-                            .into_boxed_slice();
-                        self.extend_child(node_id, extension, child);
-                    } else {
-                        // Branch with more than 1 children stays branch.
-                        self.place_node(node_id, UpdatedMemTrieNode::Branch { children, value });
+                }
+                let num_children = children.iter().filter(|node| node.is_some()).count();
+                if num_children == 0 {
+                    match value {
+                        None => self.place_node(node_id, UpdatedMemTrieNode::Empty),
+                        Some(value) => {
+                            // Branch with zero children and a value becomes leaf.
+                            let leaf_node = UpdatedMemTrieNode::Leaf {
+                                extension: NibbleSlice::new(&[])
+                                    .encoded(true)
+                                    .into_vec()
+                                    .into_boxed_slice(),
+                                value,
+                            };
+                            self.place_node(node_id, leaf_node);
+                        }
                     }
-                }
-                UpdatedMemTrieNode::Extension { extension, child } => {
+                } else if num_children == 1 && value.is_none() {
+                    // Branch with 1 child but no value becomes extension.
+                    let (idx, child) = children
+                        .into_iter()
+                        .enumerate()
+                        .find_map(|(idx, node)| node.map(|node| (idx, node)))
+                        .unwrap();
+                    let extension = NibbleSlice::new(&[(idx << 4) as u8])
+                        .encoded_leftmost(1, false)
+                        .into_vec()
+                        .into_boxed_slice();
                     self.extend_child(node_id, extension, child);
+                } else {
+                    // Branch with more than 1 children stays branch.
+                    self.place_node(node_id, UpdatedMemTrieNode::Branch { children, value });
                 }
+            }
+            UpdatedMemTrieNode::Extension { extension, child } => {
+                self.extend_child(node_id, extension, child);
             }
         }
     }
@@ -596,13 +606,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         let child_node = self.take_node(child_id);
         match child_node {
             UpdatedMemTrieNode::Empty => {
-                // This case is not possible. In a trie in general, an extension
-                // node could only have a child that is a branch (possibly with
-                // value) node. But a branch node either has a value and at least
-                // one child, or has at least two children. In either case, it's
-                // impossible for a single deletion to cause the child to become
-                // empty.
-                unreachable!();
+                self.place_node(node_id, UpdatedMemTrieNode::Empty);
             }
             // If the child is a leaf (which could happen if a branch node lost
             // all its branches and only had a value left, or is left with only
