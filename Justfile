@@ -161,6 +161,7 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
+check-protocol-schema:
     rustup toolchain install nightly
     rustup target add wasm32-unknown-unknown --toolchain nightly
 
