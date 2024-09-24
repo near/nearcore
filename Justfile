@@ -165,34 +165,21 @@ check-protocol-schema:
     rustup toolchain install nightly
     rustup target add wasm32-unknown-unknown --toolchain nightly
 
+    # Below, we *should* have been used `cargo +nightly ...` instead of
+    # `RUSTC_BOOTSTRAP=1`. However, the env var appears to be more stable.
+    # `nightly` builds are updated daily and may be broken sometimes, e.g.
+    # https://github.com/rust-lang/rust/issues/130769.
+    #
+    # If there is an issue with the env var, fall back to `cargo +nightly ...`.
+    
     # Test that checker is not broken
-    RUSTFLAGS="--cfg enable_const_type_id" \
-        cargo +nightly test -p protocol-schema-check --profile dev-artifacts || { \
-            ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1 && { \
-                echo "Nightly test failed with rustc-ice, falling back to stable with RUSTC_BOOTSTRAP=1."; \
-                echo "This is extremely hacky measure which takes place only when Rust nightly is broken."; \
-                RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
-                    cargo test -p protocol-schema-check --profile dev-artifacts; \
-            } || { \
-                echo "Nightly test failed"; \
-                exit 1; \
-            }; \
-        }
-
+    RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
+        cargo +nightly test -p protocol-schema-check --profile dev-artifacts
 
     # Run the checker
-    RUSTFLAGS="--cfg enable_const_type_id" \
-        cargo +nightly run -p protocol-schema-check --profile dev-artifacts || { \
-            ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1 && { \
-                echo "Nightly run failed with rustc-ice, falling back to stable with RUSTC_BOOTSTRAP=1."; \
-                echo "This is extremely hacky measure which takes place only when Rust nightly is broken."; \
-                RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
-                    cargo run -p protocol-schema-check --profile dev-artifacts; \
-            } || { \
-                echo "Nightly run failed"; \
-                exit 1; \
-            }; \
-        }
+    RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
+        {{ with_macos_incremental }} \
+        cargo run -p protocol-schema-check --profile dev-artifacts
 
 check_build_public_libraries:
     cargo check {{public_libraries}}
