@@ -2504,6 +2504,10 @@ impl Chain {
         )
     }
 
+    // TODO(current_epoch_state_sync): move state sync related code to state sync files
+    // when this is no longer needed in this file after we more efficiently
+    // implement should_make_or_delete_snapshot(). Also, the logic in this function can probably
+    // be made simpler, as we shouldn't need to iterate over all blocks just to find the epoch start.
     fn get_epoch_start_sync_hash_impl(
         &self,
         sync_header: &BlockHeader,
