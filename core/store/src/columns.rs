@@ -450,7 +450,8 @@ impl DBCol {
             | DBCol::StateChangesForSplitStates
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
-            | DBCol::Transactions => true,
+            | DBCol::Transactions
+            | DBCol::ShardUIdMapping => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -508,8 +509,7 @@ impl DBCol {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
-            | DBCol::EpochSyncProof
-            | DBCol::ShardUIdMapping => false,
+            | DBCol::EpochSyncProof => false,
         }
     }
 

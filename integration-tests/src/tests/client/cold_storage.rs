@@ -186,10 +186,11 @@ fn test_storage_after_commit_of_cold_update() {
         let cold_store = &storage.get_cold_store().unwrap();
         let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
         // assert that this test actually checks something
-        // apart from StateChangesForSplitStates and StateHeaders, that are empty
+        // apart from StateChangesForSplitStates, StateHeaders, and ShardUIdMapping, that are empty
         assert!(
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
+                || col == DBCol::ShardUIdMapping
                 || num_checks > 0
         );
     }
