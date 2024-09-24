@@ -13,7 +13,7 @@ use std::{
 /// Protected with mutex for concurrent access.
 /// That is for resharding V3 purposes, where we use the mapping strategy for State column.
 #[derive(Clone)]
-pub(crate) struct ShardUIdMapping(Arc<Mutex<ShardUIdMappingInner>>);
+pub struct ShardUIdMapping(Arc<Mutex<ShardUIdMappingInner>>);
 
 impl ShardUIdMapping {
     pub fn new() -> Self {

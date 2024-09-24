@@ -68,7 +68,7 @@ pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
     checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
 };
-use crate::shard_uid_mapping::ShardUIdMapping;
+pub use crate::shard_uid_mapping::ShardUIdMapping;
 
 /// Specifies temperature of a storage.
 ///
@@ -102,9 +102,12 @@ const STATE_FILE_END_MARK: u8 = 255;
 ///
 /// Provides access to hot storage, cold storage and split storage. Typically
 /// users will want to use one of the above via the Store abstraction.
+/// It holds ShardUId mapping to be used for State mapping in Resharding V3.
+/// It acts as a singleton that is passed around when constructing `Store` object.
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
+    shard_uid_mapping: ShardUIdMapping,
 }
 
 /// Node’s single storage source.
@@ -116,6 +119,8 @@ pub struct NodeStorage {
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+    /// Store holds ShardUId mapping to be used for State mapping in Resharding V3.
+    /// See `Store::get_impl_state` for how it is used.
     shard_uid_mapping: ShardUIdMapping,
 }
 
@@ -151,7 +156,9 @@ impl NodeStorage {
             None
         };
 
-        Self { hot_storage, cold_storage: cold_db }
+        let shard_uid_mapping = ShardUIdMapping::new();
+
+        Self { hot_storage, cold_storage: cold_db, shard_uid_mapping }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -179,7 +186,8 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        let shard_uid_mapping = ShardUIdMapping::new();
+        Self { hot_storage: storage, cold_storage: None, shard_uid_mapping }
     }
 }
 
@@ -198,7 +206,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
-        Store::new(self.hot_storage.clone())
+        Store::new(self.hot_storage.clone(), self.shard_uid_mapping.clone())
     }
 
     /// Returns the cold store. The cold store is only available in archival
@@ -210,7 +218,9 @@ impl NodeStorage {
     /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => Some(Store::new(cold_storage.clone())),
+            Some(cold_storage) => {
+                Some(Store::new(cold_storage.clone(), self.shard_uid_mapping.clone()))
+            }
             None => None,
         }
     }
@@ -221,9 +231,10 @@ impl NodeStorage {
     /// Recovery store should be use only to perform data recovery on archival nodes.
     pub fn get_recovery_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => {
-                Some(Store::new(Arc::new(crate::db::RecoveryDB::new(cold_storage.clone()))))
-            }
+            Some(cold_storage) => Some(Store::new(
+                Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())),
+                self.shard_uid_mapping.clone(),
+            )),
             None => None,
         }
     }
@@ -236,13 +247,17 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        self.get_split_db().map(|split_db| Store::new(split_db))
+        self.get_split_db().map(|split_db| Store::new(split_db, self.shard_uid_mapping.clone()))
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
         self.cold_storage
             .as_ref()
             .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
+    }
+
+    pub fn get_shard_uid_mapping(&self) -> ShardUIdMapping {
+        self.shard_uid_mapping.clone()
     }
 
     /// Returns underlying database for given temperature.
@@ -288,7 +303,12 @@ impl NodeStorage {
     }
 
     pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
+        let shard_uid_mapping = ShardUIdMapping::new();
+        Self {
+            hot_storage: hot,
+            cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))),
+            shard_uid_mapping,
+        }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
@@ -297,8 +317,7 @@ impl NodeStorage {
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>) -> Self {
-        let shard_uid_mapping = ShardUIdMapping::new();
+    pub fn new(storage: Arc<dyn Database>, shard_uid_mapping: ShardUIdMapping) -> Self {
         Self { storage, shard_uid_mapping }
     }
 
