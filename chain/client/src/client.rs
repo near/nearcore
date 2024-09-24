@@ -34,8 +34,8 @@ use near_chain::types::{
     StorageDataSource,
 };
 use near_chain::{
-    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, ChainStoreUpdate,
-    Doomslug, DoomslugThresholdMode, Provenance,
+    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
+    DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{
     ClientConfig, LogSummaryStyle, MutableValidatorSigner, UpdateableClientConfig,
@@ -2547,23 +2547,6 @@ impl Client {
         Ok(false)
     }
 
-    fn set_state_sync_hash<'a>(
-        mut update: ChainStoreUpdate<'a>,
-        epoch_first_block: CryptoHash,
-        state_sync_info: &mut StateSyncInfo,
-        sync_hash: CryptoHash,
-    ) -> Result<(), Error> {
-        state_sync_info.sync_hash = sync_hash;
-        // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
-        // actually writing to the DB while actively iterating this column
-        update.add_state_sync_info(epoch_first_block, state_sync_info.clone());
-
-        // TODO: would be nice to be able to propagate context up the call stack so we can just log
-        // once at the top with all the info. Otherwise this error will look very cryptic
-        update.commit()?;
-        Ok(())
-    }
-
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
@@ -2623,13 +2606,15 @@ impl Client {
                     }
                 };
                 if let Some(sync_hash) = new_chunk_tracker.find_sync_hash(&self.chain)? {
-                    let update = self.chain.mut_chain_store().store_update();
-                    Self::set_state_sync_hash(
-                        update,
-                        epoch_first_block,
-                        &mut state_sync_info,
-                        sync_hash,
-                    )?;
+                    state_sync_info.sync_hash = sync_hash;
+                    let mut update = self.chain.mut_chain_store().store_update();
+                    // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
+                    // actually writing to the DB while actively iterating this column
+                    update.add_state_sync_info(epoch_first_block, state_sync_info.clone());
+                    // TODO: would be nice to be able to propagate context up the call stack so we can just log
+                    // once at the top with all the info. Otherwise this error will look very cryptic
+                    update.commit()?;
+
                     tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
                     notify_state_sync = true;
                     match self.catchup_state_syncs.entry(sync_hash) {
