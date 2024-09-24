@@ -302,6 +302,7 @@ impl Store {
         Self { storage, shard_uid_mapping }
     }
 
+    /// Underlying `get()` implementation for all columns.
     fn get_impl(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, &key)
@@ -311,12 +312,17 @@ impl Store {
         Ok(value)
     }
 
+    /// Reads shard_uid mapping for given shard and updates the in-memory mapping.
     fn read_shard_uid_mapping_from_db(&self, shard_uid: ShardUId) -> io::Result<ShardUId> {
         let mapped_shard_uid =
             self.get_ser::<ShardUId>(DBCol::ShardUIdMapping, &shard_uid.to_bytes())?;
         Ok(self.shard_uid_mapping.update(&shard_uid, mapped_shard_uid))
     }
 
+    /// Specialized `get` implementation for State column.
+    ///
+    /// Replace db key shard_uid prefix using in-memory mapping,
+    /// falling back to a mapping stored in the database.
     fn get_impl_state(&self, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let shard_uid = retrieve_shard_uid_from_db_key(key)?;
         let mut mapping_synchronized_with_db = false;
@@ -407,7 +413,7 @@ impl Store {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        // That would fail if called ScanDbColumnCmd for State column.
+        // That would fail if called `ScanDbColumnCmd`` for the `State` column.
         assert!(col != DBCol::State, "can't range iter State column");
         self.storage.iter_range(col, lower_bound, upper_bound)
     }
@@ -651,7 +657,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        // It would panic if called with `State` column.
+        // It would panic if called with `State` column, as it is refcounted.
         assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }

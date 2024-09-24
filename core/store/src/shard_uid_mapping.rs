@@ -8,6 +8,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// Stores a mapping from ShardUId to ShardUId.
+///
+/// Protected with mutex for concurrent access.
+/// That is for resharding V3 purposes, where we use the mapping strategy for State column.
 #[derive(Clone)]
 pub(crate) struct ShardUIdMapping(Arc<Mutex<ShardUIdMappingInner>>);
 
