@@ -161,16 +161,33 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
-check-protocol-schema:
-    rustup toolchain install nightly
-    rustup target add wasm32-unknown-unknown --toolchain nightly
-
     # Test that checker is not broken
-    RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check --profile dev-artifacts
+    if ! RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check --profile dev-artifacts; then
+        if ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1; then
+            echo "Nightly test failed with rustc-ice, falling back to stable with RUSTC_BOOTSTRAP=1."
+            echo "This is extremely hacky measure which takes place only when Rust nightly is broken."
+            RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" cargo test -p protocol-schema-check --profile dev-artifacts
+        else
+            echo "Nightly test failed"
+            exit 1
+        fi
+    fi
+
     # Run the checker
-    RUSTFLAGS="--cfg enable_const_type_id" \
+    if ! RUSTFLAGS="--cfg enable_const_type_id" \
         {{ with_macos_incremental }} \
-        cargo +nightly run -p protocol-schema-check --profile dev-artifacts
+        cargo +nightly run -p protocol-schema-check --profile dev-artifacts; then
+        if ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1; then
+            echo "Nightly run failed with rustc-ice, falling back to stable with RUSTC_BOOTSTRAP=1."
+            echo "This is extremely hacky measure which takes place only when Rust nightly is broken."
+            RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
+            {{ with_macos_incremental }} \
+            cargo run -p protocol-schema-check --profile dev-artifacts
+        else
+            echo "Nightly run failed"
+            exit 1
+        fi
+    fi
 
 check_build_public_libraries:
     cargo check {{public_libraries}}
