@@ -1,3 +1,4 @@
-./sandbox.txt
+# ./sandbox.txt
 ./pytest.txt
-./expensive.txt
+# ./expensive.txt
+# pytest contracts/deploy_call_smart_contract.py
