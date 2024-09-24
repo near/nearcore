@@ -1,3 +1,4 @@
+use near_chain_configs::GenesisValidationMode;
 use near_store::metadata::DbKind;
 use near_store::NodeStorage;
 use std::path::Path;
@@ -24,11 +25,12 @@ pub(crate) struct ChangeDbKindCommand {
 }
 
 impl ChangeDbKindCommand {
-    pub(crate) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
-        let near_config = nearcore::config::load_config(
-            &home_dir,
-            near_chain_configs::GenesisValidationMode::UnsafeFast,
-        )?;
+    pub(crate) fn run(
+        &self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let near_config = nearcore::config::load_config(&home_dir, genesis_validation)?;
         let opener = NodeStorage::opener(
             home_dir,
             near_config.config.archive,

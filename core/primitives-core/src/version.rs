@@ -170,6 +170,8 @@ pub enum ProtocolFeature {
     // in order to calculate the rewards and kickouts for the chunk validators.
     // This feature introduces BlockHeaderV5.
     ChunkEndorsementsInBlockHeader,
+    /// Store receipts in State in the StateStoredReceipt format.
+    StateStoredReceipt,
 }
 
 impl ProtocolFeature {
@@ -225,7 +227,9 @@ impl ProtocolFeature {
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
             ProtocolFeature::IncreaseStorageProofSizeSoftLimit
-            | ProtocolFeature::ChunkEndorsementV2 => 72,
+            | ProtocolFeature::ChunkEndorsementV2
+            | ProtocolFeature::ChunkEndorsementsInBlockHeader
+            | ProtocolFeature::StateStoredReceipt => 72,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -244,7 +248,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
         }
     }
 
@@ -257,7 +260,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 72;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 144;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

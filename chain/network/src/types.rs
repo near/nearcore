@@ -16,7 +16,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
@@ -245,7 +245,12 @@ pub enum NetworkRequests {
     /// Request state header for given shard at given state root.
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        sync_prev_prev_hash: CryptoHash,
+        part_id: u64,
+    },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
@@ -285,7 +290,7 @@ pub enum NetworkRequests {
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
-    EpochSyncResponse { route_back: CryptoHash, proof: EpochSyncProof },
+    EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
 }
 
 /// Combines peer address info, chain.
@@ -497,4 +502,25 @@ pub struct AccountIdOrPeerTrackingShard {
     pub only_archival: bool,
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// An inbound request to which a response should be sent over Tier3
+pub struct Tier3Request {
+    /// Target peer to send the response to
+    pub peer_info: PeerInfo,
+    /// Contents of the request
+    pub body: Tier3RequestBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Tier3RequestBody {
+    StatePart(StatePartRequestBody),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StatePartRequestBody {
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+    pub part_id: u64,
 }

@@ -400,7 +400,7 @@ impl Wasmer2VM {
         mut import: Wasmer2Imports<'_, '_, '_>,
         entrypoint: FunctionIndex,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
-        let _span = tracing::debug_span!(target: "vm", "run_method").entered();
+        let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::run_method").entered();
 
         // FastGasCounter in Nearcore and Wasmer must match in layout.
         assert_eq!(size_of::<FastGasCounter>(), size_of::<wasmer_types::FastGasCounter>());
@@ -419,7 +419,8 @@ impl Wasmer2VM {
         let gas = import.vmlogic.gas_counter().fast_counter_raw_ptr();
         unsafe {
             let instance = {
-                let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
+                let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::run_method/instantiate")
+                    .entered();
                 // An important caveat is that the `'static` lifetime here refers to the lifetime
                 // of `VMLogic` reference to which is retained by the `InstanceHandle` we create.
                 // However this `InstanceHandle` only lives during the execution of this body, so
@@ -467,7 +468,8 @@ impl Wasmer2VM {
                 handle
             };
             if let Some(function) = instance.function_by_index(entrypoint) {
-                let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
+                let _span =
+                    tracing::debug_span!(target: "vm", "Wasmer2VM::run_method/call").entered();
                 // Signature for the entry point should be `() -> ()`. This is only a sanity check
                 // – this should've been already checked by `get_entrypoint_index`.
                 let signature = artifact
@@ -502,7 +504,8 @@ impl Wasmer2VM {
 
             {
                 let _span =
-                    tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
+                    tracing::debug_span!(target: "vm", "Wasmer2VM::run_method/drop_instance")
+                        .entered();
                 drop(instance)
             }
         }
@@ -659,7 +662,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { vm, memory, entrypoint, artifact } = match result {
+        let ReadyContract { vm, mut memory, entrypoint, artifact } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -671,7 +674,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let import = build_imports(vmmemory, &mut logic, Arc::clone(&vm.config), artifact.engine());
         match vm.run_method(&artifact, import, entrypoint)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),

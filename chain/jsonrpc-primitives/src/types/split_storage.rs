@@ -13,7 +13,7 @@ pub struct RpcSplitStorageInfoResponse {
     pub result: SplitStorageInfoView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSplitStorageInfoError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

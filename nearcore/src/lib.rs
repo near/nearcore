@@ -36,7 +36,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::types::EpochId;
-use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
@@ -221,9 +220,6 @@ pub struct NearNode {
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dumper: StateSyncDumper,
-    /// A handle to control background flat state values inlining migration.
-    /// Needed temporarily, will be removed after the migration is completed.
-    pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
@@ -413,6 +409,7 @@ pub fn start_with_config_and_synchronization(
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
+        view_epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
@@ -421,13 +418,6 @@ pub fn start_with_config_and_synchronization(
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
-
-    let flat_state_migration_handle =
-        FlatStateValuesInliningMigrationHandle::start_background_migration(
-            storage.get_hot_store(),
-            runtime.get_flat_storage_manager(),
-            config.client_config.client_background_migration_threads,
-        );
 
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
@@ -443,6 +433,7 @@ pub fn start_with_config_and_synchronization(
     state_sync_dumper.start()?;
 
     let hot_store = storage.get_hot_store();
+    let cold_store = storage.get_cold_store();
 
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
@@ -464,7 +455,8 @@ pub fn start_with_config_and_synchronization(
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
             runtime: view_runtime,
-            store: hot_store,
+            hot_store,
+            cold_store,
         };
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
@@ -515,7 +507,6 @@ pub fn start_with_config_and_synchronization(
         arbiters,
         cold_store_loop_handle,
         state_sync_dumper,
-        flat_state_migration_handle,
         resharding_handle,
     })
 }

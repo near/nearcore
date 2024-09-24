@@ -1,6 +1,6 @@
 use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
+use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Flexibly-sized data header for a trie extension path (which is simply
@@ -25,7 +25,7 @@ impl FlexibleDataHeader for EncodedExtensionHeader {
         self.length as usize
     }
 
-    fn encode_flexible_data<M: ArenaMemory>(
+    fn encode_flexible_data<M: ArenaMemoryMut>(
         &self,
         extension: &[u8],
         target: &mut ArenaSliceMut<M>,

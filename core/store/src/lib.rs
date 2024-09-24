@@ -46,6 +46,7 @@ use strum;
 pub mod cold_storage;
 mod columns;
 pub mod config;
+pub mod contract;
 pub mod db;
 pub mod flat;
 pub mod genesis;
@@ -753,6 +754,22 @@ pub fn get<T: BorshDeserialize>(
     match trie.get(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
+            Err(err) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to deserialize. err={err:?}"
+            ))),
+            Ok(value) => Ok(Some(value)),
+        },
+    }
+}
+
+/// [`get`] without incurring side effects.
+pub fn get_pure<T: BorshDeserialize>(
+    trie: &dyn TrieAccess,
+    key: &TrieKey,
+) -> Result<Option<T>, StorageError> {
+    match trie.get_no_side_effects(key)? {
+        None => Ok(None),
+        Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
                 Err(StorageError::StorageInconsistentState("Failed to deserialize".to_string()))
             }
@@ -970,15 +987,6 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
 }
 
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-}
-
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
@@ -1132,6 +1140,18 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
+}
+
+/// Get the contract WASM code from The State.
+///
+/// Executing all the usual storage access side-effects.
+pub fn get_code(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
+) -> Result<Option<ContractCode>, StorageError> {
+    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 #[cfg(test)]

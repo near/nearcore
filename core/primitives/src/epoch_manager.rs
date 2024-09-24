@@ -182,6 +182,8 @@ impl AllEpochConfig {
 
         Self::config_fix_min_stake_ratio(&mut config, protocol_version);
 
+        Self::config_chunk_endorsement_thresholds(&mut config, protocol_version);
+
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
@@ -305,6 +307,12 @@ impl AllEpochConfig {
         }
     }
 
+    fn config_chunk_endorsement_thresholds(config: &mut EpochConfig, protocol_version: u32) {
+        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+            config.chunk_validator_only_kickout_threshold = 70;
+        }
+    }
+
     fn config_test_overrides(
         config: &mut EpochConfig,
         test_overrides: &AllEpochConfigTestOverrides,
@@ -389,6 +397,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 69, "69.json"),
     include_config!("mainnet", 70, "70.json"),
     include_config!("mainnet", 71, "71.json"),
+    include_config!("mainnet", 72, "72.json"),
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
@@ -401,6 +410,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 69, "69.json"),
     include_config!("testnet", 70, "70.json"),
     include_config!("testnet", 71, "71.json"),
+    include_config!("testnet", 72, "72.json"),
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
@@ -413,6 +423,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     // include_config!("mocknet", 69, "69.json"),
     // include_config!("mocknet", 70, "70.json"),
     // include_config!("mocknet", 71, "71.json"),
+    // include_config!("mocknet", 72, "72.json"),
     // include_config!("mocknet", 100, "100.json"),
     // include_config!("mocknet", 101, "101.json"),
 ];
@@ -431,7 +442,10 @@ impl EpochConfigStore {
         for (chain, version, content) in CONFIGS.iter() {
             if *chain == chain_id {
                 let config: EpochConfig = serde_json::from_str(*content).unwrap_or_else(|e| {
-                    panic!("Failed to load epoch config files for chain {}: {:#}", chain_id, e)
+                    panic!(
+                        "Failed to load epoch config files for chain {} and version {}: {:#}",
+                        chain_id, version, e
+                    )
                 });
                 store.insert(*version, Arc::new(config));
             }
@@ -496,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn test_epoch_config_store_ainnet() {
+    fn test_epoch_config_store_mainnet() {
         test_epoch_config_store("mainnet", 29);
     }
 

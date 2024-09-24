@@ -10,7 +10,6 @@ use crate::network_protocol::SnapshotHostInfoVerificationError;
 use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_part::PartId;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
@@ -42,92 +41,76 @@ pub struct Config {
     pub part_selection_cache_batch_size: u32,
 }
 
-pub(crate) fn priority_score(peer_id: &PeerId, part_id: &PartId) -> [u8; 32] {
+/// When multiple hosts offer the same part, this hash is compared
+/// to determine the order in which to query them. All nodes
+/// use the same hashing scheme, resulting in a rough consensus on
+/// which hosts serve requests for which parts.
+pub(crate) fn priority_score(peer_id: &PeerId, shard_id: ShardId, part_id: u64) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(peer_id.public_key().key_data());
-    h.update(part_id.idx.to_le_bytes());
+    h.update(shard_id.to_le_bytes());
+    h.update(part_id.to_le_bytes());
     h.finalize().into()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct PartPriority {
+struct StatePartHost {
+    /// A peer host for some desired state part
     peer_id: PeerId,
+    /// Priority score computed over the peer_id, shard_id, and part_id
     score: [u8; 32],
-    // TODO: consider storing this on disk, so we can remember who hasn't
-    // been able to provide us with the parts across restarts
-    times_returned: usize,
+    /// The number of times we have already queried this host for this part
+    /// TODO: consider storing this on disk, so we can remember who hasn't
+    /// been able to provide us with the parts across restarts
+    num_requests: usize,
 }
 
-impl PartPriority {
-    fn inc(&mut self) {
-        self.times_returned += 1;
-    }
-}
-
-impl PartialOrd for PartPriority {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PartPriority {
+impl Ord for StatePartHost {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.times_returned
-            .cmp(&other.times_returned)
+        // std::collections:BinaryHeap used in PeerPartSelector is a max-heap.
+        // We prefer hosts with the least num_requests, after which we break
+        // ties according to the priority score and the peer_id.
+        self.num_requests
+            .cmp(&other.num_requests)
             .reverse()
-            .then_with(|| self.score.cmp(&other.score).reverse())
+            .then_with(|| self.score.cmp(&other.score))
             .then_with(|| self.peer_id.cmp(&other.peer_id))
     }
 }
 
-impl From<ReversePartPriority> for PartPriority {
-    fn from(ReversePartPriority { peer_id, score }: ReversePartPriority) -> Self {
-        Self { peer_id, score, times_returned: 0 }
-    }
-}
-
-// used in insert_part_hosts() to iterate through the list of unseen hosts
-// and keep the top N hosts as we go through. We use this struct there instead
-// of PartPriority because we need the comparator to be the opposite of what
-// it is for that struct
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ReversePartPriority {
-    peer_id: PeerId,
-    score: [u8; 32],
-}
-
-impl PartialOrd for ReversePartPriority {
+impl PartialOrd for StatePartHost {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ReversePartPriority {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.score.cmp(&other.score).then_with(|| self.peer_id.cmp(&other.peer_id))
+impl StatePartHost {
+    fn increment_num_requests(&mut self) {
+        self.num_requests += 1;
     }
 }
 
 #[derive(Default)]
 struct PartPeerSelector {
-    peers: BinaryHeap<PartPriority>,
+    /// Ordered collection of available hosts for some desired state part
+    peers: BinaryHeap<StatePartHost>,
 }
 
 impl PartPeerSelector {
     fn next(&mut self) -> Option<PeerId> {
         match self.peers.pop() {
-            Some(mut priority) => {
-                priority.inc();
-                let peer_id = priority.peer_id.clone();
-                self.peers.push(priority);
+            Some(mut p) => {
+                p.increment_num_requests();
+                let peer_id = p.peer_id.clone();
+                self.peers.push(p);
                 Some(peer_id)
             }
             None => None,
         }
     }
 
-    fn insert_peers<T: IntoIterator<Item = PartPriority>>(&mut self, peers: T) {
-        self.peers.extend(peers)
+    fn insert_peers<T: IntoIterator<Item = StatePartHost>>(&mut self, peers: T) {
+        self.peers.extend(peers);
     }
 
     fn len(&self) -> usize {
@@ -135,61 +118,24 @@ impl PartPeerSelector {
     }
 
     fn tried_everybody(&self) -> bool {
-        self.peers.iter().all(|priority| priority.times_returned > 0)
-    }
-}
-
-#[derive(Default)]
-struct PeerSelector {
-    selectors: HashMap<u64, PartPeerSelector>,
-}
-
-impl PeerSelector {
-    fn next(&mut self, part_id: &PartId) -> Option<PeerId> {
-        self.selectors.entry(part_id.idx).or_default().next()
+        self.peers.iter().all(|priority| priority.num_requests > 0)
     }
 
-    fn len(&self, part_id: &PartId) -> usize {
-        match self.selectors.get(&part_id.idx) {
-            Some(s) => s.len(),
-            None => 0,
-        }
-    }
-
-    fn insert_peers<T: IntoIterator<Item = PartPriority>>(&mut self, part_id: &PartId, peers: T) {
-        self.selectors.entry(part_id.idx).or_default().insert_peers(peers);
-    }
-
-    fn seen_peers(&self, part_id: &PartId) -> HashSet<PeerId> {
-        match self.selectors.get(&part_id.idx) {
-            Some(s) => {
-                let mut ret = HashSet::new();
-                for p in s.peers.iter() {
-                    ret.insert(p.peer_id.clone());
-                }
-                ret
-            }
-            None => HashSet::new(),
-        }
-    }
-
-    // have we already returned every peer we know about?
-    fn tried_everybody(&self, part_id: &PartId) -> bool {
-        match self.selectors.get(&part_id.idx) {
-            Some(s) => s.tried_everybody(),
-            None => true,
-        }
-    }
-
-    fn clear(&mut self, part_id: &PartId) {
-        self.selectors.remove(&part_id.idx);
+    fn peer_set(&self) -> HashSet<PeerId> {
+        self.peers.iter().map(|p| p.peer_id.clone()).collect()
     }
 }
 
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
-    state_part_selectors: HashMap<ShardId, PeerSelector>,
+    /// The hash for the most recent active state sync, inferred from part requests
+    sync_hash: Option<CryptoHash>,
+    /// Available hosts for the active state sync, by shard
+    hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
+    /// Local data structures used to distribute state part requests among known hosts
+    peer_selector: HashMap<(ShardId, u64), PartPeerSelector>,
+    /// Batch size for populating the peer_selector from the hosts
     part_selection_cache_batch_size: usize,
 }
 
@@ -208,44 +154,79 @@ impl Inner {
         if !self.is_new(&d) {
             return None;
         }
+
+        if self.sync_hash == Some(d.sync_hash) {
+            for shard_id in &d.shards {
+                self.hosts_for_shard
+                    .entry(*shard_id)
+                    .or_insert(HashSet::default())
+                    .insert(d.peer_id.clone());
+            }
+        }
         self.hosts.push(d.peer_id.clone(), d.clone());
+
         Some(d)
     }
 
-    // Try to insert up to max_entries_added more peers into the state part selector for this part ID
-    // this will look for the best priority `max_entries_added` peers that we haven't yet added to the set
-    // of peers to ask for this part, and will add them to the heap so that we can return one of those next
-    // time select_host() is called
-    fn insert_part_hosts(
+    /// Given a state part request produced by the local node,
+    /// selects a host to which the request should be routed.
+    pub fn select_host_for_part(
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        part_id: &PartId,
-        max_entries_added: usize,
-    ) {
-        let selector = self.state_part_selectors.get(&shard_id).unwrap();
-        let seen_peers = selector.seen_peers(part_id);
+        part_id: u64,
+    ) -> Option<PeerId> {
+        // Reset internal state if the sync_hash has changed
+        if self.sync_hash != Some(*sync_hash) {
+            self.sync_hash = Some(*sync_hash);
+            self.hosts_for_shard.clear();
+            self.peer_selector.clear();
 
-        let mut new_peers = BinaryHeap::new();
-        for (peer_id, info) in self.hosts.iter() {
-            if seen_peers.contains(peer_id)
-                || info.sync_hash != *sync_hash
-                || !info.shards.contains(&shard_id)
-            {
-                continue;
-            }
-            let score = priority_score(peer_id, part_id);
-            if new_peers.len() < max_entries_added {
-                new_peers.push(ReversePartPriority { peer_id: peer_id.clone(), score });
-            } else {
-                if score < new_peers.peek().unwrap().score {
-                    new_peers.pop();
-                    new_peers.push(ReversePartPriority { peer_id: peer_id.clone(), score });
+            for (peer_id, info) in self.hosts.iter() {
+                if info.sync_hash == *sync_hash {
+                    for shard_id in &info.shards {
+                        self.hosts_for_shard
+                            .entry(*shard_id)
+                            .or_insert(HashSet::default())
+                            .insert(peer_id.clone());
+                    }
                 }
             }
         }
-        let selector = self.state_part_selectors.get_mut(&shard_id).unwrap();
-        selector.insert_peers(part_id, new_peers.into_iter().map(Into::into));
+
+        let selector =
+            self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
+
+        // Insert more hosts into the selector if needed
+        let available_hosts = self.hosts_for_shard.get(&shard_id)?;
+        if selector.tried_everybody() && selector.len() < available_hosts.len() {
+            let mut new_peers = BinaryHeap::new();
+            let already_included = selector.peer_set();
+
+            for peer_id in available_hosts {
+                if already_included.contains(peer_id) {
+                    continue;
+                }
+
+                let score = priority_score(peer_id, shard_id, part_id);
+
+                // Wrap entries with `Reverse` so that we pop the *least* desirable options
+                new_peers.push(std::cmp::Reverse(StatePartHost {
+                    peer_id: peer_id.clone(),
+                    score,
+                    num_requests: 0,
+                }));
+
+                if new_peers.len() > self.part_selection_cache_batch_size {
+                    new_peers.pop();
+                }
+            }
+
+            selector.insert_peers(new_peers.drain().map(|e| e.0));
+        }
+
+        let res = selector.next();
+        res
     }
 }
 
@@ -253,13 +234,13 @@ pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 
 impl SnapshotHostsCache {
     pub fn new(config: Config) -> Self {
-        debug_assert!(config.part_selection_cache_batch_size > 0);
-        let hosts =
-            LruCache::new(NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap());
-        let state_part_selectors = HashMap::new();
         Self(Mutex::new(Inner {
-            hosts,
-            state_part_selectors,
+            hosts: LruCache::new(
+                NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
+            ),
+            sync_hash: None,
+            hosts_for_shard: HashMap::new(),
+            peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
         }))
     }
@@ -331,46 +312,26 @@ impl SnapshotHostsCache {
         self.0.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
     }
 
-    // Selecs a peer to send the request for this part ID to. Chooses based on a priority score
-    // calculated as a hash of the Peer ID plus the part ID, and will return different hosts
-    // on subsequent calls, eventually iterating over all valid SnapshotHostInfos we know about
-    // TODO: get rid of the dead_code and hook this up to the decentralized state sync
-    #[allow(dead_code)]
-    pub fn select_host(
+    /// Given a state part request, selects a peer host to which the request should be sent.
+    pub fn select_host_for_part(
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        part_id: &PartId,
+        part_id: u64,
     ) -> Option<PeerId> {
-        let mut inner = self.0.lock();
-        let num_hosts = inner.hosts.len();
-        let selector = inner.state_part_selectors.entry(shard_id).or_default();
-
-        if selector.tried_everybody(part_id) && selector.len(part_id) < num_hosts {
-            let max_entries_added = inner.part_selection_cache_batch_size;
-            inner.insert_part_hosts(sync_hash, shard_id, part_id, max_entries_added);
-        }
-        let selector = inner.state_part_selectors.get_mut(&shard_id).unwrap();
-        selector.next(part_id)
+        self.0.lock().select_host_for_part(sync_hash, shard_id, part_id)
     }
 
-    // Lets us know that we have already successfully retrieved this part, and we can free any data
-    // associated with it that we were going to use to respond to future calls to select_host()
-    // TODO: get rid of the dead_code and hook this up to the decentralized state sync
+    /// Triggered by state sync actor after processing a state part.
     #[allow(dead_code)]
-    pub fn part_received(&self, _sync_hash: &CryptoHash, shard_id: ShardId, part_id: &PartId) {
+    pub fn part_received(&self, shard_id: ShardId, part_id: u64) {
         let mut inner = self.0.lock();
-        let selector = inner.state_part_selectors.entry(shard_id).or_default();
-        selector.clear(part_id);
+        inner.peer_selector.remove(&(shard_id, part_id));
     }
 
-    // used for testing purposes only to check that we clear state after part_received() is called
-    #[allow(dead_code)]
-    pub(crate) fn part_peer_state_len(&self, shard_id: ShardId, part_id: &PartId) -> usize {
+    #[cfg(test)]
+    pub(crate) fn has_selector(&self, shard_id: ShardId, part_id: u64) -> bool {
         let inner = self.0.lock();
-        match inner.state_part_selectors.get(&shard_id) {
-            Some(s) => s.len(part_id),
-            None => 0,
-        }
+        inner.peer_selector.contains_key(&(shard_id, part_id))
     }
 }

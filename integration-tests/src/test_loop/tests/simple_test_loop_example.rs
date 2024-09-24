@@ -111,6 +111,7 @@ fn test_client_with_simple_test_loop() {
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
         validator_signer,
+        epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
         noop().into_sender(),

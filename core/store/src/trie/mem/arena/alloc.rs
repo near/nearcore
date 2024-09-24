@@ -1,8 +1,10 @@
 use super::metrics::MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT;
-use super::{ArenaMemory, ArenaPos, ArenaSliceMut, STArenaMemory};
+use super::single_thread::STArenaMemory;
+use super::{ArenaMemory, ArenaPos, ArenaSliceMut};
 use crate::trie::mem::arena::metrics::{
     MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES, MEM_TRIE_ARENA_MEMORY_USAGE_BYTES,
 };
+use crate::trie::mem::arena::ArenaMemoryMut;
 use crate::trie::mem::flexible_data::encoding::BorshFixedSize;
 use near_o11y::metrics::IntGauge;
 
@@ -158,13 +160,11 @@ impl Allocator {
         self.freelists[size_class] = pos;
     }
 
-    #[cfg(test)]
-    pub fn num_active_allocs(&self) -> usize {
+    pub(super) fn num_active_allocs(&self) -> usize {
         self.active_allocs_count
     }
 
-    #[cfg(test)]
-    pub fn active_allocs_bytes(&self) -> usize {
+    pub(super) fn active_allocs_bytes(&self) -> usize {
         self.active_allocs_bytes
     }
 }
@@ -173,7 +173,9 @@ impl Allocator {
 mod test {
     use super::MAX_ALLOC_SIZE;
     use crate::trie::mem::arena::alloc::CHUNK_SIZE;
-    use crate::trie::mem::arena::{Arena, ArenaWithDealloc, STArena};
+    use crate::trie::mem::arena::hybrid::HybridArena;
+    use crate::trie::mem::arena::single_thread::STArena;
+    use crate::trie::mem::arena::{Arena, ArenaMut, ArenaSliceMut, ArenaWithDealloc};
     use std::mem::size_of;
 
     #[test]
@@ -200,7 +202,7 @@ mod test {
             }
             // Check that each allocated interval is valid.
             for (pos, len) in &slices {
-                assert!((pos.chunk()) < arena.memory.chunks.len());
+                assert!((pos.chunk()) < arena.memory().chunks.len());
                 assert!(pos.offset_by(*len).pos() <= CHUNK_SIZE);
             }
             for (pos, len) in slices {
@@ -226,7 +228,7 @@ mod test {
         }
         assert_eq!(arena.num_active_allocs(), 0);
         // 8192 * 2000 <= 16MB, so we should have allocated only 4 chunks.
-        assert_eq!(arena.memory.chunks.len(), 4);
+        assert_eq!(arena.memory().chunks.len(), 4);
     }
 
     #[test]
@@ -242,5 +244,17 @@ mod test {
                 assert!(super::allocation_size(size_class - 1) < i);
             }
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot deallocate shared memory")]
+    fn test_hybrid_arena_panic_on_dealloc_shared_memory() {
+        let mut arena = STArena::new("test_arena".to_owned());
+        let ArenaSliceMut { pos, len, .. } = arena.alloc(50);
+        let frozen_arena = HybridArena::from(arena).freeze();
+        let mut hybrid_arena = HybridArena::from_frozen("hybrid_arena".to_string(), frozen_arena);
+
+        // Call to deallocate should panic because the pos is from shared memory.
+        hybrid_arena.dealloc(pos, len)
     }
 }

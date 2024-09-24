@@ -28,7 +28,9 @@ use crate::state_witness::{
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::types::{ChainInfo, PeerType, ReasonForBan};
+use crate::types::{
+    ChainInfo, PeerType, ReasonForBan, StatePartRequestBody, Tier3Request, Tier3RequestBody,
+};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
@@ -38,7 +40,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::AccountId;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
@@ -64,6 +67,9 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
+
+/// Limit number of pending tier3 requests to avoid OOM.
+pub(crate) const LIMIT_TIER3_REQUESTS: usize = 60;
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -115,8 +121,11 @@ pub(crate) struct NetworkState {
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
+    pub tier3: connection::Pool,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
+    /// The public IP of this node; available after connecting to any one peer.
+    pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// Information about state snapshots hosted by network peers.
@@ -142,6 +151,9 @@ pub(crate) struct NetworkState {
     /// so routing shouldn't really be needed.
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
+
+    /// Queue of received requests to which a response should be made over TIER3.
+    pub tier3_requests: Mutex<VecDeque<Tier3Request>>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
@@ -194,7 +206,9 @@ impl NetworkState {
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
+            tier3: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            my_public_addr: Arc::new(RwLock::new(None)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
@@ -203,6 +217,7 @@ impl NetworkState {
             account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
+            tier3_requests: Mutex::new(VecDeque::<Tier3Request>::new()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
@@ -245,7 +260,7 @@ impl NetworkState {
             peer.stop(Some(ban_reason));
         } else {
             if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::error!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "Failed to save peer data");
             }
         }
     }
@@ -349,6 +364,18 @@ impl NetworkState {
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
                 }
+                tcp::Tier::T3 => {
+                    if conn.peer_type == PeerType::Inbound {
+                        // TODO(saketh): When a peer initiates a TIER3 connection it should be
+                        // responding to a request sent previously by the local node. If we
+                        // maintain some state about pending requests it would be possible to add
+                        // an additional layer of security here and reject unexpected connections.
+                    }
+                    if !edge.verify() {
+                        return Err(RegisterPeerError::InvalidEdge);
+                    }
+                    this.tier3.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
+                }
             }
             Ok(())
         }).await.unwrap()
@@ -369,14 +396,19 @@ impl NetworkState {
         let clock = clock.clone();
         let conn = conn.clone();
         self.spawn(async move {
-            let peer_id = conn.peer_info.id.clone();
-            if conn.tier == tcp::Tier::T1 {
-                // There is no banning or routing table for TIER1.
-                // Just remove the connection from the network_state.
-                this.tier1.remove(&conn);
+            match conn.tier {
+                tcp::Tier::T1 => this.tier1.remove(&conn),
+                tcp::Tier::T2 => this.tier2.remove(&conn),
+                tcp::Tier::T3 => this.tier3.remove(&conn),
+            }
+
+            // The rest of this function has to do with banning or routing,
+            // which are applicable only for TIER2.
+            if conn.tier != tcp::Tier::T2 {
                 return;
             }
-            this.tier2.remove(&conn);
+
+            let peer_id = conn.peer_info.id.clone();
 
             // If the last edge we have with this peer represent a connection addition, create the edge
             // update that represents the connection removal.
@@ -401,7 +433,7 @@ impl NetworkState {
                 _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
             };
             if let Err(err) = res {
-                tracing::error!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "Failed to save peer data");
             }
 
             // Save the fact that we are disconnecting to the ConnectionStore,
@@ -557,6 +589,17 @@ impl NetworkState {
                         return false;
                     }
                 }
+            }
+            tcp::Tier::T3 => {
+                let peer_id = match &msg.target {
+                    PeerIdOrHash::Hash(_) => {
+                        // There is no route back cache for TIER3 as all connections are direct
+                        debug_assert!(false);
+                        return false;
+                    }
+                    PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
+                };
+                return self.tier3.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
         }
     }
@@ -741,6 +784,24 @@ impl NetworkState {
             }
             RoutedMessageBody::EpochSyncResponse(proof) => {
                 self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                None
+            }
+            RoutedMessageBody::StatePartRequest(request) => {
+                let mut queue = self.tier3_requests.lock();
+                if queue.len() < LIMIT_TIER3_REQUESTS {
+                    queue.push_back(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: peer_id,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                            part_id: request.part_id,
+                        }),
+                    });
+                }
                 None
             }
             body => {

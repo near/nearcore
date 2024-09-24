@@ -47,7 +47,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (69, include_config!("69.yaml")),
     // Introduce ETH-implicit accounts.
     (70, include_config!("70.yaml")),
-    // Increase main_storage_proof_size_soft_limit
+    // Increase main_storage_proof_size_soft_limit and introduces StateStoredReceipt
     (72, include_config!("72.yaml")),
     (129, include_config!("129.yaml")),
 ];
@@ -119,6 +119,7 @@ impl RuntimeConfigStore {
                     account_creation_config: runtime_config.account_creation_config.clone(),
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
+                    use_state_stored_receipt: runtime_config.use_state_stored_receipt,
                 }),
             );
             store.insert(0, Arc::new(runtime_config.clone()));
@@ -162,6 +163,11 @@ impl RuntimeConfigStore {
     /// Constructs test store.
     pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
         Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
+    }
+
+    /// Constructs store with custom configs. This should only be used for testing.
+    pub fn new_custom(store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>) -> Self {
+        Self { store }
     }
 
     /// Constructs test store.

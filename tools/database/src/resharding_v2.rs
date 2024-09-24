@@ -51,8 +51,6 @@ impl ReshardingV2Command {
         let resharding_request =
             chain.custom_build_state_for_resharding_v2_preprocessing(&block_hash, self.shard_id)?;
 
-        let shard_uid = resharding_request.shard_uid;
-
         let response = Chain::build_state_for_split_shards_v2(resharding_request);
         let ReshardingResponse { sync_hash, new_state_roots: state_roots, .. } = response;
 
@@ -60,19 +58,15 @@ impl ReshardingV2Command {
             // In restore mode print database write statistics.
             chain.runtime_adapter.store().get_store_statistics().map(|stats| {
                 stats.data.iter().for_each(|(metric, values)| {
-                    tracing::info!(target: "resharding", %metric, ?values);
+                    tracing::info!(target: "resharding-v2", %metric, ?values);
                 })
             });
         }
 
         let state_roots = state_roots?;
-        tracing::info!(target: "resharding", ?state_roots, "state roots");
+        tracing::info!(target: "resharding-v2", ?state_roots, "state roots");
 
-        chain.custom_build_state_for_split_shards_v2_postprocessing(
-            shard_uid,
-            &sync_hash,
-            state_roots,
-        )?;
+        chain.custom_build_state_for_split_shards_v2_postprocessing(&sync_hash, state_roots)?;
 
         Ok(())
     }

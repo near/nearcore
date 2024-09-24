@@ -10,13 +10,11 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::flat::{
-    inline_flat_state_values, store_helper, FlatStateChanges, FlatStateDelta,
-    FlatStateDeltaMetadata, FlatStorageManager, FlatStorageStatus,
+    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
 
@@ -44,9 +42,6 @@ enum SubCommand {
     /// Temporary command to set the store version (useful as long flat
     /// storage is enabled only during nightly with separate DB version).
     SetStoreVersion(SetStoreVersionCmd),
-
-    /// Run FlatState value inininig migration
-    MigrateValueInlining(MigrateValueInliningCmd),
 
     /// Construct and store trie in a separate directory from flat storage state for a given shard.
     /// The trie is constructed for the block height equal to flat_head
@@ -376,26 +371,6 @@ impl FlatStorageCommand {
         Ok(())
     }
 
-    fn migrate_value_inlining(
-        &self,
-        cmd: &MigrateValueInliningCmd,
-        home_dir: &PathBuf,
-        near_config: &NearConfig,
-        opener: StoreOpener,
-    ) -> anyhow::Result<()> {
-        let store =
-            Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting).4;
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        inline_flat_state_values(
-            store,
-            &flat_storage_manager,
-            &AtomicBool::new(true),
-            cmd.num_threads,
-            cmd.batch_size,
-        );
-        Ok(())
-    }
-
     fn construct_trie_from_flat(
         &self,
         cmd: &ConstructTriedFromFlatCmd,
@@ -648,9 +623,6 @@ impl FlatStorageCommand {
             SubCommand::Reset(cmd) => self.reset(cmd, home_dir, &near_config, opener),
             SubCommand::Init(cmd) => self.init(cmd, home_dir, &near_config, opener),
             SubCommand::Verify(cmd) => self.verify(cmd, home_dir, &near_config, opener),
-            SubCommand::MigrateValueInlining(cmd) => {
-                self.migrate_value_inlining(cmd, home_dir, &near_config, opener)
-            }
             SubCommand::ConstructTrieFromFlat(cmd) => {
                 self.construct_trie_from_flat(cmd, home_dir, &near_config, opener)
             }

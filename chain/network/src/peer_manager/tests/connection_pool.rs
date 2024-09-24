@@ -273,7 +273,7 @@ async fn invalid_edge() {
     ];
 
     for (name, edge) in &testcases {
-        for tier in [tcp::Tier::T1, tcp::Tier::T2] {
+        for tier in [tcp::Tier::T1, tcp::Tier::T2, tcp::Tier::T3] {
             tracing::info!(target:"test","{name} {tier:?}");
             let stream = tcp::Stream::connect(&pm.peer_info(), tier, &SocketOptions::default())
                 .await
@@ -303,6 +303,7 @@ async fn invalid_edge() {
             let handshake = match tier {
                 tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
                 tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+                tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
             };
             stream.write(&handshake).await;
             let reason = events

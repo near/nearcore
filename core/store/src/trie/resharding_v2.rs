@@ -1,7 +1,7 @@
 use crate::flat::FlatStateChanges;
 use crate::{
     get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
-    Trie, TrieUpdate,
+    Trie, TrieAccess as _, TrieUpdate,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
@@ -12,9 +12,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{
-    ConsolidatedStateChange, StateChangeCause, StateChangesForResharding, StateRoot,
-};
+use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
 
 use super::iterator::TrieItem;
@@ -29,115 +27,6 @@ impl Trie {
 }
 
 impl ShardTries {
-    /// applies `changes` to children states during resharding
-    /// and returns the generated TrieUpdate for all children states
-    /// Note that this function is different from the function `add_values_to_children_states`
-    /// This function is used for applying updates to children states when processing blocks
-    /// `add_values_to_children_states` are used to generate the initial states for states split
-    /// from the original parent shard.
-    pub fn apply_state_changes_to_children_states(
-        &self,
-        state_roots: &HashMap<ShardUId, StateRoot>,
-        changes: StateChangesForResharding,
-        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
-    ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
-        let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
-        let mut inserted_receipts = Vec::new();
-        let mut inserted_timeouts = Vec::new();
-        for ConsolidatedStateChange { trie_key, value } in changes.changes {
-            match &trie_key {
-                TrieKey::DelayedReceiptIndices => {}
-                TrieKey::DelayedReceipt { index } => match value {
-                    Some(value) => {
-                        let receipt = Receipt::try_from_slice(&value).map_err(|err| {
-                            StorageError::StorageInconsistentState(format!(
-                                "invalid delayed receipt {:?}, err: {}",
-                                value, err,
-                            ))
-                        })?;
-                        // Accumulate insertions so that they can be sorted by index and applied to
-                        // the child tries in the correct order.
-                        inserted_receipts.push((*index, receipt));
-                    }
-                    None => {
-                        // For DelayedReceipt deletions we cannot infer the account information
-                        // from the state change. Instead, the erased receipts are passed directly
-                        // in `changes.processed_delayed_receipts`.
-                    }
-                },
-                TrieKey::PromiseYieldIndices => {}
-                TrieKey::PromiseYieldTimeout { index } => match value {
-                    Some(value) => {
-                        let timeout =
-                            PromiseYieldTimeout::try_from_slice(&value).map_err(|err| {
-                                StorageError::StorageInconsistentState(format!(
-                                    "invalid PromiseYield queue entry {:?}, err: {}",
-                                    value, err,
-                                ))
-                            })?;
-                        // Accumulate insertions so that they can be sorted by index and applied to
-                        // the child tries in the correct order.
-                        inserted_timeouts.push((*index, timeout));
-                    }
-                    None => {
-                        // For PromiseYieldTimeout deletions we cannot infer the account information
-                        // from the state change. Instead, the erased timeouts are passed directly
-                        // in `changes.processed_yield_timeouts`.
-                    }
-                },
-                TrieKey::Account { account_id }
-                | TrieKey::ContractCode { account_id }
-                | TrieKey::AccessKey { account_id, .. }
-                | TrieKey::ReceivedData { receiver_id: account_id, .. }
-                | TrieKey::PostponedReceiptId { receiver_id: account_id, .. }
-                | TrieKey::PendingDataCount { receiver_id: account_id, .. }
-                | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
-                | TrieKey::PromiseYieldReceipt { receiver_id: account_id, .. }
-                | TrieKey::ContractData { account_id, .. } => {
-                    let new_shard_uid = account_id_to_shard_uid(account_id);
-                    // we can safely unwrap here because the caller of this function guarantees trie_updates
-                    // contains all shard_uids for the new shards
-                    let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
-                    match value {
-                        Some(value) => trie_update.set(trie_key, value),
-                        None => trie_update.remove(trie_key),
-                    }
-                }
-                // TODO(congestion_control) - integration with resharding
-                TrieKey::BufferedReceiptIndices => todo!(),
-                TrieKey::BufferedReceipt { .. } => todo!(),
-            }
-        }
-        for (_, update) in trie_updates.iter_mut() {
-            // StateChangeCause should always be Resharding for processing resharding.
-            // We do not want to commit the state_changes from resharding as they are already handled while
-            // processing parent shard
-            update.commit(StateChangeCause::Resharding);
-        }
-
-        inserted_receipts.sort_by_key(|it| it.0);
-        let inserted_receipts: Vec<_> =
-            inserted_receipts.into_iter().map(|(_, receipt)| receipt).collect();
-        apply_delayed_receipts_to_children_states_impl(
-            &mut trie_updates,
-            &inserted_receipts,
-            &changes.processed_delayed_receipts,
-            account_id_to_shard_uid,
-        )?;
-
-        inserted_timeouts.sort_by_key(|it| it.0);
-        let inserted_timeouts: Vec<_> =
-            inserted_timeouts.into_iter().map(|(_, timeout)| timeout).collect();
-        apply_promise_yield_timeouts_to_children_states_impl(
-            &mut trie_updates,
-            &inserted_timeouts,
-            &changes.processed_yield_timeouts,
-            account_id_to_shard_uid,
-        )?;
-
-        Ok(trie_updates)
-    }
-
     /// add `values` (key-value pairs of items stored in states) to build states for new shards
     /// `state_roots` contains state roots for the new shards
     /// The caller must guarantee that `state_roots` contains all shard_ids
@@ -329,7 +218,7 @@ fn apply_delayed_receipts_to_children_states_impl(
         // StateChangeCause should always be Resharding for processing resharding.
         // We do not want to commit the state_changes from resharding as they are already handled while
         // processing parent shard
-        trie_update.commit(StateChangeCause::Resharding);
+        trie_update.commit(StateChangeCause::ReshardingV2);
     }
     Ok(())
 }
@@ -407,7 +296,7 @@ fn apply_promise_yield_timeouts_to_children_states_impl(
         // StateChangeCause should always be Resharding for processing resharding.
         // We do not want to commit the state_changes from resharding as they are already handled while
         // processing parent shard
-        trie_update.commit(StateChangeCause::Resharding);
+        trie_update.commit(StateChangeCause::ReshardingV2);
     }
     Ok(())
 }
@@ -583,7 +472,7 @@ mod tests {
             }
             delayed_receipt_indices.next_available_index = all_receipts.len() as u64;
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
-            trie_update.commit(StateChangeCause::Resharding);
+            trie_update.commit(StateChangeCause::ReshardingV2);
             let (_, trie_changes, _) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
             let state_root =
@@ -638,7 +527,7 @@ mod tests {
             }
             promise_yield_indices.next_available_index = all_timeouts.len() as u64;
             set(&mut trie_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
-            trie_update.commit(StateChangeCause::Resharding);
+            trie_update.commit(StateChangeCause::ReshardingV2);
             let (_, trie_changes, _) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
             let state_root =

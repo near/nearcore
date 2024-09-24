@@ -39,7 +39,7 @@ use near_crypto::Signature;
 use near_o11y::OpenTelemetrySpanExt;
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -411,6 +411,7 @@ pub struct Disconnect {
 pub enum PeerMessage {
     Tier1Handshake(Handshake),
     Tier2Handshake(Handshake),
+    Tier3Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
@@ -551,7 +552,8 @@ pub enum RoutedMessageBody {
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
     EpochSyncRequest,
-    EpochSyncResponse(EpochSyncProof),
+    EpochSyncResponse(CompressedEpochSyncProof),
+    StatePartRequest(StatePartRequest),
 }
 
 impl RoutedMessageBody {
@@ -642,13 +644,10 @@ impl fmt::Debug for RoutedMessageBody {
                 write!(f, "VersionedChunkEndorsement")
             }
             RoutedMessageBody::EpochSyncRequest => write!(f, "EpochSyncRequest"),
-            RoutedMessageBody::EpochSyncResponse(proof) => {
-                write!(
-                    f,
-                    "EpochSyncResponse(epoch: {:?})",
-                    proof.current_epoch.first_block_header_in_epoch.epoch_id(),
-                )
+            RoutedMessageBody::EpochSyncResponse(_) => {
+                write!(f, "EpochSyncResponse")
             }
+            RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
         }
     }
 }

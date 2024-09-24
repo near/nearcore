@@ -327,7 +327,7 @@ impl crate::runner::VM for WasmtimeVM {
                     }
                 }
 
-                let mut store = Store::new(&self.engine, ());
+                let mut store = Store::new(module.engine(), ());
                 let memory = WasmtimeMemory::new(
                     &mut store,
                     self.config.limit_config.initial_memory_pages,
@@ -376,7 +376,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { mut store, memory, module, method } = match result {
+        let ReadyContract { mut store, mut memory, module, method } = match result {
             PreparationResult::Ready(r) => r,
             PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
@@ -388,7 +388,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 
         let memory_copy = memory.0;
         let config = Arc::clone(&result_state.config);
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let engine = store.engine();
         let mut linker = Linker::new(engine);
         // TODO: config could be accessed through `logic.result_state`, without this code having to

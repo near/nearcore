@@ -24,6 +24,7 @@ import network
 from configured_logger import logger
 from key import Key
 from proxy import NodesProxy
+import state_sync_lib
 
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -846,6 +847,7 @@ def init_cluster(
     client_config_changes: ClientConfigChanges,
     prefix="test",
     initialize_cold_storage=True,
+    extra_state_dumper=False,
 ) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
@@ -862,6 +864,9 @@ def init_cluster(
     is_local = config['local']
     near_root = config['near_root']
     binary_name = config.get('binary_name', 'neard')
+
+    if extra_state_dumper:
+        num_observers += 1
 
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
@@ -899,6 +904,20 @@ def init_cluster(
         len(node_dirs), num_nodes, num_observers)
 
     logger.info("Search for stdout and stderr in %s" % node_dirs)
+
+    # if extra_state_dumper is True, we added 1 to num_observers above and we will enable
+    # state dumping to a local tmp dir on the last node in node_dirs. The other nodes will have their
+    # state_sync configs point to this tmp dir
+    # TODO: remove this extra_state_dumper option when centralized state sync is no longer used
+    if extra_state_dumper:
+        (node_config_dump,
+         node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
+             tracked_shards=None)
+        syncing_nodes = node_dirs[:-1]
+        dumper_node = node_dirs[-1]
+        for node_dir in syncing_nodes:
+            apply_config_changes(node_dir, node_config_sync)
+        apply_config_changes(dumper_node, node_config_dump)
 
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
@@ -985,18 +1004,17 @@ def apply_config_changes(node_dir: str,
     # ClientConfig keys which are valid but may be missing from the config.json
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
-    allowed_missing_configs = ('archive', 'consensus.block_fetch_horizon',
-                               'consensus.min_block_production_delay',
-                               'consensus.max_block_production_delay',
-                               'consensus.max_block_wait_delay',
-                               'consensus.state_sync_timeout',
-                               'expected_shutdown', 'log_summary_period',
-                               'max_gas_burnt_view', 'rosetta_rpc',
-                               'save_trie_changes', 'split_storage',
-                               'state_sync', 'state_sync_enabled',
-                               'store.state_snapshot_enabled',
-                               'tracked_shard_schedule', 'cold_store',
-                               'store.load_mem_tries_for_tracked_shards')
+    allowed_missing_configs = (
+        'archive', 'consensus.block_fetch_horizon',
+        'consensus.min_block_production_delay',
+        'consensus.max_block_production_delay',
+        'consensus.max_block_wait_delay', 'consensus.state_sync_timeout',
+        'expected_shutdown', 'log_summary_period', 'max_gas_burnt_view',
+        'rosetta_rpc', 'save_trie_changes', 'split_storage', 'state_sync',
+        'state_sync_enabled', 'store.state_snapshot_enabled',
+        'store.state_snapshot_config.state_snapshot_type',
+        'tracked_shard_schedule', 'cold_store',
+        'store.load_mem_tries_for_tracked_shards')
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
@@ -1039,6 +1057,7 @@ def start_cluster(
     genesis_config_changes: GenesisConfigChanges,
     client_config_changes: ClientConfigChanges,
     message_handler=None,
+    extra_state_dumper=False,
 ) -> typing.List[BaseNode]:
     if not config:
         config = load_config()
@@ -1052,16 +1071,20 @@ def start_cluster(
             if name.startswith('test') and not name.endswith('_finished')
         ]
     else:
-        near_root, node_dirs = init_cluster(num_nodes, num_observers,
-                                            num_shards, config,
-                                            genesis_config_changes,
-                                            client_config_changes)
+        near_root, node_dirs = init_cluster(
+            num_nodes,
+            num_observers,
+            num_shards,
+            config,
+            genesis_config_changes,
+            client_config_changes,
+            extra_state_dumper=extra_state_dumper)
 
     proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
     def spin_up_node_and_push(i: int, boot_node: BootNode) -> BaseNode:
-        single_node = (num_nodes == 1) and (num_observers == 0)
+        single_node = len(node_dirs) == 1
         node = spin_up_node(
             config,
             near_root,
@@ -1078,7 +1101,7 @@ def start_cluster(
     boot_node = spin_up_node_and_push(0, None)
 
     handles = []
-    for i in range(1, num_nodes + num_observers):
+    for i in range(1, len(node_dirs)):
         handle = threading.Thread(target=spin_up_node_and_push,
                                   args=(i, boot_node))
         handle.start()

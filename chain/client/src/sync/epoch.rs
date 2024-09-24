@@ -17,12 +17,13 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::{
-    EpochSyncProof, EpochSyncProofCurrentEpochData, EpochSyncProofLastEpochData,
-    EpochSyncProofPastEpochData,
+    CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
+    EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::utils::compression::CompressedData;
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -52,7 +53,7 @@ impl EpochSync {
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
     /// a new node or bring a far-behind node to a recent epoch.
     #[instrument(skip(store))]
-    fn derive_epoch_sync_proof(store: Store) -> Result<EpochSyncProof, Error> {
+    pub fn derive_epoch_sync_proof(store: Store) -> Result<EpochSyncProof, Error> {
         // Epoch sync initializes a new node with the first block of some epoch; we call that
         // epoch the "target epoch". In the context of talking about the proof or the newly
         // bootstrapped node, it is also called the "current epoch".
@@ -110,17 +111,51 @@ impl EpochSync {
             .get_ser::<EpochInfo>(DBCol::EpochInfo, next_epoch.0.as_bytes())?
             .ok_or_else(|| Error::EpochOutOfBounds(next_epoch))?;
 
-        // TODO: don't always generate from genesis
-        let all_past_epochs = Self::get_all_past_epochs(
+        let genesis_epoch_info = store
+            .get_ser::<EpochInfo>(DBCol::EpochInfo, EpochId::default().0.as_bytes())?
+            .ok_or_else(|| Error::EpochOutOfBounds(EpochId::default()))?;
+
+        // If we have an existing (possibly and likely outdated) EpochSyncProof stored on disk,
+        // the last epoch we have a proof for is the "previous epoch" included in that EpochSyncProof.
+        // Otherwise, the last epoch we have a "proof" for is the genesis epoch.
+        let existing_epoch_sync_proof =
+            store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?;
+        let last_epoch_we_have_proof_for = existing_epoch_sync_proof
+            .as_ref()
+            .and_then(|existing_proof| {
+                existing_proof
+                    .past_epochs
+                    .last()
+                    .map(|last_epoch| *last_epoch.last_final_block_header.epoch_id())
+            })
+            .unwrap_or_else(EpochId::default);
+        let last_epoch_height_we_have_proof_for = existing_epoch_sync_proof
+            .as_ref()
+            .map(|existing_proof| existing_proof.last_epoch.epoch_info.epoch_height())
+            .unwrap_or_else(|| genesis_epoch_info.epoch_height());
+
+        // If the proof we stored is for the same epoch as current or older, then just return that.
+        if current_epoch_info.epoch_height() <= last_epoch_height_we_have_proof_for {
+            if let Some(existing_proof) = existing_epoch_sync_proof {
+                return Ok(existing_proof);
+            }
+            // Corner case for if the current epoch is genesis somehow.
+            return Err(Error::Other("Need at least three epochs to epoch sync".to_string()));
+        }
+
+        let all_past_epochs_since_last_proof = Self::get_past_epoch_proofs_in_range(
             &store,
-            EpochId::default(),
+            last_epoch_we_have_proof_for,
             next_epoch,
             &final_block_header_in_current_epoch,
         )?;
-        if all_past_epochs.is_empty() {
-            return Err(Error::Other("Need at least three epochs to epoch sync".to_string()));
+        if all_past_epochs_since_last_proof.is_empty() {
+            return Err(Error::Other(
+                "Programming error: past epochs should not be empty".to_string(),
+            ));
         }
-        let prev_epoch = *all_past_epochs.last().unwrap().last_final_block_header.epoch_id();
+        let prev_epoch =
+            *all_past_epochs_since_last_proof.last().unwrap().last_final_block_header.epoch_id();
         let prev_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, prev_epoch.0.as_bytes())?
             .ok_or_else(|| Error::EpochOutOfBounds(prev_epoch))?;
@@ -190,8 +225,14 @@ impl EpochSync {
                 Error::Other("Could not find merkle proof for first block".to_string())
             })?;
 
+        let all_past_epochs_including_old_proof = existing_epoch_sync_proof
+            .map(|proof| proof.past_epochs)
+            .unwrap_or_else(Vec::new)
+            .into_iter()
+            .chain(all_past_epochs_since_last_proof.into_iter())
+            .collect();
         let proof = EpochSyncProof {
-            past_epochs: all_past_epochs,
+            past_epochs: all_past_epochs_including_old_proof,
             last_epoch: EpochSyncProofLastEpochData {
                 epoch_info: prev_epoch_info,
                 next_epoch_info: current_epoch_info,
@@ -219,7 +260,7 @@ impl EpochSync {
     /// (both exclusive). `current_epoch_any_header` is any block header in the current epoch,
     /// which is the epoch before `next_epoch`.
     #[instrument(skip(store, current_epoch_any_header))]
-    fn get_all_past_epochs(
+    fn get_past_epoch_proofs_in_range(
         store: &Store,
         after_epoch: EpochId,
         next_epoch: EpochId,
@@ -404,16 +445,20 @@ impl EpochSync {
 
         // TODO(#11932): Verify the proof.
 
-        let last_header = proof.current_epoch.first_block_header_in_epoch;
         let mut store_update = chain.chain_store.store().store_update();
 
+        // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
+        // to faciliate epoch sync of other nodes.
+        store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
+
+        let last_header = proof.current_epoch.first_block_header_in_epoch;
         let mut update = chain.mut_chain_store().store_update();
         update.save_block_header_no_update_tree(last_header.clone())?;
         update.save_block_header_no_update_tree(
             proof.current_epoch.last_block_header_in_prev_epoch,
         )?;
         update.save_block_header_no_update_tree(
-            proof.current_epoch.second_last_block_header_in_prev_epoch,
+            proof.current_epoch.second_last_block_header_in_prev_epoch.clone(),
         )?;
         tracing::info!(
             "last final block of last past epoch: {:?}",
@@ -474,6 +519,11 @@ impl EpochSync {
 impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
+        if !self.client.epoch_sync.config.enabled {
+            // TODO(#11937): before we have rate limiting, don't respond to epoch sync requests
+            // unless config is enabled.
+            return;
+        }
         let store = self.client.chain.chain_store.store().clone();
         let network_adapter = self.client.network_adapter.clone();
         let route_back = msg.route_back;
@@ -482,13 +532,20 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
             move || {
                 let proof = match EpochSync::derive_epoch_sync_proof(store) {
                     Ok(epoch_sync_proof) => epoch_sync_proof,
-                    Err(e) => {
-                        tracing::error!("Failed to derive epoch sync proof: {:?}", e);
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to derive epoch sync proof");
+                        return;
+                    }
+                };
+                let (compressed_proof, _) = match CompressedEpochSyncProof::encode(&proof) {
+                    Ok(compressed_proof) => compressed_proof,
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to compress epoch sync proof");
                         return;
                     }
                 };
                 network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::EpochSyncResponse { route_back, proof },
+                    NetworkRequests::EpochSyncResponse { route_back, proof: compressed_proof },
                 ));
             },
         )
@@ -498,14 +555,21 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
 impl Handler<EpochSyncResponseMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
-        if let Err(e) = self.client.epoch_sync.apply_proof(
+        let (proof, _) = match msg.proof.decode() {
+            Ok(proof) => proof,
+            Err(err) => {
+                tracing::error!(?err, "Failed to uncompress epoch sync proof");
+                return;
+            }
+        };
+        if let Err(err) = self.client.epoch_sync.apply_proof(
             &mut self.client.sync_status,
             &mut self.client.chain,
-            msg.proof,
+            proof,
             msg.from_peer,
             self.client.epoch_manager.as_ref(),
         ) {
-            tracing::error!("Failed to apply epoch sync proof: {:?}", e);
+            tracing::error!(?err, "Failed to apply epoch sync proof");
         }
     }
 }
