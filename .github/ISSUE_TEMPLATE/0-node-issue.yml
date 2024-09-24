@@ -1,14 +1,15 @@
 name: Node Issue
-description: File a report about observed node behavior issue.
-title: "[Node Issue]: "
-labels: ["node-issue"]
+description: Issue while running a node
+title: "Node Issue: "
+labels: ["Node", "community", "investigation required"]
 assignees:
-  - gmilescu
+  - VanBarbascu
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for taking the time to fill out this bug report!
+        Before you go ahead, please make sure that the issue has not been reported already.
         Please, follow steps below to help us resolve your issue.
         In scripts below we assume that `$NEARD` environmental variable contains path to your neard binary,
         and `$NEAR_HOME` variable contains path to your near home.
@@ -20,11 +21,27 @@ body:
       placeholder: ex. email@example.com
     validations:
       required: false
-  - type: textarea
-    id: what-happened
+  - type: dropdown
+    id: network
     attributes:
-      label: What happened?
-      description: Describe your issue with running a near node.
+      label: Which network are you running?
+      description: Pick the network
+      options:
+        - mainnet
+        - testnet
+        - other (specify below)
+  - type: dropdown
+    id: node-type
+    attributes:
+      label: Node type
+      description: What type of node are you running?
+      options:
+        - Top 100 Validator
+        - Non-Top 100 Validator
+        - RPC (Default)
+        - Split Storage Archival
+        - Legacy Archival (Deprecated)
+      default: 2
     validations:
       required: true
   - type: textarea
@@ -35,25 +52,13 @@ body:
       render: shell
     validations:
       required: true
-  - type: dropdown
-    id: node-type
+  - type: textarea
+    id: what-happened
     attributes:
-      label: Node type
-      description: What type of node are you running?
-      options:
-        - RPC (Default)
-        - Split Storage Archival
-        - Legacy Archival (Deprecated)
-      default: 0
+      label: What happened?
+      description: Describe your issue with running a near node.
     validations:
       required: true
-  - type: checkboxes
-    id: is-validator
-    attributes:
-      label: Are you a validator?
-      description: Are you a validator?
-      options:
-        - label: I am a validator.
   - type: textarea
     id: logs
     attributes:
@@ -61,7 +66,7 @@ body:
       description: Please copy and paste any relevant log output.
       render: shell
     validations:
-        required: true
+        required: false
   - type: textarea
     id: block-misc
     attributes:
@@ -69,7 +74,7 @@ body:
       description: Please, provide full output of `RUST_LOG=warn $NEARD --home $NEAR_HOME --unsafe-fast-startup view-state scan-db-column --column BlockMisc`.
       render: shell
     validations:
-        required: true
+        required: false
   - type: textarea
     id: neard-history
     attributes:
@@ -86,5 +91,3 @@ body:
       render: shell
     validations:
       required: true
-
-
