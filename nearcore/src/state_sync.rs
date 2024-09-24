@@ -18,6 +18,7 @@ use near_client::sync::external::{
 use near_client::sync::state::STATE_DUMP_ITERATION_TIME_LIMIT_SECS;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
@@ -676,11 +677,12 @@ fn get_latest_epoch(
     // This is not the way protocol features are normally gated, but this is not actually
     // a protocol feature/change. The protocol version is just an easy way to coordinate
     // among nodes for now
-    let sync_hash = if epoch_info.protocol_version() >= 72 {
-        chain.get_current_epoch_sync_hash(&final_block_header)?
-    } else {
-        Some(chain.get_epoch_start_sync_hash(final_hash)?)
-    };
+    let sync_hash =
+        if checked_feature!("stable", StateSyncHashUpdate, epoch_info.protocol_version()) {
+            chain.get_current_epoch_sync_hash(&final_block_header)?
+        } else {
+            Some(chain.get_epoch_start_sync_hash(final_hash)?)
+        };
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");
 
     Ok(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash })

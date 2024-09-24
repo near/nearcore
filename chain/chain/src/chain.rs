@@ -788,8 +788,11 @@ impl Chain {
             // among nodes for now
             let protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-            let sync_hash =
-                if protocol_version < 72 { *block.header().hash() } else { CryptoHash::default() };
+            let sync_hash = if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+                CryptoHash::default()
+            } else {
+                *block.header().hash()
+            };
             let state_sync_info = StateSyncInfo {
                 sync_hash,
                 shards: shards_to_state_sync
@@ -4014,16 +4017,17 @@ impl Chain {
             self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         let next_block_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
-        let next_block_is_sync_block = if next_block_protocol_version < 72 {
-            is_epoch_boundary
-        } else {
-            // FIXME: before submitting, this needs to be fixed. can't be iterating over the whole chain inside of preprocess
-            // block like that if there are many missed chunks
-            match self.get_current_epoch_sync_hash(next_block)? {
-                Some(sync_hash) => sync_hash == *next_block.hash(),
-                None => false,
-            }
-        };
+        let next_block_is_sync_block =
+            if !checked_feature!("stable", StateSyncHashUpdate, next_block_protocol_version) {
+                is_epoch_boundary
+            } else {
+                // FIXME: before submitting, this needs to be fixed. can't be iterating over the whole chain inside of preprocess
+                // block like that if there are many missed chunks
+                match self.get_current_epoch_sync_hash(next_block)? {
+                    Some(sync_hash) => sync_hash == *next_block.hash(),
+                    None => false,
+                }
+            };
 
         let tries = self.runtime_adapter.get_tries();
         let snapshot_config = tries.state_snapshot_config();
