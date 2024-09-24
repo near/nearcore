@@ -111,9 +111,14 @@ pub enum AdvProduceBlocksMode {
     OnlyValid,
 }
 
+/// The state associated with downloading state for a shard this node will track in the
+/// future but does not currently.
 pub struct CatchupState {
+    /// Manages downloading the state.
     pub state_sync: StateSync,
+    /// Keeps track of state downloads, and gets passed to `state_sync`.
     pub state_downloads: HashMap<u64, ShardSyncDownload>,
+    /// Manages going back to apply chunks after state has been downloaded.
     pub catchup: BlocksCatchUpState,
 }
 
@@ -312,7 +317,7 @@ impl NewChunkTracker {
             let next_header = chain.get_block_header(&next_hash)?;
             let done = self.record_new_chunks(&next_header)?;
             if done {
-                // TODO: check to make sure the epoch IDs are the same. If there are no new chunks in some shard in the epoch,
+                // TODO(current_epoch_state_sync): check to make sure the epoch IDs are the same. If there are no new chunks in some shard in the epoch,
                 // this will be for an epoch ahead of this one
                 self.sync_hash = Some(next_hash);
                 break;

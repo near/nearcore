@@ -2607,7 +2607,7 @@ impl Chain {
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
-        // TODO: check that the sync block is what we would expect. So, either the first
+        // TODO(current_epoch_state_sync): check that the sync block is what we would expect. So, either the first
         // block of an epoch, or the first block where there have been two new chunks in the epoch
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
         // Chunk header here is the same chunk header as at the `current` height.
@@ -3377,7 +3377,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
-        // TODO: remove the ones not in affected_blocks by breadth first searching from `epoch_first_block` and adding
+        // TODO(current_epoch_state_sync): remove the ones not in affected_blocks by breadth first searching from `epoch_first_block` and adding
         // descendant blocks to the search when they're not equal to this hash, and then removing everything we see in that search
         _catchup_start_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
@@ -3950,6 +3950,7 @@ impl Chain {
     }
 
     /// Function to create or delete a snapshot if necessary.
+    /// TODO: this function calls head() inside of start_process_block_impl(), consider changing to next_block.header().prev_hash()
     fn process_snapshot(&mut self, next_block: &BlockHeader) -> Result<(), Error> {
         let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot(next_block)?;
         if !make_snapshot && !delete_snapshot {
@@ -4603,7 +4604,7 @@ impl Chain {
     }
 
     /// Check that sync_hash is the first block of an epoch.
-    /// TODO: allow the new way of computing the sync hash for syncing to the current epoch
+    /// TODO(current_epoch_state_sync): allow the new way of computing the sync hash for syncing to the current epoch
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header()`.
@@ -4902,7 +4903,9 @@ pub struct ChunkStateWitnessMessage {
 }
 
 /// Helper to track blocks catch up
-/// Lifetime of a block_hash is as follows:
+/// Starting from the first block we want to apply after syncing state (so either the first block
+/// of an epoch, or a couple blocks after that, if syncing the current epoch's state) the lifetime
+/// of a block_hash is as follows:
 /// 1. It is added to pending blocks, either as first block of an epoch or because we (post)
 ///     processed previous block
 /// 2. Block is preprocessed and scheduled for processing in sync jobs actor. Block hash
