@@ -5,10 +5,11 @@ use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::{self, Read};
@@ -90,6 +91,109 @@ pub enum Receipt {
     V1(ReceiptV1),
 }
 
+/// A receipt that is stored in the state with added metadata. A receipt may be
+/// stored in the state as a delayed receipt, buffered receipt or a promise
+/// yield receipt. The metadata contains additional information about receipt
+///
+/// Please note that the StateStoredReceipt implements custom serialization and
+/// deserialization. Please see the comment on [ReceiptOrStateStoredReceipt]
+/// for more details.
+///
+/// This struct is versioned so that it can be enhanced in the future.
+#[derive(PartialEq, Eq, Debug, ProtocolSchema)]
+pub enum StateStoredReceipt<'a> {
+    V0(StateStoredReceiptV0<'a>),
+}
+
+/// The V0 of StateStoredReceipt. It contains the receipt and metadata.
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct StateStoredReceiptV0<'a> {
+    /// The receipt.
+    pub receipt: Cow<'a, Receipt>,
+    pub metadata: StateStoredReceiptMetadata,
+}
+
+/// The metadata associated with the receipt stored in state.
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct StateStoredReceiptMetadata {
+    /// The congestion gas of the receipt when it was stored in the state.
+    /// Please see [compute_receipt_congestion_gas] for more details.
+    pub congestion_gas: Gas,
+    /// The congestion size of the receipt when it was stored in the state.
+    /// Please see [compute_receipt_size] for more details.
+    pub congestion_size: u64,
+}
+
+/// The tag that is used to differentiate between the Receipt and StateStoredReceipt.
+const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
+
+/// This is a convenience struct for handling the migration from [Receipt] to
+/// [StateStoredReceipt]. Both variants can be directly serialized and
+/// deserialized to this struct.
+///
+/// This structure is only meant as a migration vehicle and should not be used
+/// for other purposes. In order to make any changes to how receipts are stored
+/// in state the StateStoredReceipt should be used. It supports versioning.
+///
+/// The receipt in both variants is stored as a Cow to allow for both owned and
+/// borrowed ownership. The owned receipt should be used when pulling receipts
+/// from the state. The borrowed ownership can be used when pushing receipts
+/// into the state. In that case the receipt should never need to be cloned. The
+/// serialization only needs a reference.
+#[derive(PartialEq, Eq, Debug, ProtocolSchema)]
+pub enum ReceiptOrStateStoredReceipt<'a> {
+    Receipt(Cow<'a, Receipt>),
+    StateStoredReceipt(StateStoredReceipt<'a>),
+}
+
+impl ReceiptOrStateStoredReceipt<'_> {
+    pub fn into_receipt(self) -> Receipt {
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(receipt) => receipt.into_owned(),
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.into_receipt(),
+        }
+    }
+
+    pub fn get_receipt(&self) -> &Receipt {
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(receipt) => receipt,
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.get_receipt(),
+        }
+    }
+}
+
+impl<'a> StateStoredReceipt<'a> {
+    pub fn new_owned(receipt: Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+        let receipt = Cow::Owned(receipt);
+        let v0 = StateStoredReceiptV0 { receipt, metadata };
+        Self::V0(v0)
+    }
+
+    pub fn new_borrowed(receipt: &'a Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+        let receipt = Cow::Borrowed(receipt);
+        let v0 = StateStoredReceiptV0 { receipt, metadata };
+        Self::V0(v0)
+    }
+
+    pub fn into_receipt(self) -> Receipt {
+        match self {
+            StateStoredReceipt::V0(v0) => v0.receipt.into_owned(),
+        }
+    }
+
+    pub fn get_receipt(&self) -> &Receipt {
+        match self {
+            StateStoredReceipt::V0(v0) => &v0.receipt,
+        }
+    }
+
+    pub fn metadata(&self) -> &StateStoredReceiptMetadata {
+        match self {
+            StateStoredReceipt::V0(v0) => &v0.metadata,
+        }
+    }
+}
+
 impl BorshSerialize for Receipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
@@ -112,8 +216,8 @@ impl BorshDeserialize for Receipt {
         let u4 = u8::deserialize_reader(reader)?;
         // This is a ridiculous hackery: because the first field in `ReceiptV0` is an `AccountId`
         // and an account id is at most 64 bytes, for all valid `ReceiptV0` the second byte must be 0
-        // because of the littel endian encoding of the length of the account id.
-        // On the other hand, for `ReceiptV0`, since the first byte is 1 and an account id must have nonzero
+        // because of the little endian encoding of the length of the account id.
+        // On the other hand, for `ReceiptV1`, since the first byte is 1 and an account id must have nonzero
         // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
         // by looking at the second byte.
 
@@ -154,6 +258,100 @@ impl BorshDeserialize for Receipt {
                 receipt,
                 priority,
             }))
+        }
+    }
+}
+
+impl BorshSerialize for StateStoredReceipt<'_> {
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // The serialization format for StateStored receipt is as follows:
+        // Byte 1: STATE_STORED_RECEIPT_TAG
+        // Byte 2: STATE_STORED_RECEIPT_TAG
+        // Byte 3: enum version (e.g. V0 => 0_u8)
+        // serialized variant value
+
+        BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
+        BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
+        match self {
+            StateStoredReceipt::V0(v0) => {
+                BorshSerialize::serialize(&0_u8, writer)?;
+                BorshSerialize::serialize(&v0, writer)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for StateStoredReceipt<'_> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+        let u3 = u8::deserialize_reader(reader)?;
+
+        if u1 != STATE_STORED_RECEIPT_TAG || u2 != STATE_STORED_RECEIPT_TAG {
+            let error = format!("Invalid tag found when deserializing StateStoredReceipt. Found: {}, {}. Expected: {}, {}", u1, u2, STATE_STORED_RECEIPT_TAG, STATE_STORED_RECEIPT_TAG);
+            let error = Error::new(ErrorKind::Other, error);
+            return Err(io::Error::new(ErrorKind::InvalidData, error));
+        }
+
+        match u3 {
+            0 => {
+                let v0 = StateStoredReceiptV0::deserialize_reader(reader)?;
+                Ok(StateStoredReceipt::V0(v0))
+            }
+            v => {
+                let error = format!("Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 0", v);
+                let error = Error::new(ErrorKind::Other, error);
+                Err(io::Error::new(ErrorKind::InvalidData, error))
+            }
+        }
+    }
+}
+
+impl BorshSerialize for ReceiptOrStateStoredReceipt<'_> {
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        // This is custom serialization in order to provide backwards
+        // compatibility for migration from Receipt to StateStoredReceipt.
+
+        // Please see the comment in deserialize_reader for more details.
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(receipt) => {
+                BorshSerialize::serialize(receipt, writer)
+            }
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
+                BorshSerialize::serialize(receipt, writer)
+            }
+        }
+    }
+}
+
+impl BorshDeserialize for ReceiptOrStateStoredReceipt<'_> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
+        // This is custom deserialization in order to provide backwards
+        // compatibility for migration from Receipt to StateStoredReceipt.
+
+        // Both variants (Receipt and StateStoredReceipt) need to be directly
+        // deserializable into the ReceiptOrStateStoredReceipt.
+
+        // Read the first two bytes in order to discriminate between the Receipt
+        // and StateStoredReceipt.
+        // The StateStored receipt has the tag as the first two bytes.
+        // The Receipt::V0 has 0 as the second byte.
+        // The Receipt::V1 has 1 as the first byte.
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+
+        // Put the read bytes back into the reader by chaining.
+        let prefix = [u1, u2];
+        let mut reader = prefix.chain(reader);
+
+        if u1 == STATE_STORED_RECEIPT_TAG && u2 == STATE_STORED_RECEIPT_TAG {
+            let receipt = StateStoredReceipt::deserialize_reader(&mut reader)?;
+            Ok(ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt))
+        } else {
+            let receipt = Receipt::deserialize_reader(&mut reader)?;
+            let receipt = Cow::Owned(receipt);
+            Ok(ReceiptOrStateStoredReceipt::Receipt(receipt))
         }
     }
 }
@@ -533,8 +731,7 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_receipt_v0_serialization() {
+    fn get_receipt_v0() -> Receipt {
         let receipt_v0 = Receipt::V0(ReceiptV0 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
@@ -548,13 +745,10 @@ mod tests {
                 actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
             }),
         });
-        let serialized_receipt = borsh::to_vec(&receipt_v0).unwrap();
-        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
-        assert_eq!(receipt_v0, receipt2);
+        receipt_v0
     }
 
-    #[test]
-    fn test_receipt_v1_serialization() {
+    fn get_receipt_v1() -> Receipt {
         let receipt_v1 = Receipt::V1(ReceiptV1 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
@@ -569,8 +763,121 @@ mod tests {
             }),
             priority: 1,
         });
+        receipt_v1
+    }
+
+    #[test]
+    fn test_receipt_v0_serialization() {
+        let receipt_v0 = get_receipt_v0();
+        let serialized_receipt = borsh::to_vec(&receipt_v0).unwrap();
+        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
+        assert_eq!(receipt_v0, receipt2);
+    }
+
+    #[test]
+    fn test_receipt_v1_serialization() {
+        let receipt_v1 = get_receipt_v1();
         let serialized_receipt = borsh::to_vec(&receipt_v1).unwrap();
         let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
         assert_eq!(receipt_v1, receipt2);
+    }
+
+    fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
+        let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+
+        let serialized_receipt = borsh::to_vec(&receipt).unwrap();
+        let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+        assert_eq!(receipt, deserialized_receipt);
+    }
+
+    #[test]
+    fn test_state_stored_receipt_serialization_v0() {
+        let receipt = get_receipt_v0();
+        test_state_stored_receipt_serialization_impl(receipt);
+    }
+
+    #[test]
+    fn test_state_stored_receipt_serialization_v1() {
+        let receipt = get_receipt_v1();
+        test_state_stored_receipt_serialization_impl(receipt);
+    }
+
+    #[test]
+    fn test_receipt_or_state_stored_receipt_serialization() {
+        // Case 1:
+        // Receipt V0 can be deserialized as ReceiptOrStateStoredReceipt
+        {
+            let receipt = get_receipt_v0();
+            let receipt = Cow::Owned(receipt);
+
+            let serialized_receipt = borsh::to_vec(&receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(ReceiptOrStateStoredReceipt::Receipt(receipt), deserialized_receipt);
+        }
+
+        // Case 2:
+        // Receipt V1 can be deserialized as ReceiptOrStateStoredReceipt
+        {
+            let receipt = get_receipt_v1();
+            let receipt = Cow::Owned(receipt);
+
+            let serialized_receipt = borsh::to_vec(&receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(ReceiptOrStateStoredReceipt::Receipt(receipt), deserialized_receipt);
+        }
+
+        // Case 3:
+        // StateStoredReceipt can be deserialized as ReceiptOrStateStoredReceipt
+        {
+            let receipt = get_receipt_v0();
+            let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
+            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
+
+            let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(
+                ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt),
+                deserialized_receipt
+            );
+        }
+
+        // Case 4:
+        // ReceiptOrStateStoredReceipt::Receipt
+        {
+            let receipt = get_receipt_v0();
+            let receipt = Cow::Owned(receipt);
+
+            let receipt_or_state_stored_receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
+
+            let serialized_receipt = borsh::to_vec(&receipt_or_state_stored_receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
+        }
+
+        // Case 5:
+        // ReceiptOrStateStoredReceipt::StateStoredReceipt
+        {
+            let receipt = get_receipt_v0();
+            let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
+            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
+            let receipt_or_state_stored_receipt =
+                ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);
+
+            let serialized_receipt = borsh::to_vec(&receipt_or_state_stored_receipt).unwrap();
+            let deserialized_receipt =
+                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
+
+            assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
+        }
     }
 }

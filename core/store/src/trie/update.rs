@@ -1,40 +1,18 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
-use crate::{StorageError, TrieStorage};
+use crate::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot, TrieCacheMode,
 };
-use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 mod iterator;
-
-/// Reads contract code from the trie by its hash.
-/// Currently, uses `TrieStorage`. Consider implementing separate logic for
-/// requesting and compiling contracts, as any contract code read and
-/// compilation is a major bottleneck during chunk execution.
-struct ContractStorage {
-    storage: Arc<dyn TrieStorage>,
-}
-
-impl ContractStorage {
-    fn new(storage: Arc<dyn TrieStorage>) -> Self {
-        Self { storage }
-    }
-
-    pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        match self.storage.retrieve_raw_bytes(&code_hash) {
-            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
-            Err(_) => None,
-        }
-    }
-}
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -49,7 +27,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Trie,
-    contract_storage: ContractStorage,
+    pub contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -122,18 +100,6 @@ impl TrieUpdate {
             }
         }
         self.trie.contains_key(&key)
-    }
-
-    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_ref().map(<Vec<u8>>::clone));
-            }
-        }
-        self.trie.get(&key)
     }
 
     /// Gets code from trie updates or directly from contract storage,
@@ -275,11 +241,31 @@ impl TrieUpdate {
         }
         TrieCacheModeGuard(previous, switch)
     }
+
+    fn get_from_updates(
+        &self,
+        key: &TrieKey,
+        fallback: impl FnOnce(&[u8]) -> Result<Option<Vec<u8>>, StorageError>,
+    ) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
+            }
+        }
+        fallback(&key)
+    }
 }
 
 impl crate::TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        TrieUpdate::get(self, key)
+        self.get_from_updates(key, |k| self.trie.get(k))
+    }
+
+    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        self.get_from_updates(key, |_| self.trie.get_no_side_effects(&key))
     }
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
@@ -298,7 +284,7 @@ impl Drop for TrieCacheModeGuard {
 mod tests {
     use super::*;
     use crate::test_utils::TestTriesBuilder;
-    use crate::ShardUId;
+    use crate::{ShardUId, TrieAccess as _};
     use near_primitives::hash::CryptoHash;
     const SHARD_VERSION: u32 = 1;
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };

@@ -106,11 +106,8 @@ pub(crate) fn get_validator_online_ratio(
 /// Instead of having a full-blown implementation of `U256`` for `num_integer::Integer`
 /// we wrap the value in a `BigInt` for now.
 /// TODO: Implement `num_integer::Integer` for `U256` and remove this function.
-pub(crate) fn get_sortable_validator_online_ratio(
-    stats: &BlockChunkValidatorStats,
-    endorsement_cutoff_threshold: Option<u8>,
-) -> BigRational {
-    let ratio = get_validator_online_ratio(stats, endorsement_cutoff_threshold);
+pub(crate) fn get_sortable_validator_online_ratio(stats: &BlockChunkValidatorStats) -> BigRational {
+    let ratio = get_validator_online_ratio(stats, None);
     let mut bytes: [u8; size_of::<U256>()] = [0; size_of::<U256>()];
     ratio.numer().to_little_endian(&mut bytes);
     let bignumer = BigUint::from_bytes_le(&bytes);
@@ -232,10 +229,8 @@ mod test {
     }
 
     #[test]
-    fn test_sortable_average_uptime_ratio_without_endorsement_cutoff() {
-        let endorsement_cutoff = None;
-        let actual_ratio: Ratio<BigInt> =
-            get_sortable_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
+    fn test_sortable_average_uptime_ratio() {
+        let actual_ratio: Ratio<BigInt> = get_sortable_validator_online_ratio(&VALIDATOR_STATS);
         let expected_ratio: Ratio<i32> =
             (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::new(42, 100)) / 3;
         assert_eq!(
@@ -245,38 +240,9 @@ mod test {
     }
 
     #[test]
-    fn test_sortable_average_uptime_ratio_with_endorsement_cutoff_passed() {
-        let endorsement_cutoff = Some(30);
-        let actual_ratio: Ratio<BigInt> =
-            get_sortable_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
-        let expected_ratio: Ratio<i32> =
-            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::from_integer(1)) / 3;
-        assert_eq!(
-            actual_ratio.numer() * expected_ratio.denom(),
-            actual_ratio.denom() * expected_ratio.numer()
-        );
-    }
-
-    #[test]
-    fn test_sortable_average_uptime_ratio_with_endorsement_cutoff_not_passed() {
-        let endorsement_cutoff = Some(50);
-        let actual_ratio: Ratio<BigInt> =
-            get_sortable_validator_online_ratio(&VALIDATOR_STATS, endorsement_cutoff);
-        let expected_ratio: Ratio<i32> =
-            (Rational32::new(98, 100) + Rational32::new(76, 100) + Rational32::from_integer(0)) / 3;
-        assert_eq!(
-            actual_ratio.numer() * expected_ratio.denom(),
-            actual_ratio.denom() * expected_ratio.numer()
-        );
-    }
-
-    #[test]
     fn test_sortable_average_uptime_ratio_with_no_endorsement_expected() {
-        let endorsement_cutoff = Some(50);
-        let actual_ratio: Ratio<BigInt> = get_sortable_validator_online_ratio(
-            &VALIDATOR_STATS_NO_ENDORSEMENT,
-            endorsement_cutoff,
-        );
+        let actual_ratio: Ratio<BigInt> =
+            get_sortable_validator_online_ratio(&VALIDATOR_STATS_NO_ENDORSEMENT);
         let expected_ratio: Ratio<i32> = (Rational32::new(98, 100) + Rational32::new(76, 100)) / 2;
         assert_eq!(
             actual_ratio.numer() * expected_ratio.denom(),

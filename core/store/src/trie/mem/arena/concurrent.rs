@@ -121,6 +121,10 @@ impl ArenaMemory for ConcurrentArenaMemory {
 }
 
 impl ArenaMemoryMut for ConcurrentArenaMemory {
+    fn is_mutable(&self, _pos: ArenaPos) -> bool {
+        true
+    }
+
     fn raw_slice_mut(&mut self, pos: ArenaPos, len: usize) -> &mut [u8] {
         &mut self.chunk_mut(pos.chunk())[pos.pos()..pos.pos() + len]
     }

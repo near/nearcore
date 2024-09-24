@@ -1004,18 +1004,17 @@ def apply_config_changes(node_dir: str,
     # ClientConfig keys which are valid but may be missing from the config.json
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
-    allowed_missing_configs = ('archive', 'consensus.block_fetch_horizon',
-                               'consensus.min_block_production_delay',
-                               'consensus.max_block_production_delay',
-                               'consensus.max_block_wait_delay',
-                               'consensus.state_sync_timeout',
-                               'expected_shutdown', 'log_summary_period',
-                               'max_gas_burnt_view', 'rosetta_rpc',
-                               'save_trie_changes', 'split_storage',
-                               'state_sync', 'state_sync_enabled',
-                               'store.state_snapshot_enabled',
-                               'tracked_shard_schedule', 'cold_store',
-                               'store.load_mem_tries_for_tracked_shards')
+    allowed_missing_configs = (
+        'archive', 'consensus.block_fetch_horizon',
+        'consensus.min_block_production_delay',
+        'consensus.max_block_production_delay',
+        'consensus.max_block_wait_delay', 'consensus.state_sync_timeout',
+        'expected_shutdown', 'log_summary_period', 'max_gas_burnt_view',
+        'rosetta_rpc', 'save_trie_changes', 'split_storage', 'state_sync',
+        'state_sync_enabled', 'store.state_snapshot_enabled',
+        'store.state_snapshot_config.state_snapshot_type',
+        'tracked_shard_schedule', 'cold_store',
+        'store.load_mem_tries_for_tracked_shards')
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):

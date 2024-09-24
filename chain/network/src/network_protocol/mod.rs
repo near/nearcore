@@ -411,6 +411,7 @@ pub struct Disconnect {
 pub enum PeerMessage {
     Tier1Handshake(Handshake),
     Tier2Handshake(Handshake),
+    Tier3Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
@@ -552,6 +553,7 @@ pub enum RoutedMessageBody {
     VersionedChunkEndorsement(ChunkEndorsement),
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
+    StatePartRequest(StatePartRequest),
 }
 
 impl RoutedMessageBody {
@@ -645,6 +647,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::EpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
+            RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
         }
     }
 }

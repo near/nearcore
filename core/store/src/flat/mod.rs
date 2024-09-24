@@ -27,7 +27,6 @@
 
 mod chunk_view;
 pub mod delta;
-mod inlining_migration;
 mod manager;
 mod metrics;
 mod storage;
@@ -38,7 +37,6 @@ mod types;
 
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
-pub use inlining_migration::{inline_flat_state_values, FlatStateValuesInliningMigrationHandle};
 pub use manager::FlatStorageManager;
 pub use metrics::FlatStorageCreationMetrics;
 pub use storage::FlatStorage;

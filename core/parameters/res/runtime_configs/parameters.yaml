@@ -268,3 +268,5 @@ reject_tx_congestion_threshold: {
   numerator: 1,
   denominator: 1,
 }
+
+use_state_stored_receipt: false

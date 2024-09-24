@@ -3,10 +3,9 @@ use std::sync::Arc;
 use near_chain::ChainStoreAccess;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::validator_assignment::EndorsementStats;
+use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
 use near_primitives::version::ProtocolFeature;
 use near_store::Store;
 
@@ -14,20 +13,6 @@ use crate::Client;
 
 mod tracker_v1;
 mod tracker_v2;
-
-pub enum ChunkEndorsementsState {
-    Endorsed(Option<EndorsementStats>, ChunkEndorsementSignatures),
-    NotEnoughStake(Option<EndorsementStats>),
-}
-
-impl ChunkEndorsementsState {
-    pub fn stats(&self) -> Option<&EndorsementStats> {
-        match self {
-            Self::Endorsed(stats, _) => stats.as_ref(),
-            Self::NotEnoughStake(stats) => stats.as_ref(),
-        }
-    }
-}
 
 /// Module to track chunk endorsements received from chunk validators.
 pub struct ChunkEndorsementTracker {

@@ -9,7 +9,6 @@ use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_part::PartId;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use rand::Rng;
@@ -298,7 +297,7 @@ async fn run_select_peer_test(
     actions: &[SelectPeerAction],
     peers: &[Arc<SnapshotHostInfo>],
     sync_hash: &CryptoHash,
-    part_id: &PartId,
+    part_id: u64,
     part_selection_cache_batch_size: u32,
 ) {
     let config =
@@ -319,7 +318,7 @@ async fn run_select_peer_test(
                 assert!(err.is_none());
             }
             SelectPeerAction::CallSelect(wanted) => {
-                let peer = cache.select_host(sync_hash, 0, &part_id);
+                let peer = cache.select_host_for_part(sync_hash, 0, part_id);
                 let wanted = match wanted {
                     Some(idx) => Some(&peers[*idx].peer_id),
                     None => None,
@@ -327,8 +326,9 @@ async fn run_select_peer_test(
                 assert!(peer.as_ref() == wanted, "got: {:?} want: {:?}", &peer, &wanted);
             }
             SelectPeerAction::PartReceived => {
-                cache.part_received(sync_hash, 0, &part_id);
-                assert_eq!(cache.part_peer_state_len(0, &part_id), 0);
+                assert!(cache.has_selector(0, part_id));
+                cache.part_received(0, part_id);
+                assert!(!cache.has_selector(0, part_id));
             }
         }
     }
@@ -339,17 +339,19 @@ async fn test_select_peer() {
     init_test_logger();
     let mut rng = make_rng(2947294234);
     let sync_hash = CryptoHash(rng.gen());
-    let part_id = PartId { idx: 0, total: 100 };
+    let part_id = 0;
     let num_peers = SELECT_PEER_CASES.iter().map(|t| t.num_peers).max().unwrap();
     let mut peers = Vec::with_capacity(num_peers);
     for _ in 0..num_peers {
         let key = data::make_secret_key(&mut rng);
         let peer_id = PeerId::new(key.public_key());
-        let score = priority_score(&peer_id, &part_id);
+        let score = priority_score(&peer_id, 0u64, part_id);
         let info = Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, vec![0, 1, 2, 3], &key));
         peers.push((info, score));
     }
-    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| lscore.partial_cmp(rscore).unwrap());
+    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| {
+        lscore.partial_cmp(rscore).unwrap().reverse()
+    });
     let peers = peers.into_iter().map(|(info, _score)| info).collect::<Vec<_>>();
     tracing::debug!(
         "run_select_peer_test peers: {:?}",
@@ -361,7 +363,7 @@ async fn test_select_peer() {
             &t.actions,
             &peers[..t.num_peers],
             &sync_hash,
-            &part_id,
+            part_id,
             t.part_selection_cache_batch_size,
         )
         .await;

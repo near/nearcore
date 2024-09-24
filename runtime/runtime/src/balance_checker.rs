@@ -9,7 +9,7 @@ use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
@@ -27,12 +27,14 @@ fn get_delayed_receipts(
 ) -> Result<Vec<Receipt>, StorageError> {
     indexes
         .map(|index| {
-            get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} should be in the state",
-                    index
-                ))
-            })
+            let receipt: Result<ReceiptOrStateStoredReceipt, StorageError> =
+                get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} should be in the state",
+                        index
+                    ))
+                });
+            receipt.map(|receipt| receipt.into_receipt())
         })
         .collect()
 }
@@ -151,16 +153,20 @@ fn buffered_receipts(
         // in which case the final index can be 0 and the initial index larger.
         if let Some(num_forwarded) = after.first_index.checked_sub(before.first_index) {
             // The first n receipts were forwarded.
-            for receipt in initial_buffer.iter(initial_state).take(num_forwarded as usize) {
-                forwarded_receipts.push(receipt?)
+            for receipt in initial_buffer.iter(initial_state, true).take(num_forwarded as usize) {
+                let receipt = receipt?;
+                let receipt = receipt.into_receipt();
+                forwarded_receipts.push(receipt)
             }
         }
         if let Some(num_buffered) =
             after.next_available_index.checked_sub(before.next_available_index)
         {
             // The last n receipts are new. ("rev" to take from the back)
-            for receipt in final_buffer.iter(final_state).rev().take(num_buffered as usize) {
-                new_buffered_receipts.push(receipt?);
+            for receipt in final_buffer.iter(final_state, true).rev().take(num_buffered as usize) {
+                let receipt = receipt?;
+                let receipt = receipt.into_receipt();
+                new_buffered_receipts.push(receipt)
             }
         }
     }

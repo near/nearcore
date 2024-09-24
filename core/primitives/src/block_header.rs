@@ -604,10 +604,10 @@ impl BlockHeader {
             block_merkle_root,
         };
 
-        if chunk_endorsements.is_some() {
-            debug_assert!(ProtocolFeature::ChunkEndorsementsInBlockHeader
-                .enabled(this_epoch_protocol_version));
-            let chunk_endorsements = chunk_endorsements.unwrap();
+        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(this_epoch_protocol_version) {
+            let chunk_endorsements = chunk_endorsements.unwrap_or_else(|| {
+                panic!("BlockHeaderV5 is enabled but chunk endorsement bitmap is not provided")
+            });
             let inner_rest = BlockHeaderInnerRestV5 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,

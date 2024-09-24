@@ -480,6 +480,27 @@ impl EpochInfo {
         }
     }
 
+    pub fn get_validator_stake(&self, account_id: &AccountId) -> Option<Balance> {
+        match self {
+            Self::V1(v1) => v1
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v1.validators[*validator_id as usize].stake),
+            Self::V2(v2) => v2
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v2.validators[*validator_id as usize].stake()),
+            Self::V3(v3) => v3
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v3.validators[*validator_id as usize].stake()),
+            Self::V4(v4) => v4
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v4.validators[*validator_id as usize].stake()),
+        }
+    }
+
     #[inline]
     pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
         match self {
