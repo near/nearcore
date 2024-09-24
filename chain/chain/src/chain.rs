@@ -2536,12 +2536,13 @@ impl Chain {
     }
 
     // Returns the first block for which at least two new chunks have been produced for every shard in the epoch
+    // `next_header` is the next block header that is being processed in start_process_block_impl()
     pub fn get_current_epoch_sync_hash(
         &self,
-        sync_header: &BlockHeader,
+        next_header: &BlockHeader,
     ) -> Result<Option<CryptoHash>, Error> {
-        let epoch_start = Self::get_epoch_start_sync_hash_impl(self, sync_header)?;
-        if epoch_start == *sync_header.hash() {
+        let epoch_start = Self::get_epoch_start_sync_hash_impl(self, next_header)?;
+        if epoch_start == *next_header.hash() {
             return Ok(None);
         }
         let mut header = self.get_block_header(&epoch_start)?;
@@ -2551,8 +2552,8 @@ impl Chain {
             shard_ids.iter().map(|shard_id| (*shard_id, 0)).collect();
 
         loop {
-            header = if header.hash() == sync_header.prev_hash() {
-                sync_header.clone()
+            header = if header.hash() == next_header.prev_hash() {
+                next_header.clone()
             } else {
                 let next_hash = self.chain_store().get_next_block_hash(header.hash())?;
                 self.get_block_header(&next_hash)?
@@ -2580,7 +2581,7 @@ impl Chain {
             if done {
                 return Ok(Some(*header.hash()));
             }
-            if header.hash() == sync_header.hash() {
+            if header.hash() == next_header.hash() {
                 return Ok(None);
             }
         }
