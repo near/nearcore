@@ -161,6 +161,9 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
+    rustup toolchain install nightly
+    rustup target add wasm32-unknown-unknown --toolchain nightly
+
     # Test that checker is not broken
     if ! RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly test -p protocol-schema-check --profile dev-artifacts; then
         if ls ~/.cargo/registry/src/index.crates.io-*/*/rustc-ice-*.txt 1> /dev/null 2>&1; then
