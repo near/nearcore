@@ -164,19 +164,16 @@ impl AccountRange {
         Self { start: AccountBoundary::Start, end: AccountBoundary::End }
     }
 
-    pub fn new_start(end: &str) -> Self {
-        Self { start: AccountBoundary::Start, end: AccountBoundary::Middle(end.parse().unwrap()) }
+    pub fn new_start(end: AccountId) -> Self {
+        Self { start: AccountBoundary::Start, end: AccountBoundary::Middle(end) }
     }
 
-    pub fn new_end(start: &str) -> Self {
-        Self { start: AccountBoundary::Middle(start.parse().unwrap()), end: AccountBoundary::End }
+    pub fn new_end(start: AccountId) -> Self {
+        Self { start: AccountBoundary::Middle(start), end: AccountBoundary::End }
     }
 
-    pub fn new_mid(start: &str, end: &str) -> Self {
-        Self {
-            start: AccountBoundary::Middle(start.parse().unwrap()),
-            end: AccountBoundary::Middle(end.parse().unwrap()),
-        }
+    pub fn new_mid(start: AccountId, end: AccountId) -> Self {
+        Self { start: AccountBoundary::Middle(start), end: AccountBoundary::Middle(end) }
     }
 
     fn contains(&self, account_id: &AccountId) -> bool {
@@ -428,13 +425,22 @@ impl ShardLayout {
     /// This layout is provisional, the actual shard layout should be determined
     /// based on the fresh data before the resharding.
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
-        let s0 = AccountRange::new_start("aurora");
-        let s1 = AccountRange::new_mid("aurora", "aurora-0");
-        let s6 = AccountRange::new_mid("aurora-0", "game.hot.tg");
-        let s7 = AccountRange::new_mid("game.hot.tg", "game.hot.tg-0");
-        let s3 = AccountRange::new_mid("game.hot.tg-0", "kkuuue2akv_1630967379.near");
-        let s4 = AccountRange::new_mid("kkuuue2akv_1630967379.near", "tge-lockup.sweat");
-        let s5 = AccountRange::new_end("tge-lockup.sweat");
+        // the boundary accounts in lexicographical order
+        let b0: AccountId = "aurora".parse().unwrap();
+        let b1: AccountId = "aurora-0".parse().unwrap();
+        let b2: AccountId = "game.hot.tg".parse().unwrap();
+        let b3: AccountId = "game.hot.tg-0".parse().unwrap();
+        let b4: AccountId = "kkuuue2akv_1630967379.near".parse().unwrap();
+        let b5: AccountId = "tge-lockup.sweat".parse().unwrap();
+
+        // the account ranges in the order of the shard ids
+        let s0 = AccountRange::new_start(b0.clone());
+        let s1 = AccountRange::new_mid(b0, b1.clone());
+        let s6 = AccountRange::new_mid(b1, b2.clone());
+        let s7 = AccountRange::new_mid(b2, b3.clone());
+        let s3 = AccountRange::new_mid(b3, b4.clone());
+        let s4 = AccountRange::new_mid(b4, b5.clone());
+        let s5 = AccountRange::new_end(b5);
         let account_range_shard_mapping =
             BTreeMap::from([(s0, 0), (s1, 1), (s6, 6), (s7, 7), (s3, 3), (s4, 4), (s5, 5)]);
 
@@ -932,6 +938,18 @@ mod tests {
         ids.into_iter().map(|a| a.parse().unwrap()).collect()
     }
 
+    fn account_range_start(end: &str) -> AccountRange {
+        AccountRange::new_start(end.parse().unwrap())
+    }
+
+    fn account_range_end(start: &str) -> AccountRange {
+        AccountRange::new_end(start.parse().unwrap())
+    }
+
+    fn account_range_mid(start: &str, end: &str) -> AccountRange {
+        AccountRange::new_mid(start.parse().unwrap(), end.parse().unwrap())
+    }
+
     #[test]
     fn test_validate_account_range_shard_mapping() {
         // one shard
@@ -941,45 +959,45 @@ mod tests {
 
         // two shards
         let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_start("middle"), 0);
-        account_range_shard_mapping.insert(AccountRange::new_end("middle"), 1);
+        account_range_shard_mapping.insert(account_range_start("middle"), 0);
+        account_range_shard_mapping.insert(account_range_end("middle"), 1);
         validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap();
 
         // more shards, non-contiguous
         let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_start("ccc"), 0);
-        account_range_shard_mapping.insert(AccountRange::new_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(AccountRange::new_mid("kkk", "ppp"), 7);
-        account_range_shard_mapping.insert(AccountRange::new_end("ppp"), 1);
+        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
+        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
+        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
+        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
         validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap();
 
         // no start
         let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(AccountRange::new_mid("kkk", "ppp"), 7);
-        account_range_shard_mapping.insert(AccountRange::new_end("ppp"), 1);
+        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
+        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
+        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
         validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
 
         // no end
         let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_start("ccc"), 0);
-        account_range_shard_mapping.insert(AccountRange::new_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(AccountRange::new_mid("kkk", "ppp"), 7);
+        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
+        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
+        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
         validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
 
         // hole
         let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_start("ccc"), 0);
-        account_range_shard_mapping.insert(AccountRange::new_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(AccountRange::new_end("ppp"), 1);
+        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
+        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
+        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
         validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
 
         // overlap
         let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_start("ccc"), 0);
-        account_range_shard_mapping.insert(AccountRange::new_mid("ccc", "mmm"), 5);
-        account_range_shard_mapping.insert(AccountRange::new_mid("kkk", "ppp"), 7);
-        account_range_shard_mapping.insert(AccountRange::new_end("ppp"), 1);
+        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
+        account_range_shard_mapping.insert(account_range_mid("ccc", "mmm"), 5);
+        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
+        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
         validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
     }
 
