@@ -67,9 +67,6 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
 /// This number should not exceed MAX_STATE_PART_REQUEST times (number of peers in the network).
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
-/// A node with external storage configured first tries to obtain state parts from peers.
-/// For each part, it will make this many attempts before getting it from external storage.
-pub const EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 16;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
 pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
@@ -100,6 +97,9 @@ struct StateSyncExternal {
     chain_id: String,
     /// This semaphore imposes a restriction on the maximum number of simultaneous downloads
     semaphore: Arc<tokio::sync::Semaphore>,
+    /// A node with external storage configured first tries to obtain state parts from peers.
+    /// For each part, it will make this many attempts before getting it from external storage.
+    peer_attempts_threshold: u64,
     /// Connection to the external storage.
     external: ExternalConnection,
 }
@@ -148,6 +148,7 @@ impl StateSync {
                 location,
                 num_concurrent_requests,
                 num_concurrent_requests_during_catchup,
+                external_storage_fallback_threshold,
             }) => {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region, .. } => {
@@ -178,6 +179,7 @@ impl StateSync {
                 Some(StateSyncExternal {
                     chain_id: chain_id.to_string(),
                     semaphore: Arc::new(tokio::sync::Semaphore::new(num_permits)),
+                    peer_attempts_threshold: *external_storage_fallback_threshold,
                     external,
                 })
             }
@@ -577,12 +579,14 @@ impl StateSync {
         let mut peer_requests_sent = 0;
         let mut state_root_and_part_count: Option<(CryptoHash, u64)> = None;
         for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
-            if self.external.is_some()
-                && download.state_requests_count >= EXTERNAL_STORAGE_FALLBACK_THRESHOLD
+            if self
+                .external
+                .as_ref()
+                .is_some_and(|ext| download.state_requests_count >= ext.peer_attempts_threshold)
             {
                 // TODO(saketh): After we have sufficient confidence that requesting state parts
                 // from peers is working well, we will eliminate the external storage entirely.
-                let StateSyncExternal { chain_id, semaphore, external } =
+                let StateSyncExternal { chain_id, semaphore, external, .. } =
                     self.external.as_ref().unwrap();
                 if semaphore.available_permits() == 0 {
                     continue;
