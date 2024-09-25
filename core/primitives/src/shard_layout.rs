@@ -73,7 +73,7 @@ pub struct ShardLayoutV0 {
 /// shard layout. Instead of using map, we just use a vec here because shard_id
 /// ranges from 0 to num_shards-1.
 ///
-///  For example, if a shard layout with only shard 0 splits into shards 0, 1,
+/// For example, if a shard layout with only shard 0 splits into shards 0, 1,
 /// 2, 3, the ShardsSplitMap will be `[[0, 1, 2, 3]]`
 type ShardsSplitMap = Vec<Vec<ShardId>>;
 
