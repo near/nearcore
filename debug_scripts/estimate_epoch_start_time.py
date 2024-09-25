@@ -4,18 +4,30 @@ import math
 import argparse
 
 
-# Function to get block data by block hash
-def get_block_by_hash(url, block_hash):
+# Function to get block data
+def get_block(url, block_hash):
     payload = {
         "jsonrpc": "2.0",
         "id": "dontcare",
         "method": "block",
-        "params": {
-            "block_id": block_hash
-        }
     }
+
+    payload["params"] = {
+        "block_id": block_hash
+    } if block_hash is not None else {
+        "finality": "final"
+    }
+
     response = requests.post(url, json=payload)
     return response.json()['result']['header']
+
+
+def ns_to_seconds(ns):
+    return ns / 1e9
+
+
+def format_time(seconds):
+    return time.strftime("%H hours, %M minutes", time.gmtime(seconds))
 
 
 # Function to fetch epoch lengths for the past n epochs and calculate the weighted average using exponential decay
@@ -28,7 +40,7 @@ def get_exponential_weighted_epoch_lengths(url,
 
     for i in range(num_epochs):
         # Get the block data by hash
-        block_data = get_block_by_hash(url, current_hash)
+        block_data = get_block(url, current_hash)
 
         # Get the timestamp of this block (start of current epoch)
         current_timestamp = int(block_data['timestamp'])
@@ -37,15 +49,15 @@ def get_exponential_weighted_epoch_lengths(url,
         next_epoch_hash = block_data['next_epoch_id']
 
         # Fetch the block data for start of previous epoch
-        next_block_data = get_block_by_hash(url, next_epoch_hash)
+        next_block_data = get_block(url, next_epoch_hash)
         next_timestamp = int(next_block_data['timestamp'])
 
         # Calculate the length of the epoch in nanoseconds
         epoch_length = current_timestamp - next_timestamp
-        epoch_length_seconds = epoch_length / 1e9  # Convert to seconds
+        epoch_length_seconds = ns_to_seconds(epoch_length)  # Convert to seconds
         epoch_lengths.append(epoch_length_seconds)
 
-        print(f"Epoch {i+1}: {epoch_length_seconds} seconds")
+        print(f"Epoch -{i+1}: {format_time(epoch_length_seconds)}")
 
         # Move to the next epoch
         current_hash = next_epoch_hash
@@ -62,7 +74,7 @@ def get_exponential_weighted_epoch_lengths(url,
     exponential_weighted_average_epoch_length = weighted_sum / total_weight
 
     print(
-        f"\nExponential weighted average epoch length: {exponential_weighted_average_epoch_length} seconds"
+        f"\nExponential weighted average epoch length: {format_time(exponential_weighted_average_epoch_length)}"
     )
 
     return epoch_lengths, exponential_weighted_average_epoch_length
@@ -72,7 +84,8 @@ def get_exponential_weighted_epoch_lengths(url,
 def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
                           num_future_epochs):
     future_epochs = []
-    current_timestamp = starting_epoch_timestamp / 1e9  # Convert from nanoseconds to seconds
+    current_timestamp = ns_to_seconds(
+        starting_epoch_timestamp)  # Convert from nanoseconds to seconds
 
     for i in range(1, num_future_epochs + 1):
         # Add the average epoch length for each future epoch
@@ -88,31 +101,17 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
     return future_epochs
 
 
-# First, we get the latest block and save the next_epoch_id
-def get_latest_block(url):
-    payload = {
-        "jsonrpc": "2.0",
-        "id": "dontcare",
-        "method": "block",
-        "params": {
-            "finality": "final"
-        }
-    }
-    response = requests.post(url, json=payload).json()
-    return response['result']['header']
-
-
 # Main function to run the process
 def main(args):
-    latest_block = get_latest_block(args.url)
+    latest_block = get_block(args.url, None)
     next_epoch_id = latest_block['next_epoch_id']
-    current_epoch_first_block = get_block_by_hash(args.url, next_epoch_id)
+    current_epoch_first_block = get_block(args.url, next_epoch_id)
     current_timestamp = int(current_epoch_first_block['timestamp']
                            )  # Current epoch start timestamp in nanoseconds
 
     # Get epoch lengths and the exponential weighted average
     epoch_lengths, exponential_weighted_average_epoch_length = get_exponential_weighted_epoch_lengths(
-        args.url, next_epoch_id, args.num_epochs, args.decay_rate)
+        args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
 
     # Predict future epoch start dates
     predict_future_epochs(current_timestamp,
@@ -120,12 +119,32 @@ def main(args):
                           args.num_future_epochs)
 
 
+# Custom action to set the URL based on chain_id
+class SetURLFromChainID(argparse.Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values == 'mainnet':
+            setattr(namespace, 'url', 'https://archival-rpc.mainnet.near.org')
+        elif values == 'testnet':
+            setattr(namespace, 'url', 'https://archival-rpc.testnet.near.org')
+
+
 # Set up command-line argument parsing
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Approximate future epoch start dates for NEAR Protocol.")
-    parser.add_argument("--url", required=True, help="The RPC URL to query.")
-    parser.add_argument("--num_epochs",
+    # Create a mutually exclusive group for chain_id and url
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument("--url", help="The RPC URL to query.")
+    group.add_argument(
+        "--chain_id",
+        choices=['mainnet', 'testnet'],
+        action=SetURLFromChainID,
+        help=
+        "The chain ID (either 'mainnet' or 'testnet'). Sets the corresponding URL."
+    )
+
+    parser.add_argument("--num_past_epochs",
                         type=int,
                         default=4,
                         help="Number of past epochs to analyze.")
