@@ -123,7 +123,9 @@ impl ShardLayoutV1 {
 }
 
 /// A boundary of an account range. Can be the start, the end or an account id
-/// in between two shards.
+/// in between two shards. For example a shard layout with four shards would
+/// have one start boundary, three middle boundaries and one end boundary.
+/// e.g. Start, Middle("ccc"), Middle("kkk"), Middle("ppp"), End
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Ord)]
 pub enum AccountBoundary {
     Start,
@@ -244,7 +246,10 @@ fn validate_shards_account_range(
         let prev = values[i - 1];
         let curr = values[i];
         if prev.end != curr.start {
-            return Err(err("account ranges should be contiguous"));
+            return Err(err(&format!(
+                "account ranges should be contiguous, {:?} != {:?}",
+                prev.end, curr.start
+            )));
         }
     }
 
