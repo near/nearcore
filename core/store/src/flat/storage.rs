@@ -389,7 +389,7 @@ impl FlatStorage {
         let blocks = guard.get_blocks_to_head(&new_head)?;
 
         for block_hash in blocks.into_iter().rev() {
-            let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+            let mut store_update = guard.store.store_update();
             // Delta must exist because flat storage is locked and we could retrieve
             // path from old to new head. Otherwise we return internal error.
             let changes = store_helper::get_delta_changes(&guard.store, shard_uid, block_hash)?
@@ -460,7 +460,7 @@ impl FlatStorage {
         if block.prev_hash != guard.flat_head.hash && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }
-        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        let mut store_update = guard.store.store_update();
         store_helper::set_delta(&mut store_update, shard_uid, &delta);
         let cached_changes: CachedFlatStateChanges = delta.changes.into();
         guard.deltas.insert(

@@ -1,7 +1,6 @@
 use super::mem::mem_tries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
-use crate::flat::store_helper::remove_all_state_values;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
@@ -167,15 +166,11 @@ impl ShardTries {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new(self.get_db().clone())
+        self.0.store.store_update()
     }
 
     pub fn get_store(&self) -> Store {
         self.0.store.clone()
-    }
-
-    pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
-        &self.0.store.storage
     }
 
     pub fn get_flat_storage_manager(&self) -> FlatStorageManager {
@@ -395,16 +390,6 @@ impl ShardTries {
     ) -> Result<FlatStorageStatus, StorageError> {
         let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
         Ok(manager.get_flat_storage_status(shard_uid))
-    }
-
-    /// Removes all trie state values from store for a given shard_uid
-    /// Useful when we are trying to delete state of parent shard after resharding
-    /// Note that flat storage needs to be handled separately
-    pub fn delete_trie_for_shard(&self, shard_uid: ShardUId, store_update: &mut StoreUpdate) {
-        // Clear both caches and remove state values from store
-        let _cache = self.0.caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        let _view_cache = self.0.view_caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        remove_all_state_values(store_update, shard_uid);
     }
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
@@ -908,34 +893,5 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
-    }
-
-    #[test]
-    fn test_delete_trie_for_shard() {
-        let shard_uid = ShardUId::single_shard();
-        let tries = create_trie();
-
-        let key = CryptoHash::hash_borsh("alice").as_bytes().to_vec();
-        let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
-
-        // insert some data
-        let trie = tries.get_trie_for_shard(shard_uid, CryptoHash::default());
-        let trie_changes = trie.update(vec![(key, Some(val))]).unwrap();
-        let mut store_update = tries.store_update();
-        tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
-
-        // delete trie for shard_uid
-        let mut store_update = tries.store_update();
-        tries.delete_trie_for_shard(shard_uid, &mut store_update);
-        store_update.commit().unwrap();
-
-        // verify if data and caches are deleted
-        assert!(tries.0.caches.lock().unwrap().get(&shard_uid).is_none());
-        assert!(tries.0.view_caches.lock().unwrap().get(&shard_uid).is_none());
-        let store = tries.get_store();
-        let key_prefix = shard_uid.to_bytes();
-        let mut iter = store.iter_prefix(DBCol::State, &key_prefix);
-        assert!(iter.next().is_none());
     }
 }
