@@ -274,6 +274,8 @@ impl SubtreeSize {
 
 #[cfg(test)]
 mod trie_recording_tests {
+    use crate::adapter::trie_store::TrieStoreAdapter;
+    use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::db::refcount::decode_value_with_rc;
     use crate::test_utils::{
         gen_larger_changes, simplify_changes, test_populate_flat_storage, test_populate_trie,
@@ -362,6 +364,7 @@ mod trie_recording_tests {
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra
+            .store_update()
             .set_ser(
                 DBCol::ChunkExtra,
                 &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
@@ -412,7 +415,7 @@ mod trie_recording_tests {
         let (keys_to_get, keys_to_get_ref) =
             keys.into_iter().filter(|_| random()).partition::<Vec<_>, _>(|_| random());
         PreparedTrie {
-            store: tries_for_building.get_store(),
+            store: tries_for_building.store().store(),
             shard_uid,
             data_in_trie,
             keys_to_get,
@@ -428,24 +431,25 @@ mod trie_recording_tests {
     /// The only thing we don't delete are the values, which may not be
     /// inlined.
     fn destructively_delete_in_memory_state_from_disk(
-        store: &Store,
+        store: &TrieStoreAdapter,
         data_in_trie: &HashMap<Vec<u8>, Vec<u8>>,
     ) {
         let key_hashes_to_keep = data_in_trie.iter().map(|(_, v)| hash(&v)).collect::<HashSet<_>>();
         let mut update = store.store_update();
-        for result in store.iter_raw_bytes(DBCol::State) {
+        for result in store.iter() {
             let (key, value) = result.unwrap();
             let (_, refcount) = decode_value_with_rc(&value);
-            let key_hash: CryptoHash = CryptoHash::try_from_slice(&key[8..]).unwrap();
+            let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
+            let key_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
             if !key_hashes_to_keep.contains(&key_hash) {
                 update.decrement_refcount_by(
-                    DBCol::State,
-                    &key,
+                    shard_uid,
+                    &key_hash,
                     NonZeroU32::new(refcount as u32).unwrap(),
                 );
             }
         }
-        update.delete_all(DBCol::FlatState);
+        update.store_update().delete_all(DBCol::FlatState);
         update.commit().unwrap();
     }
 
@@ -567,7 +571,7 @@ mod trie_recording_tests {
             tries.load_mem_trie(&shard_uid, None, false).unwrap();
             // Delete the on-disk state so that we really know we're using
             // in-memory tries.
-            destructively_delete_in_memory_state_from_disk(&store, &data_in_trie);
+            destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads();
             trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);

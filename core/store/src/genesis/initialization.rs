@@ -129,7 +129,7 @@ fn genesis_state_from_genesis(
     });
     assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
     let tries = ShardTries::new(
-        store.clone(),
+        store.trie_store(),
         TrieConfig::default(),
         &shard_uids,
         FlatStorageManager::new(store.flat_store()),

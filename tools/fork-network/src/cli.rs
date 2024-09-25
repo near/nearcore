@@ -506,7 +506,7 @@ impl ForkNetworkCommand {
         // Keeps track of accounts that have a full access key.
         let mut has_full_key = HashSet::new();
         // Lets us lookup large values in the `State` columns.
-        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+        let trie_storage = TrieDBStorage::new(store.trie_store(), shard_uid);
 
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
         let mut index_delayed_receipt = 0;

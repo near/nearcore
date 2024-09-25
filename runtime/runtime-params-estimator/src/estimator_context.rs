@@ -100,7 +100,7 @@ impl<'c> EstimatorContext<'c> {
             trie_config.load_mem_tries_for_shards = vec![shard_uid];
         }
         let tries = ShardTries::new(
-            store,
+            store.trie_store(),
             trie_config,
             &[shard_uid],
             flat_storage_manager,
@@ -310,7 +310,7 @@ impl Testbed<'_> {
     }
 
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
-        let store = self.tries.get_store();
+        let store = self.tries.store();
         let is_view = false;
         let prefetcher = None;
         let caching_storage = TrieCachingStorage::new(
@@ -325,7 +325,7 @@ impl Testbed<'_> {
 
     pub(crate) fn clear_caches(&mut self) {
         // Flush out writes hanging in memtable
-        self.tries.get_store().flush().unwrap();
+        self.tries.store().store().flush().unwrap();
 
         // OS caches:
         // - only required in time based measurements, since ICount looks at syscalls directly.
@@ -359,7 +359,7 @@ impl Testbed<'_> {
             )
             .unwrap();
 
-        let store = self.tries.get_store();
+        let store = self.tries.store();
         let mut store_update = store.store_update();
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);

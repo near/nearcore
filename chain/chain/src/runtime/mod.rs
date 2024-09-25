@@ -103,7 +103,7 @@ impl NightshadeRuntime {
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let shard_uids: Vec<_> = genesis_config.shard_layout.shard_uids().collect();
         let tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             trie_config,
             &shard_uids,
             flat_storage_manager,

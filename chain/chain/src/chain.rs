@@ -90,7 +90,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::adapter::StoreUpdateAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::config::StateSnapshotType;
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::trie::mem::resharding::RetainMode;
@@ -1924,7 +1924,7 @@ impl Chain {
             );
             chain_store_update.commit()?;
 
-            let mut store_update = self.chain_store.store().store_update();
+            let mut store_update = self.chain_store.store().trie_store().store_update();
             tries.apply_insertions(&trie_changes, new_shard_uid, &mut store_update);
             store_update.commit()?;
         }

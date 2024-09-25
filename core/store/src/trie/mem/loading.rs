@@ -11,7 +11,6 @@ use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-use near_primitives::state::FlatStateValue;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::BTreeSet;
@@ -39,7 +38,7 @@ fn load_trie_from_flat_state(
     let (arena, root_id) = if parallelize {
         const NUM_PARALLEL_SUBTREES_DESIRED: usize = 256;
         load_memtrie_in_parallel(
-            store.clone(),
+            store.trie_store(),
             shard_uid,
             state_root,
             NUM_PARALLEL_SUBTREES_DESIRED,
@@ -68,9 +67,7 @@ fn load_memtrie_single_thread(
     let mut arena = STArena::new(shard_uid.to_string());
     let mut recon = TrieConstructor::new(&mut arena);
     let mut num_keys_loaded = 0;
-    for item in store
-        .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
-    {
+    for item in store.flat_store().iter(shard_uid) {
         let (key, value) = item.map_err(|err| {
             FlatStorageError::StorageInternalError(format!("Error iterating over FlatState: {err}"))
         })?;
@@ -187,7 +184,7 @@ pub fn load_trie_from_flat_state_and_delta(
 #[cfg(test)]
 mod tests {
     use super::load_trie_from_flat_state_and_delta;
-    use crate::adapter::StoreAdapter;
+    use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::flat::test_utils::MockChain;
     use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
@@ -224,7 +221,7 @@ mod tests {
 
         eprintln!("Trie and flat storage populated");
         let in_memory_trie = load_trie_from_flat_state(
-            &shard_tries.get_store(),
+            &shard_tries.store().store(),
             shard_uid,
             state_root,
             123,
@@ -423,7 +420,7 @@ mod tests {
         let shard_uid = ShardUId { version: 1, shard_id: 1 };
 
         // Populate the initial flat storage state at block 0.
-        let mut store_update = shard_tries.get_store().flat_store().store_update();
+        let mut store_update = shard_tries.store().flat_store().store_update();
         store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
@@ -526,7 +523,7 @@ mod tests {
         let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
         let mut store_update = tries.store_update();
         tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
-        store_update.merge(
+        store_update.store_update().merge(
             tries
                 .get_flat_storage_manager()
                 .save_flat_state_changes(

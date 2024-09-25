@@ -1084,17 +1084,6 @@ pub fn set_genesis_congestion_infos(
         .expect("Borsh cannot fail");
 }
 
-fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> io::Result<T>
-where
-    F: std::string::ToString,
-{
-    match res {
-        Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(io::Error::new(io::ErrorKind::NotFound, field_name.to_string())),
-        Err(e) => Err(e),
-    }
-}
-
 #[derive(Clone)]
 pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,

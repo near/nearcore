@@ -1824,7 +1824,7 @@ mod tests {
         create_test_store, gen_changes, simplify_changes, test_populate_flat_storage,
         test_populate_trie, TestTriesBuilder,
     };
-    use crate::{DBCol, MissingTrieValueContext};
+    use crate::MissingTrieValueContext;
 
     use super::*;
 
@@ -2123,7 +2123,7 @@ mod tests {
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
             let tries = TestTriesBuilder::new().build();
-            let store = tries.get_store();
+            let store = tries.store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
@@ -2149,7 +2149,7 @@ mod tests {
             state_root =
                 test_populate_trie(&tries, &state_root, ShardUId::single_shard(), trie_changes);
             assert_eq!(state_root, Trie::EMPTY_ROOT, "Trie must be empty");
-            assert!(store.iter(DBCol::State).peekable().peek().is_none(), "Storage must be empty");
+            assert!(store.iter().peekable().peek().is_none(), "Storage must be empty");
         }
     }
 

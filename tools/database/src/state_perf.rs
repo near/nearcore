@@ -44,7 +44,7 @@ impl StatePerfCommand {
                 .enumerate()
                 .progress()
         {
-            let trie_storage = near_store::TrieDBStorage::new(store.clone(), shard_uid);
+            let trie_storage = near_store::TrieDBStorage::new(store.trie_store(), shard_uid);
             let include_sample = sample_i >= self.warmup_samples;
             if include_sample {
                 perf_context.reset();

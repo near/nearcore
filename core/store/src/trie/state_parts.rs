@@ -525,7 +525,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{DBCol, MissingTrieValueContext, TrieCachingStorage};
+    use crate::MissingTrieValueContext;
     use near_primitives::shard_layout::ShardUId;
 
     /// Checks that sampling state boundaries always gives valid state keys
@@ -1228,8 +1228,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let store_value = vec![5; value_len];
         let value_hash = hash(&store_value);
-        let store_key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &value_hash);
-        store_update.decrement_refcount(DBCol::State, &store_key);
+        store_update.decrement_refcount(shard_uid, &value_hash);
         store_update.commit().unwrap();
 
         assert_eq!(

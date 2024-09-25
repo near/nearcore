@@ -1,4 +1,5 @@
 pub mod flat_store;
+pub mod trie_store;
 
 use std::ops::{Deref, DerefMut};
 
@@ -88,6 +89,10 @@ pub trait StoreAdapter {
     fn flat_store(&self) -> flat_store::FlatStoreAdapter {
         flat_store::FlatStoreAdapter::new(self.store())
     }
+
+    fn trie_store(&self) -> trie_store::TrieStoreAdapter {
+        trie_store::TrieStoreAdapter::new(self.store())
+    }
 }
 
 /// Simple adapter wrapper on top of StoreUpdate to provide a more ergonomic interface for
@@ -100,5 +105,9 @@ pub trait StoreUpdateAdapter: Sized {
 
     fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
+        trie_store::TrieStoreUpdateAdapter::new(self.store_update())
     }
 }
