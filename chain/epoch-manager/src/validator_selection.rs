@@ -392,6 +392,7 @@ fn select_validators(
     min_stake_ratio: Ratio<u128>,
     protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
+    println!("RATIO: {} SELECTING: {}", min_stake_ratio, max_number_selected);
     let mut total_stake = 0;
     let n = cmp::min(max_number_selected, proposals.len());
     let mut validators = Vec::with_capacity(n);
@@ -412,6 +413,7 @@ fn select_validators(
         // all slots were filled, so the threshold stake is 1 more than the current
         // smallest stake
         let threshold = validators.last().unwrap().stake() + 1;
+        println!("MAX {}", threshold);
         (validators, proposals, threshold)
     } else {
         // the stake ratio condition prevented all slots from being filled,
@@ -429,6 +431,7 @@ fn select_validators(
         } else {
             (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer()
         };
+        println!("CUT {}", threshold);
         (validators, proposals, threshold)
     }
 }

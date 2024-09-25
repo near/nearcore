@@ -39,7 +39,7 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::types::{Balance, EpochHeight};
+use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
 use near_store::TrieStorage;
@@ -905,6 +905,7 @@ pub(crate) fn print_epoch_analysis(
     mode: EpochAnalysisMode,
     near_config: NearConfig,
     store: Store,
+    force_protocol_version: ProtocolVersion,
 ) {
     let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
@@ -948,7 +949,7 @@ pub(crate) fn print_epoch_analysis(
     let mut next_epoch_info =
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
     let mut next_next_epoch_config =
-        epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION).unwrap();
+        epoch_manager.get_config_for_protocol_version(force_protocol_version).unwrap();
     let mut has_same_shard_layout;
     let mut epoch_protocol_version;
     let mut next_next_protocol_version;
@@ -970,7 +971,7 @@ pub(crate) fn print_epoch_analysis(
             // chain/epoch-manager/src/validator_selection.rs:227:13.
             // Probably has something to do with extreme case where all
             // proposals are selected.
-            next_next_epoch_config.validator_selection_config.num_chunk_validator_seats = 100;
+            // next_next_epoch_config.validator_selection_config.num_chunk_validator_seats = 300;
         }
     }
 
@@ -981,12 +982,13 @@ pub(crate) fn print_epoch_analysis(
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
+        // let next_next_epoch_height = epoch_height.saturating_add(1);
         let next_next_epoch_height = epoch_height.saturating_add(2);
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
         let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
         let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
-        let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
+        let original_next_next_protocol_version = force_protocol_version;
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
@@ -994,17 +996,18 @@ pub(crate) fn print_epoch_analysis(
                 // about epochs.
                 next_epoch_info =
                     epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-                next_next_epoch_config =
-                    epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
-                has_same_shard_layout =
-                    next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
+                // next_next_epoch_config =
+                //     epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
+                has_same_shard_layout = true;
+                // has_same_shard_layout =
+                //     next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
                 epoch_protocol_version = epoch_info.protocol_version();
                 next_next_protocol_version = original_next_next_protocol_version;
             }
             EpochAnalysisMode::Backtest => {
                 has_same_shard_layout = true;
-                epoch_protocol_version = PROTOCOL_VERSION;
-                next_next_protocol_version = PROTOCOL_VERSION;
+                epoch_protocol_version = force_protocol_version;
+                next_next_protocol_version = force_protocol_version;
             }
         };
 
@@ -1014,10 +1017,13 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        println!("{}", next_next_epoch_config.validator_selection_config.minimum_stake_ratio);
         let next_next_epoch_info = near_epoch_manager::proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
+            // vec![],
+            // HashMap::default(),
             epoch_summary.all_proposals.clone(),
             epoch_summary.validator_kickout.clone(),
             stored_next_next_epoch_info.validator_reward().clone(),
@@ -1027,7 +1033,10 @@ pub(crate) fn print_epoch_analysis(
             has_same_shard_layout,
         )
         .unwrap();
-
+        
+        const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+        let seat_price_near = next_next_epoch_info.seat_price() / ONE_NEAR;
+        
         // Compute difference between chunk producer assignments.
         let next_assignment = next_epoch_info.chunk_producers_settlement();
         let next_next_assignment = next_next_epoch_info.chunk_producers_settlement();
@@ -1079,12 +1088,14 @@ pub(crate) fn print_epoch_analysis(
             EpochAnalysisMode::Backtest => {
                 // Print csv-style stats on screen.
                 println!(
-                    "{next_next_epoch_height},{original_next_next_protocol_version},{state_syncs},{},{},{},{},{}",
-                    validator_num.values().min().unwrap(),
-                    validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
-                    min_stake,
-                    max_stake - min_stake,
-                    ((max_stake - min_stake) as f64) / (*max_stake as f64)
+                    "{},{original_next_next_protocol_version},{state_syncs},{}",
+                    next_epoch_height + 1,
+                    seat_price_near,
+                    // validator_num.values().min().unwrap(),
+                    // validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
+                    // min_stake,
+                    // max_stake - min_stake,
+                    // ((max_stake - min_stake) as f64) / (*max_stake as f64)
                 );
                 // Use the generated epoch info for the next iteration.
                 next_epoch_info = next_next_epoch_info;
