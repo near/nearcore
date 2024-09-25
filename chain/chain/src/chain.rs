@@ -1799,7 +1799,7 @@ impl Chain {
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
         // 2) Start creating snapshot if needed.
-        if let Err(err) = self.process_snapshot(me) {
+        if let Err(err) = self.process_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
 
@@ -3863,7 +3863,7 @@ impl Chain {
     }
 
     /// Function to create or delete a snapshot if necessary.
-    fn process_snapshot(&mut self, me: &Option<AccountId>) -> Result<(), Error> {
+    fn process_snapshot(&mut self) -> Result<(), Error> {
         let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot()?;
         if !make_snapshot && !delete_snapshot {
             return Ok(());
