@@ -4,7 +4,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::{fmt, str};
 
@@ -126,11 +125,14 @@ impl ShardLayoutV1 {
 /// in between two shards. For example a shard layout with four shards would
 /// have one start boundary, three middle boundaries and one end boundary.
 /// e.g. Start, Middle("ccc"), Middle("kkk"), Middle("ppp"), End
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+///
+/// The order of fields (Start, Middle, End) in the enum is important as it
+/// defines the derived ordering.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AccountBoundary {
     Start,
-    End,
     Middle(AccountId),
+    End,
 }
 
 impl fmt::Debug for AccountBoundary {
@@ -143,53 +145,11 @@ impl fmt::Debug for AccountBoundary {
     }
 }
 
-impl Ord for AccountBoundary {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (AccountBoundary::Start, AccountBoundary::Start) => Ordering::Equal,
-            (AccountBoundary::End, AccountBoundary::End) => Ordering::Equal,
-
-            (AccountBoundary::Start, AccountBoundary::End) => Ordering::Less,
-            (AccountBoundary::End, AccountBoundary::Start) => Ordering::Greater,
-
-            (AccountBoundary::Start, AccountBoundary::Middle(_)) => Ordering::Less,
-            (AccountBoundary::Middle(_), AccountBoundary::Start) => Ordering::Greater,
-
-            (AccountBoundary::End, AccountBoundary::Middle(_)) => Ordering::Greater,
-            (AccountBoundary::Middle(_), AccountBoundary::End) => Ordering::Less,
-
-            (AccountBoundary::Middle(a), AccountBoundary::Middle(b)) => a.cmp(b),
-        }
-    }
-}
-
-impl PartialOrd for AccountBoundary {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 /// The account range of a single shard.
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AccountRange {
     start: AccountBoundary,
     end: AccountBoundary,
-}
-
-impl Ord for AccountRange {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.start.cmp(&other.start) {
-            core::cmp::Ordering::Equal => {}
-            ord => return ord,
-        }
-        self.end.cmp(&other.end)
-    }
-}
-
-impl PartialOrd for AccountRange {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
 impl fmt::Debug for AccountRange {
@@ -270,12 +230,12 @@ fn validate_account_range_shard_mapping(
         let prev = account_ranges[i - 1];
         let curr = account_ranges[i];
 
-        if prev.end == AccountBoundary::Start || prev.end == AccountBoundary::End {
+        if !matches!(prev.end, AccountBoundary::Middle(_)) {
             return Err(err(&format!(
                 "Account range in the middle should not end with Start/End. {prev:?}"
             )));
         }
-        if curr.start == AccountBoundary::Start || curr.start == AccountBoundary::End {
+        if !matches!(curr.start, AccountBoundary::Middle(_)) {
             return Err(err(&format!(
                 "Account range in the middle should not start with Start/End. {curr:?}"
             )));
