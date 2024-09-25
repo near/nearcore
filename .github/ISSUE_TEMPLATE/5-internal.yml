@@ -1,0 +1,10 @@
+name: Internal
+description: Template for nearcore employees only
+title: "Issue: "
+body:
+  - type: textarea
+    id: content
+    attributes:
+      label: Description
+    validations:
+      required: true
