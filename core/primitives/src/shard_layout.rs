@@ -126,7 +126,7 @@ impl ShardLayoutV1 {
 /// in between two shards. For example a shard layout with four shards would
 /// have one start boundary, three middle boundaries and one end boundary.
 /// e.g. Start, Middle("ccc"), Middle("kkk"), Middle("ppp"), End
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Ord)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub enum AccountBoundary {
     Start,
     End,
@@ -143,40 +143,52 @@ impl fmt::Debug for AccountBoundary {
     }
 }
 
-impl PartialOrd for AccountBoundary {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+impl Ord for AccountBoundary {
+    fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (AccountBoundary::Start, AccountBoundary::Start) => Some(Ordering::Equal),
-            (AccountBoundary::End, AccountBoundary::End) => Some(Ordering::Equal),
+            (AccountBoundary::Start, AccountBoundary::Start) => Ordering::Equal,
+            (AccountBoundary::End, AccountBoundary::End) => Ordering::Equal,
 
-            (AccountBoundary::Start, AccountBoundary::End) => Some(Ordering::Less),
-            (AccountBoundary::End, AccountBoundary::Start) => Some(Ordering::Greater),
+            (AccountBoundary::Start, AccountBoundary::End) => Ordering::Less,
+            (AccountBoundary::End, AccountBoundary::Start) => Ordering::Greater,
 
-            (AccountBoundary::Start, AccountBoundary::Middle(_)) => Some(Ordering::Less),
-            (AccountBoundary::Middle(_), AccountBoundary::Start) => Some(Ordering::Greater),
+            (AccountBoundary::Start, AccountBoundary::Middle(_)) => Ordering::Less,
+            (AccountBoundary::Middle(_), AccountBoundary::Start) => Ordering::Greater,
 
-            (AccountBoundary::End, AccountBoundary::Middle(_)) => Some(Ordering::Greater),
-            (AccountBoundary::Middle(_), AccountBoundary::End) => Some(Ordering::Less),
+            (AccountBoundary::End, AccountBoundary::Middle(_)) => Ordering::Greater,
+            (AccountBoundary::Middle(_), AccountBoundary::End) => Ordering::Less,
 
-            (AccountBoundary::Middle(a), AccountBoundary::Middle(b)) => a.partial_cmp(b),
+            (AccountBoundary::Middle(a), AccountBoundary::Middle(b)) => a.cmp(b),
         }
     }
 }
 
+impl PartialOrd for AccountBoundary {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// The account range of a single shard.
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Ord)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct AccountRange {
     start: AccountBoundary,
     end: AccountBoundary,
 }
 
-impl PartialOrd for AccountRange {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.start.partial_cmp(&other.start) {
-            Some(core::cmp::Ordering::Equal) => {}
+impl Ord for AccountRange {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.start.cmp(&other.start) {
+            core::cmp::Ordering::Equal => {}
             ord => return ord,
         }
-        self.end.partial_cmp(&other.end)
+        self.end.cmp(&other.end)
+    }
+}
+
+impl PartialOrd for AccountRange {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
