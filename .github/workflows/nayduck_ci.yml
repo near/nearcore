@@ -2,9 +2,12 @@ name: CI Nayduck tests
 on:
   merge_group:
 
+  workflow_dispatch:
+
 jobs:
   nayduck_tests:
     runs-on: "ubuntu-latest"
+    environment: development
     timeout-minutes: 60
 
     steps:
@@ -14,6 +17,10 @@ jobs:
       - name: Install required python modules
         run: |
           pip3 install -r pytest/requirements.txt
+
+      - name: Create nayduck-code file
+        run: |
+          echo ${{ secrets.NAYDUCK_CODE }} > ~/.config/nayduck-code
 
       - name: Run Nayduck tests and wait for results
         run: |
@@ -37,16 +44,3 @@ jobs:
             echo "Fix them before merging"
             exit 1
           fi
-
-
-
-
-
-
-# result=$( python3 scripts/nayduck.py --test-file nightly/ci.txt )
-# (venv) ➜  nearcore git:(nayduck-rearrange) ✗ echo $result      
-# Scheduling tests for: 
-# branch - nayduck-rearrange 
-# commit hash - 6ed7320f2fcb9b7023677717c59754a19b14d136
-# Sending request ...
-# Success.  https://nayduck.nearone.org/#/run/283
