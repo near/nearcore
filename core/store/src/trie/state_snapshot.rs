@@ -122,7 +122,7 @@ impl StateSnapshot {
     }
 
     /// Returns the UIds for the shards included in the snapshot.
-    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
+    pub fn get_included_shard_uids(&self) -> Vec<ShardUId> {
         self.included_shard_uids.clone()
     }
 
@@ -242,7 +242,7 @@ impl ShardTries {
 
         metrics::HAS_STATE_SNAPSHOT.set(1);
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
-        Ok(Some(state_snapshot_lock.as_ref().unwrap().get_shard_uids()))
+        Ok(Some(state_snapshot_lock.as_ref().unwrap().get_included_shard_uids()))
     }
 
     /// Deletes all snapshots and unsets the STATE_SNAPSHOT_KEY.
