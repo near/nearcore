@@ -572,8 +572,8 @@ impl Trie {
         let mut memory = memory;
         'outer: while let Some((node, position)) = stack.pop() {
             let node_with_size = memory.node_ref(node);
-            // let memory_usage = node_with_size.memory_usage;
-            let (raw_node, memory_usage) = match &node_with_size.node {
+            let memory_usage = node_with_size.memory_usage;
+            let raw_node = match &node_with_size.node {
                 TrieNode::Empty => {
                     last_hash = Trie::EMPTY_ROOT;
                     continue;
@@ -604,8 +604,7 @@ impl Trie {
                         }
                         let new_value =
                             value.clone().map(|value| Trie::flatten_value(&mut memory, value));
-                        let memory_usage = memory_usage + new_node.memory_usage_direct(memory);
-                        (RawTrieNode::branch(*new_children, new_value), memory_usage)
+                        RawTrieNode::branch(*new_children, new_value)
                     }
                     FlattenNodesCrumb::Exiting => unreachable!(),
                 },
