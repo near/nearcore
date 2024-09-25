@@ -35,7 +35,7 @@ jobs:
             sleep 15
           done
 
-          UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[] | select(.status != "PASSED" ) ' <<< ${TEST_RESULTS} )
+          UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[] | select(.status != "PASSED" or .status != "IGNORED") ' <<< ${TEST_RESULTS} )
           if [ -z "$UNSUCCESSFUL_TESTS" ]; then
             echo "Nayduck CI tests passed."
             echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"
