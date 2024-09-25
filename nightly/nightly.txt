@@ -1,2 +1,4 @@
-./ci.txt
+./sandbox.txt
+./pytest.txt
+./expensive.txt
 ./very_expensive.txt

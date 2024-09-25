@@ -1,4 +1,2 @@
-# ./sandbox.txt
+# TODO: add remaining tests.
 ./pytest.txt
-# ./expensive.txt
-# pytest contracts/deploy_call_smart_contract.py
