@@ -110,9 +110,6 @@ impl ShardLayoutV1 {
     // In this shard layout the accounts are divided into ranges, each range is
     // mapped to a shard. The shards are contiguous and start from 0.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        // Note: As we scale up the number of shards we can consider
-        // changing this method to do a binary search rather than linear
-        // scan. For the time being, with only 4 shards, this is perfectly fine.
         let mut shard_id: ShardId = 0;
         for boundary_account in &self.boundary_accounts {
             if account_id < boundary_account {
