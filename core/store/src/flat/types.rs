@@ -3,7 +3,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq, serde::Serialize)]
@@ -89,6 +89,7 @@ impl Into<i64> for &FlatStorageStatus {
                 FlatStorageReshardingStatus::SplittingParent(_) => 20,
                 FlatStorageReshardingStatus::CreatingChild => 21,
                 FlatStorageReshardingStatus::CatchingUp(_) => 22,
+                FlatStorageReshardingStatus::ToBeDeleted => 23,
             },
         }
     }
@@ -156,6 +157,8 @@ pub enum FlatStorageReshardingStatus {
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
     CatchingUp(CryptoHash),
+    /// The shard does no longer exist and its content should be deleted.
+    ToBeDeleted,
 }
 
 /// Current step of fetching state to fill flat storage.
@@ -192,8 +195,6 @@ pub struct SplittingParentStatus {
     pub right_child_shard: ShardUId,
     /// The new shard layout.
     pub shard_layout: ShardLayout,
-    /// The latest AccountID moved from parent to child.
-    pub latest_account_moved: Option<AccountId>,
 }
 
 pub type FlatStateIterator<'a> =
