@@ -18,6 +18,6 @@ exclude = [
     "^https://stackoverflow.com/",
 
     # GNU websites exist but fail with "Too Many Requests"
-    "^http://www.gnu.org/licenses/"
-    "^https://www.gnu.org/licenses/why-not-lgpl.en.html"
+    "^http://www.gnu.org/licenses/",
+    "^https://www.gnu.org/licenses/why-not-lgpl.en.html",
 ]
