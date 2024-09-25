@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::{fmt, str};
 
 /// This file implements two data structure `ShardLayout` and `ShardUId`
@@ -204,6 +204,7 @@ type AccountRangeShardMap = BTreeMap<AccountRange, ShardId>;
 /// - All other boundaries must be Middle
 /// - There must not be any gaps or overlaps e.i.
 ///     the end of previous range must equal to the start of the next one
+/// - The shard ids are unique
 fn validate_account_range_shard_mapping(
     account_range_shard_mapping: &AccountRangeShardMap,
 ) -> Result<(), ShardLayoutError> {
@@ -223,6 +224,7 @@ fn validate_account_range_shard_mapping(
         return Err(err("last account range should end with End"));
     }
 
+    // Check middle ranges and no gaps or overlaps.
     for i in 1..account_ranges.len() {
         let prev = account_ranges[i - 1];
         let curr = account_ranges[i];
@@ -244,6 +246,12 @@ fn validate_account_range_shard_mapping(
                 prev.end, curr.start
             )));
         }
+    }
+
+    // Check for unique shard ids.
+    let shard_ids: BTreeSet<ShardId> = account_range_shard_mapping.values().copied().collect();
+    if shard_ids.len() != account_range_shard_mapping.len() {
+        return Err(err("shard ids are not unique"));
     }
 
     Ok(())
@@ -433,7 +441,7 @@ impl ShardLayout {
         let b4: AccountId = "kkuuue2akv_1630967379.near".parse().unwrap();
         let b5: AccountId = "tge-lockup.sweat".parse().unwrap();
 
-        // the account ranges in the order of the shard ids
+        // the account ranges
         let s0 = AccountRange::new_start(b0.clone());
         let s1 = AccountRange::new_mid(b0, b1.clone());
         let s6 = AccountRange::new_mid(b1, b2.clone());
@@ -567,6 +575,8 @@ impl ShardLayout {
 /// Maps an account to the shard that it belongs to given a shard_layout
 /// For V0, maps according to hash of account id
 /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
+///
+/// TODO(wacban) This would be nicer as a method in ShardLayout
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
@@ -788,13 +798,14 @@ mod tests {
         account_id_to_shard_id, validate_account_range_shard_mapping, AccountRange,
         AccountRangeShardMap, ShardLayout, ShardLayoutV1, ShardUId,
     };
+    use itertools::Itertools;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     use super::{ShardVersion, ShardsSplitMap};
 
@@ -1002,10 +1013,65 @@ mod tests {
     }
 
     #[test]
-    fn test_shard_layout_v4() {
-        // Test ShardsAccountRange validation
+    fn test_shard_layout_v2() {
+        let shard_layout = get_test_shard_layout_v2();
 
-        // Test account id to shard id
+        // check accounts mapping in the middle of each range
+        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"ddd".parse().unwrap(), &shard_layout), 8);
+        assert_eq!(account_id_to_shard_id(&"mmm".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"rrr".parse().unwrap(), &shard_layout), 7);
+
+        // check accounts mapping for the boundary accounts
+        assert_eq!(account_id_to_shard_id(&"ccc".parse().unwrap(), &shard_layout), 8);
+        assert_eq!(account_id_to_shard_id(&"kkk".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"ppp".parse().unwrap(), &shard_layout), 7);
+
+        // check shard ids
+        assert_eq!(shard_layout.shard_ids().collect_vec(), vec![3, 8, 4, 7]);
+
+        // check shard uids
+        let version = 3;
+        let u = |shard_id| ShardUId { shard_id, version };
+        assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(3), u(8), u(4), u(7)]);
+
+        // check parent
+        assert_eq!(shard_layout.get_parent_shard_id(3).unwrap(), 3);
+        assert_eq!(shard_layout.get_parent_shard_id(8).unwrap(), 1);
+        assert_eq!(shard_layout.get_parent_shard_id(4).unwrap(), 4);
+        assert_eq!(shard_layout.get_parent_shard_id(7).unwrap(), 1);
+
+        // check child
+        assert_eq!(shard_layout.get_children_shards_ids(1).unwrap(), vec![7, 8]);
+        assert_eq!(shard_layout.get_children_shards_ids(3).unwrap(), vec![3]);
+        assert_eq!(shard_layout.get_children_shards_ids(4).unwrap(), vec![4]);
+    }
+
+    fn get_test_shard_layout_v2() -> ShardLayout {
+        // the boundary accounts in lexicographical order
+        let b0: AccountId = "ccc".parse().unwrap();
+        let b1: AccountId = "kkk".parse().unwrap();
+        let b2: AccountId = "ppp".parse().unwrap();
+
+        // the account ranges
+        let s3 = AccountRange::new_start(b0.clone());
+        let s8 = AccountRange::new_mid(b0, b1.clone());
+        let s4 = AccountRange::new_mid(b1, b2.clone());
+        let s7 = AccountRange::new_end(b2);
+
+        // the mapping from account range to shard id
+        let account_range_shard_mapping = BTreeMap::from([(s3, 3), (s8, 8), (s4, 4), (s7, 7)]);
+
+        // the mapping from parent to the child
+        // shard 1 is split into shards 7 & 8 while other shards stay the same
+        let shards_split_map = BTreeMap::from([(1, vec![7, 8]), (3, vec![3]), (4, vec![4])]);
+        let shards_split_map = Some(shards_split_map);
+
+        // The shard layout version stays the same. Starting from version 3 the
+        // shard version is no longer updated with every shard layout change.
+        let version = 3;
+
+        ShardLayout::v2(account_range_shard_mapping, shards_split_map, version)
     }
 
     #[test]
