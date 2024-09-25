@@ -110,7 +110,7 @@ pub fn remove_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, block_h
 
 fn remove_range_by_shard_uid(store_update: &mut StoreUpdate, shard_uid: ShardUId, col: DBCol) {
     let key_from = shard_uid.to_bytes();
-    let key_to = ShardUId::next_shard_prefix(&key_from);
+    let key_to = ShardUId::get_db_prefix_upper_bound(&key_from);
     store_update.delete_range(col, &key_from, &key_to);
 }
 
@@ -216,7 +216,7 @@ pub fn iter_flat_state_entries<'a>(
     // still doesn't include keys from other shards.
     let db_key_to = match to {
         Some(to) => encode_flat_state_db_key(shard_uid, to),
-        None => ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec(),
+        None => ShardUId::get_db_prefix_upper_bound(&shard_uid.to_bytes()).to_vec(),
     };
     let iter =
         store.iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to)).map(|result| {

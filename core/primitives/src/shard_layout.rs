@@ -69,17 +69,20 @@ pub struct ShardLayoutV0 {
     version: ShardVersion,
 }
 
-/// A map that maps shards from the last shard layout to shards that it splits to in this shard layout.
-/// Instead of using map, we just use a vec here because shard_id ranges from 0 to num_shards-1
-/// For example, if a shard layout with only shard 0 splits into shards 0, 1, 2, 3, the ShardsSplitMap
-/// will be `[[0, 1, 2, 3]]`
+/// Maps shards from the last shard layout to shards that it splits to in this
+/// shard layout. Instead of using map, we just use a vec here because shard_id
+/// ranges from 0 to num_shards-1.
+///
+///  For example, if a shard layout with only shard 0 splits into shards 0, 1,
+/// 2, 3, the ShardsSplitMap will be `[[0, 1, 2, 3]]`
 type ShardsSplitMap = Vec<Vec<ShardId>>;
 
-/// A mapping from the parent shard to child shards. A map that maps shards from the
-/// last shard layout to shards that it splits to in this shard layout. This
-/// structure is first used in ShardLayoutV2. For example if a shard layout with
-/// shards [0, 2, 5] splits shard 2 into shards [6, 7] the ShardSplitMapV3 will
-/// be: 0 => [0] 2 => [6, 7] 5 => [5]
+/// A mapping from the parent shard to child shards. It maps shards from the
+/// previous shard layout to shards that they split to in this shard layout.
+/// This structure is first used in ShardLayoutV2.
+///
+/// For example if a shard layout with shards [0, 2, 5] splits shard 2 into
+/// shards [6, 7] the ShardSplitMapV3 will be: 0 => [0] 2 => [6, 7] 5 => [5]
 type ShardsSplitMapV2 = BTreeMap<ShardId, Vec<ShardId>>;
 
 /// A mapping from the child shard to the parent shard.
@@ -319,7 +322,6 @@ impl ShardLayout {
                     assert!(shard_id < num_shards, "shard id should be valid");
                 }
             }
-
             Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id]).collect())
         } else {
             None
@@ -628,9 +630,12 @@ impl ShardUId {
         res
     }
 
-    // TODO(wacban) What the heck is that and how does it play with
-    // non-contiguous shard ids?
-    pub fn next_shard_prefix(shard_uid_bytes: &[u8; 8]) -> [u8; 8] {
+    /// Get the db key which is strictly bigger than all keys in DB for this
+    /// shard and still doesn't include keys from other shards.
+    ///
+    /// Please note that the returned db key may not correspond to a valid shard
+    /// uid and it may not be used to get the next shard uid.
+    pub fn get_upper_bound_db_key(shard_uid_bytes: &[u8; 8]) -> [u8; 8] {
         let mut result = *shard_uid_bytes;
         for i in (0..8).rev() {
             if result[i] == u8::MAX {
