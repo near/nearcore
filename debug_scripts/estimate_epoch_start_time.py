@@ -32,11 +32,11 @@ def format_time(seconds):
 
 # Function to fetch epoch lengths for the past n epochs and calculate the weighted average using exponential decay
 def get_exponential_weighted_epoch_lengths(url,
-                                           starting_epoch_hash,
+                                           starting_block_hash,
                                            num_epochs,
                                            decay_rate=0.1):
     epoch_lengths = []
-    current_hash = starting_epoch_hash
+    current_hash = starting_block_hash
 
     for i in range(num_epochs):
         # Get the block data by hash
@@ -45,22 +45,22 @@ def get_exponential_weighted_epoch_lengths(url,
         # Get the timestamp of this block (start of current epoch)
         current_timestamp = int(block_data['timestamp'])
 
-        # Get the next epoch hash (start block hash of current epoch)
-        next_epoch_hash = block_data['next_epoch_id']
+        # Get the next epoch hash (last block hash of previous epoch.)
+        previous_hash = block_data['next_epoch_id']
 
         # Fetch the block data for start of previous epoch
-        next_block_data = get_block(url, next_epoch_hash)
-        next_timestamp = int(next_block_data['timestamp'])
+        previous_block_data = get_block(url, previous_hash)
+        previous_timestamp = int(previous_block_data['timestamp'])
 
         # Calculate the length of the epoch in nanoseconds
-        epoch_length = current_timestamp - next_timestamp
+        epoch_length = current_timestamp - previous_timestamp
         epoch_length_seconds = ns_to_seconds(epoch_length)  # Convert to seconds
         epoch_lengths.append(epoch_length_seconds)
 
         print(f"Epoch -{i+1}: {format_time(epoch_length_seconds)}")
 
         # Move to the next epoch
-        current_hash = next_epoch_hash
+        current_hash = previous_hash
 
     # Apply exponential decay weights: weight = e^(-lambda * i), where i is the epoch index and lambda is the decay rate
     weighted_sum = 0
