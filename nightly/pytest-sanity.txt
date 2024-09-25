@@ -52,6 +52,11 @@ pytest --timeout=3600 sanity/state_sync_massive_validator.py
 pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
 pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 
+# TODO(#12108): Enable the test again once decentralized state sync is implemented.
+# pytest sanity/state_sync_decentralized.py
+# TODO(#12108): Enable the test again once decentralized state sync is implemented.
+# pytest sanity/state_sync_decentralized.py --features nightly
+
 pytest sanity/sync_chunks_from_archival.py
 pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
@@ -153,9 +158,6 @@ pytest --timeout=300 sanity/rpc_hash.py --features nightly
 # Rosetta RPC tests
 pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly
-
-# Make sure Docker image can be build and run
-pytest --skip-build --timeout=1h sanity/docker.py
 
 # This is the test for meta transactions.
 pytest sanity/meta_tx.py --features nightly

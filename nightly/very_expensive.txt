@@ -1,0 +1,11 @@
+# Catchup tests
+expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000
+expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000 --features nightly
+expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow
+expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing
+expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly
+
+# Make sure Docker image can be build and run
+pytest --skip-build --timeout=1h sanity/docker.py
+

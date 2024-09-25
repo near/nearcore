@@ -250,6 +250,11 @@ impl TestLoopBuilder {
                 location: external_storage_location,
                 num_concurrent_requests: 1,
                 num_concurrent_requests_during_catchup: 1,
+                // We go straight to storage here because the network layer basically
+                // doesn't exist in testloop. We could mock a bunch of stuff to make
+                // the clients transfer state parts "peer to peer" but we wouldn't really
+                // gain anything over having them dump parts to a tempdir.
+                external_storage_fallback_threshold: 0,
             }),
         };
 

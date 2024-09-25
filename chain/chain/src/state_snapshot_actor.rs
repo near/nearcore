@@ -97,9 +97,7 @@ impl StateSnapshotActor {
                 ));
             }
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed.\
-                State snapshot is needed for correct node performance if it is required by config.");
-                panic!("State snapshot creation failed")
+                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
             }
         }
     }

@@ -1,0 +1,50 @@
+name: CI Nayduck tests
+on:
+  merge_group:
+
+  workflow_dispatch:
+
+jobs:
+  nayduck_tests:
+    runs-on: "ubuntu-latest"
+    environment: development
+    timeout-minutes: 60
+
+    steps:
+      - name: Install JQ json processor
+        run: sudo apt install jq
+
+      - name: Checkout nearcore repository
+        uses: actions/checkout@v4
+
+      - name: Install required python modules
+        run: |
+          pip3 install -r ./pytest/requirements.txt
+
+      - name: Create nayduck-code file
+        run: |
+          echo ${{ secrets.NAYDUCK_CODE }} > ~/.config/nayduck-code
+
+      - name: Run Nayduck tests and wait for results
+        run: |
+          NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
+          RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
+          URL="https://nayduck.nearone.org/api/run/$RUN_ID"
+          sleep 10
+
+          # wait all the tests to finish
+          while true; do
+            TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
+            TESTS_NOT_READY=$( jq -e '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING" ) ' <<< ${TEST_RESULTS} )
+            if [ -z "$TESTS_NOT_READY" ]; then break; fi
+            sleep 15
+          done
+
+          UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
+          if [ -z "$UNSUCCESSFUL_TESTS" ]; then
+            echo "Nayduck CI tests passed."
+            echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"
+          else
+            echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
+            echo "Fix them before merging"
+          fi
