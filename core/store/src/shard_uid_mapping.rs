@@ -1,35 +1,27 @@
-use crate::{
-    flat::POISONED_LOCK_ERR,
-    io::{Error, Result},
-};
+use crate::flat::POISONED_LOCK_ERR;
+use crate::io::{Error, Result};
 use near_primitives::shard_layout::ShardUId;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 /// Stores a mapping from ShardUId to ShardUId.
 ///
 /// Protected with mutex for concurrent access.
 /// That is for resharding V3 purposes, where we use the mapping strategy for State column.
 #[derive(Clone)]
-pub struct ShardUIdMapping(Arc<Mutex<ShardUIdMappingInner>>);
+pub struct ShardUIdMapping(Arc<RwLock<ShardUIdMappingInner>>);
 
 impl ShardUIdMapping {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(ShardUIdMappingInner::new())))
+        Self(Arc::new(RwLock::new(ShardUIdMappingInner::new())))
     }
 
     pub fn map(&self, shard_uid: &ShardUId) -> Option<ShardUId> {
-        self.lock().map(shard_uid)
+        self.0.read().expect(POISONED_LOCK_ERR).map(shard_uid)
     }
 
     pub fn update(&self, shard_uid: &ShardUId, db_mapped_shard_uid: Option<ShardUId>) -> ShardUId {
-        self.lock().update(shard_uid, db_mapped_shard_uid)
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<ShardUIdMappingInner> {
-        self.0.lock().expect(POISONED_LOCK_ERR)
+        self.0.write().expect(POISONED_LOCK_ERR).update(shard_uid, db_mapped_shard_uid)
     }
 }
 
