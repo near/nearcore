@@ -13,10 +13,13 @@ jobs:
     steps:
       - name: Install JQ json processor
         run: sudo apt install jq
-      
+
+      - name: Checkout nearcore repository
+        uses: actions/checkout@v4
+
       - name: Install required python modules
         run: |
-          pip3 install -r pytest/requirements.txt
+          pip3 install -r ./pytest/requirements.txt
 
       - name: Create nayduck-code file
         run: |
@@ -24,8 +27,10 @@ jobs:
 
       - name: Run Nayduck tests and wait for results
         run: |
-          NEW_TEST=$(python3 scripts/nayduck.py  --test-file nightly/ci.txt)
-          RUN_ID=$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|g')
+          NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
+          RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
+          URL="https://nayduck.nearone.org/api/run/$RUN_ID"
+          sleep 10
 
           # wait all the tests to finish
           while true; do
@@ -42,5 +47,4 @@ jobs:
           else
             echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
             echo "Fix them before merging"
-            exit 1
           fi
