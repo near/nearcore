@@ -508,75 +508,85 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             }
         }
 
-        self.squash_nodes(path);
+        // We may need to change node type to keep the trie structure unique.
+        for node_id in path.into_iter().rev() {
+            self.squash_node(node_id);
+        }
     }
 
-    /// As we delete a key, it may be necessary to change the types of the nodes
-    /// along the path from the root to the key, in order to keep the trie
-    /// structure unique. For example, if a branch node has only one child and
-    /// no value, it must be converted to an extension node. If that extension
-    /// node also has a parent that is an extension node, they must be combined
-    /// into a single extension node. This function takes care of all these
-    /// cases.
-    fn squash_nodes(&mut self, path: Vec<UpdatedMemTrieNodeId>) {
-        // Correctness can be shown by induction on path prefix.
-        for node_id in path.into_iter().rev() {
-            let node = self.take_node(node_id);
-            match node {
-                UpdatedMemTrieNode::Empty => {
-                    // Empty node will be absorbed by its parent node, so defer that.
-                    self.place_node(node_id, UpdatedMemTrieNode::Empty);
-                }
-                UpdatedMemTrieNode::Leaf { .. } => {
-                    // It's impossible that we would squash a leaf node, because if we
-                    // had deleted a leaf it would become Empty instead.
-                    unreachable!();
-                }
-                UpdatedMemTrieNode::Branch { mut children, value } => {
-                    // Remove any children that are now empty (removed).
-                    for child in children.iter_mut() {
-                        if let Some(OldOrUpdatedNodeId::Updated(child_node_id)) = child {
-                            if let UpdatedMemTrieNode::Empty =
-                                self.updated_nodes[*child_node_id as usize].as_ref().unwrap()
-                            {
-                                *child = None;
-                            }
+    /// When we delete keys, it may be necessary to change types of some nodes,
+    /// in order to keep the trie structure unique. For example, if a branch
+    /// had two children, but after deletion ended up with one child and no
+    /// value, it must be converted to an extension node. Or, if an extension
+    /// node ended up having a child which is also an extension node, they must
+    /// be combined into a single extension node. This function takes care of
+    /// all these cases for a single node.
+    ///
+    /// To restructure trie correctly, this function must be called in
+    /// post-order traversal for every modified node. It may be proven by
+    /// induction on subtrees.
+    /// For single key removal, it is called for every node on the path from
+    /// the leaf to the root.
+    /// For range removal, it is called in the end of recursive range removal
+    /// function, which is the definition of post-order traversal.
+    pub(crate) fn squash_node(&mut self, node_id: UpdatedMemTrieNodeId) {
+        let node = self.take_node(node_id);
+        match node {
+            UpdatedMemTrieNode::Empty => {
+                // Empty node will be absorbed by its parent node, so defer that.
+                self.place_node(node_id, UpdatedMemTrieNode::Empty);
+            }
+            UpdatedMemTrieNode::Leaf { .. } => {
+                // It's impossible that we would squash a leaf node, because if we
+                // had deleted a leaf it would become Empty instead.
+                unreachable!();
+            }
+            UpdatedMemTrieNode::Branch { mut children, value } => {
+                // Remove any children that are now empty (removed).
+                for child in children.iter_mut() {
+                    if let Some(OldOrUpdatedNodeId::Updated(child_node_id)) = child {
+                        if let UpdatedMemTrieNode::Empty =
+                            self.updated_nodes[*child_node_id as usize].as_ref().unwrap()
+                        {
+                            *child = None;
                         }
                     }
-                    let num_children = children.iter().filter(|node| node.is_some()).count();
-                    if num_children == 0 {
-                        // Branch with zero children becomes leaf. It's not possible for it to
-                        // become empty, because a branch had at least two children or a value
-                        // and at least one child, so deleting a single value could not
-                        // eliminate both of them.
-                        let leaf_node = UpdatedMemTrieNode::Leaf {
-                            extension: NibbleSlice::new(&[])
-                                .encoded(true)
-                                .into_vec()
-                                .into_boxed_slice(),
-                            value: value.unwrap(),
-                        };
-                        self.place_node(node_id, leaf_node);
-                    } else if num_children == 1 && value.is_none() {
-                        // Branch with 1 child but no value becomes extension.
-                        let (idx, child) = children
-                            .into_iter()
-                            .enumerate()
-                            .find_map(|(idx, node)| node.map(|node| (idx, node)))
-                            .unwrap();
-                        let extension = NibbleSlice::new(&[(idx << 4) as u8])
-                            .encoded_leftmost(1, false)
-                            .into_vec()
-                            .into_boxed_slice();
-                        self.extend_child(node_id, extension, child);
-                    } else {
-                        // Branch with more than 1 children stays branch.
-                        self.place_node(node_id, UpdatedMemTrieNode::Branch { children, value });
+                }
+                let num_children = children.iter().filter(|node| node.is_some()).count();
+                if num_children == 0 {
+                    match value {
+                        None => self.place_node(node_id, UpdatedMemTrieNode::Empty),
+                        Some(value) => {
+                            // Branch with zero children and a value becomes leaf.
+                            let leaf_node = UpdatedMemTrieNode::Leaf {
+                                extension: NibbleSlice::new(&[])
+                                    .encoded(true)
+                                    .into_vec()
+                                    .into_boxed_slice(),
+                                value,
+                            };
+                            self.place_node(node_id, leaf_node);
+                        }
                     }
-                }
-                UpdatedMemTrieNode::Extension { extension, child } => {
+                } else if num_children == 1 && value.is_none() {
+                    // Branch with 1 child but no value becomes extension.
+                    let (idx, child) = children
+                        .into_iter()
+                        .enumerate()
+                        .find_map(|(idx, node)| node.map(|node| (idx, node)))
+                        .unwrap();
+                    let extension = NibbleSlice::new(&[(idx << 4) as u8])
+                        .encoded_leftmost(1, false)
+                        .into_vec()
+                        .into_boxed_slice();
                     self.extend_child(node_id, extension, child);
+                } else {
+                    // Branch with more than 1 children stays branch.
+                    self.place_node(node_id, UpdatedMemTrieNode::Branch { children, value });
                 }
+            }
+            UpdatedMemTrieNode::Extension { extension, child } => {
+                self.extend_child(node_id, extension, child);
             }
         }
     }
@@ -596,13 +606,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         let child_node = self.take_node(child_id);
         match child_node {
             UpdatedMemTrieNode::Empty => {
-                // This case is not possible. In a trie in general, an extension
-                // node could only have a child that is a branch (possibly with
-                // value) node. But a branch node either has a value and at least
-                // one child, or has at least two children. In either case, it's
-                // impossible for a single deletion to cause the child to become
-                // empty.
-                unreachable!();
+                self.place_node(node_id, UpdatedMemTrieNode::Empty);
             }
             // If the child is a leaf (which could happen if a branch node lost
             // all its branches and only had a value left, or is left with only
@@ -901,13 +905,15 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::TestTriesBuilder;
+    use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::mem_tries::MemTries;
     use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
-    use near_primitives::types::StateRoot;
+    use near_primitives::types::{BlockHeight, StateRoot};
     use rand::Rng;
     use std::collections::{HashMap, HashSet};
 
@@ -953,7 +959,6 @@ mod tests {
             let mut update = self.mem.update(self.state_root, false).unwrap_or_else(|_| {
                 panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
             });
-
             for (key, value) in changes {
                 if let Some(value) = value {
                     update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value));
@@ -1323,5 +1328,72 @@ mod tests {
             }
             tries.check_consistency_across_all_changes_and_apply(changes);
         }
+    }
+
+    fn insert_changes_to_memtrie(
+        memtrie: &mut MemTries,
+        prev_state_root: CryptoHash,
+        block_height: BlockHeight,
+        changes: &str,
+    ) -> CryptoHash {
+        let changes = parse_changes(changes);
+        let mut update = memtrie.update(prev_state_root, false).unwrap();
+
+        for (key, value) in changes {
+            if let Some(value) = value {
+                update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value));
+            } else {
+                update.delete(&key);
+            }
+        }
+
+        let changes = update.to_mem_trie_changes_only();
+        memtrie.apply_memtrie_changes(block_height, &changes)
+    }
+
+    #[test]
+    fn test_gc_hybrid_memtrie() {
+        let state_root = StateRoot::default();
+        let mut memtrie = MemTries::new(ShardUId::single_shard());
+        assert!(!memtrie.arena.has_shared_memory());
+
+        // Insert in some initial data for height 0
+        let changes = "
+            ff00 = 0000
+            ff01 = 0100
+            ff0101 = 0101
+        ";
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 0, changes);
+
+        // Freeze the current memory in memtrie
+        let frozen_arena = memtrie.arena.freeze();
+        let hybrid_arena =
+            HybridArena::from_frozen("test_hybrid".to_string(), frozen_arena.clone());
+        memtrie.arena = hybrid_arena;
+        assert!(memtrie.arena.has_shared_memory());
+
+        // Insert in some more data for height 1 in hybrid memtrie
+        // Try to make sure we share some node allocations (ff01 and ff0101) with height 0
+        // Node ff01 effectively has a refcount of 2, one from height 0 and one from height 1
+
+        let changes = "
+            ff0000 = 1000
+            ff0001 = 1001
+        ";
+        insert_changes_to_memtrie(&mut memtrie, state_root, 1, changes);
+
+        // Now try to garbage collect the height 0 root
+        // Memory consumption should not change as height 0 is frozen
+        let num_active_allocs = memtrie.arena.num_active_allocs();
+        let active_allocs_bytes = memtrie.arena.active_allocs_bytes();
+        memtrie.delete_until_height(1);
+        assert_eq!(memtrie.arena.num_active_allocs(), num_active_allocs);
+        assert_eq!(memtrie.arena.active_allocs_bytes(), active_allocs_bytes);
+
+        // Now try to garbage collect the height 1 root
+        // The final memory allocation should be what we had during the time of freezing
+        memtrie.delete_until_height(2);
+        assert_eq!(memtrie.arena.num_active_allocs(), frozen_arena.num_active_allocs());
+        assert_eq!(memtrie.arena.active_allocs_bytes(), frozen_arena.active_allocs_bytes());
     }
 }

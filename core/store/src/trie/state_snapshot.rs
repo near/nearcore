@@ -73,6 +73,8 @@ pub struct StateSnapshot {
     store: TrieStoreAdapter,
     /// Access to flat storage in that store.
     flat_storage_manager: FlatStorageManager,
+    /// Shards which were successfully included in the snapshot.
+    included_shard_uids: Vec<ShardUId>,
 }
 
 impl StateSnapshot {
@@ -81,11 +83,12 @@ impl StateSnapshot {
         store: TrieStoreAdapter,
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
-        shard_uids: &[ShardUId],
+        requested_shard_uids: &[ShardUId],
         block: Option<&Block>,
     ) -> Self {
-        tracing::debug!(target: "state_snapshot", ?shard_uids, ?prev_block_hash, "new StateSnapshot");
-        for shard_uid in shard_uids {
+        tracing::debug!(target: "state_snapshot", ?requested_shard_uids, ?prev_block_hash, "new StateSnapshot");
+        let mut included_shard_uids = vec![];
+        for shard_uid in requested_shard_uids {
             if let Err(err) = flat_storage_manager.create_flat_storage_for_shard(*shard_uid) {
                 tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "Failed to create a flat storage for snapshot shard");
                 continue;
@@ -105,6 +108,7 @@ impl StateSnapshot {
                     match flat_storage.update_flat_head(desired_flat_head) {
                         Ok(_) => {
                             tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "Successfully moved FlatStorage head of the snapshot");
+                            included_shard_uids.push(*shard_uid);
                         }
                         Err(err) => {
                             tracing::error!(target: "state_snapshot", ?shard_uid, ?err, ?current_flat_head, ?desired_flat_head, "Failed to move FlatStorage head of the snapshot");
@@ -115,12 +119,12 @@ impl StateSnapshot {
                 }
             }
         }
-        Self { prev_block_hash, store, flat_storage_manager }
+        Self { prev_block_hash, store, flat_storage_manager, included_shard_uids }
     }
 
     /// Returns the UIds for the shards included in the snapshot.
-    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
-        self.flat_storage_manager.get_shard_uids()
+    pub fn get_included_shard_uids(&self) -> Vec<ShardUId> {
+        self.included_shard_uids.clone()
     }
 
     /// Returns status of a shard of a flat storage in the state snapshot.
@@ -238,7 +242,7 @@ impl ShardTries {
 
         metrics::HAS_STATE_SNAPSHOT.set(1);
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
-        Ok(Some(state_snapshot_lock.as_ref().unwrap().get_shard_uids()))
+        Ok(Some(state_snapshot_lock.as_ref().unwrap().get_included_shard_uids()))
     }
 
     /// Deletes all snapshots and unsets the STATE_SNAPSHOT_KEY.

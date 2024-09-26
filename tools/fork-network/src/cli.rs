@@ -621,6 +621,25 @@ impl ForkNetworkCommand {
             }
         }
 
+        // Commit the remaining updates.
+        if storage_mutator.should_commit(1) {
+            tracing::info!(
+                ?shard_uid,
+                ref_keys_retrieved,
+                records_parsed,
+                updated = access_keys_updated
+                    + accounts_implicit_updated
+                    + contract_data_updated
+                    + contract_code_updated
+                    + postponed_receipts_updated
+                    + index_delayed_receipt
+                    + received_data_updated,
+            );
+            let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
+            fake_block_height += 1;
+            storage_mutator = make_storage_mutator(state_root)?;
+        }
+
         tracing::info!(
             ?shard_uid,
             ref_keys_retrieved,

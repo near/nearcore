@@ -460,9 +460,9 @@ mod trie_storage_tests {
     #[test]
     fn test_memtrie_recorded_branch_restructuring() {
         test_memtrie_and_disk_updates_consistency(vec![
-            (vec![7], Some(vec![1])),
-            (vec![7, 0], Some(vec![2])),
-            (vec![7, 1], Some(vec![3])),
+            (vec![7], Some(vec![10])),
+            (vec![7, 0], None),
+            (vec![7, 6], Some(vec![8])),
         ]);
     }
 

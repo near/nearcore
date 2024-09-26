@@ -495,6 +495,7 @@ fn sync_state_dump() {
                                         },
                                         num_concurrent_requests: 1,
                                         num_concurrent_requests_during_catchup: 1,
+                                        external_storage_fallback_threshold: 0,
                                     });
 
                                 let nearcore::NearNode {

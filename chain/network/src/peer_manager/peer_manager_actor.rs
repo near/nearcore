@@ -19,7 +19,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, StatePartRequestBody, Tier3RequestBody,
+    SetChainInfo, SnapshotHostInfo, StatePartRequestBody, StateSyncEvent, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -389,7 +389,7 @@ impl PeerManagerActor {
                                             }.await;
 
                                             if let Err(ref err) = result {
-                                                tracing::info!(target: "network", err = format!("{:#}", err), "failed to connect to {}", request.peer_info);
+                                                tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", request.peer_info);
                                             }
                                         }
 
@@ -693,7 +693,7 @@ impl PeerManagerActor {
                         }.await;
 
                         if let Err(ref err) = result {
-                            tracing::info!(target: "network", err = format!("{:#}", err), "failed to connect to {peer_info}");
+                            tracing::info!(target: "network", err = format!("{:#}", err), "tier2 failed to connect to {peer_info}");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
@@ -892,6 +892,7 @@ impl PeerManagerActor {
                         shard_id,
                         part_id,
                     ) {
+                        tracing::debug!(target: "network", "requesting {sync_prev_prev_hash} {shard_id} {part_id} from {peer_id}");
                         success =
                             self.state.send_message_to_peer(
                                 &self.clock,
@@ -917,7 +918,7 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, mut shards } => {
+            NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!("PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
                                     this is more than the allowed limit. The list of shards will be truncated. \
@@ -935,18 +936,33 @@ impl PeerManagerActor {
                 // Sort the shards to keep things tidy
                 shards.sort();
 
+                let peer_id = self.state.config.node_id();
+
+                // Hacky workaround for test environments only.
+                // When starting a chain from scratch the first two snapshots both have epoch height 1.
+                // The epoch height is used as a version number for SnapshotHostInfo and if duplicated,
+                // prevents the second snapshot from being advertised as new information to the network.
+                // To avoid this problem, we re-index the very first epoch with epoch_height=0.
+                if epoch_height == 1 && self.state.snapshot_hosts.get_host_info(&peer_id).is_none()
+                {
+                    epoch_height = 0;
+                }
+
                 // Sign the information about the locally created snapshot using the keys in the
                 // network config before broadcasting it
-                let snapshot_host_info = SnapshotHostInfo::new(
+                let snapshot_host_info = Arc::new(SnapshotHostInfo::new(
                     self.state.config.node_id(),
                     sync_hash,
                     epoch_height,
                     shards,
                     &self.state.config.node_key,
-                );
+                ));
+
+                // Insert our info to our own cache.
+                self.state.snapshot_hosts.insert_skip_verify(snapshot_host_info.clone());
 
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
-                    SyncSnapshotHosts { hosts: vec![snapshot_host_info.into()] },
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
                 )));
                 NetworkResponses::NoResponse
             }
@@ -1257,6 +1273,25 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
+    }
+}
+
+impl actix::Handler<WithSpanContext<StateSyncEvent>> for PeerManagerActor {
+    type Result = ();
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateSyncEvent>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        match msg {
+            StateSyncEvent::StatePartReceived(shard_id, part_id) => {
+                self.state.snapshot_hosts.part_received(shard_id, part_id);
+            }
+        }
     }
 }
 
