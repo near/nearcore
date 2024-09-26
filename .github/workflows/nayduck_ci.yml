@@ -37,8 +37,8 @@ jobs:
             TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
             TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< ${TEST_RESULTS} )
             if [ -z "$TESTS_NOT_READY" ]; then break; fi
-            echo "Tests are not ready yet. Waiting for 15 seconds..."
-            sleep 15
+            echo "Tests are not ready yet. Sleeping 1 minute..."
+            sleep 60
           done
 
           UNSUCCESSFUL_TESTS=$(jq '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
