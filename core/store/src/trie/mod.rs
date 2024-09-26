@@ -370,6 +370,9 @@ pub trait TrieAccess {
     /// argument.
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
 
+    /// Retrieves value with given key without incurring any side-effects.
+    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
+
     /// Check if the key is present.
     ///
     /// Equivalent to `Self::get(k)?.is_some()`, but avoids reading out the value.
@@ -517,8 +520,13 @@ impl TrieRefcountDeltaMap {
     }
 }
 
+/// Changes to be applied to in-memory trie.
+/// Result is the new state root attached to existing persistent trie structure.
 #[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct MemTrieChanges {
+    /// Node ids with hashes of updated nodes.
+    /// Should be in the post-order traversal of the updated nodes.
+    /// It implies that the root node is the last one in the list.
     node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
     updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
 }
@@ -812,16 +820,19 @@ impl Trie {
         &self,
         hash: &CryptoHash,
         use_accounting_cache: bool,
+        side_effects: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
-        let result = if use_accounting_cache {
+        let result = if side_effects && use_accounting_cache {
             self.accounting_cache
                 .borrow_mut()
                 .retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
         } else {
             self.storage.retrieve_raw_bytes(hash)?
         };
-        if let Some(recorder) = &self.recorder {
-            recorder.borrow_mut().record(hash, result.clone());
+        if side_effects {
+            if let Some(recorder) = &self.recorder {
+                recorder.borrow_mut().record(hash, result.clone());
+            }
         }
         Ok(result)
     }
@@ -882,7 +893,7 @@ impl Trie {
     ) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
-                self.internal_retrieve_trie_node(&value.hash, true)?;
+                self.internal_retrieve_trie_node(&value.hash, true, true)?;
                 memory.refcount_changes.subtract(value.hash, 1);
             }
             ValueHandle::InMemory(_) => {
@@ -1083,7 +1094,7 @@ impl Trie {
         }
         *limit -= 1;
 
-        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true) {
+        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true, true) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
             Ok(None) => return writeln!(f, "{spaces}EmptyNode"),
             Err(err) => return writeln!(f, "{spaces}error {err}"),
@@ -1189,11 +1200,12 @@ impl Trie {
         &self,
         hash: &CryptoHash,
         use_accounting_cache: bool,
+        side_effects: bool,
     ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let bytes = self.internal_retrieve_trie_node(hash, use_accounting_cache)?;
+        let bytes = self.internal_retrieve_trie_node(hash, use_accounting_cache, side_effects)?;
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
@@ -1207,7 +1219,7 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<NodeOrValue, StorageError> {
-        let bytes = self.internal_retrieve_trie_node(hash, true)?;
+        let bytes = self.internal_retrieve_trie_node(hash, true, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
             Ok(_) => Ok(NodeOrValue::Node),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
@@ -1219,7 +1231,7 @@ impl Trie {
         memory: &mut NodesStorage,
         hash: &CryptoHash,
     ) -> Result<StorageHandle, StorageError> {
-        match self.retrieve_raw_node(hash, true)? {
+        match self.retrieve_raw_node(hash, true, true)? {
             None => Ok(memory.store(TrieNodeWithSize::empty())),
             Some((_, node)) => {
                 let result = memory.store(TrieNodeWithSize::from_raw(node));
@@ -1239,14 +1251,14 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
-        match self.retrieve_raw_node(hash, true)? {
+        match self.retrieve_raw_node(hash, true, true)? {
             None => Ok((None, TrieNodeWithSize::empty())),
             Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
     pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {
-        match self.retrieve_raw_node(&self.root, true)? {
+        match self.retrieve_raw_node(&self.root, true, true)? {
             None => Ok(StateRootNode::empty()),
             Some((bytes, node)) => {
                 Ok(StateRootNode { data: bytes, memory_usage: node.memory_usage })
@@ -1272,16 +1284,17 @@ impl Trie {
     fn lookup_from_flat_storage(
         &self,
         key: &[u8],
+        side_effects: bool,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
         let value = flat_storage_chunk_view.get_value(key)?;
-        if self.recorder.is_some() {
+        if side_effects && self.recorder.is_some() {
             // If recording, we need to look up in the trie as well to record the trie nodes,
             // as they are needed to prove the value. Also, it's important that this lookup
             // is done even if the key was not found, because intermediate trie nodes may be
             // needed to prove the non-existence of the key.
             let value_ref_from_trie =
-                self.lookup_from_state_column(NibbleSlice::new(key), false)?;
+                self.lookup_from_state_column(NibbleSlice::new(key), false, side_effects)?;
             debug_assert_eq!(
                 &value_ref_from_trie,
                 &value.as_ref().map(|value| value.to_value_ref())
@@ -1300,10 +1313,15 @@ impl Trie {
         &self,
         mut key: NibbleSlice<'_>,
         charge_gas_for_trie_node_access: bool,
+        side_effects: bool,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, charge_gas_for_trie_node_access)? {
+            let node = match self.retrieve_raw_node(
+                &hash,
+                charge_gas_for_trie_node_access,
+                side_effects,
+            )? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
@@ -1367,26 +1385,33 @@ impl Trie {
         &self,
         key: &[u8],
         charge_gas_for_trie_node_access: bool,
+        side_effects: bool,
         map_result: impl FnOnce(ValueView<'_>) -> R,
     ) -> Result<Option<R>, StorageError> {
         if self.root == Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let mut accessed_nodes = Vec::new();
+
         let lock = self.memtries.as_ref().unwrap().read().unwrap();
-        let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
-        if charge_gas_for_trie_node_access {
-            for (node_hash, serialized_node) in &accessed_nodes {
-                self.accounting_cache
-                    .borrow_mut()
-                    .retroactively_account(*node_hash, serialized_node.clone());
+        let mem_value = if side_effects {
+            let mut accessed_nodes = Vec::new();
+            let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
+            if charge_gas_for_trie_node_access {
+                for (node_hash, serialized_node) in &accessed_nodes {
+                    self.accounting_cache
+                        .borrow_mut()
+                        .retroactively_account(*node_hash, serialized_node.clone());
+                }
             }
-        }
-        if let Some(recorder) = &self.recorder {
-            for (node_hash, serialized_node) in accessed_nodes {
-                recorder.borrow_mut().record(&node_hash, serialized_node);
+            if let Some(recorder) = &self.recorder {
+                for (node_hash, serialized_node) in accessed_nodes {
+                    recorder.borrow_mut().record(&node_hash, serialized_node);
+                }
             }
-        }
+            mem_value
+        } else {
+            lock.lookup(&self.root, key, None)?
+        };
         Ok(mem_value.map(map_result))
     }
 
@@ -1420,7 +1445,7 @@ impl Trie {
 
         // The rest of the logic is very similar to the standard lookup() function, except
         // we return the raw node and don't expect to hit a leaf.
-        let mut node = self.retrieve_raw_node(&self.root, true)?;
+        let mut node = self.retrieve_raw_node(&self.root, true, true)?;
         while !key.is_empty() {
             match node {
                 Some((_, raw_node)) => match raw_node.node {
@@ -1432,7 +1457,7 @@ impl Trie {
                         let child = children[key.at(0)];
                         match child {
                             Some(child) => {
-                                node = self.retrieve_raw_node(&child, true)?;
+                                node = self.retrieve_raw_node(&child, true, true)?;
                                 key = key.mid(1);
                             }
                             None => return Ok(None),
@@ -1441,7 +1466,7 @@ impl Trie {
                     RawTrieNode::Extension(existing_key, child) => {
                         let existing_key = NibbleSlice::from_encoded(&existing_key).0;
                         if key.starts_with(&existing_key) {
-                            node = self.retrieve_raw_node(&child, true)?;
+                            node = self.retrieve_raw_node(&child, true, true)?;
                             key = key.mid(existing_key.len());
                         } else {
                             return Ok(None);
@@ -1460,7 +1485,7 @@ impl Trie {
     /// Returns the raw bytes corresponding to a ValueRef that came from a node with
     /// value (either Leaf or BranchWithValue).
     pub fn retrieve_value(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        let bytes = self.internal_retrieve_trie_node(hash, true)?;
+        let bytes = self.internal_retrieve_trie_node(hash, true, true)?;
         Ok(bytes.to_vec())
     }
 
@@ -1481,7 +1506,7 @@ impl Trie {
             mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if self.memtries.is_some() {
             return Ok(self
-                .lookup_from_memory(key, charge_gas_for_trie_node_access, |_| ())?
+                .lookup_from_memory(key, charge_gas_for_trie_node_access, true, |_| ())?
                 .is_some());
         }
 
@@ -1495,14 +1520,14 @@ impl Trie {
                 // is done even if the key was not found, because intermediate trie nodes may be
                 // needed to prove the non-existence of the key.
                 let value_ref_from_trie =
-                    self.lookup_from_state_column(NibbleSlice::new(key), false)?;
+                    self.lookup_from_state_column(NibbleSlice::new(key), false, true)?;
                 debug_assert_eq!(&value_ref_from_trie.is_some(), &value);
             }
             return Ok(value);
         }
 
         Ok(self
-            .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
+            .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access, true)?
             .is_some())
     }
 
@@ -1525,14 +1550,18 @@ impl Trie {
         let charge_gas_for_trie_node_access =
             mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if self.memtries.is_some() {
-            self.lookup_from_memory(key, charge_gas_for_trie_node_access, |v| {
+            self.lookup_from_memory(key, charge_gas_for_trie_node_access, true, |v| {
                 v.to_optimized_value_ref()
             })
         } else if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(key)
+            self.lookup_from_flat_storage(key, true)
         } else {
             Ok(self
-                .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
+                .lookup_from_state_column(
+                    NibbleSlice::new(key),
+                    charge_gas_for_trie_node_access,
+                    true,
+                )?
                 .map(OptimizedValueRef::Ref))
         }
     }
@@ -1713,6 +1742,28 @@ impl<'a> TrieWithReadLock<'a> {
 impl TrieAccess for Trie {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         Trie::get(self, &key.to_vec())
+    }
+
+    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = key.to_vec();
+        let node = if self.memtries.is_some() {
+            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())?
+        } else if self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(&key, false)?
+        } else {
+            self.lookup_from_state_column(NibbleSlice::new(&key), false, false)?
+                .map(OptimizedValueRef::Ref)
+        };
+        match node {
+            Some(optimized_ref) => Ok(Some(match &optimized_ref {
+                OptimizedValueRef::Ref(value_ref) => {
+                    let bytes = self.internal_retrieve_trie_node(&value_ref.hash, false, false)?;
+                    bytes.to_vec()
+                }
+                OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => value.clone(),
+            })),
+            None => Ok(None),
+        }
     }
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {

@@ -30,9 +30,9 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
+use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
-use near_store::flat::store_helper::encode_flat_state_db_key;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
     DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, TrieCachingStorage,

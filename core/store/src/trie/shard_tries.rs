@@ -1,7 +1,6 @@
 use super::mem::mem_tries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
-use crate::flat::store_helper::remove_all_state_values;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
@@ -404,7 +403,13 @@ impl ShardTries {
         // Clear both caches and remove state values from store
         let _cache = self.0.caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
         let _view_cache = self.0.view_caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        remove_all_state_values(store_update, shard_uid);
+        Self::remove_all_state_values(store_update, shard_uid);
+    }
+
+    fn remove_all_state_values(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
+        let key_from = shard_uid.to_bytes();
+        let key_to = ShardUId::next_shard_prefix(&key_from);
+        store_update.delete_range(DBCol::State, &key_from, &key_to);
     }
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
@@ -743,6 +748,7 @@ impl KeyForStateChanges {
 
 #[cfg(test)]
 mod test {
+    use crate::adapter::StoreAdapter;
     use crate::{
         config::TrieCacheConfig, test_utils::create_test_store,
         trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT, TrieConfig,
@@ -768,7 +774,7 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         )
     }
@@ -886,7 +892,7 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         );
 

@@ -6,7 +6,6 @@ use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
-use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
@@ -30,6 +29,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
+use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
@@ -39,7 +39,7 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::partial_encoded_chunks_dropper;
+use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
@@ -60,6 +60,8 @@ pub(crate) struct TestLoopBuilder {
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
+    /// Whether test loop should drop all endorsements from the given account.
+    drop_endorsements_from: Option<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
@@ -81,6 +83,7 @@ impl TestLoopBuilder {
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
+            drop_endorsements_from: None,
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
@@ -112,6 +115,12 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Like stores_override, but all cold stores are None.
+    pub fn stores_override_hot_only(mut self, stores: Vec<Store>) -> Self {
+        self.stores_override = Some(stores.into_iter().map(|store| (store, None)).collect());
+        self
+    }
+
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
@@ -121,6 +130,11 @@ impl TestLoopBuilder {
 
     pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
         self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
+        self
+    }
+
+    pub(crate) fn drop_endorsements_from(mut self, account_id: &str) -> Self {
+        self.drop_endorsements_from = Some(account_id.parse().unwrap());
         self
     }
 
@@ -236,6 +250,11 @@ impl TestLoopBuilder {
                 location: external_storage_location,
                 num_concurrent_requests: 1,
                 num_concurrent_requests_during_catchup: 1,
+                // We go straight to storage here because the network layer basically
+                // doesn't exist in testloop. We could mock a bunch of stuff to make
+                // the clients transfer state parts "peer to peer" but we wouldn't really
+                // gain anything over having them dump parts to a tempdir.
+                external_storage_fallback_threshold: 0,
             }),
         };
 
@@ -398,7 +417,7 @@ impl TestLoopBuilder {
             shard_tracker.clone(),
             network_adapter.as_sender(),
             client_adapter.as_sender(),
-            ReadOnlyChunksStore::new(split_store.as_ref().unwrap_or(&store).clone()),
+            store.chunk_store(),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
             Duration::milliseconds(100),
@@ -517,6 +536,11 @@ impl TestLoopBuilder {
                     epoch_manager_adapters[idx].clone(),
                     account_id.clone(),
                 ));
+            }
+
+            if let Some(account_id) = &self.drop_endorsements_from {
+                peer_manager_actor
+                    .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
             }
 
             self.test_loop.register_actor_for_index(

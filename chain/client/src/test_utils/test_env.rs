@@ -808,9 +808,12 @@ impl TestEnv {
     pub fn print_block_summary(&self, height: u64) {
         let client = &self.clients[0];
         let block = client.chain.get_block_by_height(height);
-        let Ok(block) = block else {
-            tracing::info!(target: "test", "Block {}: missing", height);
-            return;
+        let block = match block {
+            Ok(block) => block,
+            Err(err) => {
+                tracing::info!(target: "test", ?err, "Block {}: missing", height);
+                return;
+            }
         };
         let prev_hash = block.header().prev_hash();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();

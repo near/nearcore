@@ -386,6 +386,7 @@ impl TriePrefetcher {
 mod tests {
     use super::TriePrefetcher;
     use near_primitives::{trie_key::TrieKey, types::AccountId};
+    use near_store::adapter::StoreAdapter;
     use near_store::test_utils::{create_test_store, test_populate_trie};
     use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
@@ -474,7 +475,7 @@ mod tests {
         let shard_uids = vec![ShardUId::single_shard()];
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
-        let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.clone());
+        let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store,
             trie_config,
