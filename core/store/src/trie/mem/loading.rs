@@ -1,9 +1,8 @@
 use super::arena::single_thread::STArena;
 use super::mem_tries::MemTries;
 use super::node::MemTrieNodeId;
-use crate::adapter::flat_store::decode_flat_state_db_key;
 use crate::adapter::StoreAdapter;
-use crate::flat::{FlatStorageError, FlatStorageStatus};
+use crate::flat::FlatStorageStatus;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
@@ -68,12 +67,7 @@ fn load_memtrie_single_thread(
     let mut recon = TrieConstructor::new(&mut arena);
     let mut num_keys_loaded = 0;
     for item in store.flat_store().iter(shard_uid) {
-        let (key, value) = item.map_err(|err| {
-            FlatStorageError::StorageInternalError(format!("Error iterating over FlatState: {err}"))
-        })?;
-        let (_, key) = decode_flat_state_db_key(&key).map_err(|err| {
-            FlatStorageError::StorageInternalError(format!("invalid FlatState key format: {err}"))
-        })?;
+        let (key, value) = item?;
         recon.add_leaf(NibbleSlice::new(&key), value);
         num_keys_loaded += 1;
         if num_keys_loaded % 1000000 == 0 {

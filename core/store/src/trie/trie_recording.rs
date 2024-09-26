@@ -436,7 +436,7 @@ mod trie_recording_tests {
     ) {
         let key_hashes_to_keep = data_in_trie.iter().map(|(_, v)| hash(&v)).collect::<HashSet<_>>();
         let mut update = store.store_update();
-        for result in store.iter() {
+        for result in store.iter_raw_bytes() {
             let (key, value) = result.unwrap();
             let (_, refcount) = decode_value_with_rc(&value);
             let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
