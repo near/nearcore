@@ -45,8 +45,13 @@ fn sync_state_nodes() {
         let mut near1 = load_test_config("test1", port1, genesis.clone());
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
+
+        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = dir1.clone();
+        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = dir2.clone();
+
         run_actix(async move {
-            let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
 
@@ -60,6 +65,7 @@ fn sync_state_nodes() {
                         let view_client2_holder2 = view_client2_holder.clone();
                         let arbiters_holder2 = arbiters_holder2.clone();
                         let genesis2 = genesis.clone();
+                        let dir2 = dir2.clone();
 
                         let actor = view_client1.send(GetBlock::latest().with_span_context());
                         let actor = actor.then(move |res| {
@@ -77,10 +83,6 @@ fn sync_state_nodes() {
                                         near2.network_config.peer_store.boot_nodes =
                                             convert_boot_nodes(vec![("test1", *port1)]);
 
-                                        let dir2 = tempfile::Builder::new()
-                                            .prefix("sync_nodes_2")
-                                            .tempdir()
-                                            .unwrap();
                                         let nearcore::NearNode {
                                             view_client: view_client2,
                                             arbiters,
@@ -147,6 +149,15 @@ fn sync_state_nodes_multishard() {
         );
         genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
+        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = dir1.clone();
+        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = dir2.clone();
+        let dir3 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap());
+        let dir3 = dir3.clone();
+        let dir4 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap());
+        let dir4 = dir4.clone();
+
         run_actix(async move {
             let (port1, port2, port3, port4) = (
                 tcp::ListenerAddr::reserve_for_test(),
@@ -180,14 +191,10 @@ fn sync_state_nodes_multishard() {
             near4.client_config.max_block_production_delay =
                 near1.client_config.max_block_production_delay;
 
-            let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
 
-            let dir3 = tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap();
             start_with_config(dir3.path(), near3).expect("start_with_config");
-
-            let dir4 = tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap();
             start_with_config(dir4.path(), near4).expect("start_with_config");
 
             let view_client2_holder = Arc::new(RwLock::new(None));
@@ -200,6 +207,7 @@ fn sync_state_nodes_multishard() {
                         let view_client2_holder2 = view_client2_holder.clone();
                         let arbiter_holder2 = arbiter_holder2.clone();
                         let genesis2 = genesis.clone();
+                        let dir2 = dir2.clone();
 
                         let actor = view_client1.send(GetBlock::latest().with_span_context());
                         let actor = actor.then(move |res| {
@@ -224,10 +232,6 @@ fn sync_state_nodes_multishard() {
                                                 ("test4", *port4),
                                             ]);
 
-                                        let dir2 = tempfile::Builder::new()
-                                            .prefix("sync_nodes_2")
-                                            .tempdir()
-                                            .unwrap();
                                         let nearcore::NearNode {
                                             view_client: view_client2,
                                             arbiters,
@@ -297,9 +301,15 @@ fn sync_empty_state() {
         );
         genesis.config.epoch_length = 20;
 
+        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = dir1.clone();
+        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = dir2.clone();
+
         run_actix(async move {
             let (port1, port2) =
                 (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
+
             // State sync triggers when header head is two epochs in the future.
             // Produce more blocks to make sure that state sync gets triggered when the second node starts.
             let state_sync_horizon = 10;
@@ -311,10 +321,8 @@ fn sync_empty_state() {
             near1.client_config.min_block_production_delay = Duration::milliseconds(200);
             near1.client_config.max_block_production_delay = Duration::milliseconds(400);
 
-            let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
-            let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
@@ -425,6 +433,13 @@ fn sync_state_dump() {
         // start, sync headers and find a dump of state.
         genesis.config.epoch_length = 30;
 
+        let dump_dir = Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
+        let dump_dir = dump_dir.clone();
+        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = dir1.clone();
+        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = dir2.clone();
+
         run_actix(async move {
             let (port1, port2) =
                 (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
@@ -439,7 +454,7 @@ fn sync_state_dump() {
             near1.client_config.min_block_production_delay = Duration::milliseconds(300);
             near1.client_config.max_block_production_delay = Duration::milliseconds(600);
             near1.client_config.tracked_shards = vec![0]; // Track all shards.
-            let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
+
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
@@ -448,14 +463,12 @@ fn sync_state_dump() {
             });
             near1.config.store.state_snapshot_enabled = true;
 
-            let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode {
                 view_client: view_client1,
                 // State sync dumper should be kept in the scope to avoid dropping it, which stops the state dumper loop.
                 state_sync_dumper: _dumper,
                 ..
             } = start_with_config(dir1.path(), near1).expect("start_with_config");
-            let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
@@ -734,6 +747,9 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 #[test]
 // Tests StateRequestHeader and StateRequestPart.
 fn test_state_sync_headers() {
+    let dir1 =
+        Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
+
     heavy_test(|| {
         init_test_logger();
 
@@ -746,8 +762,6 @@ fn test_state_sync_headers() {
                 load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
             near1.client_config.min_num_peers = 0;
             near1.client_config.tracked_shards = vec![0]; // Track all shards.
-            let dir1 =
-                tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap();
             near1.config.store.state_snapshot_enabled = true;
 
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -929,6 +943,20 @@ fn test_state_sync_headers_no_tracked_shards() {
     heavy_test(|| {
         init_test_logger();
 
+        let dir1 = Arc::new(
+            tempfile::Builder::new()
+                .prefix("test_state_sync_headers_no_tracked_shards_1")
+                .tempdir()
+                .unwrap(),
+        );
+        let dir1 = dir1.clone();
+        let dir2 = Arc::new(
+            tempfile::Builder::new()
+                .prefix("test_state_sync_headers_no_tracked_shards_2")
+                .tempdir()
+                .unwrap(),
+        );
+        let dir2 = dir2.clone();
         run_actix(async {
             let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
             // Increase epoch_length if the test is flaky.
@@ -939,10 +967,6 @@ fn test_state_sync_headers_no_tracked_shards() {
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
             near1.client_config.tracked_shards = vec![0]; // Track all shards, it is a validator.
-            let dir1 = tempfile::Builder::new()
-                .prefix("test_state_sync_headers_no_tracked_shards_1")
-                .tempdir()
-                .unwrap();
             near1.config.store.state_snapshot_enabled = false;
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
@@ -955,10 +979,6 @@ fn test_state_sync_headers_no_tracked_shards() {
                 convert_boot_nodes(vec![("test1", *port1)]);
             near2.client_config.min_num_peers = 0;
             near2.client_config.tracked_shards = vec![]; // Track no shards.
-            let dir2 = tempfile::Builder::new()
-                .prefix("test_state_sync_headers_no_tracked_shards_2")
-                .tempdir()
-                .unwrap();
             near2.config.store.state_snapshot_enabled = true;
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
