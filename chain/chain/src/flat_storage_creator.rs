@@ -511,7 +511,7 @@ impl FlatStorageCreator {
                 }
                 FlatStorageStatus::Disabled => {}
                 FlatStorageStatus::Resharding(status) => {
-                    flat_storage_resharder.resume(&shard_uid, &status)?;
+                    flat_storage_resharder.resume(shard_uid, &status)?;
                 }
             }
         }

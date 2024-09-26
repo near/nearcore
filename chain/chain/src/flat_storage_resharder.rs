@@ -49,7 +49,7 @@ impl FlatStorageResharder {
     /// Resumes a resharding event that was in progress.
     pub fn resume(
         &self,
-        shard_uid: &ShardUId,
+        shard_uid: ShardUId,
         status: &FlatStorageReshardingStatus,
     ) -> Result<(), Error> {
         match status {
@@ -64,7 +64,7 @@ impl FlatStorageResharder {
                 // However, we don't know the current state of children shards,
                 // so it's better to clean them.
                 self.clean_children_shards(&status)?;
-                self.split_shard_impl(*parent_shard_uid, &status);
+                self.split_shard_impl(parent_shard_uid, &status);
             }
             FlatStorageReshardingStatus::CatchingUp(_) => {
                 info!(target: "resharding", ?shard_uid, ?status, "resuming flat storage shard catchup");
@@ -249,7 +249,7 @@ mod tests {
     use near_chain_configs::Genesis;
     use near_epoch_manager::EpochManager;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::{shard_layout::ShardLayout, state::FlatStateValue, types::AccountId};
     use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 
     use crate::runtime::NightshadeRuntime;
@@ -259,7 +259,7 @@ mod tests {
     /// Shorthand to create account ID.
     macro_rules! account {
         ($str:expr) => {
-            $str.parse().unwrap()
+            $str.parse::<AccountId>().unwrap()
         };
     }
 
@@ -289,12 +289,8 @@ mod tests {
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime = NightshadeRuntime::test(
-            tempdir.path(),
-            store,
-            &genesis.config,
-            epoch_manager,
-        );
+        let runtime =
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager);
         FlatStorageResharder::new(runtime)
     }
 
@@ -381,13 +377,87 @@ mod tests {
     /// Verify that the dirty writes are cleaned up correctly.
     #[test]
     fn resume_split_starts_from_clean_state() {
-        todo!()
-        // Write some random keys in children shards.
+        init_test_logger();
+        let resharder = create_fs_resharder(simple_shard_layout());
+        let store = resharder.inner.runtime.store();
+        let shard_layout = shard_layout_after_split();
+        let resharding_type = event_type_from_shard_layout(&shard_layout).unwrap();
+        let (parent, left_child_shard, right_child_shard) = match resharding_type {
+            ReshardingEventType::Split(parent, left_child, right_child) => {
+                (parent, left_child, right_child)
+            }
+        };
 
-        // Set parent state to ShardSplitting.
+        let mut store_update = store.store_update();
+
+        // Write some random key-values in children shards.
+        let dirty_key: Vec<u8> = vec![1, 2, 3, 4];
+        let dirty_value = Some(FlatStateValue::Inlined(dirty_key.clone()));
+        for child_shard in [left_child_shard, right_child_shard] {
+            store_helper::set_flat_state_value(
+                &mut store_update,
+                child_shard,
+                dirty_key.clone(),
+                dirty_value.clone(),
+            );
+        }
+
+        // Set parent state to ShardSplitting, manually, to simulate a forcibly interrupted resharding attempt.
+        let resharding_status =
+            FlatStorageReshardingStatus::SplittingParent(SplittingParentStatus {
+                left_child_shard,
+                right_child_shard,
+                shard_layout,
+            });
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            parent,
+            FlatStorageStatus::Resharding(resharding_status.clone()),
+        );
+
+        store_update.commit().unwrap();
 
         // Resume resharding.
+        resharder.resume(parent, &resharding_status).unwrap();
 
         // Children should not contain the random keys written before.
+        for child_shard in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                store_helper::get_flat_state_value(&store, child_shard, &dirty_key),
+                Ok(None)
+            );
+        }
+    }
+
+    /// Tests a simple split shard scenario.
+    ///
+    /// Old layout:
+    /// shard 0 -> accounts [aa]
+    /// shard 1 -> accounts [mm, vv]
+    ///
+    /// New layout:
+    /// shard 0 -> accounts [aa]
+    /// shard 2 -> accounts [mm]
+    /// shard 3 -> accounts [vv]
+    ///
+    /// Shard to split is shard 1.
+    #[test]
+    fn simple_split_shard() {
+        init_test_logger();
+        // Perform resharding.
+        let resharder = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        assert!(resharder.start_resharding_from_new_shard_layout(&new_shard_layout).is_ok());
+
+        // Check flat storages of children contain the correct accounts.
+        let left_child = ShardUId::from_shard_id_and_layout(2, &new_shard_layout);
+        let right_child = ShardUId::from_shard_id_and_layout(3, &new_shard_layout);
+        let store = resharder.inner.runtime.store();
+        let account_mm = account!("mm");
+        let account_vv = account!("vv");
+        assert!(store_helper::get_flat_state_value(&store, left_child, account_mm.as_bytes())
+            .is_ok_and(|val| val.is_some()));
+        assert!(store_helper::get_flat_state_value(&store, right_child, account_vv.as_bytes())
+            .is_ok_and(|val| val.is_some()));
     }
 }
