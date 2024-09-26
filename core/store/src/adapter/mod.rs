@@ -1,3 +1,4 @@
+pub mod chunk_store;
 pub mod flat_store;
 
 use std::ops::{Deref, DerefMut};
@@ -87,6 +88,10 @@ pub trait StoreAdapter {
 
     fn flat_store(&self) -> flat_store::FlatStoreAdapter {
         flat_store::FlatStoreAdapter::new(self.store())
+    }
+
+    fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
+        chunk_store::ChunkStoreAdapter::new(self.store())
     }
 }
 
