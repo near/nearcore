@@ -145,38 +145,6 @@ impl fmt::Debug for AccountBoundary {
     }
 }
 
-/// The account range of a single shard.
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AccountRange {
-    start: AccountBoundary,
-    end: AccountBoundary,
-}
-
-impl fmt::Debug for AccountRange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let range = format!("{:?}..{:?}", self.start, self.end);
-        f.debug_struct("AccountRange").field("range", &range).finish()
-    }
-}
-
-impl AccountRange {
-    pub fn new_single_shard() -> Self {
-        Self { start: AccountBoundary::Start, end: AccountBoundary::End }
-    }
-
-    pub fn new_start(end: AccountId) -> Self {
-        Self { start: AccountBoundary::Start, end: AccountBoundary::Middle(end) }
-    }
-
-    pub fn new_end(start: AccountId) -> Self {
-        Self { start: AccountBoundary::Middle(start), end: AccountBoundary::End }
-    }
-
-    pub fn new_mid(start: AccountId, end: AccountId) -> Self {
-        Self { start: AccountBoundary::Middle(start), end: AccountBoundary::Middle(end) }
-    }
-}
-
 /// Making the shard ids non-contiguous.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV2 {
@@ -228,7 +196,6 @@ impl ShardLayoutV2 {
 #[derive(Debug)]
 pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
-    InvalidShardsAccountRange { reason: String },
 }
 
 impl ShardLayout {
@@ -1048,77 +1015,59 @@ mod tests {
         }
         "###);
 
-        // This is using format! instead of serde because json does not support
-        // non-string keys such as the AccountRangeShardMap used in v4.
-        insta::assert_snapshot!(format!("{v4:#?}"), @r###"
-        V2(
-            ShardLayoutV2 {
-                boundary_accounts: [
-                    AccountId(
-                        "aurora",
-                    ),
-                    AccountId(
-                        "aurora-0",
-                    ),
-                    AccountId(
-                        "game.hot.tg",
-                    ),
-                    AccountId(
-                        "game.hot.tg-0",
-                    ),
-                    AccountId(
-                        "kkuuue2akv_1630967379.near",
-                    ),
-                    AccountId(
-                        "tge-lockup.sweat",
-                    ),
-                ],
-                shard_ids: [
-                    0,
-                    1,
-                    6,
-                    7,
-                    3,
-                    4,
-                    5,
-                ],
-                shards_split_map: Some(
-                    {
-                        0: [
-                            0,
-                        ],
-                        1: [
-                            1,
-                        ],
-                        2: [
-                            6,
-                            7,
-                        ],
-                        3: [
-                            3,
-                        ],
-                        4: [
-                            4,
-                        ],
-                        5: [
-                            5,
-                        ],
-                    },
-                ),
-                shards_parent_map: Some(
-                    {
-                        0: 0,
-                        1: 1,
-                        3: 3,
-                        4: 4,
-                        5: 5,
-                        6: 2,
-                        7: 2,
-                    },
-                ),
-                version: 3,
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v4).unwrap(), @r###"
+        {
+          "V2": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "game.hot.tg",
+              "game.hot.tg-0",
+              "kkuuue2akv_1630967379.near",
+              "tge-lockup.sweat"
+            ],
+            "shard_ids": [
+              0,
+              1,
+              6,
+              7,
+              3,
+              4,
+              5
+            ],
+            "shards_split_map": {
+              "0": [
+                0
+              ],
+              "1": [
+                1
+              ],
+              "2": [
+                6,
+                7
+              ],
+              "3": [
+                3
+              ],
+              "4": [
+                4
+              ],
+              "5": [
+                5
+              ]
             },
-        )
+            "shards_parent_map": {
+              "0": 0,
+              "1": 1,
+              "3": 3,
+              "4": 4,
+              "5": 5,
+              "6": 2,
+              "7": 2
+            },
+            "version": 3
+          }
+        }
         "###);
     }
 

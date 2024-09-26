@@ -427,9 +427,6 @@ impl From<ShardLayoutError> for Error {
     fn from(error: ShardLayoutError) -> Self {
         match error {
             ShardLayoutError::InvalidShardIdError { shard_id } => Error::InvalidShardId(shard_id),
-            ShardLayoutError::InvalidShardsAccountRange { reason } => {
-                Error::InvalidShardLayout(reason)
-            }
         }
     }
 }
