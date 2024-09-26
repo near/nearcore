@@ -50,6 +50,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
+use near_store::trie::global::GlobalShard;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
@@ -185,6 +186,7 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
+    pub global_contract_metadata: Vec<(AccountId, CryptoHash)>,
 }
 
 #[derive(Debug)]
@@ -198,6 +200,7 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
+    pub permanent_contracts: Vec<(AccountId, CryptoHash)>,
 }
 
 impl ActionResult {
@@ -226,9 +229,11 @@ impl ActionResult {
         if self.result.is_ok() {
             self.new_receipts.append(&mut next_result.new_receipts);
             self.validator_proposals.append(&mut next_result.validator_proposals);
+            self.permanent_contracts.append(&mut next_result.permanent_contracts);
         } else {
             self.new_receipts.clear();
             self.validator_proposals.clear();
+            self.permanent_contracts.clear();
         }
         Ok(())
     }
@@ -246,6 +251,7 @@ impl Default for ActionResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
+            permanent_contracts: vec![],
         }
     }
 }
@@ -288,6 +294,7 @@ impl Runtime {
     fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
+        global_shard_state: &GlobalShard,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
@@ -298,6 +305,7 @@ impl Runtime {
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
+            global_shard_state,
             apply_state.gas_price,
             signed_transaction,
             true,
@@ -550,6 +558,16 @@ impl Runtime {
                     receipt.priority(),
                 )?;
             }
+            #[cfg(feature = "protocol_feature_global_contracts")]
+            Action::DeployPermanentContract(deploy_permanent_contract_action) => {
+                action_deploy_permanent_contract(
+                    deploy_permanent_contract_action,
+                    &mut result,
+                    account_id,
+                    Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.cache.as_deref(),
+                )?;
+            }
         };
         Ok(result)
     }
@@ -564,6 +582,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &(dyn EpochInfoProvider),
+        global_contract_metadata: &mut Vec<(AccountId, CryptoHash)>,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -734,6 +753,7 @@ impl Runtime {
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
+        global_contract_metadata.append(&mut result.permanent_contracts);
 
         // Committing or rolling back state.
         match &result.result {
@@ -983,6 +1003,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &(dyn EpochInfoProvider),
+        global_contract_metadata: &mut Vec<(AccountId, CryptoHash)>,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
@@ -1051,6 +1072,7 @@ impl Runtime {
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
+                                global_contract_metadata,
                             )
                             .map(Some);
                     } else {
@@ -1105,6 +1127,7 @@ impl Runtime {
                             validator_proposals,
                             stats,
                             epoch_info_provider,
+                            global_contract_metadata,
                         )
                         .map(Some);
                 } else {
@@ -1156,6 +1179,7 @@ impl Runtime {
                             validator_proposals,
                             stats,
                             epoch_info_provider,
+                            global_contract_metadata,
                         )
                         .map(Some);
                 } else {
@@ -1377,6 +1401,7 @@ impl Runtime {
     pub fn apply(
         &self,
         trie: Trie,
+        global_shard_trie: GlobalShard,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
@@ -1397,8 +1422,13 @@ impl Runtime {
         // 4. Process receipts.
         // 5. Validate and apply the state update.
 
-        let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
+        let mut processing_state = ApplyProcessingState::new(
+            &apply_state,
+            trie,
+            global_shard_trie,
+            epoch_info_provider,
+            transactions,
+        );
 
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
@@ -1531,6 +1561,7 @@ impl Runtime {
         for signed_transaction in processing_state.transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
                 state_update,
+                &processing_state.global_shard_state,
                 apply_state,
                 signed_transaction,
                 &mut processing_state.stats,
@@ -1590,6 +1621,7 @@ impl Runtime {
             &mut validator_proposals,
             &mut processing_state.stats,
             processing_state.epoch_info_provider,
+            &mut processing_state.global_contract_metadata,
         );
         let node_counter_after = state_update.trie().get_trie_nodes_count();
         tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
@@ -1992,6 +2024,7 @@ impl Runtime {
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
+            global_contract_metadata: processing_state.global_contract_metadata,
         })
     }
 }
@@ -2104,6 +2137,7 @@ fn missing_chunk_apply_result(
         delayed_receipts_count: delayed_receipts.len(),
         metrics: None,
         congestion_info,
+        global_contract_metadata: vec![],
     });
 }
 
@@ -2248,6 +2282,7 @@ struct ApplyProcessingState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
+    global_shard_state: GlobalShard,
     epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
@@ -2258,6 +2293,7 @@ impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         trie: Trie,
+        global_shard_state: GlobalShard,
         epoch_info_provider: &'a (dyn EpochInfoProvider),
         transactions: &'a [SignedTransaction],
     ) -> Self {
@@ -2282,6 +2318,7 @@ impl<'a> ApplyProcessingState<'a> {
             transactions,
             total,
             stats,
+            global_shard_state,
         }
     }
 
@@ -2299,11 +2336,13 @@ impl<'a> ApplyProcessingState<'a> {
             transactions: self.transactions,
             total: self.total,
             stats: self.stats,
+            global_shard_state: self.global_shard_state,
             outcomes: Vec::new(),
             metrics: metrics::ApplyMetrics::default(),
             local_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
+            global_contract_metadata: vec![],
         }
     }
 }
@@ -2315,6 +2354,7 @@ struct ApplyProcessingReceiptState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
+    global_shard_state: GlobalShard,
     epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
@@ -2324,6 +2364,7 @@ struct ApplyProcessingReceiptState<'a> {
     local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
+    global_contract_metadata: Vec<(AccountId, CryptoHash)>,
 }
 
 impl<'a> ApplyProcessingReceiptState<'a> {
@@ -2376,6 +2417,7 @@ pub mod estimator {
             validator_proposals,
             stats,
             epoch_info_provider,
+            &mut vec![],
         )
     }
 }

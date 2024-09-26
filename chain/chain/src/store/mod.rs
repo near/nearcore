@@ -33,6 +33,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
     StateChangesForResharding, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateRoot, VersionedBlockExtra,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -122,7 +123,7 @@ pub trait ChainStoreAccess {
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error>;
     /// GEt block extra for given block.
-    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error>;
+    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<VersionedBlockExtra, Error>;
     /// Get chunk extra info for given block hash + shard id.
     fn get_chunk_extra(
         &self,
@@ -363,6 +364,13 @@ pub trait ChainStoreAccess {
             shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
+
+    fn get_global_shard_state_root(&self, block_hash: &CryptoHash) -> Result<StateRoot, Error> {
+        match self.get_block_extra(block_hash)? {
+            VersionedBlockExtra::V0(_) => Ok(CryptoHash::default()),
+            VersionedBlockExtra::V1(block_extra) => Ok(block_extra.global_shard_state_root.clone()),
+        }
+    }
 }
 
 /// Given a vector of receipts return only the receipts that should be assigned
@@ -415,7 +423,7 @@ pub struct ChainStore {
     /// Cache with partial chunks
     pub(crate) partial_chunks: CellLruCache<Vec<u8>, Arc<PartialEncodedChunk>>,
     /// Cache with block extra.
-    pub(crate) block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
+    pub(crate) block_extras: CellLruCache<Vec<u8>, VersionedBlockExtra>,
     /// Cache with chunk extra.
     pub(crate) chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
     /// Cache with height to hash on the main chain.
@@ -1200,11 +1208,25 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Information from applying block.
-    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        option_to_not_found(
-            self.read_with_cache(DBCol::BlockExtra, &self.block_extras, block_hash.as_ref()),
-            format_args!("BLOCK EXTRA: {}", block_hash),
-        )
+    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<VersionedBlockExtra, Error> {
+        let key = block_hash.as_ref();
+        if let Some(value) = self.block_extras.get(key) {
+            return Ok(value);
+        }
+        // first read from DB to get the slice. Then try to parse it as `BlockExtra`.
+        // If that parsing fails, try again to parse it as `VersionedBlockExtra`.
+        // This avoids the migrate the column `DBCol::BlockExtra`.
+
+        if let Some(bytes) = self.store.get(DBCol::BlockExtra, key)? {
+            let result = match BlockExtra::try_from_slice(&bytes) {
+                Ok(block_extra) => VersionedBlockExtra::V0(block_extra),
+                Err(_) => VersionedBlockExtra::try_from_slice(&bytes)?,
+            };
+
+            self.block_extras.put(key.to_vec(), result.clone());
+            return Ok(result);
+        }
+        Err(Error::DBNotFoundErr(format!("BLOCK EXTRA: {}", block_hash)))
     }
 
     /// Information from applying chunk.
@@ -1382,7 +1404,7 @@ impl ChainStoreAccess for ChainStore {
 pub(crate) struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
-    block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
+    block_extras: HashMap<CryptoHash, VersionedBlockExtra>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
@@ -1559,9 +1581,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.get_block_header(header.prev_hash())
     }
 
-    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
+    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<VersionedBlockExtra, Error> {
         if let Some(block_extra) = self.chain_store_cache_update.block_extras.get(block_hash) {
-            Ok(Arc::clone(block_extra))
+            Ok(block_extra.clone())
         } else {
             self.chain_store.get_block_extra(block_hash)
         }
@@ -1910,13 +1932,14 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Save block.
-    pub fn save_block(&mut self, block: Block) {
+    pub fn save_block(&mut self, block: Block) -> Result<(), Error> {
         self.chain_store_cache_update.blocks.insert(*block.hash(), block);
+        Ok(())
     }
 
     /// Save post applying block extra info.
-    pub fn save_block_extra(&mut self, block_hash: &CryptoHash, block_extra: BlockExtra) {
-        self.chain_store_cache_update.block_extras.insert(*block_hash, Arc::new(block_extra));
+    pub fn save_block_extra(&mut self, block_hash: &CryptoHash, block_extra: VersionedBlockExtra) {
+        self.chain_store_cache_update.block_extras.insert(*block_hash, block_extra);
     }
 
     /// Save post applying chunk extra info.

@@ -20,10 +20,16 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId};
+use near_primitives::types::{
+    BlockExtra, BlockExtraV1, BlockHeight, BlockHeightDelta, NumShards, ShardId, StateChangeCause,
+    VersionedBlockExtra, GLOBAL_SHARD_ID,
+};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
+use near_store::{TrieUpdate, WrappedTrieChanges};
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -208,6 +214,8 @@ impl<'a> ChainUpdate<'a> {
                         balance_burnt,
                         // TODO(congestion_control) - integration with resharding
                         None,
+                        // TODO: integrate with resharding
+                        vec![],
                     );
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;
@@ -294,6 +302,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_limit,
                         apply_result.total_balance_burnt,
                         apply_result.congestion_info,
+                        apply_result.permanent_contracts_metadata,
                     ),
                 );
 
@@ -380,6 +389,46 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// Update the global shard with the new global contracts metadata from the block
+    /// Returns the new state root for the global shard
+    fn update_global_shard(
+        &mut self,
+        block: &Block,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Option<CryptoHash>, Error> {
+        if ProtocolFeature::GlobalContracts.enabled(protocol_version) {
+            let state_root = block.header().global_contract_root();
+            let global_shard = self.runtime_adapter.get_trie_for_shard(
+                GLOBAL_SHARD_ID,
+                block.header().prev_hash(),
+                state_root,
+                false,
+            )?;
+            let mut trie_update = TrieUpdate::new(global_shard);
+            for chunk in block.chunks().iter() {
+                for (account_id, contract_hash) in chunk.permanent_contracts_metadata() {
+                    let trie_key = TrieKey::Account { account_id: account_id.clone() };
+                    trie_update.set(trie_key, contract_hash.into());
+                }
+            }
+            trie_update.commit(StateChangeCause::GlobalStateUpdate);
+            let (_, trie_changes, state_changes) = trie_update.finalize()?;
+            let new_root = trie_changes.new_root;
+            let wrapped_trie_changes = WrappedTrieChanges::new(
+                self.runtime_adapter.get_tries(),
+                ShardUId::global(),
+                trie_changes,
+                state_changes,
+                *block.hash(),
+                block.header().height(),
+            );
+            self.chain_store_update.save_trie_changes(wrapped_trie_changes);
+            Ok(Some(new_root))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// This is the last step of process_block_single, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
     #[tracing::instrument(
@@ -429,7 +478,21 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.add_state_sync_info(state_sync_info);
         }
 
-        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+
+        if let Some(state_root) = self.update_global_shard(block, protocol_version)? {
+            self.chain_store_update.save_block_extra(
+                block.hash(),
+                VersionedBlockExtra::V1(BlockExtraV1 { global_shard_state_root: state_root }),
+            );
+        } else {
+            self.chain_store_update.save_block_extra(
+                block.hash(),
+                VersionedBlockExtra::V0(BlockExtra { challenges_result }),
+            );
+        }
+
         for block_hash in challenged_blocks {
             self.mark_block_as_challenged(&block_hash, Some(block.hash()))?;
         }
@@ -452,7 +515,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(epoch_manager_update);
 
         // Add validated block to the db, even if it's not the canonical fork.
-        self.chain_store_update.save_block(block.clone());
+        self.chain_store_update.save_block(block.clone())?;
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         // Update the chain head if it's the new tip
@@ -694,9 +757,13 @@ impl<'a> ChainUpdate<'a> {
         let is_first_block_with_chunk_of_version = false;
 
         let block = self.chain_store_update.get_block(block_header.hash())?;
-
+        let global_shard_state_root = block.header().global_contract_root();
         let apply_result = self.runtime_adapter.apply_chunk(
-            RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
+            RuntimeStorageConfig::new(
+                chunk_header.prev_state_root(),
+                global_shard_state_root,
+                true,
+            ),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
@@ -714,6 +781,7 @@ impl<'a> ChainUpdate<'a> {
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
                 congestion_info: block.block_congestion_info(),
+                global_shard_state_root,
             },
             &receipts,
             chunk.transactions(),
@@ -749,6 +817,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_balance_burnt,
             apply_result.congestion_info,
+            apply_result.permanent_contracts_metadata,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
@@ -805,9 +874,11 @@ impl<'a> ChainUpdate<'a> {
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
         let chunk_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
+        let global_shard_state_root =
+            self.chain_store_update.get_global_shard_state_root(prev_hash)?;
 
         let apply_result = self.runtime_adapter.apply_chunk(
-            RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
+            RuntimeStorageConfig::new(*chunk_extra.state_root(), global_shard_state_root, true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,

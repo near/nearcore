@@ -88,6 +88,7 @@ fn build_chain_with_orphans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
+        CryptoHash::default(),
         clock,
         None,
     );

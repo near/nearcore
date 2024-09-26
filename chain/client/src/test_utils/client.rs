@@ -229,6 +229,7 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
+            header.permanent_contracts_metadata().to_vec(),
             &*signer,
             PROTOCOL_VERSION,
         )
@@ -247,6 +248,7 @@ pub fn create_chunk(
     let block_merkle_tree =
         client.chain.chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+    let global_shard_state_root = client.chain.get_global_shard_state_root(last_block.hash()).unwrap();
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement = ChunkEndorsementV1::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
@@ -272,6 +274,7 @@ pub fn create_chunk(
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
+        global_shard_state_root,
         client.clock.clone(),
         None,
     );

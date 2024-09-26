@@ -639,11 +639,13 @@ impl StoreUpdate {
                         | DBOp::DeleteRange { .. } => None,
                     })
                     .collect::<Vec<_>>();
+                let non_refcount_keys_unique = non_refcount_keys.iter().collect::<std::collections::HashSet<_>>();
+                
                 non_refcount_keys.len()
-                    == non_refcount_keys.iter().collect::<std::collections::HashSet<_>>().len()
+                    == non_refcount_keys_unique.len()
             },
             "Transaction overwrites itself: {:?}",
-            self
+            self,
         );
         let span = tracing::Span::current();
         if !span.is_disabled() {

@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
+    hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
@@ -104,6 +105,58 @@ impl fmt::Debug for DeployContractAction {
             .field("code", &format_args!("{}", base64(&self.code)))
             .finish()
     }
+}
+
+/// Permanent deploying a contract by burning tokens
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+)]
+pub struct DeployPermanentContractAction {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+)]
+pub struct DeployExistingContractAction {
+    pub identifier: ContractIdentifier,
+}
+
+/// There are two ways a permanent contract could be identified: through an account id or through a hash
+/// If account id is specified, then it means that the contract deployed by a specific account will always be used
+/// In this case the contract might change since the deployer account can decide to update the contract.
+/// If contract hash is used, then it means that the contract specified by this hash will be used. In this case the
+/// contract deployed cannot be changed by an external account.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+)]
+pub enum ContractIdentifier {
+    Account(AccountId),
+    ContractHash(CryptoHash),
 }
 
 #[serde_as]
@@ -221,6 +274,8 @@ pub enum Action {
     /// Only possible during new account creation.
     /// For implicit account creation, it has to be the only action in the receipt.
     NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
+    #[cfg(feature = "protocol_feature_global_contracts")]
+    DeployPermanentContract(DeployPermanentContractAction),
 }
 
 const _: () = assert!(

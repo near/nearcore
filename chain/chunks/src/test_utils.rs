@@ -152,6 +152,7 @@ impl ChunkTestFixture {
             receipts_root,
             MerkleHash::default(),
             congestion_info,
+            vec![],
             &signer,
             &rs,
             PROTOCOL_VERSION,

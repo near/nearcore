@@ -62,6 +62,7 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
+pub mod global;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

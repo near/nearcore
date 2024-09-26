@@ -120,9 +120,10 @@ impl TestTriesBuilder {
             panic!("In-memory tries require flat storage");
         }
         let store = self.store.unwrap_or_else(create_test_store);
-        let shard_uids = (0..self.num_shards)
+        let mut shard_uids = (0..self.num_shards)
             .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: self.shard_version })
             .collect::<Vec<_>>();
+        shard_uids.push(ShardUId::global());
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let tries = ShardTries::new(
             store.clone(),
@@ -174,6 +175,7 @@ impl TestTriesBuilder {
                 0,
                 0,
                 congestion_info,
+                vec![]
             );
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {

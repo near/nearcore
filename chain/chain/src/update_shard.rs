@@ -189,6 +189,7 @@ pub fn apply_new_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
+        global_shard_state_root: block.global_shard_state_root,
     };
     match runtime.apply_chunk(
         storage_config,
@@ -253,6 +254,7 @@ pub fn apply_old_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
+        global_shard_state_root: block.global_shard_state_root,
     };
     match runtime.apply_chunk(
         storage_config,

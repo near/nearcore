@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
@@ -43,6 +44,7 @@ impl RuntimeNode {
             state_root: root,
             epoch_length: genesis.config.epoch_length,
             runtime_config,
+            global_shard_state_root: CryptoHash::default(),
         }));
         RuntimeNode { signer, client, genesis, account_id: account_id.clone() }
     }

@@ -20,6 +20,7 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewStateResult,
 };
+use near_store::trie::global::GlobalShard;
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
@@ -32,6 +33,7 @@ pub struct MockClient {
     pub runtime: Runtime,
     pub tries: ShardTries,
     pub state_root: MerkleHash,
+    pub global_shard_state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
     pub runtime_config: RuntimeConfig,
 }
@@ -39,6 +41,10 @@ pub struct MockClient {
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
         self.tries.new_trie_update(ShardUId::single_shard(), self.state_root)
+    }
+
+    pub fn get_global_shard_state(&self) -> GlobalShard {
+        GlobalShard::new(self.tries.get_trie_for_shard(ShardUId::global(), self.global_shard_state_root))
     }
 }
 
@@ -100,10 +106,13 @@ impl RuntimeUser {
             } else {
                 client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
             };
+            let global_shard_state = self.client.write().expect(POISONED_LOCK_ERR).get_global_shard_state();
+
             let apply_result = client
                 .runtime
                 .apply(
                     trie,
+                    global_shard_state,
                     &None,
                     &apply_state,
                     &receipts,

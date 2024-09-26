@@ -17,6 +17,7 @@ use near_network::types::PeerInfo;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -99,6 +100,7 @@ fn query_status_not_crash() {
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                CryptoHash::default(),
                 Clock::real(),
                 None,
             );

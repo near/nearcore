@@ -65,6 +65,9 @@ sandbox = [
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
 ]
+protocol_feature_global_contracts = [
+  "near-primitives/protocol_feature_global_contracts",
+]
 
 nightly = [
   "near-chain-configs/nightly",
@@ -80,6 +83,7 @@ nightly = [
   "nightly_protocol",
   "node-runtime/nightly",
   "protocol_feature_nonrefundable_transfer_nep491",
+  "protocol_feature_global_contracts",
   "testlib/nightly",
 ]
 nightly_protocol = [

@@ -160,6 +160,9 @@ fn convert_cause_to_transaction_id(
         StateChangeCauseView::Resharding => Err(crate::errors::ErrorKind::InternalInvariantError(
             "State Change 'Resharding' should never be observed".to_string(),
         )),
+        StateChangeCauseView::GlobalStateUpdate => {
+            Ok((TransactionIdentifier::block_event("global state update", block_hash), None))
+        }
     }
 }
 

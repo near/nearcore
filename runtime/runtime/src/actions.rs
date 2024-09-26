@@ -9,6 +9,8 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+#[cfg(feature = "protocol_feature_global_contracts")]
+use near_primitives::action::DeployPermanentContractAction;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -674,6 +676,38 @@ pub(crate) fn action_deploy_contract(
     Ok(())
 }
 
+/// Compiles the permanent contract and store the compiled module in the cache.
+#[cfg(feature = "protocol_feature_global_contracts")]
+pub(crate) fn action_deploy_permanent_contract(
+    deploy_permanent_contract: &DeployPermanentContractAction,
+    action_result: &mut ActionResult,
+    account_id: &AccountId,
+    config: Arc<near_parameters::vm::Config>,
+    cache: Option<&dyn near_vm_runner::ContractRuntimeCache>,
+) -> Result<(), StorageError> {
+    let code = ContractCode::new(deploy_permanent_contract.code.clone(), None);
+    let contract_hash = *code.hash();
+    let res = precompile_contract(&code, config, cache).map_err(|e| {
+        StorageError::StorageInconsistentState(format!(
+            "Failed to precompile permanent contract {}: {}",
+            account_id, e
+        ))
+    })?;
+    match res {
+        Ok(_) => {
+            action_result.permanent_contracts.push((account_id.clone(), contract_hash));
+        }
+        Err(e) => {
+            action_result.result = Err(ActionErrorKind::CompilationError {
+                account_id: account_id.clone(),
+                err_msg: e.to_string(),
+            }
+            .into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
@@ -1046,6 +1080,8 @@ pub(crate) fn check_actor_permissions(
         Action::Delegate(_) => (),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         Action::NonrefundableStorageTransfer(_) => (),
+        #[cfg(feature = "protocol_feature_global_contracts")]
+        Action::DeployPermanentContract(_) => (),
     };
     Ok(())
 }
@@ -1130,6 +1166,15 @@ pub(crate) fn check_account_existence(
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
         | Action::Delegate(_) => {
+            if account.is_none() {
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            }
+        }
+        #[cfg(feature = "protocol_feature_global_contracts")]
+        Action::DeployPermanentContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

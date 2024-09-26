@@ -402,6 +402,7 @@ mod test {
         BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
     };
     use near_primitives::block::{Approval, Block, GenesisId};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
@@ -812,6 +813,7 @@ mod test {
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
+                CryptoHash::default(),
                 clock.clock(),
                 None,
             );

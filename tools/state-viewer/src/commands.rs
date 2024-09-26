@@ -95,7 +95,7 @@ pub(crate) fn apply_block(
 
         runtime
             .apply_chunk(
-                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
+                storage.create_runtime_storage(*chunk_inner.prev_state_root(), block.header().global_contract_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -120,7 +120,7 @@ pub(crate) fn apply_block(
 
         runtime
             .apply_chunk(
-                storage.create_runtime_storage(*chunk_extra.state_root()),
+                storage.create_runtime_storage(*chunk_extra.state_root(), block.header().global_contract_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,

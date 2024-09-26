@@ -94,7 +94,7 @@ fn do_fork(
         if i == 0 {
             store_update.save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
         }
-        store_update.save_block(block.clone());
+        store_update.save_block(block.clone()).unwrap();
         store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
         store_update.save_block_header(block.header().clone()).unwrap();
         let tip = Tip::from_header(block.header());
@@ -755,7 +755,7 @@ fn add_block(
             .build()
     };
     blocks.push(block.clone());
-    store_update.save_block(block.clone());
+    store_update.save_block(block.clone()).unwrap();
     store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
     store_update.save_block_header(block.header().clone()).unwrap();
     store_update.save_head(&Tip::from_header(block.header())).unwrap();
@@ -870,7 +870,7 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         blocks.push(block.clone());
 
         let mut store_update = chain.mut_chain_store().store_update();
-        store_update.save_block(block.clone());
+        store_update.save_block(block.clone()).unwrap();
         store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
         store_update.save_block_header(block.header().clone()).unwrap();
         store_update.save_head(&Tip::from_header(&block.header())).unwrap();

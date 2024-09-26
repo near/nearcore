@@ -768,6 +768,9 @@ impl Client {
             None
         };
 
+        let global_shard_state_root =
+            self.chain.chain_store().get_global_shard_state_root(&prev_hash)?;
+
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
         // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
@@ -792,11 +795,12 @@ impl Client {
             min_gas_price,
             max_gas_price,
             minted_amount,
-            prev_block_extra.challenges_result.clone(),
+            prev_block_extra.challenges_result(),
             vec![],
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
+            global_shard_state_root,
             self.clock.clone(),
             sandbox_delta_time,
         );
@@ -926,6 +930,7 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             congestion_info,
+            chunk_extra.permanent_contracts_metadata().to_vec(),
             &*validator_signer,
             &mut self.rs_for_chunk_production,
             protocol_version,
@@ -1026,11 +1031,13 @@ impl Client {
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
+            let global_shard_state_root = chain.get_global_shard_state_root(prev_block.hash())?;
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
+                global_shard_state_root,
             };
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -2306,6 +2313,7 @@ impl Client {
         let receiver_congestion_info =
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let global_shard_state_root = self.chain.get_global_shard_state_root(&head.last_block_hash)?;
 
         if let Some(err) = self
             .runtime_adapter
@@ -2317,6 +2325,7 @@ impl Client {
                 &epoch_id,
                 protocol_version,
                 receiver_congestion_info,
+                &global_shard_state_root,
             )
             .expect("no storage errors")
         {
@@ -2347,6 +2356,7 @@ impl Client {
                     }
                 }
             };
+            let global_shard_state_root = self.chain.get_global_shard_state_root(&head.last_block_hash)?;
             if let Some(err) = self
                 .runtime_adapter
                 .validate_tx(
@@ -2357,6 +2367,7 @@ impl Client {
                     &epoch_id,
                     protocol_version,
                     receiver_congestion_info,
+                    &global_shard_state_root,
                 )
                 .expect("no storage errors")
             {

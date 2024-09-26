@@ -5,13 +5,15 @@ use near_async::messaging::{CanSend, MessageWithCallback, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_client::ProcessTxResponse;
+use near_client::{Client, ProcessTxResponse};
 use near_network::client::ProcessTxRequest;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+#[cfg(feature = "protocol_feature_global_contracts")]
+use near_primitives::types::Nonce;
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -129,6 +131,39 @@ pub fn deploy_contract(
     drop(future);
 
     tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tx_hash
+}
+
+#[cfg(feature = "protocol_feature_global_contracts")]
+pub fn deploy_permanent_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    contract_id: &AccountId,
+    contract_code: Vec<u8>,
+    nonce: Nonce,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    let signer = create_user_test_signer(&contract_id).into();
+    let tx = SignedTransaction::deploy_permanent_contract(
+        nonce,
+        contract_id,
+        contract_code,
+        &signer,
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
+
+    let future = rpc_node_data_sender.send_async(process_tx_request);
+    drop(future);
+
+    tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed permanent contract");
     tx_hash
 }
 
@@ -294,4 +329,37 @@ pub fn execute_tx(
         .chain
         .get_final_transaction_result(&tx_hash)
         .unwrap())
+}
+
+/// Check the status of the transactions and assert that they are successful.
+///
+/// Please note that it's important to use an rpc node that tracks all shards.
+/// Otherwise, the transactions may not be found.
+pub fn check_txs(
+    test_loop: &TestLoopV2,
+    node_datas: &Vec<TestData>,
+    rpc: &AccountId,
+    txs: &[CryptoHash],
+) {
+    let rpc = rpc_client(test_loop, node_datas, rpc);
+
+    for &tx in txs {
+        let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
+        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+        let status = status.unwrap();
+        tracing::info!(target: "test", ?tx, ?status, "transaction status");
+        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
+    }
+}
+
+/// Get the client for the provided rpd node account id.
+fn rpc_client<'a>(
+    test_loop: &'a TestLoopV2,
+    node_datas: &'a Vec<TestData>,
+    rpc_id: &AccountId,
+) -> &'a Client {
+    let node_data = get_node_data(node_datas, rpc_id);
+    let client_actor_handle = node_data.client_sender.actor_handle();
+    let client_actor = test_loop.data.get(&client_actor_handle);
+    &client_actor.client
 }

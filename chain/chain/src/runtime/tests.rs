@@ -65,6 +65,7 @@ struct TestEnv {
     pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
     pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
     pub last_proposals: Vec<ValidatorStake>,
+    global_state_root: StateRoot,
     time: u64,
 }
 
@@ -200,6 +201,7 @@ impl TestEnv {
             last_proposals: vec![],
             last_shard_proposals: HashMap::default(),
             time: 0,
+            global_state_root: CryptoHash::default(),
         }
     }
 
@@ -234,7 +236,7 @@ impl TestEnv {
         };
         self.runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(state_root, true),
+                RuntimeStorageConfig::new(state_root, self.global_state_root, true),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -254,6 +256,7 @@ impl TestEnv {
                     challenges_result,
                     random_seed: CryptoHash::default(),
                     congestion_info,
+                    global_shard_state_root: self.global_state_root,
                 },
                 receipts,
                 transactions,
@@ -1694,6 +1697,7 @@ fn test_prepare_transactions_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
+        global_shard_state_root: env.global_state_root,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1714,6 +1718,7 @@ fn test_prepare_transactions_storage_proof() {
             nodes: proposed_transactions.storage_proof.unwrap(),
         }),
         state_patch: Default::default(),
+        global_shard_state_root: env.global_state_root,
     };
 
     let validated_transactions = prepare_transactions(
@@ -1738,6 +1743,7 @@ fn test_prepare_transactions_empty_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
+        global_shard_state_root: env.global_state_root,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1758,6 +1764,7 @@ fn test_prepare_transactions_empty_storage_proof() {
             nodes: PartialState::default(), // We use empty storage proof here.
         }),
         state_patch: Default::default(),
+        global_shard_state_root: env.global_state_root,
     };
 
     let validation_result = prepare_transactions(

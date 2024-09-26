@@ -2948,6 +2948,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         vec![],
         congestion_info,
+        vec![],
         signer,
     ))
 }

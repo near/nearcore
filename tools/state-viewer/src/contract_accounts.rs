@@ -136,6 +136,8 @@ pub(crate) enum ActionType {
     DeleteAccount,
     DataReceipt,
     Delegate,
+    #[cfg(feature = "protocol_feature_global_contracts")]
+    DeployPermanentContract,
 }
 
 impl ContractAccount {
@@ -348,6 +350,10 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::DeleteKey(_) => ActionType::DeleteKey,
                                     Action::DeleteAccount(_) => ActionType::DeleteAccount,
                                     Action::Delegate(_) => ActionType::Delegate,
+                                    #[cfg(feature = "protocol_feature_global_contracts")]
+                                    Action::DeployPermanentContract(_) => {
+                                        ActionType::DeployPermanentContract
+                                    }
                                 };
                                 entry
                                     .actions

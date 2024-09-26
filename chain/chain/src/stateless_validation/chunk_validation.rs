@@ -176,6 +176,7 @@ pub fn pre_validate_chunk_state_witness(
     }
 
     // Verify that all proposed transactions are valid.
+    let global_shard_state_root = chain.chain_store().get_global_shard_state_root(state_witness.chunk_header.prev_block_hash())?;
     let new_transactions = &state_witness.new_transactions;
     if !new_transactions.is_empty() {
         let transactions_validation_storage_config = RuntimeStorageConfig {
@@ -185,6 +186,7 @@ pub fn pre_validate_chunk_state_witness(
                 nodes: state_witness.new_transactions_validation_state.clone(),
             }),
             state_patch: Default::default(),
+            global_shard_state_root,
         };
 
         match validate_prepared_transactions(
@@ -517,6 +519,7 @@ pub fn apply_result_to_chunk_extra(
         chunk.gas_limit(),
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.permanent_contracts_metadata,
     )
 }
 

@@ -6,7 +6,7 @@ use near_chain_configs::ClientConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::account_id_to_shard_id;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId, GLOBAL_SHARD_ID};
 
 #[derive(Clone)]
 pub enum TrackedConfig {
@@ -129,6 +129,9 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
+        if shard_id == GLOBAL_SHARD_ID {
+            return true;
+        }
         // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
         // https://github.com/near/nearcore/issues/4936
         if let Some(account_id) = account_id {
@@ -173,6 +176,9 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
+        if shard_id == GLOBAL_SHARD_ID {
+            return true;
+        }
         if let Some(account_id) = account_id {
             let account_cares_about_shard = {
                 self.epoch_manager

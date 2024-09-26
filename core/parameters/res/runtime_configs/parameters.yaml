@@ -28,6 +28,7 @@ registrar_account_id: "registrar"
 storage_amount_per_byte: 100_000_000_000_000_000_000
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
+storage_contract_code_burnt_amount_per_byte: 0
 
 # Static action costs:
 # send_sir / send_not_sir is burned when creating a receipt on the signer shard

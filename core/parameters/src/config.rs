@@ -81,6 +81,10 @@ impl RuntimeConfig {
     pub fn storage_amount_per_byte(&self) -> Balance {
         self.fees.storage_usage_config.storage_amount_per_byte
     }
+
+    pub fn storage_burnt_amount_per_byte(&self) -> Balance {
+        self.fees.storage_usage_config.storage_contract_code_burnt_amount_per_byte
+    }
 }
 
 /// The structure describes configuration for creation of new accounts.

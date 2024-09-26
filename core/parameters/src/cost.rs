@@ -428,6 +428,9 @@ pub struct StorageUsageConfig {
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+    /// Amount of yN per byte required to permanently deploy one byte of contract code.
+    /// This amount is burned when a permanent contract is deployed.
+    pub storage_contract_code_burnt_amount_per_byte: Balance,
 }
 
 impl RuntimeFeesConfig {
@@ -553,11 +556,17 @@ impl StorageUsageConfig {
             num_bytes_account: 100,
             num_extra_bytes_record: 40,
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
+            storage_contract_code_burnt_amount_per_byte: 100_000_000_000_000_000_000,
         }
     }
 
     pub(crate) fn free() -> StorageUsageConfig {
-        Self { num_bytes_account: 0, num_extra_bytes_record: 0, storage_amount_per_byte: 0 }
+        Self {
+            num_bytes_account: 0,
+            num_extra_bytes_record: 0,
+            storage_amount_per_byte: 0,
+            storage_contract_code_burnt_amount_per_byte: 0,
+        }
     }
 }
 

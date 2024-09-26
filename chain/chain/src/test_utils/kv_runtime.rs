@@ -1098,6 +1098,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _epoch_id: &EpochId,
         _current_protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
+        _global_shard_state_root: &StateRoot,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }
@@ -1286,6 +1287,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
+            permanent_contracts_metadata: vec![],
         })
     }
 

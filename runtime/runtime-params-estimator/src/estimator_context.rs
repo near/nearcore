@@ -19,6 +19,7 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
+use near_store::trie::global::GlobalShard;
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
@@ -101,7 +102,7 @@ impl<'c> EstimatorContext<'c> {
         let tries = ShardTries::new(
             store,
             trie_config,
-            &[shard_uid],
+            &[shard_uid, ShardUId::global()],
             flat_storage_manager,
             StateSnapshotConfig::default(),
         );
@@ -130,6 +131,7 @@ impl<'c> EstimatorContext<'c> {
                     .map(|index| get_account_id(index as u64))
                     .collect(),
             ),
+            global_state_root: CryptoHash::default(),
         }
     }
 
@@ -245,6 +247,7 @@ pub(crate) struct Testbed<'c> {
     _workdir: tempfile::TempDir,
     tries: ShardTries,
     root: MerkleHash,
+    global_state_root: MerkleHash,
     runtime: Runtime,
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
@@ -345,10 +348,12 @@ impl Testbed<'_> {
         allow_failures: bool,
     ) -> Gas {
         let trie = self.trie();
+        let global_state = self.global_state_trie();
         let apply_result = self
             .runtime
             .apply(
                 trie,
+                global_state,
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
@@ -419,6 +424,7 @@ impl Testbed<'_> {
         metric: GasMetric,
     ) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
+        let global_shard_state = self.global_state_trie();
         // gas price and block height can be anything, it doesn't affect performance
         // but making it too small affects max_depth and thus pessimistic inflation
         let gas_price = 100_000_000;
@@ -430,6 +436,7 @@ impl Testbed<'_> {
         node_runtime::verify_and_charge_transaction(
             &self.apply_state.config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             tx,
             verify_signature,
@@ -482,6 +489,10 @@ impl Testbed<'_> {
             &tip,
             false,
         )
+    }
+
+    fn global_state_trie(&self) -> GlobalShard {
+        GlobalShard::new(self.tries.get_trie_for_shard(ShardUId::global(), self.global_state_root))
     }
 }
 

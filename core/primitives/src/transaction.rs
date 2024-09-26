@@ -2,7 +2,8 @@
 pub use crate::action::NonrefundableStorageTransferAction;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+    DeployContractAction, DeployExistingContractAction, DeployPermanentContractAction,
+    FunctionCallAction, StakeAction, TransferAction,
 };
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};

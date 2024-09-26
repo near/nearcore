@@ -115,6 +115,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
+        CryptoHash::default(),
         Clock::real(),
         None,
     );
@@ -383,6 +384,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
         congestion_info,
+        vec![],
         &validator_signer,
         &rs,
         PROTOCOL_VERSION,
@@ -438,6 +440,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &validator_signer,
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
+        CryptoHash::default(),
         Clock::real(),
         None,
     );

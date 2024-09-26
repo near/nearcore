@@ -11,6 +11,8 @@ use near_primitives::errors::{
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::DeleteAccountAction;
+#[cfg(feature = "protocol_feature_global_contracts")]
+use near_primitives::transaction::DeployPermanentContractAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
@@ -18,6 +20,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
+use near_store::trie::global::GlobalShard;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -92,6 +95,7 @@ fn is_zero_balance_account(account: &Account) -> bool {
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 pub fn validate_transaction(
     config: &RuntimeConfig,
+    global_shard_state: &GlobalShard,
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
@@ -131,8 +135,15 @@ pub fn validate_transaction(
 
     let sender_is_receiver = transaction.receiver_id() == signer_id;
 
-    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
-        .map_err(|_| InvalidTxError::CostOverflow.into())
+    tx_cost(
+        &config,
+        global_shard_state,
+        transaction,
+        gas_price,
+        sender_is_receiver,
+        current_protocol_version,
+    )
+    .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
 /// Verifies the signed transaction on top of given state, charges transaction fees
@@ -140,6 +151,7 @@ pub fn validate_transaction(
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
+    global_shard_state: &GlobalShard,
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
@@ -150,6 +162,7 @@ pub fn verify_and_charge_transaction(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         validate_transaction(
             config,
+            global_shard_state,
             gas_price,
             signed_transaction,
             verify_signature,
@@ -431,6 +444,10 @@ pub fn validate_action(
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
+        #[cfg(feature = "protocol_feature_global_contracts")]
+        Action::DeployPermanentContract(a) => {
+            validate_deploy_permanent_contract_action(limit_config, a)
+        }
     }
 }
 
@@ -448,6 +465,22 @@ fn validate_delegate_action(
 fn validate_deploy_contract_action(
     limit_config: &LimitConfig,
     action: &DeployContractAction,
+) -> Result<(), ActionsValidationError> {
+    if action.code.len() as u64 > limit_config.max_contract_size {
+        return Err(ActionsValidationError::ContractSizeExceeded {
+            size: action.code.len() as u64,
+            limit: limit_config.max_contract_size,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `DeployPermanentContractAction`. Checks that the given contract size doesn't exceed the limit.
+#[cfg(feature = "protocol_feature_global_contracts")]
+fn validate_deploy_permanent_contract_action(
+    limit_config: &LimitConfig,
+    action: &DeployPermanentContractAction,
 ) -> Result<(), ActionsValidationError> {
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
@@ -619,7 +652,7 @@ mod tests {
         initial_balance: Balance,
         initial_locked: Balance,
         access_key: Option<AccessKey>,
-    ) -> (Arc<Signer>, TrieUpdate, Balance) {
+    ) -> (Arc<Signer>, TrieUpdate, GlobalShard, Balance) {
         let access_keys = if let Some(key) = access_key { vec![key] } else { vec![] };
         setup_accounts(vec![(
             alice_account(),
@@ -635,7 +668,7 @@ mod tests {
         // two bools: first one is whether the account has a contract, second one is whether the
         // account has data
         accounts: Vec<(AccountId, Balance, Balance, Vec<AccessKey>, bool, bool)>,
-    ) -> (Arc<Signer>, TrieUpdate, Balance) {
+    ) -> (Arc<Signer>, TrieUpdate, GlobalShard, Balance) {
         let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
 
@@ -712,25 +745,39 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(ShardUId::single_shard(), root), 100)
+        (
+            signer,
+            tries.new_trie_update(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
+            100,
+        )
     }
 
     fn assert_err_both_validations(
         config: &RuntimeConfig,
         state_update: &mut TrieUpdate,
+        global_shard_state: &GlobalShard,
         gas_price: Balance,
         signed_transaction: &SignedTransaction,
         expected_err: InvalidTxError,
     ) {
         assert_eq!(
-            validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION)
-                .expect_err("expected an error"),
+            validate_transaction(
+                config,
+                global_shard_state,
+                gas_price,
+                signed_transaction,
+                true,
+                PROTOCOL_VERSION
+            )
+            .expect_err("expected an error"),
             expected_err,
         );
         assert_eq!(
             verify_and_charge_transaction(
                 config,
                 state_update,
+                global_shard_state,
                 gas_price,
                 signed_transaction,
                 true,
@@ -773,7 +820,7 @@ mod tests {
                 };
                 access_keys.push(access_key);
             }
-            let (_, state_update, _) = setup_accounts(vec![(
+            let (_, state_update, _, _) = setup_accounts(vec![(
                 account_id.clone(),
                 TESTING_INIT_BALANCE,
                 0,
@@ -820,7 +867,7 @@ mod tests {
             let account_id = alice_account();
             let method_names =
                 (0..30).map(|i| format!("long_method_name_{}", i)).collect::<Vec<_>>();
-            let (_, state_update, _) = setup_accounts(vec![(
+            let (_, state_update, _, _) = setup_accounts(vec![(
                 account_id.clone(),
                 0,
                 0,
@@ -845,7 +892,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_valid() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let deposit = 100;
@@ -857,11 +904,19 @@ mod tests {
             deposit,
             CryptoHash::default(),
         );
-        validate_transaction(&config, gas_price, &transaction, true, PROTOCOL_VERSION)
-            .expect("valid transaction");
+        validate_transaction(
+            &config,
+            &global_shard_state,
+            gas_price,
+            &transaction,
+            true,
+            PROTOCOL_VERSION,
+        )
+        .expect("valid transaction");
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &transaction,
             true,
@@ -896,7 +951,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_signature() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let mut tx = SignedTransaction::send_money(
@@ -912,6 +967,7 @@ mod tests {
         assert_err_both_validations(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &tx,
             InvalidTxError::InvalidSignature,
@@ -921,12 +977,14 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
         let config = RuntimeConfig::test();
-        let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
+        let (bad_signer, mut state_update, global_shard_state, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, None);
 
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::send_money(
                     1,
@@ -951,7 +1009,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_bad_action() {
         let mut config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let wasm_config = Arc::make_mut(&mut config.wasm_config);
@@ -960,6 +1018,7 @@ mod tests {
         assert_err_both_validations(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::from_actions(
                 1,
@@ -985,13 +1044,14 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_bad_signer() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         assert_eq!(
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_state_update,
                 gas_price,
                 &SignedTransaction::send_money(
                     1,
@@ -1013,7 +1073,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_bad_nonce() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) = setup_common(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
             Some(AccessKey { nonce: 2, permission: AccessKeyPermission::FullAccess }),
@@ -1023,6 +1083,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::send_money(
                     1,
@@ -1044,12 +1105,13 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_balance_overflow() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         assert_err_both_validations(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::send_money(
                 1,
@@ -1066,12 +1128,13 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_transaction_version() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         assert_err_both_validations(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::from_actions_v1(
                 1,
@@ -1089,12 +1152,13 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::send_money(
                 1,
@@ -1121,7 +1185,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_not_enough_allowance() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) = setup_common(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
             Some(AccessKey {
@@ -1137,6 +1201,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::from_actions(
                 1,
@@ -1183,12 +1248,13 @@ mod tests {
         fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(initial_balance, 0, Some(AccessKey::full_access()));
 
         let res = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::send_money(
                 1,
@@ -1217,7 +1283,7 @@ mod tests {
         let transfer_amount = 950_000_000;
         let account_id = alice_account();
         let access_keys = vec![AccessKey::full_access(); 10];
-        let (signer, mut state_update, gas_price) = setup_accounts(vec![(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_accounts(vec![(
             account_id.clone(),
             initial_balance,
             0,
@@ -1229,6 +1295,7 @@ mod tests {
         let res = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &SignedTransaction::send_money(
                 1,
@@ -1258,7 +1325,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_actions_for_function_call() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) = setup_common(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
             Some(AccessKey {
@@ -1275,6 +1342,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::from_actions(
                     1,
@@ -1305,6 +1373,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::from_actions(
                     1,
@@ -1327,6 +1396,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::from_actions(
                     1,
@@ -1349,7 +1419,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_receiver_for_function_call() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) = setup_common(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
             Some(AccessKey {
@@ -1366,6 +1436,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::from_actions(
                     1,
@@ -1396,7 +1467,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_method_name_for_function_call() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) = setup_common(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
             Some(AccessKey {
@@ -1413,6 +1484,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::from_actions(
                     1,
@@ -1442,7 +1514,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_deposit_with_function_call() {
         let config = RuntimeConfig::test();
-        let (signer, mut state_update, gas_price) = setup_common(
+        let (signer, mut state_update, global_shard_state, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
             Some(AccessKey {
@@ -1459,6 +1531,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &SignedTransaction::from_actions(
                     1,
@@ -1485,7 +1558,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_exceeding_tx_size_limit() {
-        let (signer, mut state_update, gas_price) =
+        let (signer, mut state_update, global_shard_state, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let transaction = SignedTransaction::from_actions(
@@ -1508,6 +1581,7 @@ mod tests {
             verify_and_charge_transaction(
                 &config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 &transaction,
                 false,
@@ -1526,6 +1600,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
+            &global_shard_state,
             gas_price,
             &transaction,
             false,
@@ -1935,6 +2010,43 @@ mod tests {
                 PROTOCOL_VERSION,
             ),
             Ok(()),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_global_contracts")]
+    fn test_deploy_permanent_contract_insufficient_balance() {
+        let (signer, mut state_update, global_shard_state, gas_price) =
+            setup_common(NEAR_BASE, 0, Some(AccessKey::full_access()));
+        let code = near_test_contracts::rs_contract().to_vec();
+
+        let transaction = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::DeployPermanentContract(DeployPermanentContractAction { code })],
+            CryptoHash::default(),
+            0,
+        );
+
+        assert_eq!(
+            verify_and_charge_transaction(
+                &RuntimeConfig::test(),
+                &mut state_update,
+                &global_shard_state,
+                gas_price,
+                &transaction,
+                true,
+                None,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected an error"),
+            InvalidTxError::NotEnoughBalance {
+                signer_id: alice_account(),
+                balance: NEAR_BASE,
+                cost: 10090100000198993523406097
+            },
         );
     }
 

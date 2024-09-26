@@ -47,12 +47,14 @@ impl Client {
     ) -> Result<(), Error> {
         let chunk_header = chunk.cloned_header();
         let last_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
+        let global_shard_state_root = self.chain.get_global_shard_state_root(&prev_block_header.hash())?;
 
         let transactions_validation_storage_config = RuntimeStorageConfig {
             state_root: chunk_header.prev_state_root(),
             use_flat_storage: true,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
+            global_shard_state_root,
         };
 
         // We call `validate_prepared_transactions()` here because we need storage proof for transactions validation.

@@ -67,6 +67,7 @@ pub fn make_block(
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
+        CryptoHash::default(),
         clock,
         None,
     )

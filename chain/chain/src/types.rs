@@ -24,6 +24,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::AccountId;
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
     StateChangesForResharding, StateRoot, StateRootNode,
@@ -123,6 +124,8 @@ pub struct ApplyChunkResult {
     /// should be set to None for chunks before the CongestionControl protocol
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
+    /// New permanent contracts metadata.
+    pub permanent_contracts_metadata: Vec<(AccountId, CryptoHash)>,
 }
 
 impl ApplyChunkResult {
@@ -278,15 +281,21 @@ pub enum StorageDataSource {
 
 pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
+    pub global_shard_state_root: StateRoot,
     pub use_flat_storage: bool,
     pub source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
 }
 
 impl RuntimeStorageConfig {
-    pub fn new(state_root: StateRoot, use_flat_storage: bool) -> Self {
+    pub fn new(
+        state_root: StateRoot,
+        global_shard_state_root: StateRoot,
+        use_flat_storage: bool,
+    ) -> Self {
         Self {
             state_root,
+            global_shard_state_root,
             use_flat_storage,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
@@ -297,9 +306,13 @@ impl RuntimeStorageConfig {
     /// Flat storage is disabled because it is implied to be missing.
     ///
     /// This's meant to be used only to replay blocks.
-    pub fn new_with_db_trie_only(state_root: StateRoot) -> Self {
+    pub fn new_with_db_trie_only(
+        state_root: StateRoot,
+        global_shard_state_root: StateRoot,
+    ) -> Self {
         Self {
             state_root,
+            global_shard_state_root,
             use_flat_storage: false,
             source: StorageDataSource::DbTrieOnly,
             state_patch: Default::default(),
@@ -317,6 +330,7 @@ pub struct ApplyChunkBlockContext {
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
+    pub global_shard_state_root: StateRoot,
 }
 
 impl ApplyChunkBlockContext {
@@ -334,6 +348,7 @@ impl ApplyChunkBlockContext {
             challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
+            global_shard_state_root: header.global_contract_root().clone(),
         }
     }
 }
@@ -443,6 +458,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
+        global_shard_state_root: &StateRoot
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.

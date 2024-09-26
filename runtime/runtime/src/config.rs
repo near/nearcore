@@ -1,9 +1,16 @@
 //! Settings of the parameters of the runtime.
 
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::errors::IntegerOverflowError;
+#[cfg(feature = "protocol_feature_global_contracts")]
+use near_primitives::action::DeployPermanentContractAction;
+use near_primitives::errors::{IntegerOverflowError, InvalidTxError};
+#[cfg(feature = "protocol_feature_global_contracts")]
+use near_primitives::hash::hash;
 use near_primitives::version::FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION;
 use near_primitives_core::types::ProtocolVersion;
+use near_store::trie::global::GlobalShard;
+#[cfg(feature = "protocol_feature_global_contracts")]
+use near_store::trie::GlobalTrieKey;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
@@ -150,6 +157,13 @@ pub fn total_send_fees(
                         &delegate_action.receiver_id,
                     )?
             }
+            #[cfg(feature = "protocol_feature_global_contracts")]
+            DeployPermanentContract(DeployPermanentContractAction { code }) => {
+                let num_bytes = code.len() as u64;
+                fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
+                    + fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
+                        * num_bytes
+            }
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -241,28 +255,23 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
+        #[cfg(feature = "protocol_feature_global_contracts")]
+        DeployPermanentContract(DeployPermanentContractAction { code }) => {
+            let num_bytes = code.len() as u64;
+            fees.fee(ActionCosts::deploy_contract_base).exec_fee()
+                + fees.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
+        }
     }
 }
 
-/// Returns transaction costs for a given transaction.
-pub fn tx_cost(
+/// Returns receipt gas price and prepaid gas for a given transaction.
+/// The function mainly does pessimistic gas price calculation
+pub fn get_receipt_gas_price(
     config: &RuntimeConfig,
     transaction: &Transaction,
-    gas_price: Balance,
-    sender_is_receiver: bool,
     protocol_version: ProtocolVersion,
-) -> Result<TransactionCost, IntegerOverflowError> {
-    let fees = &config.fees;
-    let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
-    gas_burnt = safe_add_gas(
-        gas_burnt,
-        total_send_fees(
-            config,
-            sender_is_receiver,
-            transaction.actions(),
-            transaction.receiver_id(),
-        )?,
-    )?;
+    gas_price: Balance,
+) -> Result<(Balance, Gas), IntegerOverflowError> {
     let prepaid_gas = safe_add_gas(
         total_prepaid_gas(&transaction.actions())?,
         total_prepaid_send_fees(config, &transaction.actions())?,
@@ -272,7 +281,7 @@ pub fn tx_cost(
     let initial_receipt_hop =
         if transaction.signer_id() == transaction.receiver_id() { 0 } else { 1 };
     let minimum_new_receipt_gas = if protocol_version < FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION {
-        fees.min_receipt_with_function_call_gas()
+        config.fees.min_receipt_with_function_call_gas()
     } else {
         // The pessimistic gas pricing is a best-effort limit which can be breached in case of
         // congestion when receipts are delayed before they execute. Hence there is not much
@@ -290,10 +299,36 @@ pub fn tx_cost(
             .map_err(|_| IntegerOverflowError {})?;
         safe_gas_price_inflated(
             gas_price,
-            fees.pessimistic_gas_price_inflation_ratio,
+            config.fees.pessimistic_gas_price_inflation_ratio,
             inflation_exponent,
         )?
     };
+    Ok((receipt_gas_price, prepaid_gas))
+}
+
+/// Returns transaction costs for a given transaction.
+pub fn tx_cost(
+    config: &RuntimeConfig,
+    global_shard_state: &GlobalShard,
+    transaction: &Transaction,
+    gas_price: Balance,
+    sender_is_receiver: bool,
+    protocol_version: ProtocolVersion,
+) -> Result<TransactionCost, InvalidTxError> {
+    let fees = &config.fees;
+    let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
+    gas_burnt = safe_add_gas(
+        gas_burnt,
+        total_send_fees(
+            config,
+            sender_is_receiver,
+            transaction.actions(),
+            transaction.receiver_id(),
+        )?,
+    )?;
+
+    let (receipt_gas_price, prepaid_gas) =
+        get_receipt_gas_price(config, transaction, protocol_version, gas_price)?;
 
     let mut gas_remaining =
         safe_add_gas(prepaid_gas, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
@@ -301,7 +336,13 @@ pub fn tx_cost(
         gas_remaining,
         total_prepaid_exec_fees(config, transaction.actions(), transaction.receiver_id())?,
     )?;
-    let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
+    let mut burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
+    let storage_burnt_amount = total_burnt(
+        &transaction.actions(),
+        config.storage_burnt_amount_per_byte(),
+        global_shard_state,
+    )?;
+    burnt_amount = safe_add_balance(burnt_amount, storage_burnt_amount)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions())?)?;
@@ -373,6 +414,40 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
         total_gas = safe_add_gas(total_gas, action_gas)?;
     }
     Ok(total_gas)
+}
+
+pub fn total_burnt(
+    actions: &[Action],
+    storage_amount_burnt_per_byte: Balance,
+    global_shard_state: &GlobalShard,
+) -> Result<Balance, InvalidTxError> {
+    let mut total_burnt_balance: Balance = 0;
+    for action in actions {
+        let action_balance = match action {
+            Action::Delegate(signed_delegate_action) => {
+                let actions = signed_delegate_action.delegate_action.get_actions();
+                total_burnt(&actions, storage_amount_burnt_per_byte, global_shard_state)?
+            }
+            #[cfg(feature = "protocol_feature_global_contracts")]
+            Action::DeployPermanentContract(a) => {
+                let code_len = a.code.len() as Balance;
+                let code_hash = hash(&a.code);
+                if global_shard_state
+                    .get(&GlobalTrieKey::ContractHash { hash: code_hash })?
+                    .is_some()
+                {
+                    0
+                } else {
+                    code_len
+                        .checked_mul(storage_amount_burnt_per_byte)
+                        .ok_or(IntegerOverflowError)?
+                }
+            }
+            _ => 0,
+        };
+        total_burnt_balance = safe_add_balance(total_burnt_balance, action_balance)?;
+    }
+    Ok(total_burnt_balance)
 }
 
 #[cfg(test)]

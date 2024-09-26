@@ -1984,6 +1984,7 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
+        permanent_contracts_metadata: Vec<(AccountId, CryptoHash)>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -2004,6 +2005,7 @@ impl ShardsManagerActor {
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
             congestion_info,
+            permanent_contracts_metadata,
             signer,
             protocol_version,
         )

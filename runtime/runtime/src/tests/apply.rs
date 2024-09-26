@@ -31,6 +31,7 @@ use near_primitives::types::{
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::test_utils::TestTriesBuilder;
+use near_store::trie::global::GlobalShard;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{get_account, set_access_key, set_account, ShardTries, Trie};
 use near_vm_runner::FilesystemContractRuntimeCache;
@@ -111,9 +112,11 @@ fn setup_runtime_for_shard(
 fn test_apply_no_op() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
+    let global_shard_state = tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default());
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(global_shard_state),
             &None,
             &apply_state,
             &[],
@@ -143,6 +146,7 @@ fn test_apply_check_balance_validation_rewards() {
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &Some(validator_accounts_update),
             &apply_state,
             &[Receipt::new_balance_refund(
@@ -175,6 +179,9 @@ fn test_apply_refund_receipts() {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                GlobalShard::new(
+                    tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default()),
+                ),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -214,6 +221,9 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                GlobalShard::new(
+                    tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default()),
+                ),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -258,6 +268,9 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                GlobalShard::new(
+                    tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default()),
+                ),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -310,6 +323,9 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                GlobalShard::new(
+                    tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default()),
+                ),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -474,6 +490,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts[0..2],
@@ -520,6 +537,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts[2..3],
@@ -561,6 +579,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts[3..4],
@@ -610,6 +629,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts[4..5],
@@ -644,6 +664,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts[5..6],
@@ -682,6 +703,7 @@ fn test_apply_deficit_gas_for_transfer() {
     let result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -735,6 +757,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     let result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -798,6 +821,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     let result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -834,6 +858,7 @@ fn test_delete_key_add_key() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -877,6 +902,7 @@ fn test_delete_key_underflow() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -990,6 +1016,7 @@ fn test_compute_usage_limit() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[
@@ -1017,6 +1044,7 @@ fn test_compute_usage_limit() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[],
@@ -1060,6 +1088,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[deploy_contract_receipt.clone(), first_call_receipt.clone()],
@@ -1105,6 +1134,7 @@ fn test_main_storage_proof_size_soft_limit() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[create_acc_fn(alice_account()), create_acc_fn(bob_account())],
@@ -1136,6 +1166,7 @@ fn test_main_storage_proof_size_soft_limit() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[function_call_fn(alice_account()), function_call_fn(bob_account())],
@@ -1177,6 +1208,7 @@ fn test_empty_apply() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root_before),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -1208,6 +1240,7 @@ fn test_congestion_delayed_receipts_accounting() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &receipts,
@@ -1290,6 +1323,9 @@ fn test_congestion_buffering() {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(local_shard_uid, root),
+                GlobalShard::new(
+                    tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default()),
+                ),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -1351,6 +1387,9 @@ fn test_congestion_buffering() {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(local_shard_uid, root),
+                GlobalShard::new(
+                    tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default()),
+                ),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -1434,6 +1473,7 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[],
@@ -1498,6 +1538,7 @@ fn test_deploy_and_call_local_receipt() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[],
@@ -1569,6 +1610,7 @@ fn test_deploy_and_call_local_receipts() {
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
             &None,
             &apply_state,
             &[],
@@ -1593,4 +1635,39 @@ fn test_deploy_and_call_local_receipts() {
         action_error.kind,
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
     );
+}
+
+#[test]
+#[cfg(feature = "protocol_feature_global_contracts")]
+fn test_deploy_invalid_global_contract() {
+    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+    let code = vec![1, 2, 3, 4, 5];
+    let tx = SignedTransaction::deploy_permanent_contract(
+        1,
+        &alice_account(),
+        code,
+        &*signer,
+        CryptoHash::default(),
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            GlobalShard::new(tries.get_trie_for_shard(ShardUId::global(), CryptoHash::default())),
+            &None,
+            &apply_state,
+            &[],
+            &[tx],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let (o1, o2) = assert_matches!(
+        &apply_result.outcomes[..],
+        [ExecutionOutcomeWithId { id: _, outcome: o1 }, ExecutionOutcomeWithId { id: _, outcome: o2 }] => (o1, o2)
+    );
+    assert_matches!(o1.status, ExecutionStatus::SuccessReceiptId(_));
+    assert_matches!(o2.status, ExecutionStatus::Failure(TxExecutionError::ActionError(_)));
 }

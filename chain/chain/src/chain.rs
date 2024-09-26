@@ -80,7 +80,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot,
+    NumBlocks, ShardId, StateRoot, VersionedBlockExtra,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -459,9 +459,9 @@ impl Chain {
                     *genesis.header().random_value(),
                 )?);
                 store_update.save_block_header(genesis.header().clone())?;
-                store_update.save_block(genesis.clone());
+                store_update.save_block(genesis.clone())?;
                 store_update
-                    .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
+                    .save_block_extra(genesis.hash(), VersionedBlockExtra::V0(BlockExtra { challenges_result: vec![] }));
                 Self::save_genesis_chunk_extras(
                     &chain_genesis,
                     &genesis,
@@ -607,6 +607,7 @@ impl Chain {
             gas_limit,
             0,
             congestion_info,
+            vec![],
         )
     }
 
@@ -714,7 +715,7 @@ impl Chain {
         }
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.chain_store);
 
-        chain_store_update.save_block(block.into_inner());
+        chain_store_update.save_block(block.into_inner())?;
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
@@ -3134,7 +3135,11 @@ impl Chain {
         };
         let congestion_info = block.block_congestion_info();
 
-        Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
+        Ok(ApplyChunkBlockContext::from_header(
+            block_header,
+            gas_price,
+            congestion_info,
+        ))
     }
 
     fn block_catch_up_postprocess(
@@ -4322,8 +4327,16 @@ impl Chain {
 
     /// Get block extra that was computer after applying previous block.
     #[inline]
-    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
+    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<VersionedBlockExtra, Error> {
         self.chain_store.get_block_extra(block_hash)
+    }
+
+    #[inline]
+    pub fn get_global_shard_state_root(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<CryptoHash, Error> {
+        self.chain_store.get_global_shard_state_root(block_hash)
     }
 
     /// Get chunk extra that was computed after applying chunk with given hash.

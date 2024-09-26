@@ -33,6 +33,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
+    GLOBAL_SHARD_ID,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -42,6 +43,7 @@ use near_primitives::views::{
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
+use near_store::trie::global::GlobalShard;
 use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
     TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
@@ -102,7 +104,8 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let shard_uids: Vec<_> = genesis_config.shard_layout.shard_uids().collect();
+        let mut shard_uids: Vec<_> = genesis_config.shard_layout.shard_uids().collect();
+        shard_uids.push(ShardUId::global());
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
@@ -215,6 +218,9 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
+        if shard_id == GLOBAL_SHARD_ID {
+            return Ok(ShardUId::global());
+        }
         let epoch_manager = self.epoch_manager.read();
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
@@ -255,6 +261,7 @@ impl NightshadeRuntime {
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
+        global_shard_state: GlobalShard,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
@@ -266,6 +273,7 @@ impl NightshadeRuntime {
             challenges_result,
             random_seed,
             congestion_info,
+            ..
         } = block;
         let ApplyChunkShardContext {
             shard_id,
@@ -394,6 +402,7 @@ impl NightshadeRuntime {
             .runtime
             .apply(
                 trie,
+                global_shard_state,
                 &validator_accounts_update,
                 &apply_state,
                 receipts,
@@ -463,6 +472,7 @@ impl NightshadeRuntime {
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
+            permanent_contracts_metadata: apply_result.global_contract_metadata,
         };
 
         Ok(result)
@@ -657,6 +667,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
+        global_shard_state_root: &StateRoot,
     ) -> Result<Option<InvalidTxError>, Error> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
@@ -686,6 +697,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
 
+        let global_shard_state = GlobalShard::new(
+            self.tries.get_trie_for_shard(ShardUId::global(), *global_shard_state_root),
+        );
+
         if let Some(state_root) = state_root {
             let shard_uid =
                 self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
@@ -694,6 +709,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_transaction(
                 runtime_config,
                 &mut state_update,
+                &global_shard_state,
                 gas_price,
                 transaction,
                 verify_signature,
@@ -709,6 +725,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             // Doing basic validation without a state root
             match validate_transaction(
                 runtime_config,
+                &global_shard_state,
                 gas_price,
                 transaction,
                 verify_signature,
@@ -773,6 +790,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             trie = trie.recording_reads();
         }
         let mut state_update = TrieUpdate::new(trie);
+        let global_shard_state = GlobalShard::new(
+            self.tries
+                .get_trie_for_shard(ShardUId::global(), storage_config.global_shard_state_root),
+        );
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -896,6 +917,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match verify_and_charge_transaction(
                     runtime_config,
                     &mut state_update,
+                    &global_shard_state,
                     prev_block.next_gas_price,
                     &tx,
                     false,
@@ -990,6 +1012,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
+        let global_shard_state = GlobalShard::new(self.tries.get_trie_for_shard(
+            ShardUId::global(),
+            storage_config.global_shard_state_root,
+        ));
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
         let next_protocol_version =
@@ -1011,6 +1037,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             block,
             receipts,
             transactions,
+            global_shard_state,
             storage_config.state_patch,
         ) {
             Ok(result) => Ok(result),

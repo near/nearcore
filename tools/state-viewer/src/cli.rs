@@ -199,11 +199,19 @@ pub enum StorageSource {
 }
 
 impl StorageSource {
-    pub fn create_runtime_storage(&self, state_root: StateRoot) -> RuntimeStorageConfig {
+    pub fn create_runtime_storage(
+        &self,
+        state_root: StateRoot,
+        global_state_root: StateRoot,
+    ) -> RuntimeStorageConfig {
         match self {
-            StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
-            StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
-            StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+            StorageSource::Trie => RuntimeStorageConfig::new(state_root, global_state_root, false),
+            StorageSource::TrieFree => {
+                RuntimeStorageConfig::new_with_db_trie_only(state_root, global_state_root)
+            }
+            StorageSource::FlatStorage => {
+                RuntimeStorageConfig::new(state_root, global_state_root, true)
+            }
         }
     }
 }

@@ -349,6 +349,7 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                CryptoHash::default(),
                 Clock::real(),
                 None,
             );
@@ -436,6 +437,7 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                CryptoHash::default(),
                 Clock::real(),
                 None,
             );
@@ -651,6 +653,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                CryptoHash::default(),
                 Clock::real(),
                 None,
             );
@@ -1173,6 +1176,7 @@ fn test_bad_orphan() {
                 ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V4(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1883,7 +1887,7 @@ fn test_gc_tail_update() {
     env.clients[1].chain.save_block(prev_sync_block.into()).unwrap();
     let mut store_update = env.clients[1].chain.mut_chain_store().store_update();
     store_update.inc_block_refcount(&prev_sync_hash).unwrap();
-    store_update.save_block(sync_block.clone());
+    store_update.save_block(sync_block.clone()).unwrap();
     store_update.commit().unwrap();
     env.clients[1]
         .chain

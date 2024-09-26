@@ -260,7 +260,7 @@ impl GenesisBuilder {
         store_update
             .save_block_header(genesis.header().clone())
             .expect("save genesis block header shouldn't fail");
-        store_update.save_block(genesis.clone());
+        store_update.save_block(genesis.clone()).unwrap();
 
         let protocol_version = self.genesis.config.protocol_version;
         for (chunk_header, &state_root) in genesis.chunks().iter().zip(self.roots.values()) {
@@ -283,6 +283,7 @@ impl GenesisBuilder {
                     self.genesis.config.gas_limit,
                     0,
                     congestion_info,
+                    vec![],
                 ),
             );
         }

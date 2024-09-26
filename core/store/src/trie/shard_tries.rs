@@ -590,9 +590,11 @@ impl WrappedTrieChanges {
 
             // Resharding changes must not be finalized, however they may be introduced here when we are
             // evaluating changes for resharding in process_resharding_results function
+            // We also do not persist global state updates because global shard is write only and no GC is needed
+            // Since the primary reason for persisting state changes is to GC properly, we can skip these changes
             change_with_trie_key
                 .changes
-                .retain(|change| change.cause != StateChangeCause::Resharding);
+                .retain(|change| change.cause != StateChangeCause::Resharding && change.cause != StateChangeCause::GlobalStateUpdate);
             if change_with_trie_key.changes.is_empty() {
                 continue;
             }

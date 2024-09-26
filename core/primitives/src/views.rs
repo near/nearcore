@@ -24,6 +24,8 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
+#[cfg(feature = "protocol_feature_global_contracts")]
+use crate::transaction::DeployPermanentContractAction;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
@@ -994,6 +996,7 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
@@ -1239,6 +1242,11 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     },
+    #[cfg(feature = "protocol_feature_global_contracts")]
+    DeployPermanentContract {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1275,6 +1283,10 @@ impl From<Action> for ActionView {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
+            #[cfg(feature = "protocol_feature_global_contracts")]
+            Action::DeployPermanentContract(action) => {
+                ActionView::DeployPermanentContract { code: action.code }
+            }
         }
     }
 }
@@ -1315,6 +1327,10 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            #[cfg(feature = "protocol_feature_global_contracts")]
+            ActionView::DeployPermanentContract { code } => {
+                Action::DeployPermanentContract(DeployPermanentContractAction { code })
             }
         })
     }
@@ -2321,6 +2337,7 @@ pub enum StateChangeCauseView {
     ValidatorAccountsUpdate,
     Migration,
     Resharding,
+    GlobalStateUpdate,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -2347,6 +2364,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
             StateChangeCause::Resharding => Self::Resharding,
+            StateChangeCause::GlobalStateUpdate => Self::GlobalStateUpdate,
         }
     }
 }

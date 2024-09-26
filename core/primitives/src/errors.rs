@@ -586,6 +586,8 @@ pub enum ActionErrorKind {
     DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
     /// Non-refundable storage transfer to an existing account is not allowed according to NEP-491.
     NonRefundableTransferToExistingAccount { account_id: AccountId },
+    /// An error occurs during the deployment of a contract. Currently only used for permanent contract deployment errors due to legacy reasons.
+    CompilationError { account_id: AccountId, err_msg: String },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -931,6 +933,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::NonRefundableTransferToExistingAccount { account_id} => {
                 write!(f, "Can't make non-refundable storage transfer to {} because it already exists", account_id)
             }
+            ActionErrorKind::CompilationError { account_id, err_msg } => write!(f, "Error during contract deployment from account {}: {}", account_id, err_msg),
         }
     }
 }

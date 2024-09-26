@@ -361,6 +361,10 @@ impl ShardUId {
     pub fn shard_id(&self) -> ShardId {
         ShardId::from(self.shard_id)
     }
+
+    pub fn global() -> Self {
+        Self { version: 0, shard_id: u32::MAX }
+    }
 }
 
 impl TryFrom<&[u8]> for ShardUId {

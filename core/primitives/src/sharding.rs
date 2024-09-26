@@ -10,6 +10,7 @@ use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRAD
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
+use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -71,7 +72,7 @@ pub struct StateSyncInfo {
 pub mod shard_chunk_header_inner;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
-    ShardChunkHeaderInnerV3,
+    ShardChunkHeaderInnerV3, ShardChunkHeaderInnerV4,
 };
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
@@ -194,9 +195,29 @@ impl ShardChunkHeaderV3 {
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         congestion_info: Option<CongestionInfo>,
+        permanent_contracts_metadata: Vec<(AccountId, CryptoHash)>,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = if let Some(congestion_info) = congestion_info {
+        let inner = if ProtocolFeature::GlobalContracts.enabled(protocol_version) {
+            let congestion_info = congestion_info.expect("Congestion info is required");
+            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                prev_block_hash,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created: height,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info,
+                new_permanent_contracts: permanent_contracts_metadata,
+            })
+        } else if let Some(congestion_info) = congestion_info {
             assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                 prev_block_hash,
@@ -439,12 +460,23 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
+    pub fn permanent_contracts_metadata(&self) -> &[(AccountId, CryptoHash)] {
+        match self {
+            ShardChunkHeader::V1(_) => &[],
+            ShardChunkHeader::V2(_) => &[],
+            ShardChunkHeader::V3(header) => header.inner.permanent_contracts_metadata(),
+        }
+    }
+
     /// Returns whether the header is valid for given `ProtocolVersion`.
     pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
             ProtocolFeature::CongestionControl.protocol_version();
+        const PERMANENT_CONTRACTS_VERSION: ProtocolVersion =
+            ProtocolFeature::GlobalContracts.protocol_version();
 
         match &self {
             ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
@@ -460,6 +492,7 @@ impl ShardChunkHeader {
                 // enabled does not have the congestion info.
                 ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
                 ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+                ShardChunkHeaderInner::V4(_) => version >= PERMANENT_CONTRACTS_VERSION,
             },
         }
     }
@@ -1060,6 +1093,7 @@ impl EncodedShardChunk {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
+        permanent_contracts_metadata: Vec<(AccountId, CryptoHash)>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
@@ -1133,6 +1167,7 @@ impl EncodedShardChunk {
                 tx_root,
                 prev_validator_proposals,
                 congestion_info,
+                permanent_contracts_metadata,
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };

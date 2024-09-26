@@ -49,6 +49,7 @@ pub enum Parameter {
     StorageAmountPerByte,
     StorageNumBytesAccount,
     StorageNumExtraBytesRecord,
+    StorageContractCodeBurntAmountPerByte,
 
     // Static action costs
     // send_sir / send_not_sir is burned when creating a receipt on the signer shard.

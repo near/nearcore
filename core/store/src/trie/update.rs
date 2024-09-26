@@ -53,7 +53,6 @@ pub struct TrieUpdate {
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
-
 pub enum TrieUpdateValuePtr<'a> {
     Ref(&'a Trie, OptimizedValueRef),
     MemoryRef(&'a [u8]),

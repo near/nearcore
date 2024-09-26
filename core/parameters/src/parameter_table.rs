@@ -302,6 +302,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
+                    storage_contract_code_burnt_amount_per_byte: params
+                        .get(Parameter::StorageContractCodeBurntAmountPerByte)?,
                 },
             }),
             wasm_config: Arc::new(Config {

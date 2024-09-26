@@ -15,6 +15,7 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
+use near_store::trie::global::GlobalShard;
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
@@ -40,6 +41,7 @@ pub struct StandaloneRuntime {
     pub tries: ShardTries,
     pub signer: InMemorySigner,
     pub root: CryptoHash,
+    pub global_state_root: CryptoHash,
     pub epoch_info_provider: MockEpochInfoProvider,
 }
 
@@ -131,6 +133,7 @@ impl StandaloneRuntime {
             signer,
             root,
             epoch_info_provider: MockEpochInfoProvider::default(),
+            global_state_root: CryptoHash::default(),
         }
     }
 
@@ -143,6 +146,9 @@ impl StandaloneRuntime {
             .runtime
             .apply(
                 self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root),
+                GlobalShard::new(
+                    self.tries.get_trie_for_shard(ShardUId::global(), self.global_state_root),
+                ),
                 &None,
                 &self.apply_state,
                 receipts,

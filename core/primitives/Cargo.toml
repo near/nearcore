@@ -70,6 +70,10 @@ protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives-core/protocol_feature_nonrefundable_transfer_nep491",
 ]
 
+protocol_feature_global_contracts = [
+  "near-primitives-core/protocol_feature_global_contracts",
+]
+
 nightly = [
   "near-fmt/nightly",
   "near-parameters/nightly",
@@ -80,6 +84,7 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "protocol_feature_global_contracts",
 ]
 
 nightly_protocol = [
@@ -91,9 +96,7 @@ nightly_protocol = [
 
 calimero_zero_storage = []
 
-protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-]
+protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }

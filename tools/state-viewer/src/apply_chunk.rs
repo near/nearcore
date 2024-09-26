@@ -132,10 +132,11 @@ pub(crate) fn apply_chunk(
         prev_block_hash,
         shard_id,
     )?;
+    let global_shard_state_root = chain_store.get_global_shard_state_root(&prev_block_hash)?;
 
     Ok((
         runtime.apply_chunk(
-            storage.create_runtime_storage(prev_state_root),
+            storage.create_runtime_storage(prev_state_root, global_shard_state_root),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
@@ -156,6 +157,7 @@ pub(crate) fn apply_chunk(
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: prev_block.block_congestion_info(),
+                global_shard_state_root,
             },
             &receipts,
             transactions,

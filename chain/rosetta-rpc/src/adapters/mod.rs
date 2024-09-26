@@ -500,6 +500,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 
                     operations.extend(delegated_operations);
                 } // TODO(#8469): Implement delegate action support, for now they are ignored.
+                #[cfg(feature = "protocol_feature_global_contracts")]
+                near_primitives::action::Action::DeployPermanentContract(_) => {
+                    // TODO: figure out whether `DeployPermanentContract` should be supported
+                }
             }
         }
         operations

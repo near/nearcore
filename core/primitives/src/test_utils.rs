@@ -1,4 +1,6 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account};
+#[cfg(feature = "protocol_feature_global_contracts")]
+use crate::action::DeployPermanentContractAction;
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
@@ -264,6 +266,27 @@ impl SignedTransaction {
         )
     }
 
+    #[cfg(feature = "protocol_feature_global_contracts")]
+    pub fn deploy_permanent_contract(
+        nonce: Nonce,
+        contract_id: &AccountId,
+        code: Vec<u8>,
+        signer: &Signer,
+        block_hash: CryptoHash,
+    ) -> SignedTransaction {
+        let signer_id = contract_id.clone();
+        let receiver_id = contract_id.clone();
+        Self::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::DeployPermanentContract(DeployPermanentContractAction { code })],
+            block_hash,
+            0,
+        )
+    }
+
     pub fn create_contract(
         nonce: Nonce,
         originator: AccountId,
@@ -361,6 +384,7 @@ impl BlockHeader {
                 panic!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV5(_) => panic!("header v5 is not supported"),
         }
     }
 
@@ -379,6 +403,10 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -408,6 +436,11 @@ impl BlockHeader {
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
@@ -559,6 +592,7 @@ impl TestBlockBuilder {
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
+            CryptoHash::default(),
             self.clock,
             None,
         )

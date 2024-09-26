@@ -167,6 +167,8 @@ pub enum ProtocolFeature {
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
     ChunkEndorsementsInBlockHeader,
+    /// Introduce permanently stored contract code
+    GlobalContracts,
 }
 
 impl ProtocolFeature {
@@ -241,6 +243,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ChunkEndorsementV2 => 144,
             ProtocolFeature::ChunkEndorsementsInBlockHeader => 145,
+            ProtocolFeature::GlobalContracts => 145,
         }
     }
 

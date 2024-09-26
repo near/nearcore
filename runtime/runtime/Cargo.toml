@@ -58,6 +58,7 @@ nightly_protocol = [
   "testlib/nightly_protocol",
 ]
 protocol_feature_nonrefundable_transfer_nep491 = []
+protocol_feature_global_contracts = ["near-primitives/protocol_feature_global_contracts"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = [

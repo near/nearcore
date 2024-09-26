@@ -160,6 +160,7 @@ fn genesis_chunk(
         &[],
         CryptoHash::default(),
         congestion_info,
+        vec![],
         &crate::validator_signer::EmptyValidatorSigner::default().into(),
         genesis_protocol_version,
     )
@@ -297,6 +298,7 @@ impl Block {
         signer: &crate::validator_signer::ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
+        global_shard_state_root: CryptoHash,
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
@@ -358,6 +360,9 @@ impl Block {
             BlockHeader::BlockHeaderV4(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
+            BlockHeader::BlockHeaderV5(_) => {
+                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
+            }
         };
 
         let body = BlockBody::new(
@@ -399,6 +404,7 @@ impl Block {
             block_merkle_root,
             prev.height(),
             clock,
+            global_shard_state_root,
         );
 
         Self::block_from_protocol_version(
