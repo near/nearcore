@@ -749,6 +749,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 fn test_state_sync_headers() {
     let dir1 =
         Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
+    let dir1 = dir1.clone();
 
     heavy_test(|| {
         init_test_logger();
