@@ -52,7 +52,7 @@ impl StateSnaptshotTestEnv {
             state_snapshot_subdir: state_snapshot_subdir.clone(),
         };
         let shard_tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             trie_config,
             &shard_uids,
             flat_storage_manager,
@@ -88,7 +88,9 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
     let store = create_test_store();
     let test_env = set_up_test_env_for_state_snapshots(&store);
     let snapshot_hash = CryptoHash::new();
-    test_env.shard_tries.set_state_snapshot_hash(Some(snapshot_hash)).unwrap();
+    let mut store_update = test_env.shard_tries.store_update();
+    store_update.set_state_snapshot_hash(Some(snapshot_hash));
+    store_update.commit().unwrap();
     let result =
         test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
@@ -104,7 +106,9 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     let store = create_test_store();
     let test_env = set_up_test_env_for_state_snapshots(&store);
     let snapshot_hash = CryptoHash::new();
-    test_env.shard_tries.set_state_snapshot_hash(Some(snapshot_hash)).unwrap();
+    let mut store_update = test_env.shard_tries.store_update();
+    store_update.set_state_snapshot_hash(Some(snapshot_hash));
+    store_update.commit().unwrap();
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
         &snapshot_hash,
         &test_env.home_dir,
@@ -148,7 +152,8 @@ fn verify_make_snapshot(
         .shard_tries
         .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]))?;
     // check that the entry of STATE_SNAPSHOT_KEY is the latest block hash
-    let db_state_snapshot_hash = state_snapshot_test_env.shard_tries.get_state_snapshot_hash()?;
+    let db_state_snapshot_hash =
+        state_snapshot_test_env.shard_tries.store().get_state_snapshot_hash()?;
     if db_state_snapshot_hash != block_hash {
         return Err(anyhow::Error::msg(
             "the entry of STATE_SNAPSHOT_KEY does not equal to the prev block hash",
@@ -228,7 +233,9 @@ fn test_make_state_snapshot() {
     }
 
     // check that if the entry in DBCol::STATE_SNAPSHOT_KEY was missing while snapshot file exists, an overwrite of snapshot can succeed
-    state_snapshot_test_env.shard_tries.set_state_snapshot_hash(None).unwrap();
+    let mut store_update = state_snapshot_test_env.shard_tries.store_update();
+    store_update.set_state_snapshot_hash(None);
+    store_update.commit().unwrap();
     let head = env.clients[0].chain.head().unwrap();
     let head_block_hash = head.last_block_hash;
     let head_block = env.clients[0].chain.get_block(&head_block_hash).unwrap();

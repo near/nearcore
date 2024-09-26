@@ -1,8 +1,9 @@
+use crate::adapter::trie_store::TrieStoreUpdateAdapter;
 use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
-    Trie, TrieAccess as _, TrieUpdate,
+    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, Trie,
+    TrieAccess as _, TrieUpdate,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
@@ -39,7 +40,7 @@ impl ShardTries {
         state_roots: &HashMap<ShardUId, StateRoot>,
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
-    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+    ) -> Result<(TrieStoreUpdateAdapter<'static>, HashMap<ShardUId, StateRoot>), StorageError> {
         self.add_values_to_children_states_impl(state_roots, values, &|raw_key| {
             // Here changes on DelayedReceipt, DelayedReceiptIndices, PromiseYieldTimeout, and
             // PromiseYieldIndices will be excluded. Both the delayed receipts and the yield
@@ -62,7 +63,7 @@ impl ShardTries {
         state_roots: &HashMap<ShardUId, StateRoot>,
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         key_to_shard_id: &dyn Fn(&[u8]) -> Result<Option<ShardUId>, StorageError>,
-    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+    ) -> Result<(TrieStoreUpdateAdapter<'static>, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut changes_by_shard: HashMap<_, Vec<_>> = HashMap::new();
         for (raw_key, value) in values.into_iter() {
             if let Some(new_shard_uid) = key_to_shard_id(&raw_key)? {
@@ -100,7 +101,7 @@ impl ShardTries {
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &[Receipt],
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
-    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+    ) -> Result<(TrieStoreUpdateAdapter<'static>, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
@@ -116,7 +117,7 @@ impl ShardTries {
         state_roots: &HashMap<ShardUId, StateRoot>,
         timeouts: &[PromiseYieldTimeout],
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
-    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+    ) -> Result<(TrieStoreUpdateAdapter<'static>, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_promise_yield_timeouts_to_children_states_impl(
             &mut trie_updates,
@@ -130,7 +131,7 @@ impl ShardTries {
     fn finalize_and_apply_trie_updates(
         &self,
         updates: HashMap<ShardUId, TrieUpdate>,
-    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+    ) -> Result<(TrieStoreUpdateAdapter<'static>, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut new_state_roots = HashMap::new();
         let mut store_update = self.store_update();
         for (shard_uid, update) in updates {

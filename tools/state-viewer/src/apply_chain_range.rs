@@ -303,7 +303,7 @@ fn apply_block_from_range(
         flat_storage.update_flat_head(&block_hash).unwrap();
 
         // Apply trie changes to trie node caches.
-        let mut fake_store_update = read_store.store_update();
+        let mut fake_store_update = read_store.trie_store().store_update();
         apply_result.trie_changes.insertions_into(&mut fake_store_update);
         apply_result.trie_changes.deletions_into(&mut fake_store_update);
     } else {

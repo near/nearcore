@@ -1,7 +1,8 @@
+use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, DBCol, MissingTrieValueContext, PrefetchApi, StorageError, Store};
+use crate::{metrics, MissingTrieValueContext, PrefetchApi, StorageError};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -358,7 +359,7 @@ impl TrieMemoryPartialStorage {
 /// optimization to speed up execution, whereas the latter is a deterministic
 /// cache used for gas accounting during contract execution.
 pub struct TrieCachingStorage {
-    pub(crate) store: Store,
+    pub(crate) store: TrieStoreAdapter,
     pub(crate) shard_uid: ShardUId,
     pub(crate) is_view: bool,
 
@@ -390,7 +391,7 @@ struct TrieCacheInnerMetrics {
 
 impl TrieCachingStorage {
     pub fn new(
-        store: Store,
+        store: TrieStoreAdapter,
         shard_cache: TrieCache,
         shard_uid: ShardUId,
         is_view: bool,
@@ -419,13 +420,6 @@ impl TrieCachingStorage {
             prefetch_conflict: metrics::PREFETCH_CONFLICT.with_label_values(&metrics_labels[..1]),
         };
         TrieCachingStorage { store, shard_uid, is_view, shard_cache, prefetch_api, metrics }
-    }
-
-    pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
-        let mut key = [0; 40];
-        key[0..8].copy_from_slice(&shard_uid.to_bytes());
-        key[8..].copy_from_slice(hash.as_ref());
-        key
     }
 
     /// Reads value if it is not in shard cache. Handles dropping the cache
@@ -548,22 +542,9 @@ impl TrieStorage for TrieCachingStorage {
     }
 }
 
-fn read_node_from_db(
-    store: &Store,
-    shard_uid: ShardUId,
-    hash: &CryptoHash,
-) -> Result<Arc<[u8]>, StorageError> {
-    let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, hash);
-    let val = store
-        .get(DBCol::State, key.as_ref())
-        .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
-    Ok(val.into())
-}
-
 impl TrieCachingStorage {
     fn read_from_db(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        read_node_from_db(&self.store, self.shard_uid, hash)
+        self.store.get(self.shard_uid, hash)
     }
 
     pub fn prefetch_api(&self) -> &Option<PrefetchApi> {
@@ -576,19 +557,19 @@ impl TrieCachingStorage {
 /// This `TrieStorage` implementation has no caches, it just goes to DB.
 /// It is useful for background tasks that should not affect chunk processing and block each other.
 pub struct TrieDBStorage {
-    pub(crate) store: Store,
+    pub(crate) store: TrieStoreAdapter,
     pub(crate) shard_uid: ShardUId,
 }
 
 impl TrieDBStorage {
-    pub fn new(store: Store, shard_uid: ShardUId) -> Self {
+    pub fn new(store: TrieStoreAdapter, shard_uid: ShardUId) -> Self {
         Self { store, shard_uid }
     }
 }
 
 impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        read_node_from_db(&self.store, self.shard_uid, hash)
+        self.store.get(self.shard_uid, hash)
     }
 }
 

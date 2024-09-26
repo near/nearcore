@@ -14,6 +14,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::EpochHeight;
+use near_store::adapter::StoreAdapter;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -923,7 +924,7 @@ impl ViewTrieCmd {
         match self.format {
             ViewTrieFormat::Full => {
                 view_trie(
-                    store,
+                    store.trie_store(),
                     hash,
                     self.shard_id,
                     self.shard_version,
@@ -937,7 +938,7 @@ impl ViewTrieCmd {
             }
             ViewTrieFormat::Pretty => {
                 view_trie_leaves(
-                    store,
+                    store.trie_store(),
                     hash,
                     self.shard_id,
                     self.shard_version,
