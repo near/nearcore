@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::{fmt, str};
 
 /// This file implements two data structure `ShardLayout` and `ShardUId`
@@ -175,93 +175,27 @@ impl AccountRange {
     pub fn new_mid(start: AccountId, end: AccountId) -> Self {
         Self { start: AccountBoundary::Middle(start), end: AccountBoundary::Middle(end) }
     }
-
-    fn contains(&self, account_id: &AccountId) -> bool {
-        match (&self.start, &self.end) {
-            (AccountBoundary::Start, AccountBoundary::End) => true,
-            (AccountBoundary::Start, AccountBoundary::Middle(end)) => account_id < end,
-            (AccountBoundary::Middle(start), AccountBoundary::End) => account_id >= start,
-            (AccountBoundary::Middle(start), AccountBoundary::Middle(end)) => {
-                account_id >= start && account_id < end
-            }
-            (AccountBoundary::End, _) => panic!("invalid account range"),
-            (_, AccountBoundary::Start) => panic!("invalid account range"),
-        }
-    }
-}
-
-/// A mapping from the account range to shard id.
-/// e.g.
-///     (Start, "kkk") -> 0
-///     ("kkk", "ppp") -> 3
-///     ("ppp", End) -> 4
-type AccountRangeShardMap = BTreeMap<AccountRange, ShardId>;
-
-/// Validate the mapping from the account range to shard id.
-/// The validations consists of the following steps:
-/// - The first range must start with Start
-/// - The last range must end with End
-/// - All other boundaries must be Middle
-/// - There must not be any gaps or overlaps e.i.
-///     the end of previous range must equal to the start of the next one
-/// - The shard ids are unique
-fn validate_account_range_shard_mapping(
-    account_range_shard_mapping: &AccountRangeShardMap,
-) -> Result<(), ShardLayoutError> {
-    let err =
-        |reason: &str| ShardLayoutError::InvalidShardsAccountRange { reason: reason.to_string() };
-
-    let account_ranges = account_range_shard_mapping.keys().collect_vec();
-
-    // Check start and end.
-    let (Some(first), Some(last)) = (account_ranges.first(), account_ranges.last()) else {
-        return Err(err("account range empty"));
-    };
-    if first.start != AccountBoundary::Start {
-        return Err(err("first account range should start with Start"));
-    }
-    if last.end != AccountBoundary::End {
-        return Err(err("last account range should end with End"));
-    }
-
-    // Check middle ranges and no gaps or overlaps.
-    for i in 1..account_ranges.len() {
-        let prev = account_ranges[i - 1];
-        let curr = account_ranges[i];
-
-        if !matches!(prev.end, AccountBoundary::Middle(_)) {
-            return Err(err(&format!(
-                "Account range in the middle should not end with Start/End. {prev:?}"
-            )));
-        }
-        if !matches!(curr.start, AccountBoundary::Middle(_)) {
-            return Err(err(&format!(
-                "Account range in the middle should not start with Start/End. {curr:?}"
-            )));
-        }
-
-        if prev.end != curr.start {
-            return Err(err(&format!(
-                "account ranges should be contiguous, {:?} != {:?}",
-                prev.end, curr.start
-            )));
-        }
-    }
-
-    // Check for unique shard ids.
-    let shard_ids: BTreeSet<ShardId> = account_range_shard_mapping.values().copied().collect();
-    if shard_ids.len() != account_range_shard_mapping.len() {
-        return Err(err("shard ids are not unique"));
-    }
-
-    Ok(())
 }
 
 /// Making the shard ids non-contiguous.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV2 {
-    /// A mapping from the shard id to the account range of this shard.
-    account_range_shard_mapping: AccountRangeShardMap,
+    /// The boundary accounts are the accounts on boundaries between shards.
+    /// Each shard contains a range of accounts from one boundary account to
+    /// another - or the smallest or largest account possible. The total
+    /// number of shards is equal to the number of boundary accounts plus 1.
+    ///
+    /// The shard ids do not need to be contiguous or sorted.
+    boundary_accounts: Vec<AccountId>,
+
+    /// The shard ids corresponding to the shards defined by the boundary
+    /// accounts. The invariant between boundary_accounts and shard_ids is that
+    /// boundary_accounts.len() + 1 == shard_ids.len().
+    ///
+    /// The shard id at index i corresponds to the shard with account range:
+    /// [boundary_accounts[i -1], boundary_accounts[i]).
+    ///
+    shard_ids: Vec<ShardId>,
 
     /// A mapping from the parent shard to child shards. Maps shards from the
     /// previous shard layout to shards that they split to in this shard layout.
@@ -270,19 +204,24 @@ pub struct ShardLayoutV2 {
     /// shard layout to their parent shards.
     shards_parent_map: Option<ShardsParentMapV2>,
 
-    /// Version of the shard layout, this is useful for uniquely identify the shard layout
+    /// The version of the shard layout. Starting from the ShardLayoutV2 the
+    /// version is no longer updated with every shard layout change and it does
+    /// not uniquely identify the shard layout.
     version: ShardVersion,
 }
 
 impl ShardLayoutV2 {
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         // TODO(resharding) - This could be optimized.
-        for (account_range, &shard_id) in &self.account_range_shard_mapping {
-            if account_range.contains(account_id) {
-                return shard_id;
+
+        let mut shard_id_index = 0;
+        for boundary_account in &self.boundary_accounts {
+            if account_id < boundary_account {
+                break;
             }
+            shard_id_index += 1;
         }
-        panic!("account_id_to_shard_id: account_id not found in any shard")
+        self.shard_ids[shard_id_index]
     }
 }
 
@@ -333,18 +272,22 @@ impl ShardLayout {
 
     /// Return a V2 Shardlayout
     pub fn v2(
-        account_range_shard_mapping: AccountRangeShardMap,
+        boundary_accounts: Vec<AccountId>,
+        shard_ids: Vec<ShardId>,
         shards_split_map: Option<ShardsSplitMapV2>,
-        version: ShardVersion,
     ) -> Self {
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap();
+        // In the v2 layout the version is not updated with every shard layout.
+        const VERSION: ShardVersion = 3;
+
+        assert_eq!(boundary_accounts.len() + 1, shard_ids.len());
 
         let Some(shards_split_map) = shards_split_map else {
             return Self::V2(ShardLayoutV2 {
-                account_range_shard_mapping,
+                boundary_accounts,
+                shard_ids,
                 shards_split_map: None,
                 shards_parent_map: None,
-                version,
+                version: VERSION,
             });
         };
 
@@ -357,17 +300,18 @@ impl ShardLayout {
         }
 
         assert_eq!(
-            account_range_shard_mapping.values().sorted().collect_vec(),
-            shards_parent_map.keys().sorted().collect_vec()
+            shard_ids.iter().copied().sorted().collect_vec(),
+            shards_parent_map.keys().copied().collect_vec()
         );
 
         let shards_split_map = Some(shards_split_map);
         let shards_parent_map = Some(shards_parent_map);
         Self::V2(ShardLayoutV2 {
-            account_range_shard_mapping,
+            boundary_accounts,
+            shard_ids,
             shards_split_map,
             shards_parent_map,
-            version,
+            version: VERSION,
         })
     }
 
@@ -433,23 +377,16 @@ impl ShardLayout {
     /// based on the fresh data before the resharding.
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
         // the boundary accounts in lexicographical order
-        let b0: AccountId = "aurora".parse().unwrap();
-        let b1: AccountId = "aurora-0".parse().unwrap();
-        let b2: AccountId = "game.hot.tg".parse().unwrap();
-        let b3: AccountId = "game.hot.tg-0".parse().unwrap();
-        let b4: AccountId = "kkuuue2akv_1630967379.near".parse().unwrap();
-        let b5: AccountId = "tge-lockup.sweat".parse().unwrap();
+        let boundary_accounts = vec![
+            "aurora".parse().unwrap(),
+            "aurora-0".parse().unwrap(),
+            "game.hot.tg".parse().unwrap(),
+            "game.hot.tg-0".parse().unwrap(),
+            "kkuuue2akv_1630967379.near".parse().unwrap(),
+            "tge-lockup.sweat".parse().unwrap(),
+        ];
 
-        // the account ranges
-        let s0 = AccountRange::new_start(b0.clone());
-        let s1 = AccountRange::new_mid(b0, b1.clone());
-        let s6 = AccountRange::new_mid(b1, b2.clone());
-        let s7 = AccountRange::new_mid(b2, b3.clone());
-        let s3 = AccountRange::new_mid(b3, b4.clone());
-        let s4 = AccountRange::new_mid(b4, b5.clone());
-        let s5 = AccountRange::new_end(b5);
-        let account_range_shard_mapping =
-            BTreeMap::from([(s0, 0), (s1, 1), (s6, 6), (s7, 7), (s3, 3), (s4, 4), (s5, 5)]);
+        let shard_ids = vec![0, 1, 6, 7, 3, 4, 5];
 
         let shards_split_map = BTreeMap::from([
             (0, vec![0]),
@@ -461,11 +398,7 @@ impl ShardLayout {
         ]);
         let shards_split_map = Some(shards_split_map);
 
-        // The shard layout version stays the same. Starting from version 3 the
-        // shard version is no longer updated with every shard layout change.
-        let version = 3;
-
-        ShardLayout::v2(account_range_shard_mapping, shards_split_map, version)
+        ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
     }
 
     /// This layout is used only in resharding tests. It allows testing of any features which were
@@ -550,7 +483,7 @@ impl ShardLayout {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
-            Self::V2(v2) => (v2.account_range_shard_mapping.len()) as NumShards,
+            Self::V2(v2) => (v2.shard_ids.len()) as NumShards,
         }
     }
 
@@ -558,9 +491,7 @@ impl ShardLayout {
         match self {
             Self::V0(_) => (0..self.num_shards()).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).collect_vec().into_iter(),
-            Self::V2(v2) => {
-                v2.account_range_shard_mapping.values().copied().collect_vec().into_iter()
-            }
+            Self::V2(v2) => v2.shard_ids.clone().into_iter(),
         }
     }
 
@@ -796,10 +727,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 #[cfg(test)]
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
-    use crate::shard_layout::{
-        account_id_to_shard_id, validate_account_range_shard_mapping, AccountRange,
-        AccountRangeShardMap, ShardLayout, ShardLayoutV1, ShardUId,
-    };
+    use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
     use itertools::Itertools;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
@@ -951,69 +879,6 @@ mod tests {
         ids.into_iter().map(|a| a.parse().unwrap()).collect()
     }
 
-    fn account_range_start(end: &str) -> AccountRange {
-        AccountRange::new_start(end.parse().unwrap())
-    }
-
-    fn account_range_end(start: &str) -> AccountRange {
-        AccountRange::new_end(start.parse().unwrap())
-    }
-
-    fn account_range_mid(start: &str, end: &str) -> AccountRange {
-        AccountRange::new_mid(start.parse().unwrap(), end.parse().unwrap())
-    }
-
-    #[test]
-    fn test_validate_account_range_shard_mapping() {
-        // one shard
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(AccountRange::new_single_shard(), 0);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap();
-
-        // two shards
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(account_range_start("middle"), 0);
-        account_range_shard_mapping.insert(account_range_end("middle"), 1);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap();
-
-        // more shards, non-contiguous
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
-        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
-        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap();
-
-        // no start
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
-        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
-
-        // no end
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
-        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
-
-        // hole
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
-        account_range_shard_mapping.insert(account_range_mid("ccc", "kkk"), 5);
-        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
-
-        // overlap
-        let mut account_range_shard_mapping = AccountRangeShardMap::new();
-        account_range_shard_mapping.insert(account_range_start("ccc"), 0);
-        account_range_shard_mapping.insert(account_range_mid("ccc", "mmm"), 5);
-        account_range_shard_mapping.insert(account_range_mid("kkk", "ppp"), 7);
-        account_range_shard_mapping.insert(account_range_end("ppp"), 1);
-        validate_account_range_shard_mapping(&account_range_shard_mapping).unwrap_err();
-    }
-
     #[test]
     fn test_shard_layout_v2() {
         let shard_layout = get_test_shard_layout_v2();
@@ -1050,30 +915,19 @@ mod tests {
     }
 
     fn get_test_shard_layout_v2() -> ShardLayout {
-        // the boundary accounts in lexicographical order
-        let b0: AccountId = "ccc".parse().unwrap();
-        let b1: AccountId = "kkk".parse().unwrap();
-        let b2: AccountId = "ppp".parse().unwrap();
+        let b0 = "ccc".parse().unwrap();
+        let b1 = "kkk".parse().unwrap();
+        let b2 = "ppp".parse().unwrap();
 
-        // the account ranges
-        let s3 = AccountRange::new_start(b0.clone());
-        let s8 = AccountRange::new_mid(b0, b1.clone());
-        let s4 = AccountRange::new_mid(b1, b2.clone());
-        let s7 = AccountRange::new_end(b2);
-
-        // the mapping from account range to shard id
-        let account_range_shard_mapping = BTreeMap::from([(s3, 3), (s8, 8), (s4, 4), (s7, 7)]);
+        let boundary_accounts = vec![b0, b1, b2];
+        let shard_ids = vec![3, 8, 4, 7];
 
         // the mapping from parent to the child
         // shard 1 is split into shards 7 & 8 while other shards stay the same
         let shards_split_map = BTreeMap::from([(1, vec![7, 8]), (3, vec![3]), (4, vec![4])]);
         let shards_split_map = Some(shards_split_map);
 
-        // The shard layout version stays the same. Starting from version 3 the
-        // shard version is no longer updated with every shard layout change.
-        let version = 3;
-
-        ShardLayout::v2(account_range_shard_mapping, shards_split_map, version)
+        ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
     }
 
     #[test]
@@ -1199,29 +1053,35 @@ mod tests {
         insta::assert_snapshot!(format!("{v4:#?}"), @r###"
         V2(
             ShardLayoutV2 {
-                account_range_shard_mapping: {
-                    AccountRange {
-                        range: "start..aurora",
-                    }: 0,
-                    AccountRange {
-                        range: "aurora..aurora-0",
-                    }: 1,
-                    AccountRange {
-                        range: "aurora-0..game.hot.tg",
-                    }: 6,
-                    AccountRange {
-                        range: "game.hot.tg..game.hot.tg-0",
-                    }: 7,
-                    AccountRange {
-                        range: "game.hot.tg-0..kkuuue2akv_1630967379.near",
-                    }: 3,
-                    AccountRange {
-                        range: "kkuuue2akv_1630967379.near..tge-lockup.sweat",
-                    }: 4,
-                    AccountRange {
-                        range: "tge-lockup.sweat..end",
-                    }: 5,
-                },
+                boundary_accounts: [
+                    AccountId(
+                        "aurora",
+                    ),
+                    AccountId(
+                        "aurora-0",
+                    ),
+                    AccountId(
+                        "game.hot.tg",
+                    ),
+                    AccountId(
+                        "game.hot.tg-0",
+                    ),
+                    AccountId(
+                        "kkuuue2akv_1630967379.near",
+                    ),
+                    AccountId(
+                        "tge-lockup.sweat",
+                    ),
+                ],
+                shard_ids: [
+                    0,
+                    1,
+                    6,
+                    7,
+                    3,
+                    4,
+                    5,
+                ],
                 shards_split_map: Some(
                     {
                         0: [
