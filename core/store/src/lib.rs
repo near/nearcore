@@ -12,6 +12,7 @@ pub use crate::trie::{
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
     STATE_SNAPSHOT_COLUMNS,
 };
+use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
@@ -43,6 +44,7 @@ use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
 
+pub mod adapter;
 pub mod cold_storage;
 mod columns;
 pub mod config;
@@ -110,6 +112,12 @@ pub struct NodeStorage {
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+}
+
+impl StoreAdapter for Store {
+    fn store(&self) -> Store {
+        self.clone()
+    }
 }
 
 impl NodeStorage {
@@ -448,6 +456,12 @@ impl Store {
 pub struct StoreUpdate {
     transaction: DBTransaction,
     storage: Arc<dyn Database>,
+}
+
+impl StoreUpdateAdapter for StoreUpdate {
+    fn store_update(&mut self) -> &mut StoreUpdate {
+        self
+    }
 }
 
 impl StoreUpdate {
