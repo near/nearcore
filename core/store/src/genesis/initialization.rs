@@ -16,9 +16,9 @@ use near_primitives::{
 use tracing::{error, info, warn};
 
 use crate::{
-    flat::FlatStorageManager, genesis::GenesisStateApplier, get_genesis_hash,
-    get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ShardTries,
-    StateSnapshotConfig, Store, TrieConfig,
+    adapter::StoreAdapter, flat::FlatStorageManager, genesis::GenesisStateApplier,
+    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
+    ShardTries, StateSnapshotConfig, Store, TrieConfig,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -132,7 +132,7 @@ fn genesis_state_from_genesis(
         store.clone(),
         TrieConfig::default(),
         &shard_uids,
-        FlatStorageManager::new(store),
+        FlatStorageManager::new(store.flat_store()),
         StateSnapshotConfig::default(),
     );
 

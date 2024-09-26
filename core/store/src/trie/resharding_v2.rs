@@ -1,3 +1,4 @@
+use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::{
     get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
@@ -72,7 +73,7 @@ impl ShardTries {
         let mut store_update = self.store_update();
         for (shard_uid, changes) in changes_by_shard {
             FlatStateChanges::from_raw_key_value(&changes)
-                .apply_to_flat_state(&mut store_update, shard_uid);
+                .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes =
                 self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
@@ -136,7 +137,7 @@ impl ShardTries {
             let (_, trie_changes, state_changes) = update.finalize()?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             FlatStateChanges::from_state_changes(&state_changes)
-                .apply_to_flat_state(&mut store_update, shard_uid);
+                .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
             new_state_roots.insert(shard_uid, state_root);
         }
         Ok((store_update, new_state_roots))

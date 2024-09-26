@@ -10,6 +10,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
 
 // Set the mailbox capacity for the SyncJobsActor from default 16 to 100.
@@ -100,7 +101,7 @@ impl SyncJobsActor {
         let success = msg
             .runtime_adapter
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)?;
+            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update.flat_store_update())?;
         store_update.commit()?;
         Ok(success)
     }
