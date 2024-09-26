@@ -28,6 +28,9 @@ body:
         - mainnet
         - testnet
         - other (specify below)
+      default: 0
+    validations:
+      required: true
   - type: textarea
     id: what-happened
     attributes:
