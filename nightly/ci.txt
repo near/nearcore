@@ -1,2 +1,4 @@
 # TODO: add remaining tests.
-./pytest.txt
+# ./pytest.txt
+pytest spec/network/peers_request.py
+pytest spec/network/peers_request.py --features nightly
