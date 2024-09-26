@@ -46,10 +46,10 @@ fn sync_state_nodes() {
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
 
-        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
-        let dir1 = dir1.clone();
-        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
-        let dir2 = dir2.clone();
+        let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = _dir1.clone();
+        let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = _dir2.clone();
 
         run_actix(async move {
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -126,6 +126,8 @@ fn sync_state_nodes() {
             )
             .start();
         });
+        drop(_dir1);
+        drop(_dir2);
     });
 }
 
@@ -149,14 +151,14 @@ fn sync_state_nodes_multishard() {
         );
         genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
-        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
-        let dir1 = dir1.clone();
-        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
-        let dir2 = dir2.clone();
-        let dir3 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap());
-        let dir3 = dir3.clone();
-        let dir4 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap());
-        let dir4 = dir4.clone();
+        let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = _dir1.clone();
+        let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = _dir2.clone();
+        let _dir3 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap());
+        let dir3 = _dir3.clone();
+        let _dir4 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap());
+        let dir4 = _dir4.clone();
 
         run_actix(async move {
             let (port1, port2, port3, port4) = (
@@ -283,6 +285,10 @@ fn sync_state_nodes_multishard() {
             )
             .start();
         });
+        drop(_dir1);
+        drop(_dir2);
+        drop(_dir3);
+        drop(_dir4);
     });
 }
 
@@ -301,10 +307,10 @@ fn sync_empty_state() {
         );
         genesis.config.epoch_length = 20;
 
-        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
-        let dir1 = dir1.clone();
-        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
-        let dir2 = dir2.clone();
+        let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = _dir1.clone();
+        let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = _dir2.clone();
 
         run_actix(async move {
             let (port1, port2) =
@@ -410,6 +416,8 @@ fn sync_empty_state() {
             )
             .start();
         });
+        drop(_dir1);
+        drop(_dir2);
     });
 }
 
@@ -433,12 +441,13 @@ fn sync_state_dump() {
         // start, sync headers and find a dump of state.
         genesis.config.epoch_length = 30;
 
-        let dump_dir = Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
-        let dump_dir = dump_dir.clone();
-        let dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
-        let dir1 = dir1.clone();
-        let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
-        let dir2 = dir2.clone();
+        let _dump_dir =
+            Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
+        let dump_dir = _dump_dir.clone();
+        let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
+        let dir1 = _dir1.clone();
+        let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+        let dir2 = _dir2.clone();
 
         run_actix(async move {
             let (port1, port2) =
@@ -554,6 +563,9 @@ fn sync_state_dump() {
             .unwrap();
             System::current().stop();
         });
+        drop(_dump_dir);
+        drop(_dir1);
+        drop(_dir2);
     });
 }
 
@@ -747,12 +759,12 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 #[test]
 // Tests StateRequestHeader and StateRequestPart.
 fn test_state_sync_headers() {
-    let dir1 =
-        Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
-    let dir1 = dir1.clone();
-
     heavy_test(|| {
         init_test_logger();
+
+        let _dir1 =
+            Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
+        let dir1 = _dir1.clone();
 
         run_actix(async {
             let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
@@ -935,6 +947,7 @@ fn test_state_sync_headers() {
             .unwrap();
             System::current().stop();
         });
+        drop(_dir1);
     });
 }
 
@@ -944,20 +957,20 @@ fn test_state_sync_headers_no_tracked_shards() {
     heavy_test(|| {
         init_test_logger();
 
-        let dir1 = Arc::new(
+        let _dir1 = Arc::new(
             tempfile::Builder::new()
                 .prefix("test_state_sync_headers_no_tracked_shards_1")
                 .tempdir()
                 .unwrap(),
         );
-        let dir1 = dir1.clone();
-        let dir2 = Arc::new(
+        let dir1 = _dir1.clone();
+        let _dir2 = Arc::new(
             tempfile::Builder::new()
                 .prefix("test_state_sync_headers_no_tracked_shards_2")
                 .tempdir()
                 .unwrap(),
         );
-        let dir2 = dir2.clone();
+        let dir2 = _dir2.clone();
         run_actix(async {
             let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
             // Increase epoch_length if the test is flaky.
@@ -1099,5 +1112,7 @@ fn test_state_sync_headers_no_tracked_shards() {
             .unwrap();
             System::current().stop();
         });
+        drop(_dir1);
+        drop(_dir2);
     });
 }
