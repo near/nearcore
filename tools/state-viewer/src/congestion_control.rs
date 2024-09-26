@@ -1,11 +1,14 @@
 use rand::Rng;
+use std::borrow::Cow;
 use std::path::Path;
 
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum, ReceiptV1};
+use near_primitives::receipt::{
+    DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV1,
+};
 use near_primitives::types::{ShardId, StateChangeCause, StateRoot};
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{ShardTries, ShardUId, Store, TrieUpdate};
@@ -189,6 +192,8 @@ impl PrepareBenchmarkCmd {
 
         for _ in 0..self.receipt_count {
             let receipt = self.create_receipt();
+            let receipt = Cow::Borrowed(&receipt);
+            let receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
             queue.push(&mut trie_update, &receipt).unwrap();
         }
 

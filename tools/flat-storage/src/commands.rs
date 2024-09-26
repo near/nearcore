@@ -9,14 +9,14 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::flat_store::FlatStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{
-    inline_flat_state_values, store_helper, FlatStateChanges, FlatStateDelta,
-    FlatStateDeltaMetadata, FlatStorageManager, FlatStorageStatus,
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
 
@@ -44,9 +44,6 @@ enum SubCommand {
     /// Temporary command to set the store version (useful as long flat
     /// storage is enabled only during nightly with separate DB version).
     SetStoreVersion(SetStoreVersionCmd),
-
-    /// Run FlatState value inininig migration
-    MigrateValueInlining(MigrateValueInliningCmd),
 
     /// Construct and store trie in a separate directory from flat storage state for a given shard.
     /// The trie is constructed for the block height equal to flat_head
@@ -130,14 +127,13 @@ pub struct MoveFlatHeadCmd {
     mode: MoveFlatHeadMode,
 }
 
-fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
-    let changes =
-        store_helper::get_delta_changes(store, shard_uid, metadata.block.hash).unwrap().unwrap();
+fn print_delta(store: &FlatStoreAdapter, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
+    let changes = store.get_delta(shard_uid, metadata.block.hash).unwrap().unwrap();
     println!("{:?}", FlatStateDelta { metadata, changes });
 }
 
-fn print_deltas(store: &Store, shard_uid: ShardUId) {
-    let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid).unwrap();
+fn print_deltas(store: &FlatStoreAdapter, shard_uid: ShardUId) {
+    let deltas_metadata = store.get_all_deltas_metadata(shard_uid).unwrap();
     let num_deltas = deltas_metadata.len();
     println!("Deltas: {}", num_deltas);
 
@@ -207,7 +203,7 @@ impl FlatStorageCommand {
                         "Shard: {shard_uid:?} - flat storage @{:?} ({})",
                         ready_status.flat_head.height, ready_status.flat_head.hash,
                     );
-                    print_deltas(&hot_store, shard_uid);
+                    print_deltas(&hot_store.flat_store(), shard_uid);
                 }
                 status => {
                     println!("Shard: {shard_uid:?} - no flat storage: {status:?}");
@@ -244,7 +240,7 @@ impl FlatStorageCommand {
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
         let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
-        let mut store_update = store.store_update();
+        let mut store_update = store.flat_store().store_update();
         flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
         store_update.commit()?;
         Ok(())
@@ -271,7 +267,7 @@ impl FlatStorageCommand {
             if status {
                 break;
             }
-            let current_status = store_helper::get_flat_storage_status(&rw_hot_store, shard_uid);
+            let current_status = rw_hot_store.flat_store().get_flat_storage_status(shard_uid);
             println!("Status: {:?}", current_status);
 
             std::thread::sleep(Duration::from_secs(1));
@@ -292,8 +288,10 @@ impl FlatStorageCommand {
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
         let tip = chain_store.final_head()?;
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+        let hot_store = hot_store.flat_store();
 
-        let head_hash = match store_helper::get_flat_storage_status(&hot_store, shard_uid)
+        let head_hash = match hot_store
+            .get_flat_storage_status(shard_uid)
             .expect("falied to read flat storage status")
         {
             FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
@@ -326,8 +324,7 @@ impl FlatStorageCommand {
 
         let trie = hot_runtime.get_view_trie_for_shard(cmd.shard_id, &head_hash, *state_root)?;
 
-        let flat_state_entries_iter =
-            store_helper::iter_flat_state_entries(shard_uid, &hot_store, None, None);
+        let flat_state_entries_iter = hot_store.iter(shard_uid);
 
         let trie_iter = trie.disk_iter()?;
         let mut verified = 0;
@@ -373,26 +370,6 @@ impl FlatStorageCommand {
         } else {
             println!("FAILED - on node {:?}", verified);
         }
-        Ok(())
-    }
-
-    fn migrate_value_inlining(
-        &self,
-        cmd: &MigrateValueInliningCmd,
-        home_dir: &PathBuf,
-        near_config: &NearConfig,
-        opener: StoreOpener,
-    ) -> anyhow::Result<()> {
-        let store =
-            Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting).4;
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        inline_flat_state_values(
-            store,
-            &flat_storage_manager,
-            &AtomicBool::new(true),
-            cmd.num_threads,
-            cmd.batch_size,
-        );
         Ok(())
     }
 
@@ -453,9 +430,9 @@ impl FlatStorageCommand {
                     }),
             );
 
-        let iter = store_helper::iter_flat_state_entries(
+        let flat_store = store.flat_store();
+        let iter = flat_store.iter_range(
             shard_uid,
-            &store,
             Some(missing_keys_left_boundary),
             Some(missing_keys_right_boundary),
         );
@@ -487,7 +464,8 @@ impl FlatStorageCommand {
         blocks: usize,
     ) -> anyhow::Result<()> {
         let store = chain_store.store();
-        let flat_head = match store_helper::get_flat_storage_status(&store, shard_uid) {
+        let flat_store = store.flat_store();
+        let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
             Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
             status => {
                 panic!("invalid flat storage status for shard {shard_uid:?}: {status:?}")
@@ -554,7 +532,8 @@ impl FlatStorageCommand {
                         .map(|value_ref| {
                             near_primitives::state::FlatStateValue::Ref(value_ref.into_value_ref())
                         });
-                    let value = store_helper::get_flat_state_value(&store, shard_uid, trie_key)?
+                    let value = flat_store
+                        .get(shard_uid, trie_key)?
                         .map(|val| near_primitives::state::FlatStateValue::Ref(val.to_value_ref()));
                     if prev_value != value {
                         prev_delta.insert(trie_key.to_vec(), prev_value);
@@ -572,10 +551,9 @@ impl FlatStorageCommand {
             // Note that we don't write delta to DB, because this command is
             // used to simulate applying chunks from past blocks, and in that
             // simulations future deltas should not exist.
-            let mut store_update = store.store_update();
+            let mut store_update = flat_store.store_update();
             prev_delta.apply_to_flat_state(&mut store_update, shard_uid);
-            store_helper::set_flat_storage_status(
-                &mut store_update,
+            store_update.set_flat_storage_status(
                 shard_uid,
                 FlatStorageStatus::Ready(near_store::flat::FlatStorageReadyStatus {
                     flat_head: near_store::flat::BlockInfo {
@@ -648,9 +626,6 @@ impl FlatStorageCommand {
             SubCommand::Reset(cmd) => self.reset(cmd, home_dir, &near_config, opener),
             SubCommand::Init(cmd) => self.init(cmd, home_dir, &near_config, opener),
             SubCommand::Verify(cmd) => self.verify(cmd, home_dir, &near_config, opener),
-            SubCommand::MigrateValueInlining(cmd) => {
-                self.migrate_value_inlining(cmd, home_dir, &near_config, opener)
-            }
             SubCommand::ConstructTrieFromFlat(cmd) => {
                 self.construct_trie_from_flat(cmd, home_dir, &near_config, opener)
             }

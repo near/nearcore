@@ -15,8 +15,9 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
-    store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
@@ -77,10 +78,10 @@ impl<'c> EstimatorContext<'c> {
         let root = roots[0];
 
         let shard_uid = ShardUId::single_shard();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let mut store_update = store.store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        let flat_store = store.flat_store();
+        let flat_storage_manager = FlatStorageManager::new(flat_store.clone());
+        let mut store_update = flat_store.store_update();
+        store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
                 flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
@@ -358,7 +359,8 @@ impl Testbed<'_> {
             )
             .unwrap();
 
-        let mut store_update = self.tries.store_update();
+        let store = self.tries.get_store();
+        let mut store_update = store.store_update();
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         if self.config.memtrie {
@@ -375,7 +377,7 @@ impl Testbed<'_> {
             assert_eq!(self.root, memtrie_root);
         }
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-            .apply_to_flat_state(&mut store_update, shard_uid);
+            .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
         if let Some(congestion_info) = apply_result.congestion_info {

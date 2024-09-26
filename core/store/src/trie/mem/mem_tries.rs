@@ -26,7 +26,7 @@ use super::updating::{construct_root_from_changes, MemTrieUpdate};
 /// its children nodes. The `roots` field of this struct logically
 /// holds an Rc of the root of each trie.
 pub struct MemTries {
-    arena: HybridArena,
+    pub(super) arena: HybridArena,
     /// Maps a state root to a list of nodes that have the same root hash.
     /// The reason why this is a list is because we do not have a node
     /// deduplication mechanism so we can't guarantee that nodes of the
@@ -171,7 +171,7 @@ impl MemTries {
     }
 
     /// Returns an iterator over the memtrie for the given trie root.
-    pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator, StorageError> {
+    pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator<'a>, StorageError> {
         let root = if trie.root == CryptoHash::default() {
             None
         } else {

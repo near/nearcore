@@ -25,18 +25,67 @@ use std::sync::Arc;
 
 const CONTRACT_ID: &str = "contract.test0";
 
-fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
+fn get_runtime_config(
+    config_store: &RuntimeConfigStore,
+    protocol_version: ProtocolVersion,
+) -> Arc<near_parameters::RuntimeConfig> {
+    let mut config = config_store.get_config(protocol_version).clone();
+    let mut_config = Arc::make_mut(&mut config);
+
+    adjust_runtime_config(mut_config);
+
+    config
+}
+
+// Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
+fn adjust_runtime_config(config: &mut RuntimeConfig) {
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
+    wasm_config.regular_op_cost = u32::MAX;
+}
+
+/// Set up the test runtime with the given protocol version and runtime configs.
+/// The test version of runtime has custom gas cost.
+fn setup_test_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
     genesis.config.epoch_length = 10;
     genesis.config.protocol_version = protocol_version;
+
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
 
     let mut config = RuntimeConfig::test();
-    // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-    let wasm_config = Arc::make_mut(&mut config.wasm_config);
-    wasm_config.regular_op_cost = u32::MAX;
+    adjust_runtime_config(&mut config);
     let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
+
+    TestEnv::builder(&genesis.config)
+        .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
+        .build()
+}
+
+/// Set up the real runtime with the given protocol version and runtime configs.
+/// This runtime is suitable for testing protocol upgrade and the migration from
+/// Receipt to StateStoredReceipt.
+fn setup_real_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
+    let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
+    genesis.config.epoch_length = 10;
+    genesis.config.protocol_version = protocol_version;
+
+    // Chain must be sharded to test cross-shard congestion control.
+    genesis.config.shard_layout = ShardLayout::v1_test();
+
+    let config_store = RuntimeConfigStore::new(None);
+    let pre_config = get_runtime_config(&config_store, protocol_version);
+    let post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+
+    // Checking the migration from Receipt to StateStoredReceipt requires the
+    // relevant config to be disabled before the protocol upgrade and enabled
+    // after the protocol upgrade.
+    assert!(false == pre_config.use_state_stored_receipt);
+    assert!(true == post_config.use_state_stored_receipt);
+
+    let runtime_configs = vec![RuntimeConfigStore::new_custom(
+        [(protocol_version, pre_config), (PROTOCOL_VERSION, post_config)].into_iter().collect(),
+    )];
 
     TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
@@ -163,7 +212,7 @@ fn test_protocol_upgrade_simple() {
         return;
     }
 
-    let mut env = setup_runtime(
+    let mut env = setup_real_runtime(
         "test0".parse().unwrap(),
         ProtocolFeature::CongestionControl.protocol_version() - 1,
     );
@@ -235,16 +284,18 @@ fn test_protocol_upgrade_under_congestion() {
     }
 
     let sender_id: AccountId = "test0".parse().unwrap();
-    let mut env =
-        setup_runtime(sender_id.clone(), ProtocolFeature::CongestionControl.protocol_version() - 1);
+    let mut env = setup_real_runtime(
+        sender_id.clone(),
+        ProtocolFeature::CongestionControl.protocol_version() - 1,
+    );
 
     // prepare a contract to call
     setup_contract(&mut env);
 
     let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
     let mut nonce = 10;
-    // Now, congest the network with ~1000 Pgas, enough to have some left after the protocol upgrade.
-    let n = 10000;
+    // Now, congest the network with ~100 Pgas, enough to have some left after the protocol upgrade.
+    let n = 1000;
     submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
 
     // Allow transactions to enter the chain
@@ -301,6 +352,36 @@ fn test_protocol_upgrade_under_congestion() {
 
     let check_congested_protocol_upgrade = true;
     check_congestion_info(&env, check_congested_protocol_upgrade);
+
+    // Test the migration from Receipt to StateStoredReceipt
+
+    // Wait until chain is no longer congested
+    let tip = env.clients[0].chain.head().unwrap();
+    for i in 1.. {
+        let block = env.clients[0].produce_block(tip.height + i);
+        let block = block.unwrap().unwrap();
+        let gas_used = block.chunks().get(contract_shard_id as usize).unwrap().prev_gas_used();
+
+        env.process_block(0, block, Provenance::PRODUCED);
+
+        if gas_used == 0 {
+            break;
+        }
+    }
+
+    // Submit some more transactions that should now be stored as StateStoredReceipts.
+    let included = submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
+    assert!(included > 0);
+
+    // Allow transactions to enter the chain and be processed. At this point the
+    // receipts will be stored and retrieved using the StateStoredReceipt
+    // structure.
+    let tip = env.clients[0].chain.head().unwrap();
+    for i in 1..10 {
+        env.produce_block(0, tip.height + i);
+    }
+
+    // The summary may be incomplete because of GC.
     env.print_summary();
 }
 
@@ -374,18 +455,27 @@ fn new_cheap_fn_call(
 
 /// Submit N transaction containing a function call action with 100 Tgas
 /// attached that will all be burned when called.
-fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &InMemorySigner) {
+fn submit_n_100tgas_fns(
+    env: &mut TestEnv,
+    n: u32,
+    nonce: &mut u64,
+    signer: &InMemorySigner,
+) -> u32 {
+    let mut included = 0;
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
         let fn_tx = new_fn_call_100tgas(nonce, signer, *block.hash());
         // this only adds the tx to the pool, no chain progress is made
         let response = env.clients[0].process_tx(fn_tx, false, false);
         match response {
-            ProcessTxResponse::ValidTx
-            | ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }) => (),
+            ProcessTxResponse::ValidTx => {
+                included += 1;
+            }
+            ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }) => (),
             other => panic!("unexpected result from submitting tx: {other:?}"),
         }
     }
+    included
 }
 
 /// Submit N transaction containing a cheap function call action.
@@ -430,7 +520,7 @@ fn test_transaction_limit_for_local_congestion() {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let sender_id = contract_id.clone();
     let dummy_receiver: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_runtime("test0".parse().unwrap(), PROTOCOL_VERSION);
+    let env = setup_test_runtime("test0".parse().unwrap(), PROTOCOL_VERSION);
 
     let (
         remote_tx_included_without_congestion,
@@ -502,10 +592,10 @@ fn test_transaction_limit_for_remote_congestion() {
 }
 
 /// Test that clients stop including transactions to fully congested receivers.
-///
-///
 #[test]
 fn test_transaction_filtering() {
+    init_test_logger();
+
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -540,7 +630,7 @@ fn measure_remote_tx_limit(upper_limit_congestion: f64) -> (usize, usize, usize,
     let remote_id: AccountId = "test0".parse().unwrap();
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let dummy_id: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_runtime(remote_id.clone(), PROTOCOL_VERSION);
+    let env = setup_test_runtime(remote_id.clone(), PROTOCOL_VERSION);
 
     let tip = env.clients[0].chain.head().unwrap();
     let remote_shard_id =
@@ -608,7 +698,8 @@ fn measure_tx_limit(
     let mut remote_tx_included_without_congestion = 0;
     let mut local_tx_included_without_congestion = 0;
     for i in 2..timeout {
-        env.produce_block(0, tip.height + i);
+        let height = tip.height + i;
+        env.produce_block(0, height);
 
         let sender_chunk = head_chunk(&env, remote_shard_id);
         let contract_chunk = head_chunk(&env, contract_shard_id);
@@ -663,7 +754,7 @@ fn measure_tx_limit(
 #[test]
 fn test_rpc_client_rejection() {
     let sender_id: AccountId = "test0".parse().unwrap();
-    let mut env = setup_runtime(sender_id.clone(), PROTOCOL_VERSION);
+    let mut env = setup_test_runtime(sender_id.clone(), PROTOCOL_VERSION);
 
     // prepare a contract to call
     setup_contract(&mut env);

@@ -20,7 +20,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use near_store::flat::store_helper;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::DBCol;
 use near_store::Store;
 use nearcore::state_sync::StateSyncDumper;
@@ -305,7 +305,10 @@ fn run_state_sync_with_dumped_parts(
         let mut store_update = runtime_client_1.store().store_update();
         assert!(runtime_client_1
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(ShardUId::single_shard(), &mut store_update)
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
             .unwrap());
         store_update.commit().unwrap();
 
@@ -395,7 +398,7 @@ fn test_state_sync_w_dumped_parts() {
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
     let mut num_inlined_values = 0;
     let mut num_ref_values = 0;
-    for item in store_helper::iter_flat_state_entries(ShardUId::single_shard(), store, None, None) {
+    for item in store.flat_store().iter(ShardUId::single_shard()) {
         match item {
             Ok((_, FlatStateValue::Ref(_))) => {
                 num_ref_values += 1;

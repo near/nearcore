@@ -1,3 +1,25 @@
 ./sandbox.txt
 ./pytest.txt
 ./expensive.txt
+
+# Very expensive catchup tests
+expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000
+expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000 --features nightly
+expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow
+expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing
+expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly
+
+# Very expensive test: make sure Docker image can be build and run
+pytest --skip-build --timeout=1h sanity/docker.py
+
+### Flaky tests. Should be fixed to be added to CI and added back to pytest-sanity.txt
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection.py --features nightly
+pytest --timeout=120 sanity/validator_switch_key_quick.py
+pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
+pytest --timeout=600 sanity/state_sync_routed.py manytx 115
+pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
+# Tests for split storage and split storage migration
+pytest --timeout=600 sanity/split_storage.py
+pytest --timeout=600 sanity/split_storage.py --features nightly

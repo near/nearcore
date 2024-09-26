@@ -331,7 +331,7 @@ impl NearVM {
         mut import: NearVmImports<'_, '_, '_>,
         entrypoint: FunctionIndex,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
-        let _span = tracing::debug_span!(target: "vm", "run_method").entered();
+        let _span = tracing::debug_span!(target: "vm", "NearVM::run_method").entered();
 
         // FastGasCounter in Nearcore must be reinterpret_cast-able to the one in NearVm.
         assert_eq!(
@@ -349,7 +349,8 @@ impl NearVM {
         let gas = import.vmlogic.gas_counter().fast_counter_raw_ptr();
         unsafe {
             let instance = {
-                let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
+                let _span =
+                    tracing::debug_span!(target: "vm", "NearVM::run_method/instantiate").entered();
                 // An important caveat is that the `'static` lifetime here refers to the lifetime
                 // of `VMLogic` reference to which is retained by the `InstanceHandle` we create.
                 // However this `InstanceHandle` only lives during the execution of this body, so
@@ -396,7 +397,7 @@ impl NearVM {
                 handle
             };
             if let Some(function) = instance.function_by_index(entrypoint) {
-                let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
+                let _span = tracing::debug_span!(target: "vm", "NearVM::run_method/call").entered();
                 // Signature for the entry point should be `() -> ()`. This is only a sanity check
                 // – this should've been already checked by `get_entrypoint_index`.
                 let signature = artifact
