@@ -35,12 +35,13 @@ jobs:
           # wait all the tests to finish
           while true; do
             TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
-            TESTS_NOT_READY=$( jq -e '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING" ) ' <<< ${TEST_RESULTS} )
+            TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< ${TEST_RESULTS} )
             if [ -z "$TESTS_NOT_READY" ]; then break; fi
-            sleep 15
+            echo "Tests are not ready yet. Sleeping 1 minute..."
+            sleep 60
           done
 
-          UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
+          UNSUCCESSFUL_TESTS=$(jq '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
           if [ -z "$UNSUCCESSFUL_TESTS" ]; then
             echo "Nayduck CI tests passed."
             echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"

@@ -25,8 +25,9 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_store::adapter::StoreAdapter;
 use near_store::db::RocksDB;
-use near_store::flat::{store_helper, BlockInfo, FlatStorageManager, FlatStorageStatus};
+use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
@@ -268,7 +269,7 @@ impl ForkNetworkCommand {
 
         let desired_block_header = chain.get_block_header(&desired_block_hash)?;
         let epoch_id = desired_block_header.epoch_id();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
@@ -519,7 +520,7 @@ impl ForkNetworkCommand {
         let mut postponed_receipts_updated = 0;
         let mut received_data_updated = 0;
         let mut fake_block_height = block_height + 1;
-        for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
+        for item in store.flat_store().iter(shard_uid) {
             let (key, value) = match item {
                 Ok((key, FlatStateValue::Ref(ref_value))) => {
                     ref_keys_retrieved += 1;
@@ -660,7 +661,7 @@ impl ForkNetworkCommand {
         // Iterating over the whole flat state is very fast compared to writing all the updates.
         let mut num_added = 0;
         let mut num_accounts = 0;
-        for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
+        for item in store.flat_store().iter(shard_uid) {
             if let Ok((key, _)) = item {
                 if key[0] == col::ACCOUNT {
                     num_accounts += 1;

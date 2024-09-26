@@ -1,4 +1,5 @@
 pub mod chunk_store;
+pub mod flat_store;
 
 use std::ops::{Deref, DerefMut};
 
@@ -42,7 +43,6 @@ use crate::{Store, StoreUpdate};
 /// and in pattern 2, flat_store_update owns the instance of store_update, we use this enum.
 ///
 /// Note that owned versions of flat_store_update have a static lifetime as compared to borrowed versions.
-#[allow(unused)]
 enum StoreUpdateHolder<'a> {
     Reference(&'a mut StoreUpdate),
     Owned(StoreUpdate),
@@ -86,6 +86,10 @@ impl Into<StoreUpdate> for StoreUpdateHolder<'static> {
 pub trait StoreAdapter {
     fn store(&self) -> Store;
 
+    fn flat_store(&self) -> flat_store::FlatStoreAdapter {
+        flat_store::FlatStoreAdapter::new(self.store())
+    }
+
     fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
     }
@@ -98,4 +102,8 @@ pub trait StoreAdapter {
 /// The underlying StoreUpdate instance remains the same.
 pub trait StoreUpdateAdapter: Sized {
     fn store_update(&mut self) -> &mut StoreUpdate;
+
+    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
+        flat_store::FlatStoreUpdateAdapter::new(self.store_update())
+    }
 }

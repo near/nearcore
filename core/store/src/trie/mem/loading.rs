@@ -1,9 +1,8 @@
 use super::arena::single_thread::STArena;
 use super::mem_tries::MemTries;
 use super::node::MemTrieNodeId;
-use crate::flat::store_helper::{
-    decode_flat_state_db_key, get_all_deltas_metadata, get_delta_changes, get_flat_storage_status,
-};
+use crate::adapter::flat_store::decode_flat_state_db_key;
+use crate::adapter::StoreAdapter;
 use crate::flat::{FlatStorageError, FlatStorageStatus};
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
@@ -129,7 +128,8 @@ pub fn load_trie_from_flat_state_and_delta(
     parallelize: bool,
 ) -> Result<MemTries, StorageError> {
     debug!(target: "memtrie", %shard_uid, "Loading base trie from flat state...");
-    let flat_head = match get_flat_storage_status(&store, shard_uid)? {
+    let flat_store = store.flat_store();
+    let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
         FlatStorageStatus::Ready(status) => status.flat_head,
         other => {
             return Err(StorageError::MemTrieLoadingError(format!(
@@ -152,13 +152,13 @@ pub fn load_trie_from_flat_state_and_delta(
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded.
     let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
-    for delta in get_all_deltas_metadata(&store, shard_uid).unwrap() {
+    for delta in flat_store.get_all_deltas_metadata(shard_uid).unwrap() {
         sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
     }
 
     debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
     for (height, hash, prev_hash) in sorted_deltas.into_iter() {
-        let delta = get_delta_changes(&store, shard_uid, hash).unwrap();
+        let delta = flat_store.get_delta(shard_uid, hash).unwrap();
         if let Some(changes) = delta {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
@@ -187,8 +187,9 @@ pub fn load_trie_from_flat_state_and_delta(
 #[cfg(test)]
 mod tests {
     use super::load_trie_from_flat_state_and_delta;
+    use crate::adapter::StoreAdapter;
     use crate::flat::test_utils::MockChain;
-    use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
+    use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
         create_test_store, simplify_changes, test_populate_flat_storage, test_populate_trie,
         TestTriesBuilder,
@@ -392,18 +393,12 @@ mod tests {
         let shard_uid = ShardUId { version: 1, shard_id: 1 };
 
         // Populate the initial flat storage state at block 0.
-        let mut store_update = shard_tries.store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        let mut store_update = shard_tries.get_store().flat_store().store_update();
+        store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
-        store_helper::set_flat_state_value(
-            &mut store_update,
-            shard_uid,
-            test_key.to_vec(),
-            Some(FlatStateValue::inlined(&test_val0)),
-        );
+        store_update.set(shard_uid, test_key.to_vec(), Some(FlatStateValue::inlined(&test_val0)));
         store_update.commit().unwrap();
 
         // Populate the initial trie at block 0 too.
@@ -511,7 +506,8 @@ mod tests {
                     shard_uid,
                     &state_changes,
                 )
-                .unwrap(),
+                .unwrap()
+                .into(),
         );
         store_update.commit().unwrap();
 

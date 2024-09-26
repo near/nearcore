@@ -1,5 +1,5 @@
 name: Bug Report
-description: General bug report [use this only if it does not fit into any of the categories above]
+description: General bug report. Use this only if it does not fit into any of the categories above.
 title: "Bug: "
 labels: ["community", "investigation required"]
 assignees:
@@ -28,6 +28,9 @@ body:
         - mainnet
         - testnet
         - other (specify below)
+      default: 0
+    validations:
+      required: true
   - type: textarea
     id: what-happened
     attributes:
@@ -42,4 +45,4 @@ body:
       description: Please copy and paste any relevant log output.
       render: shell
     validations:
-      required: false
+      required: true

@@ -1,4 +1,5 @@
 use clap::Parser;
+use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageManager;
 use near_store::{get_delayed_receipt_indices, ShardTries, StateSnapshotConfig, TrieConfig};
 use std::collections::HashMap;
@@ -61,7 +62,7 @@ impl AnalyzeDelayedReceiptCommand {
             store.clone(),
             TrieConfig::default(),
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         );
         // Create an iterator over the blocks that should be analysed
