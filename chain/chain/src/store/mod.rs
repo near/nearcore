@@ -48,7 +48,6 @@ use near_store::{
 };
 
 use crate::byzantine_assert;
-use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
@@ -493,10 +492,6 @@ impl ChainStore {
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
         }
-    }
-
-    pub fn new_read_only_chunks_store(&self) -> ReadOnlyChunksStore {
-        ReadOnlyChunksStore::new(self.store.clone())
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {

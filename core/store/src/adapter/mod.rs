@@ -1,3 +1,4 @@
+pub mod chunk_store;
 pub mod flat_store;
 pub mod trie_store;
 
@@ -86,12 +87,16 @@ impl Into<StoreUpdate> for StoreUpdateHolder<'static> {
 pub trait StoreAdapter {
     fn store(&self) -> Store;
 
+    fn trie_store(&self) -> trie_store::TrieStoreAdapter {
+        trie_store::TrieStoreAdapter::new(self.store())
+    }
+
     fn flat_store(&self) -> flat_store::FlatStoreAdapter {
         flat_store::FlatStoreAdapter::new(self.store())
     }
 
-    fn trie_store(&self) -> trie_store::TrieStoreAdapter {
-        trie_store::TrieStoreAdapter::new(self.store())
+    fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
+        chunk_store::ChunkStoreAdapter::new(self.store())
     }
 }
 
@@ -103,11 +108,11 @@ pub trait StoreAdapter {
 pub trait StoreUpdateAdapter: Sized {
     fn store_update(&mut self) -> &mut StoreUpdate;
 
-    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
-        flat_store::FlatStoreUpdateAdapter::new(self.store_update())
-    }
-
     fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
         trie_store::TrieStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
+        flat_store::FlatStoreUpdateAdapter::new(self.store_update())
     }
 }

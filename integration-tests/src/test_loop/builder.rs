@@ -6,7 +6,6 @@ use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
-use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
@@ -30,6 +29,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
+use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
@@ -417,7 +417,7 @@ impl TestLoopBuilder {
             shard_tracker.clone(),
             network_adapter.as_sender(),
             client_adapter.as_sender(),
-            ReadOnlyChunksStore::new(split_store.as_ref().unwrap_or(&store).clone()),
+            store.chunk_store(),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
             Duration::milliseconds(100),
