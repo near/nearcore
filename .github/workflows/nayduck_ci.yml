@@ -27,7 +27,6 @@ jobs:
 
       - name: Run Nayduck tests and wait for results
         run: |
-          set -x 
           NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
           RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
           URL="https://nayduck.nearone.org/api/run/$RUN_ID"
@@ -36,13 +35,13 @@ jobs:
           # wait all the tests to finish
           while true; do
             TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
-            TESTS_NOT_READY=$( jq -e '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING" ) ' <<< ${TEST_RESULTS} )
+            TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< ${TEST_RESULTS} )
             if [ -z "$TESTS_NOT_READY" ]; then break; fi
             echo "Tests are not ready yet. Waiting for 15 seconds..."
             sleep 15
           done
 
-          UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
+          UNSUCCESSFUL_TESTS=$(jq '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
           if [ -z "$UNSUCCESSFUL_TESTS" ]; then
             echo "Nayduck CI tests passed."
             echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"
