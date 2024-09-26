@@ -2149,7 +2149,7 @@ mod tests {
             state_root =
                 test_populate_trie(&tries, &state_root, ShardUId::single_shard(), trie_changes);
             assert_eq!(state_root, Trie::EMPTY_ROOT, "Trie must be empty");
-            assert!(store.iter().peekable().peek().is_none(), "Storage must be empty");
+            assert!(store.iter_raw_bytes().peekable().peek().is_none(), "Storage must be empty");
         }
     }
 
