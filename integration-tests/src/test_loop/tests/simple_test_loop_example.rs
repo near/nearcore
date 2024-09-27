@@ -58,7 +58,7 @@ fn test_client_with_simple_test_loop() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, _) = genesis_builder.build();
 
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);

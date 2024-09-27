@@ -46,10 +46,12 @@ fn test_load_memtrie_after_empty_chunks() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let genesis_and_epoch_config_store = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).clients(client_accounts).build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis_and_epoch_config_store(genesis_and_epoch_config_store)
+        .clients(client_accounts)
+        .build();
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts);
 

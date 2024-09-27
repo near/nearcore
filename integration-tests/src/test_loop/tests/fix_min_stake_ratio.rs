@@ -9,9 +9,9 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -56,27 +56,31 @@ fn test_fix_min_stake_ratio() {
         },
     ];
 
+    // Take epoch configuration before the protocol upgrade, where minimum
+    // stake ratio was 1/6250.
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version() - 1;
+
     // Create chain with version before FixMinStakeRatio was enabled.
     // Check that the small validator is not included in the validator set.
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(ShardLayout::get_simple_nightshade_layout_v3())
-        .protocol_version(ProtocolFeature::FixMinStakeRatio.protocol_version() - 1)
+        .shard_layout(epoch_config_store.get_config(protocol_version).as_ref().shard_layout.clone())
+        .protocol_version(protocol_version)
         .epoch_length(epoch_length)
         .validators_raw(validators, 1, 2)
-        // For genesis, set high minimum stake ratio so that small validator
-        // will be excluded from the validator set.
-        .minimum_stake_ratio(Rational32::new(1, 6_250))
         // Disable validator rewards.
         .max_inflation_rate(Rational32::new(0, 1));
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, _) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).clients(clients).build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis_and_epoch_config_store((genesis, epoch_config_store))
+        .clients(clients)
+        .build();
 
     let client_sender = node_datas[0].client_sender.clone();
     let client_handle = node_datas[0].client_sender.actor_handle();

@@ -100,7 +100,11 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let shard_uids: Vec<_> = genesis_config.shard_layout.shard_uids().collect();
+        let epoch_config = epoch_manager
+            .read()
+            .get_config_for_protocol_version(genesis_config.protocol_version)
+            .unwrap();
+        let shard_uids: Vec<_> = epoch_config.shard_layout.shard_uids().collect();
         let tries = ShardTries::new(
             store.clone(),
             trie_config,

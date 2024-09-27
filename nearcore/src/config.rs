@@ -5,8 +5,8 @@ use bytesize::ByteSize;
 use near_async::time::{Clock, Duration};
 use near_chain::runtime::NightshadeRuntime;
 use near_chain_configs::test_utils::{
-    add_account_with_key, add_protocol_account, random_chain_id, FAST_EPOCH_LENGTH,
-    TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+    add_account_with_key, add_protocol_account, random_chain_id, TESTING_INIT_BALANCE,
+    TESTING_INIT_STAKE,
 };
 use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync,
@@ -22,9 +22,9 @@ use near_chain_configs::{
     ClientConfig, EpochSyncConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
     LogSummaryStyle, MutableConfigValue, MutableValidatorSigner, ReshardingConfig, StateSyncConfig,
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
-    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FAST_EPOCH_LENGTH,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT,
+    MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
     NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
     TRANSACTION_VALIDITY_PERIOD,
 };

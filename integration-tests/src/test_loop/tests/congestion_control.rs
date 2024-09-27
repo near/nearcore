@@ -91,9 +91,9 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     for account in accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let genesis_and_epoch_config_store = genesis_builder.build();
 
-    let env = builder.genesis(genesis).clients(clients).build();
+    let env = builder.genesis_and_epoch_config_store(genesis_and_epoch_config_store).clients(clients).build();
     (env, rpc_id.clone())
 }
 

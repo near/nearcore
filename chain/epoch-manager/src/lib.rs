@@ -2,13 +2,12 @@
 
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 use near_cache::SyncLruCache;
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
-    AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, EpochSummary, ShardConfig,
-    AGGREGATOR_KEY,
+    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, ShardConfig, AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -179,17 +178,8 @@ impl EpochManager {
         store: Store,
         genesis_config: &GenesisConfig,
     ) -> Result<Self, EpochError> {
-        Self::new_from_genesis_config_with_test_overrides(store, genesis_config, None)
-    }
-
-    pub fn new_from_genesis_config_with_test_overrides(
-        store: Store,
-        genesis_config: &GenesisConfig,
-        test_overrides: Option<AllEpochConfigTestOverrides>,
-    ) -> Result<Self, EpochError> {
-        let reward_calculator = RewardCalculator::new(genesis_config);
-        let all_epoch_config =
-            Self::new_all_epoch_config_with_test_overrides(genesis_config, test_overrides);
+        let reward_calculator = RewardCalculator::new(genesis_config, genesis_config.epoch_length);
+        let all_epoch_config = Self::new_all_epoch_config(genesis_config);
         Self::new(
             store,
             all_epoch_config,
@@ -200,36 +190,92 @@ impl EpochManager {
     }
 
     pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
-        Self::new_arc_handle_with_test_overrides(store, genesis_config, None)
+        let chain_id = genesis_config.chain_id.as_str();
+        match chain_id {
+            near_primitives::chains::MAINNET | near_primitives::chains::TESTNET => {
+                let epoch_config_store = EpochConfigStore::for_chain_id(chain_id).unwrap();
+                Self::new_arc_handle_from_epoch_config_store(
+                    store,
+                    genesis_config,
+                    epoch_config_store,
+                )
+            }
+            _ => {
+                let epoch_config = Genesis::test_epoch_config(
+                    genesis_config.num_block_producer_seats,
+                    genesis_config.shard_layout.clone(),
+                    genesis_config.epoch_length,
+                );
+                let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
+                    genesis_config.protocol_version,
+                    Arc::new(epoch_config),
+                )]));
+                Self::new_arc_handle_from_epoch_config_store(
+                    store,
+                    genesis_config,
+                    epoch_config_store,
+                )
+            }
+        }
     }
 
-    pub fn new_arc_handle_with_test_overrides(
+    /// DEPRECATED.
+    /// Old version of deriving epoch config from genesis config.
+    /// Keep it for a while for testing.
+    #[allow(unused)]
+    pub fn new_arc_handle_deprecated(
         store: Store,
         genesis_config: &GenesisConfig,
-        test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Arc<EpochManagerHandle> {
+        let reward_calculator = RewardCalculator::new(genesis_config, genesis_config.epoch_length);
+        let all_epoch_config = Self::new_all_epoch_config(genesis_config);
         Arc::new(
-            Self::new_from_genesis_config_with_test_overrides(
+            Self::new(
                 store,
-                genesis_config,
-                test_overrides,
+                all_epoch_config,
+                genesis_config.protocol_version,
+                reward_calculator,
+                genesis_config.validators(),
             )
             .unwrap()
             .into_handle(),
         )
     }
 
-    fn new_all_epoch_config_with_test_overrides(
+    /// SHOULD BE USED EVERYWHERE.
+    pub fn new_arc_handle_from_epoch_config_store(
+        store: Store,
         genesis_config: &GenesisConfig,
-        test_overrides: Option<AllEpochConfigTestOverrides>,
-    ) -> AllEpochConfig {
+        epoch_config_store: EpochConfigStore,
+    ) -> Arc<EpochManagerHandle> {
+        let genesis_protocol_version = genesis_config.protocol_version;
+        let epoch_length = genesis_config.epoch_length;
+        let reward_calculator = RewardCalculator::new(genesis_config, epoch_length);
+        let all_epoch_config = AllEpochConfig::from_epoch_config_store(
+            genesis_config.chain_id.as_str(),
+            epoch_length,
+            epoch_config_store,
+        );
+        Arc::new(
+            Self::new(
+                store,
+                all_epoch_config,
+                genesis_protocol_version,
+                reward_calculator,
+                genesis_config.validators(),
+            )
+            .unwrap()
+            .into_handle(),
+        )
+    }
+
+    fn new_all_epoch_config(genesis_config: &GenesisConfig) -> AllEpochConfig {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = AllEpochConfig::new_with_test_overrides(
+        let epoch_config = AllEpochConfig::new(
             genesis_config.use_production_config(),
             genesis_config.protocol_version,
             initial_epoch_config,
             &genesis_config.chain_id,
-            test_overrides,
         );
         epoch_config
     }

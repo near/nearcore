@@ -44,10 +44,12 @@ fn test_sync_from_genesis() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let genesis_and_epoch_config_store = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis.clone()).clients(clients).build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis_and_epoch_config_store(genesis_and_epoch_config_store.clone())
+        .clients(clients)
+        .build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -97,7 +99,7 @@ fn test_sync_from_genesis() {
     let clients = accounts.iter().take(NUM_CLIENTS + 1).cloned().collect_vec();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
-        .genesis(genesis.clone())
+        .genesis_and_epoch_config_store(genesis_and_epoch_config_store.clone())
         .clients(clients)
         .stores_override(stores)
         .test_loop_data_dir(tempdir)
@@ -111,7 +113,10 @@ fn test_sync_from_genesis() {
     let chain0 = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client.chain;
     let peer_info = HighestHeightPeerInfo {
         archival: false,
-        genesis_id: GenesisId { chain_id: genesis.config.chain_id, hash: *chain0.genesis().hash() },
+        genesis_id: GenesisId {
+            chain_id: genesis_and_epoch_config_store.0.config.chain_id,
+            hash: *chain0.genesis().hash(),
+        },
         highest_block_hash: chain0.head().unwrap().last_block_hash,
         highest_block_height: chain0.head().unwrap().height,
         tracked_shards: vec![],
