@@ -5,25 +5,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check_should_run.outputs.should_run }}
-    steps:
-      - id: check_should_run
-        run: |
-          if [[ "${{ github.event_name }}" == "merge_group" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-          fi
-
   nayduck_tests:
-    needs: prepare
-    if: needs.prepare.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     environment: development
     timeout-minutes: 60
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Install JQ json processor
@@ -65,3 +51,9 @@ jobs:
             echo "Fix them before merging"
             exit 1
           fi
+
+  nayduck_tests_dummy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - run: echo "This job is no-op for pull requests. Will run on merge group."
