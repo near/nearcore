@@ -7,10 +7,9 @@ use std::sync::{Arc, RwLock};
 
 use crate::client::ProduceChunkResult;
 use crate::Client;
-use actix_rt::{Arbiter, System};
+use actix_rt::System;
 use itertools::Itertools;
-use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{noop, IntoSender, Sender};
+use near_async::messaging::Sender;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{Chain, ChainStoreAccess, Provenance};
@@ -299,18 +298,9 @@ pub fn run_catchup(
         block_inside_messages.write().unwrap().push(msg);
     });
     let _ = System::new();
-    let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
         let signer = client.validator_signer.get();
-        client.run_catchup(
-            highest_height_peers,
-            &noop().into_sender(),
-            &noop().into_sender(),
-            &block_catch_up,
-            None,
-            &state_parts_future_spawner,
-            &signer,
-        )?;
+        client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work)

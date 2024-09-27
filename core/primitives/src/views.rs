@@ -428,7 +428,7 @@ pub enum SyncStatusView {
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
+    StateSync(StateSyncStatusView),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
@@ -437,6 +437,14 @@ pub enum SyncStatusView {
         current_height: BlockHeight,
         highest_height: BlockHeight,
     },
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct StateSyncStatusView {
+    pub sync_hash: CryptoHash,
+    pub shard_sync_status: HashMap<ShardId, String>,
+    pub download_tasks: Vec<String>,
+    pub computation_tasks: Vec<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]

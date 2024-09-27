@@ -2886,46 +2886,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn schedule_apply_state_parts(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
-    ) -> Result<(), Error> {
-        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-
-        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk_prev_state_root();
-
-        state_parts_task_scheduler.send(ApplyStatePartsRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            shard_uid,
-            state_root,
-            num_parts,
-            epoch_id,
-            sync_hash,
-        });
-
-        Ok(())
-    }
-
-    pub fn schedule_load_memtrie(
-        &self,
-        shard_uid: ShardUId,
-        sync_hash: CryptoHash,
-        chunk: &ShardChunk,
-        load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
-    ) {
-        load_memtrie_scheduler.send(LoadMemtrieRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            shard_uid,
-            prev_state_root: chunk.prev_state_root(),
-            sync_hash,
-        });
-    }
-
     pub fn create_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
@@ -4612,76 +4572,6 @@ pub fn collect_receipts_from_response(
     collect_receipts(
         receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs.iter()),
     )
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct ApplyStatePartsRequest {
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub shard_uid: ShardUId,
-    pub state_root: StateRoot,
-    pub num_parts: u64,
-    pub epoch_id: EpochId,
-    pub sync_hash: CryptoHash,
-}
-
-// Skip `runtime_adapter`, because it's a complex object that has complex logic
-// and many fields.
-impl Debug for ApplyStatePartsRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ApplyStatePartsRequest")
-            .field("runtime_adapter", &"<not shown>")
-            .field("shard_uid", &self.shard_uid)
-            .field("state_root", &self.state_root)
-            .field("num_parts", &self.num_parts)
-            .field("epoch_id", &self.epoch_id)
-            .field("sync_hash", &self.sync_hash)
-            .finish()
-    }
-}
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct ApplyStatePartsResponse {
-    pub apply_result: Result<(), near_chain_primitives::error::Error>,
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
-}
-
-// This message is handled by `sync_job_actions.rs::handle_load_memtrie_request()`.
-// It is a request for `runtime_adapter` to load in-memory trie for `shard_uid`.
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct LoadMemtrieRequest {
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub shard_uid: ShardUId,
-    // Required to load memtrie.
-    pub prev_state_root: StateRoot,
-    // Needs to be included in a response to the caller for identification purposes.
-    pub sync_hash: CryptoHash,
-}
-
-// Skip `runtime_adapter`, because it's a complex object that has complex logic
-// and many fields.
-impl Debug for LoadMemtrieRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LoadMemtrieRequest")
-            .field("runtime_adapter", &"<not shown>")
-            .field("shard_uid", &self.shard_uid)
-            .field("prev_state_root", &self.prev_state_root)
-            .field("sync_hash", &self.sync_hash)
-            .finish()
-    }
-}
-
-// It is message indicating the result of loading in-memory trie for `shard_id`.
-// `sync_hash` is passed around to indicate to which block we were catching up.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct LoadMemtrieResponse {
-    pub load_result: Result<(), near_chain_primitives::error::Error>,
-    pub shard_uid: ShardUId,
-    pub sync_hash: CryptoHash,
 }
 
 #[derive(actix::Message)]

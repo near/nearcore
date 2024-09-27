@@ -122,7 +122,12 @@ export type SyncStatusView =
           };
       }
     | {
-          StateSync: [string, { [shard_id: number]: ShardSyncDownloadView }];
+          StateSync: {
+              sync_hash: string;
+              sync_status: { [shard_id: number]: string };
+              download_tasks: string[];
+              computation_tasks: string[];
+          };
       }
     | 'StateSyncDone'
     | {

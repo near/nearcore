@@ -1,9 +1,7 @@
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
-use near_async::messaging::Sender;
 use near_async::time::Duration;
-use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
@@ -659,7 +657,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             }
 
             tracing::info!(target: "test", "state sync - set parts");
-            env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+            env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header.clone()).unwrap();
             for i in 0..num_parts {
                 env.clients[1]
                     .chain
@@ -671,39 +669,33 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     )
                     .unwrap();
             }
-            let rt = Arc::clone(&env.clients[1].runtime_adapter);
-            let f = Sender::from_fn(move |msg: ApplyStatePartsRequest| {
-                let store = rt.store();
-
-                let shard_id = msg.shard_uid.shard_id as ShardId;
+            {
+                let store = env.clients[1].runtime_adapter.store();
                 let mut store_update = store.store_update();
-                assert!(rt
+                assert!(env.clients[1]
+                    .runtime_adapter
                     .get_flat_storage_manager()
                     .remove_flat_storage_for_shard(
-                        msg.shard_uid,
+                        ShardUId::single_shard(),
                         &mut store_update.flat_store_update()
                     )
                     .unwrap());
                 store_update.commit().unwrap();
-
-                for part_id in 0..msg.num_parts {
-                    let key =
-                        borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
+                for part_id in 0..num_parts {
+                    let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();
                     let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
-
-                    rt.apply_state_part(
-                        shard_id,
-                        &msg.state_root,
-                        PartId::new(part_id, msg.num_parts),
-                        &part,
-                        &msg.epoch_id,
-                    )
-                    .unwrap();
+                    env.clients[1]
+                        .runtime_adapter
+                        .apply_state_part(
+                            0,
+                            &state_sync_header.chunk_prev_state_root(),
+                            PartId::new(part_id, num_parts),
+                            &part,
+                            blocks[sync_hash_height].header().epoch_id(),
+                        )
+                        .unwrap();
                 }
-            });
-
-            tracing::info!(target: "test", "state sync - schedule");
-            env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+            }
 
             tracing::info!(target: "test", "state sync - set state finalize");
             env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();

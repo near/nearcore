@@ -379,20 +379,44 @@ fn run_state_sync_with_dumped_parts(
     });
 }
 
-#[test]
 /// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous to the dumping node's final block.
 /// Specifically, it tests that the above holds true in both conditions:
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
-fn test_state_sync_w_dumped_parts() {
+#[test]
+fn test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
-    let epoch_length = 5;
-    // excluding account_creation_at_epoch_height=1 because first epoch's epoch_id not being block hash of its first block cause issues
-    for account_creation_at_epoch_height in 2..=4 as u64 {
-        tracing::info!("account_creation_at_epoch_height = {}", account_creation_at_epoch_height);
-        run_state_sync_with_dumped_parts(false, account_creation_at_epoch_height, epoch_length);
-        run_state_sync_with_dumped_parts(true, account_creation_at_epoch_height, epoch_length);
-    }
+    run_state_sync_with_dumped_parts(false, 2, 5);
+}
+
+#[test]
+fn test_state_sync_with_dumped_parts_2_final() {
+    init_test_logger();
+    run_state_sync_with_dumped_parts(true, 2, 5);
+}
+
+#[test]
+fn test_state_sync_with_dumped_parts_3_non_final() {
+    init_test_logger();
+    run_state_sync_with_dumped_parts(false, 3, 5);
+}
+
+#[test]
+fn test_state_sync_with_dumped_parts_3_final() {
+    init_test_logger();
+    run_state_sync_with_dumped_parts(true, 3, 5);
+}
+
+#[test]
+fn test_state_sync_with_dumped_parts_4_non_final() {
+    init_test_logger();
+    run_state_sync_with_dumped_parts(false, 4, 5);
+}
+
+#[test]
+fn test_state_sync_with_dumped_parts_4_final() {
+    init_test_logger();
+    run_state_sync_with_dumped_parts(true, 4, 5);
 }
 
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {

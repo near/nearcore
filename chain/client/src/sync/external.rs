@@ -106,6 +106,9 @@ impl ExternalConnection {
                     Ok(r) => {
                         let bytes = r.bytes().await?.to_vec();
                         tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), "GCS state_part request finished");
+                        metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
+                            .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
+                            .inc_by(bytes.len() as u64);
                         Ok(bytes)
                     }
                 }

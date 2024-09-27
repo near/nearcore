@@ -16,6 +16,7 @@ use actix::{Actor, Addr, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::futures::ActixFutureSpawner;
 use near_async::messaging::{
     noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
 };
@@ -38,6 +39,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ChunkEndorsementMessage, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+    StateResponseReceived,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
@@ -177,6 +179,7 @@ pub fn setup(
         runtime,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         state_sync_adapter,
+        Arc::new(ActixFutureSpawner),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
         signer,
@@ -608,9 +611,10 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::StateRequestHeader { shard_id, sync_hash, .. } => {
+        NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
             for (i, _) in validators.iter().enumerate() {
                 let me = connectors[my_ord].client_actor.clone();
+                let peer_id = peer_id.clone();
                 actix::spawn(
                     connectors[i]
                         .view_client_actor
@@ -622,7 +626,13 @@ fn process_peer_manager_message_default(
                             let response = response.unwrap();
                             match response {
                                 Some(response) => {
-                                    me.do_send(response.with_span_context());
+                                    me.do_send(
+                                        StateResponseReceived {
+                                            peer_id,
+                                            state_response_info: response.0,
+                                        }
+                                        .with_span_context(),
+                                    );
                                 }
                                 None => {}
                             }
@@ -649,7 +659,13 @@ fn process_peer_manager_message_default(
                             let response = response.unwrap();
                             match response {
                                 Some(response) => {
-                                    me.do_send(response.with_span_context());
+                                    me.do_send(
+                                        StateResponseReceived {
+                                            peer_id: PeerId::random(),
+                                            state_response_info: response.0,
+                                        }
+                                        .with_span_context(),
+                                    );
                                 }
                                 None => {}
                             }
@@ -1029,6 +1045,7 @@ pub fn setup_client_with_runtime(
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
+        Arc::new(ActixFutureSpawner),
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

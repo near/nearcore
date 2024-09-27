@@ -105,6 +105,7 @@ fn test_client_with_simple_test_loop() {
         None,
         Arc::new(test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         noop().into_multi_sender(),
+        Arc::new(test_loop.future_spawner()),
     )
     .unwrap();
 
@@ -133,7 +134,6 @@ fn test_client_with_simple_test_loop() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
-        Box::new(test_loop.future_spawner()),
     )
     .unwrap();
 

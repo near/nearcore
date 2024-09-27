@@ -3,6 +3,7 @@ pub use futures::future::BoxFuture; // pub for macros
 use futures::FutureExt;
 use near_time::Duration;
 use std::ops::DerefMut;
+use std::sync::Arc;
 
 /// Abstraction for something that can drive futures.
 ///
@@ -13,7 +14,7 @@ use std::ops::DerefMut;
 /// The reason why we need an abstraction is (1) we can intercept the future
 /// spawning to add additional instrumentation (2) we can support driving the
 /// future with TestLoop for testing.
-pub trait FutureSpawner {
+pub trait FutureSpawner: Send + Sync {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>);
 }
 
@@ -47,6 +48,16 @@ pub struct ActixFutureSpawner;
 impl FutureSpawner for ActixFutureSpawner {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
         near_performance_metrics::actix::spawn(description, f);
+    }
+}
+
+/// A FutureSpawner that gives futures to a tokio Runtime, possibly supporting
+/// multiple threads.
+pub struct TokioRuntimeFutureSpawner(pub Arc<tokio::runtime::Runtime>);
+
+impl FutureSpawner for TokioRuntimeFutureSpawner {
+    fn spawn_boxed(&self, _description: &'static str, f: BoxFuture<'static, ()>) {
+        self.0.spawn(f);
     }
 }
 

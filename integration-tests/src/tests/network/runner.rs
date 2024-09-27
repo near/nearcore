@@ -2,6 +2,7 @@ use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::futures::ActixFutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::types::RuntimeAdapter;
@@ -107,6 +108,7 @@ fn setup_network_node(
         runtime.clone(),
         config.node_id(),
         state_sync_adapter,
+        Arc::new(ActixFutureSpawner),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),

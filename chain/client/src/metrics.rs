@@ -454,38 +454,12 @@ pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_RETRY_PART: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_retry_part_total",
-        "Number of part requests retried",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_HEADER_ERROR: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_header_error_total",
-        "Number of state sync header requests resulting in an error",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_HEADER_TIMEOUT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_header_timeout_total",
-        "Number of state sync header requests timing out",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_PARTS_DONE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_state_sync_parts_done",
-        "Number of parts downloaded",
-        &["shard_id"],
+        "near_state_sync_header_download_result",
+        "Count of number of state sync downloads by type (header, part),
+               source (network, external), and result (timeout, error, success)",
+        &["shard_id", "type", "source", "result"],
     )
     .unwrap()
 });
@@ -495,33 +469,6 @@ pub(crate) static STATE_SYNC_PARTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(
         "near_state_sync_parts_per_shard",
         "Number of parts in the shard",
         &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_DISCARD_PARTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_discard_parts_total",
-        "Number of times all downloaded parts were discarded to try again",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_EXTERNAL_PARTS_DONE: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_external_parts_done_total",
-        "Number of parts retrieved from external storage",
-        &["shard_id", "type"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_EXTERNAL_PARTS_FAILED: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_external_parts_failed_total",
-        "Failed retrieval attempts from external storage",
-        &["shard_id", "type"],
     )
     .unwrap()
 });
