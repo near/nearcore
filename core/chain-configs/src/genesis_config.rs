@@ -753,6 +753,7 @@ impl Genesis {
         }
     }
 
+    // TODO(#11265): move to crate with `EpochConfig`.
     pub fn test_epoch_config(
         num_block_producer_seats: NumSeats,
         shard_layout: ShardLayout,

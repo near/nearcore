@@ -191,32 +191,33 @@ impl EpochManager {
 
     pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
         let chain_id = genesis_config.chain_id.as_str();
-        match chain_id {
-            near_primitives::chains::MAINNET | near_primitives::chains::TESTNET => {
-                let epoch_config_store = EpochConfigStore::for_chain_id(chain_id).unwrap();
-                Self::new_arc_handle_from_epoch_config_store(
-                    store,
-                    genesis_config,
-                    epoch_config_store,
-                )
-            }
-            _ => {
-                let epoch_config = Genesis::test_epoch_config(
-                    genesis_config.num_block_producer_seats,
-                    genesis_config.shard_layout.clone(),
-                    genesis_config.epoch_length,
-                );
-                let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
-                    genesis_config.protocol_version,
-                    Arc::new(epoch_config),
-                )]));
-                Self::new_arc_handle_from_epoch_config_store(
-                    store,
-                    genesis_config,
-                    epoch_config_store,
-                )
-            }
+        if chain_id == near_primitives::chains::MAINNET
+            || chain_id == near_primitives::chains::TESTNET
+        {
+            let epoch_config_store = EpochConfigStore::for_chain_id(chain_id).unwrap();
+            return Self::new_arc_handle_from_epoch_config_store(
+                store,
+                genesis_config,
+                epoch_config_store,
+            );
         }
+
+        let epoch_config = if chain_id.starts_with("test-chain-") {
+            // We still do this for localnet as nayduck depends on it.
+            EpochConfig::from(genesis_config)
+        } else {
+            Genesis::test_epoch_config(
+                genesis_config.num_block_producer_seats,
+                genesis_config.shard_layout.clone(),
+                genesis_config.epoch_length,
+            )
+        };
+
+        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
+            genesis_config.protocol_version,
+            Arc::new(epoch_config),
+        )]));
+        Self::new_arc_handle_from_epoch_config_store(store, genesis_config, epoch_config_store)
     }
 
     /// DEPRECATED.

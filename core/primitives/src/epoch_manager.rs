@@ -488,16 +488,13 @@ impl EpochConfigStore {
     /// This panics if no config is found for the given version, thus the initialization via `for_chain_id` should
     /// only be performed for chains with some configs stored in files.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<EpochConfig> {
-        let c = self
-            .store
+        self.store
             .range((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
             .unwrap_or_else(|| {
                 panic!("Failed to find EpochConfig for protocol version {}", protocol_version)
             })
-            .1;
-        // println!("{:?}", c);
-        c
+            .1
     }
 }
 
