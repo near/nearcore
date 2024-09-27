@@ -51,9 +51,3 @@ jobs:
             echo "Fix them before merging"
             exit 1
           fi
-
-  nayduck_tests_dummy:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - run: echo "This job is no-op for pull requests. Will run on merge group."
