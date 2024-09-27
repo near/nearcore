@@ -88,12 +88,15 @@ fn do_fork(
             );
         }
 
+        if i == 0 {
+            let mut store_update = chain.mut_chain_store().store_update();
+            store_update.save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
+            store_update.commit().unwrap();
+        }
+
         let head = chain.head().unwrap();
         let epoch_manager = chain.epoch_manager.clone();
         let mut store_update = chain.mut_chain_store().store_update();
-        if i == 0 {
-            store_update.save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
-        }
         store_update.save_block(block.clone());
         store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
         store_update.save_block_header(block.header().clone()).unwrap();

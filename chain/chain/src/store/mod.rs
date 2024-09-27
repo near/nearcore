@@ -1878,16 +1878,9 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn update_tail(&mut self, height: BlockHeight) -> Result<(), Error> {
         self.tail = Some(height);
-        let genesis_height = self.get_genesis_height();
         // When fork tail is behind tail, it doesn't hurt to set it to tail for consistency.
         if self.fork_tail()? < height {
             self.fork_tail = Some(height);
-        }
-
-        let chunk_tail = self.chunk_tail()?;
-        if chunk_tail == genesis_height {
-            // For consistency, Chunk Tail should be set if Tail is set
-            self.chunk_tail = Some(self.get_genesis_height());
         }
         Ok(())
     }
@@ -2387,6 +2380,7 @@ impl<'a> ChainStoreUpdate<'a> {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
+    use near_primitives::block::Tip;
     use std::sync::Arc;
 
     use crate::test_utils::get_chain;
@@ -2421,10 +2415,9 @@ mod tests {
             let block =
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
+            let tip = Tip::from_header(block.header());
             store_update.save_block_header(block.header().clone()).unwrap();
-            store_update
-                .update_height_if_not_challenged(block.header().height(), *block.hash())
-                .unwrap();
+            store_update.save_header_head_if_not_challenged(&tip).unwrap();
             long_fork.push(block);
             store_update.commit().unwrap();
         }
@@ -2462,10 +2455,9 @@ mod tests {
             let block =
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
+            let tip = Tip::from_header(block.header());
             store_update.save_block_header(block.header().clone()).unwrap();
-            store_update
-                .update_height_if_not_challenged(block.header().height(), *block.hash())
-                .unwrap();
+            store_update.save_header_head_if_not_challenged(&tip).unwrap();
             blocks.push(block);
             store_update.commit().unwrap();
         }
@@ -2483,11 +2475,10 @@ mod tests {
             .height(transaction_validity_period + 3)
             .build();
 
+        let tip = Tip::from_header(new_block.header());
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
-        store_update
-            .update_height_if_not_challenged(new_block.header().height(), *new_block.hash())
-            .unwrap();
+        store_update.save_header_head_if_not_challenged(&tip).unwrap();
         store_update.commit().unwrap();
         assert_eq!(
             chain.mut_chain_store().check_transaction_validity_period(
