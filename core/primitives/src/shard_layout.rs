@@ -121,30 +121,6 @@ impl ShardLayoutV1 {
     }
 }
 
-/// A boundary of an account range. Can be the start, the end or an account id
-/// in between two shards. For example a shard layout with four shards would
-/// have one start boundary, three middle boundaries and one end boundary.
-/// e.g. Start, Middle("ccc"), Middle("kkk"), Middle("ppp"), End
-///
-/// The order of fields (Start, Middle, End) in the enum is important as it
-/// defines the derived ordering.
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AccountBoundary {
-    Start,
-    Middle(AccountId),
-    End,
-}
-
-impl fmt::Debug for AccountBoundary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AccountBoundary::Start => write!(f, "start"),
-            AccountBoundary::End => write!(f, "end"),
-            AccountBoundary::Middle(account_id) => write!(f, "{}", account_id.as_str()),
-        }
-    }
-}
-
 /// Making the shard ids non-contiguous.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV2 {
