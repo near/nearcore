@@ -37,6 +37,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
 };
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
@@ -99,14 +100,14 @@ impl NightshadeRuntime {
 
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let epoch_config = epoch_manager
             .read()
             .get_config_for_protocol_version(genesis_config.protocol_version)
             .unwrap();
         let shard_uids: Vec<_> = epoch_config.shard_layout.shard_uids().collect();
         let tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             trie_config,
             &shard_uids,
             flat_storage_manager,
@@ -1248,7 +1249,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
         // TODO: `apply_to_flat_state` inserts values with random writes, which can be time consuming.
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
-        flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
+        flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
