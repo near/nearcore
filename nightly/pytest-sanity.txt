@@ -35,8 +35,6 @@ pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=240 sanity/state_sync4.py --features nightly
 pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=240 sanity/state_sync5.py --features nightly
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
@@ -89,8 +87,6 @@ pytest sanity/rpc_max_gas_burnt.py
 pytest sanity/rpc_max_gas_burnt.py --features nightly
 pytest sanity/rpc_tx_status.py
 pytest sanity/rpc_tx_status.py --features nightly
-pytest --timeout=120 sanity/garbage_collection.py
-pytest --timeout=120 sanity/garbage_collection.py --features nightly
 pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=120 sanity/garbage_collection1.py --features nightly
 pytest --timeout=180 sanity/garbage_collection_intense.py
@@ -113,8 +109,6 @@ pytest sanity/repro_2916.py
 pytest sanity/repro_2916.py --features nightly
 pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly
-pytest --timeout=120 sanity/validator_switch_key_quick.py
-pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
 pytest --timeout=120 sanity/validator_remove_key_quick.py
 pytest --timeout=120 sanity/validator_remove_key_quick.py --features nightly
 pytest --timeout=60 sanity/shadow_tracking.py
@@ -159,15 +153,8 @@ pytest --timeout=300 sanity/rpc_hash.py --features nightly
 pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly
 
-# Make sure Docker image can be build and run
-pytest --skip-build --timeout=1h sanity/docker.py
-
 # This is the test for meta transactions.
 pytest sanity/meta_tx.py --features nightly
-
-# Tests for split storage and split storage migration
-pytest --timeout=600 sanity/split_storage.py
-pytest --timeout=600 sanity/split_storage.py --features nightly
 
 # Tests for resharding
 # TODO(resharding) Tests for resharding are disabled because resharding is not

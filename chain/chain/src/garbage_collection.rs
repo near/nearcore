@@ -11,7 +11,7 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
-use near_store::flat::store_helper;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
@@ -382,12 +382,11 @@ impl ChainStore {
         chain_store_update.commit()?;
 
         // clear all trie data
-
         let tries = runtime_adapter.get_tries();
         let mut chain_store_update = self.store_update();
         let mut store_update = tries.store_update();
-        store_update.delete_all(DBCol::State);
-        chain_store_update.merge(store_update);
+        store_update.delete_all_state();
+        chain_store_update.merge(store_update.into());
 
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
@@ -529,7 +528,7 @@ impl<'a> ChainStoreUpdate<'a> {
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
-        let mut store_update = self.store().store_update();
+        let mut store_update = self.store().trie_store().store_update();
 
         tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
@@ -661,7 +660,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Chunks deleted separately
             }
         };
-        self.merge(store_update);
+        self.merge(store_update.into());
         Ok(())
     }
 
@@ -711,7 +710,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
             let mut store_update = self.store().store_update();
-            store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
+            store_update.flat_store_update().remove_delta(shard_uid, block_hash);
             self.merge(store_update);
         }
 

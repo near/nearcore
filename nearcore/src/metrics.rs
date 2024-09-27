@@ -9,6 +9,7 @@ use near_o11y::metrics::{
     IntGaugeVec,
 };
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
+use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -156,7 +157,7 @@ fn get_postponed_receipt_count_for_shard(
     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
     let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid)?;
     let state_root = chunk_extra.state_root();
-    let storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
     let storage = Arc::new(storage);
     let flat_storage_chunk_view = None;
     let trie = Trie::new(storage, *state_root, flat_storage_chunk_view);

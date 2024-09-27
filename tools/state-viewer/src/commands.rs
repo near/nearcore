@@ -40,6 +40,8 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
 use near_store::TrieStorage;
@@ -1093,7 +1095,7 @@ pub(crate) fn print_epoch_analysis(
     }
 }
 
-fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -> Trie {
+fn get_trie(store: TrieStoreAdapter, hash: CryptoHash, shard_id: u32, shard_version: u32) -> Trie {
     let shard_uid = ShardUId { version: shard_version, shard_id };
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
@@ -1102,7 +1104,7 @@ fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -
 }
 
 pub(crate) fn view_trie(
-    store: Store,
+    store: TrieStoreAdapter,
     hash: CryptoHash,
     shard_id: u32,
     shard_version: u32,
@@ -1126,7 +1128,7 @@ pub(crate) fn view_trie(
 }
 
 pub(crate) fn view_trie_leaves(
-    store: Store,
+    store: TrieStoreAdapter,
     state_root_hash: CryptoHash,
     shard_id: u32,
     shard_version: u32,
@@ -1175,7 +1177,7 @@ pub(crate) fn contract_accounts(
             &ShardLayout::get_simple_nightshade_layout(),
         );
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
-        let storage = TrieDBStorage::new(store.clone(), shard_uid);
+        let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
         // We don't need flat state to traverse all accounts.
         let flat_storage_chunk_view = None;
         Trie::new(Arc::new(storage), state_root, flat_storage_chunk_view)
@@ -1225,7 +1227,12 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
     for shard_uid in shard_layout.shard_uids() {
-        print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
+        print_state_stats_for_shard_uid(
+            store.trie_store(),
+            &flat_storage_manager,
+            block_hash,
+            shard_uid,
+        );
     }
 }
 
@@ -1259,13 +1266,13 @@ pub(crate) fn maybe_print_db_stats(store: Option<Store>) {
 
 /// Prints the state statistics for a single shard.
 fn print_state_stats_for_shard_uid(
-    store: &Store,
+    store: TrieStoreAdapter,
     flat_storage_manager: &FlatStorageManager,
     block_hash: CryptoHash,
     shard_uid: ShardUId,
 ) {
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let trie_storage = TrieDBStorage::new(store, shard_uid);
     let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
 
     let mut state_stats = StateStats::default();
@@ -1311,9 +1318,7 @@ fn get_state_stats_group_by<'a>(
     // the account id.
     let type_iters = COLUMNS_WITH_ACCOUNT_ID_IN_KEY
         .iter()
-        .map(|(type_byte, _)| {
-            chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
-        })
+        .map(|(type_byte, _)| chunk_view.iter_range(Some(&[*type_byte]), Some(&[*type_byte + 1])))
         .into_iter();
 
     // Filter out any errors.

@@ -8,6 +8,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot};
 use near_primitives::types::{StoreKey, StoreValue};
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::{flat::FlatStateChanges, DBCol, ShardTries};
 use nearcore::NightshadeRuntime;
 
@@ -150,9 +151,9 @@ impl SingleShardStorageMutator {
     ) -> anyhow::Result<StateRoot> {
         let num_updates = self.updates.len();
         tracing::info!(?shard_uid, num_updates, "commit");
-        let mut update = self.shard_tries.store_update();
         let flat_state_changes = FlatStateChanges::from_raw_key_value(&self.updates);
-        flat_state_changes.apply_to_flat_state(&mut update, *shard_uid);
+        let mut update = self.shard_tries.store_update();
+        flat_state_changes.apply_to_flat_state(&mut update.flat_store_update(), *shard_uid);
 
         let trie_changes = self
             .shard_tries
@@ -170,7 +171,7 @@ impl SingleShardStorageMutator {
             mem_tries.write().unwrap().delete_until_height(fake_block_height - 1);
         }
         tracing::info!(?shard_uid, num_updates, "committing");
-        update.set_ser(
+        update.store_update().set_ser(
             DBCol::Misc,
             format!("FORK_TOOL_SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
             &state_root,

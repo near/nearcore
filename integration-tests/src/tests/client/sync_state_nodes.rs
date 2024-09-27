@@ -23,6 +23,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{load_test_config, start_with_config};
@@ -494,6 +495,7 @@ fn sync_state_dump() {
                                         },
                                         num_concurrent_requests: 1,
                                         num_concurrent_requests_during_catchup: 1,
+                                        external_storage_fallback_threshold: 0,
                                     });
 
                                 let nearcore::NearNode {
@@ -677,7 +679,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 let mut store_update = store.store_update();
                 assert!(rt
                     .get_flat_storage_manager()
-                    .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)
+                    .remove_flat_storage_for_shard(
+                        msg.shard_uid,
+                        &mut store_update.flat_store_update()
+                    )
                     .unwrap());
                 store_update.commit().unwrap();
 
