@@ -8,8 +8,9 @@ use crossbeam_channel::{Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::{shard_layout::ShardLayout, state::FlatStateValue};
 use near_store::{
-    flat::{store_helper, FlatStorageReshardingStatus, FlatStorageStatus, SplittingParentStatus},
-    ShardUId, StorageError, StoreUpdate,
+    adapter::{flat_store::FlatStoreUpdateAdapter, StoreAdapter},
+    flat::{FlatStorageReshardingStatus, FlatStorageStatus, SplittingParentStatus},
+    ShardUId, StorageError
 };
 use tracing::{debug, error, info, warn};
 
@@ -119,26 +120,23 @@ impl FlatStorageResharder {
         self.check_no_resharding_in_progress()?;
 
         // Change parent and children shards flat storage status.
-        let mut store_update = self.inner.runtime.store().store_update();
+        let mut store_update = self.inner.runtime.store().flat_store().store_update();
         let status = SplittingParentStatus {
             left_child_shard,
             right_child_shard,
             shard_layout: shard_layout.clone(),
         };
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        store_update.set_flat_storage_status(
             parent_shard,
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(
                 status.clone(),
             )),
         );
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        store_update.set_flat_storage_status(
             left_child_shard,
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
         );
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        store_update.set_flat_storage_status(
             right_child_shard,
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
         );
@@ -190,10 +188,10 @@ impl FlatStorageResharder {
     fn clean_children_shards(&self, status: &SplittingParentStatus) -> Result<(), Error> {
         let SplittingParentStatus { left_child_shard, right_child_shard, .. } = status;
         debug!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
-        let mut store_update = self.inner.runtime.store().store_update();
+        let mut store_update = self.inner.runtime.store().flat_store().store_update();
         for child in [left_child_shard, right_child_shard] {
-            store_helper::remove_all_deltas(&mut store_update, *child);
-            store_helper::remove_all_flat_state_values(&mut store_update, *child);
+            store_update.remove_all_deltas(*child);
+            store_update.remove_all(*child);
         }
         store_update.commit()?;
         Ok(())
@@ -270,7 +268,6 @@ fn split_shard_task(
     let success = split_shard_task_impl(resharder.clone(), controller.clone());
     split_shard_task_postprocessing(resharder, success);
     info!(target: "resharding", "flat storage shard split task finished, success: {success}");
-    // TODO(Trisfald): change children state and parent and resharding event depending on outcome
     if let Err(err) = controller.completion_sender.send(success) {
         warn!(target: "resharding", "error notifying completion of flat storage shard split task ({err})")
     };
@@ -304,11 +301,11 @@ fn split_shard_task_impl(
     let SplittingParentStatus { left_child_shard, right_child_shard, .. } = status;
 
     // Prepare the store object for commits and the iterator over parent's flat storage.
-    let store = resharder.runtime.store();
-    let mut iter = store_helper::iter_flat_state_entries(parent_shard, store, None, None);
+    let flat_store = resharder.runtime.store().flat_store();
+    let mut iter = flat_store.iter(parent_shard);
 
     loop {
-        let mut store_update = store.store_update();
+        let mut store_update = flat_store.store_update();
 
         // Process a `BATCH_SIZE` worth of key value pairs.
         let mut iter_exhausted = false;
@@ -347,7 +344,10 @@ fn split_shard_task_impl(
 }
 
 /// Handles the inheritance of a key-value pair from parent shard to children shards.
-fn shard_split_handle_key_value(kv: (Vec<u8>, FlatStateValue), store_update: &mut StoreUpdate) {
+fn shard_split_handle_key_value(
+    kv: (Vec<u8>, FlatStateValue),
+    store_update: &mut FlatStoreUpdateAdapter,
+) {
     // TODO(Trisfald): implement
 }
 
@@ -520,6 +520,7 @@ mod tests {
         init_test_logger();
         let resharder = create_fs_resharder(simple_shard_layout());
         let _new_shard_layout = shard_layout_after_split();
+        let mut flat_store = resharder.inner.runtime.store().flat_store();
 
         // TODO(Trisfald): it won't work until we have shard layout v2.
 
@@ -529,23 +530,17 @@ mod tests {
         match resharding_event.unwrap() {
             FlatStorageReshardingEvent::Split(parent, status) => {
                 assert_eq!(
-                    store_helper::get_flat_storage_status(resharder.inner.runtime.store(), parent),
+                    flat_store.get_flat_storage_status(parent),
                     Ok(FlatStorageStatus::Resharding(
                         FlatStorageReshardingStatus::SplittingParent(status.clone())
                     ))
                 );
                 assert_eq!(
-                    store_helper::get_flat_storage_status(
-                        resharder.inner.runtime.store(),
-                        status.left_child_shard
-                    ),
+                    flat_store.get_flat_storage_status(status.left_child_shard),
                     Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild))
                 );
                 assert_eq!(
-                    store_helper::get_flat_storage_status(
-                        resharder.inner.runtime.store(),
-                        status.right_child_shard
-                    ),
+                    flat_store.get_flat_storage_status(status.right_child_shard),
                     Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild))
                 );
             }
@@ -558,7 +553,7 @@ mod tests {
     fn resume_split_starts_from_clean_state() {
         init_test_logger();
         let resharder = create_fs_resharder(simple_shard_layout());
-        let store = resharder.inner.runtime.store();
+        let flat_store = resharder.inner.runtime.store().flat_store();
         let shard_layout = shard_layout_after_split();
         let resharding_type = event_type_from_shard_layout(&shard_layout).unwrap();
         let ReshardingSplitParams { parent_shard, left_child_shard, right_child_shard } =
@@ -566,18 +561,13 @@ mod tests {
                 ReshardingEventType::Split(params) => params,
             };
 
-        let mut store_update = store.store_update();
+        let mut store_update = flat_store.store_update();
 
         // Write some random key-values in children shards.
         let dirty_key: Vec<u8> = vec![1, 2, 3, 4];
         let dirty_value = Some(FlatStateValue::Inlined(dirty_key.clone()));
         for child_shard in [left_child_shard, right_child_shard] {
-            store_helper::set_flat_state_value(
-                &mut store_update,
-                child_shard,
-                dirty_key.clone(),
-                dirty_value.clone(),
-            );
+            store_update.set(child_shard, dirty_key.clone(), dirty_value.clone());
         }
 
         // Set parent state to ShardSplitting, manually, to simulate a forcibly interrupted resharding attempt.
@@ -587,8 +577,7 @@ mod tests {
                 right_child_shard,
                 shard_layout,
             });
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        store_update.set_flat_storage_status(
             parent_shard,
             FlatStorageStatus::Resharding(resharding_status.clone()),
         );
@@ -601,10 +590,7 @@ mod tests {
 
         // Children should not contain the random keys written before.
         for child_shard in [left_child_shard, right_child_shard] {
-            assert_eq!(
-                store_helper::get_flat_state_value(&store, child_shard, &dirty_key),
-                Ok(None)
-            );
+            assert_eq!(flat_store.get(child_shard, &dirty_key), Ok(None));
         }
     }
 
@@ -636,12 +622,14 @@ mod tests {
         // Check flat storages of children contain the correct accounts.
         let left_child = ShardUId::from_shard_id_and_layout(2, &new_shard_layout);
         let right_child = ShardUId::from_shard_id_and_layout(3, &new_shard_layout);
-        let store = resharder.inner.runtime.store();
+        let flat_store = resharder.inner.runtime.store().flat_store();
         let account_mm_key = TrieKey::Account { account_id: account!("mm") };
         let account_vv_key = TrieKey::Account { account_id: account!("vv") };
-        assert!(store_helper::get_flat_state_value(&store, left_child, &account_mm_key.to_vec())
+        assert!(flat_store
+            .get(left_child, &account_mm_key.to_vec())
             .is_ok_and(|val| val.is_some()));
-        assert!(store_helper::get_flat_state_value(&store, right_child, &account_vv_key.to_vec())
+        assert!(flat_store
+            .get(right_child, &account_vv_key.to_vec())
             .is_ok_and(|val| val.is_some()));
 
         // Check status of children and parent flat storages.
