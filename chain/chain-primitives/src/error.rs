@@ -188,8 +188,6 @@ pub enum Error {
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
-    #[error("Invalid shard layout: {0}")]
-    InvalidShardLayout(String),
     /// Invalid shard id
     #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
@@ -310,7 +308,6 @@ impl Error {
             | Error::InvalidBalanceBurnt
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidShardId(_)
-            | Error::InvalidShardLayout(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
@@ -388,7 +385,6 @@ impl Error {
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidShardId(_) => "invalid_shard_id",
-            Error::InvalidShardLayout(_) => "invalid_shard_layout",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
