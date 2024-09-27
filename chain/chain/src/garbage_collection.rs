@@ -246,9 +246,10 @@ impl ChainStore {
 
         let mut chain_store_update = self.store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
-        metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
+        let res = chain_store_update.commit();
+        metrics::CHUNK_TAIL_HEIGHT.set(self.chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
-        chain_store_update.commit()
+        res
     }
 
     fn clear_forks_data(

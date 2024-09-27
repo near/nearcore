@@ -1952,6 +1952,22 @@ impl Chain {
             should_save_state_transition_data,
         )?;
         chain_update.commit()?;
+
+        // On the epoch switch record the epoch light client block
+        // Note that we only do it if `new_head.is_some()`, i.e. if the current block is the head.
+        // This is necessary because the computation of the light client block relies on
+        // `ColNextBlockHash`-es populated, and they are only populated for the canonical
+        // chain. We need to be careful to avoid a situation when the first block of the epoch
+        // never becomes a tip of the canonical chain.
+        // Presently the epoch boundary is defined by the height, and the fork choice rule
+        // is also just height, so the very first block to cross the epoch end is guaranteed
+        // to be the head of the chain, and result in the light client block produced.
+        if new_head.is_some() {
+            let mut chain_update = self.chain_update();
+            chain_update.save_light_client_block(block.header())?;
+            chain_update.commit()?;
+        }
+
         Ok(new_head)
     }
 
