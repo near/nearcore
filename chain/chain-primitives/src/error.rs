@@ -1,6 +1,6 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::{EpochError, StorageError};
+use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -436,6 +436,14 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
             BlockValidityError::InvalidChallengeRoot => Error::InvalidChallengeRoot,
+        }
+    }
+}
+
+impl From<ChunkAccessError> for Error {
+    fn from(error: ChunkAccessError) -> Self {
+        match error {
+            ChunkAccessError::ChunkMissing(chunk_hash) => Error::ChunkMissing(chunk_hash),
         }
     }
 }

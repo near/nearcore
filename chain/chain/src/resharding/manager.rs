@@ -12,6 +12,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::S
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::AccountId;
 use near_primitives::utils::get_block_shard_id;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::trie::mem::resharding::RetainMode;
 use near_store::{DBCol, PartialStorage, ShardTries, ShardUId, Store};
 
@@ -116,7 +117,11 @@ impl ReshardingManager {
                 &get_block_shard_id(block_hash, new_shard_uid.shard_id()),
                 &state_transition_data,
             )?;
-            tries.apply_insertions(&trie_changes, new_shard_uid, &mut store_update);
+            tries.apply_insertions(
+                &trie_changes,
+                new_shard_uid,
+                &mut store_update.trie_store_update(),
+            );
             store_update.commit()?;
         }
 

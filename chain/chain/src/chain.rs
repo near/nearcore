@@ -89,8 +89,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
@@ -479,7 +480,7 @@ impl Chain {
                 let mut tmp_store_update = store_update.store().store_update();
                 for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
                     flat_storage_manager.set_flat_storage_for_genesis(
-                        &mut tmp_store_update,
+                        &mut tmp_store_update.flat_store_update(),
                         shard_uid,
                         genesis.hash(),
                         genesis.header().height(),
@@ -2942,8 +2943,7 @@ impl Chain {
         tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
         let mut store_update = self.runtime_adapter.store().store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        store_update.flat_store_update().set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
                 flat_head: near_store::flat::BlockInfo {
