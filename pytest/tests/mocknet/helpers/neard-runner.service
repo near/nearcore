@@ -1,0 +1,14 @@
+[Unit]
+Description=Neard Runner Service
+StartLimitIntervalSec=500
+StartLimitBurst=10
+DefaultDependencies=no
+
+[Service]
+User=ubuntu
+Group=ubuntu
+TimeoutStartSec=300
+EnvironmentFile=/etc/neard/neard_runner.conf
+ExecStart=/bin/bash -c 'echo "Starting Neard with NEARD_RUNNER_HOME: $NEARD_RUNNER_HOME" && exec "$NEARD_RUNNER_HOME/venv/bin/python" "$NEARD_RUNNER_HOME/neard_runner.py" --home "$NEARD_RUNNER_HOME" --neard-home "/home/ubuntu/.near" --neard-logs-dir "/home/ubuntu/neard-logs" --port 3000'
+Restart=always
+RestartSec=5s

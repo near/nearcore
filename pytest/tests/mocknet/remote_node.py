@@ -13,6 +13,10 @@ import cmd_utils
 from node_handle import NodeHandle
 import mocknet
 
+NEARD_RUNNER_SERVICE_PATH = '/lib/systemd/system/neard-runner.service'
+NEARD_RUNNER_SERVICE_CONFIG_PATH = '/etc/neard/neard_runner.conf'
+SYSTEMD_CONFIG_DIR = '/etc/neard/'
+
 
 class RemoteNeardRunner:
 
@@ -33,13 +37,10 @@ class RemoteNeardRunner:
         cmd_utils.init_node(self.node)
 
     def mk_neard_runner_home(self, remove_home_dir):
+        cmd = f'mkdir -p {self.neard_runner_home}'
         if remove_home_dir:
-            cmd_utils.run_cmd(
-                self.node,
-                f'rm -rf {self.neard_runner_home} && mkdir -p {self.neard_runner_home}'
-            )
-        else:
-            cmd_utils.run_cmd(self.node, f'mkdir -p {self.neard_runner_home}')
+            cmd = f'rm -rf {self.neard_runner_home} && {cmd}'
+        cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self):
         self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
@@ -48,6 +49,16 @@ class RemoteNeardRunner:
         self.node.machine.upload('tests/mocknet/helpers/requirements.txt',
                                  self.neard_runner_home,
                                  switch_user='ubuntu')
+
+        cmd_utils.run_cmd(self.node, f'sudo mkdir -p {SYSTEMD_CONFIG_DIR}')
+        cmd_utils.run_cmd(
+            self.node,
+            f'echo "NEARD_RUNNER_HOME={self.neard_runner_home}" | sudo tee {NEARD_RUNNER_SERVICE_CONFIG_PATH} > /dev/null'
+        )
+        self.node.machine.upload('tests/mocknet/helpers/neard-runner.service',
+                                 NEARD_RUNNER_SERVICE_PATH,
+                                 switch_user='root')
+        cmd_utils.run_cmd(self.node, 'sudo systemctl daemon-reload')
 
     def upload_neard_runner_config(self, config):
         mocknet.upload_json(self.node,
@@ -68,16 +79,10 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def stop_neard_runner(self):
-        # this looks for python processes with neard_runner.py in the command line. the first word will
-        # be the pid, which we extract with the last awk command
-        self.node.machine.run(
-            'kill $(ps -C python -o pid=,cmd= | grep neard_runner.py | awk \'{print $1};\')'
-        )
+        self.node.machine.run('sudo systemctl stop neard-runner')
 
     def start_neard_runner(self):
-        cmd_utils.run_in_background(self.node, f'{os.path.join(self.neard_runner_home, "venv/bin/python")} {os.path.join(self.neard_runner_home, "neard_runner.py")} ' \
-            f'--home {self.neard_runner_home} --neard-home /home/ubuntu/.near ' \
-            '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
+        self.node.machine.run('sudo systemctl start neard-runner')
 
     def neard_runner_post(self, body):
         body = json.dumps(body)
