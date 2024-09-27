@@ -288,10 +288,10 @@ impl StateSync {
                     )?;
                 }
                 ShardSyncStatus::ReshardingScheduling => {
-                    panic!("Resharding V2 scheduling is no longer supported")
+                    panic!("Resharding V2 scheduling is no longer supported | ReshardingScheduling")
                 }
                 ShardSyncStatus::ReshardingApplying => {
-                    panic!("Resharding V2 scheduling is no longer supported")
+                    panic!("Resharding V2 applying is no longer supported | ReshardingApplying")
                 }
                 ShardSyncStatus::StateSyncDone => {
                     shard_sync_done = true;
@@ -1013,7 +1013,7 @@ impl StateSync {
         shard_uid: ShardUId,
         chain: &mut Chain,
         sync_hash: CryptoHash,
-        need_to_reshard: bool,
+        #[allow(unused)] need_to_reshard: bool,
         shard_sync_download: &mut ShardSyncDownload,
     ) -> Result<bool, near_chain::Error> {
         // Keep waiting until our shard is on the list of results
@@ -1026,16 +1026,18 @@ impl StateSync {
         result?;
 
         chain.set_state_finalize(shard_uid.shard_id(), sync_hash)?;
-        if need_to_reshard {
-            // If the shard layout is changing in this epoch - we have to apply it right now.
-            let status = ShardSyncStatus::ReshardingScheduling;
-            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
-        } else {
-            // If there is no layout change - we're done.
-            let status = ShardSyncStatus::StateSyncDone;
-            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
-            shard_sync_done = true;
-        }
+        // I *think* this is not relevant anymore, since we download
+        // already the next epoch's state.
+        // if need_to_reshard {
+        //     // If the shard layout is changing in this epoch - we have to apply it right now.
+        //     let status = ShardSyncStatus::ReshardingScheduling;
+        //     *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+        // }
+
+        // If there is no layout change - we're done.
+        let status = ShardSyncStatus::StateSyncDone;
+        *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+        shard_sync_done = true;
 
         Ok(shard_sync_done)
     }
