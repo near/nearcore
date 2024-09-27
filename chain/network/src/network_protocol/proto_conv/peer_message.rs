@@ -234,6 +234,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
             message_type: Some(match x {
                 PeerMessage::Tier1Handshake(h) => ProtoMT::Tier1Handshake(h.into()),
                 PeerMessage::Tier2Handshake(h) => ProtoMT::Tier2Handshake(h.into()),
+                PeerMessage::Tier3Handshake(h) => ProtoMT::Tier3Handshake(h.into()),
                 PeerMessage::HandshakeFailure(pi, hfr) => {
                     ProtoMT::HandshakeFailure((pi, hfr).into())
                 }
@@ -397,6 +398,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             }
             ProtoMT::Tier2Handshake(h) => {
                 PeerMessage::Tier2Handshake(h.try_into().map_err(Self::Error::Handshake)?)
+            }
+            ProtoMT::Tier3Handshake(h) => {
+                PeerMessage::Tier3Handshake(h.try_into().map_err(Self::Error::Handshake)?)
             }
             ProtoMT::HandshakeFailure(hf) => {
                 let (pi, hfr) = hf.try_into().map_err(Self::Error::HandshakeFailure)?;

@@ -65,6 +65,7 @@ use near_primitives::views::{
 };
 use near_primitives_core::num_rational::{Ratio, Rational32};
 use near_primitives_core::types::ShardId;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
@@ -2420,7 +2421,7 @@ fn test_catchup_gas_price_change() {
         let mut store_update = store.store_update();
         assert!(rt
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)
+            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update.flat_store_update())
             .unwrap());
         store_update.commit().unwrap();
         for part_id in 0..msg.num_parts {

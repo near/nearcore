@@ -98,7 +98,7 @@ pub struct TestLoopV2 {
     /// The next ID to assign to an event we receive.
     next_event_index: usize,
     /// The current virtual time.
-    current_time: Duration,
+    pub current_time: Duration,
     /// Fake clock that always returns the virtual time.
     clock: near_time::FakeClock,
     /// Shutdown flag. When this flag is true, delayed action runners will no

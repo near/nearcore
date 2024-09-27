@@ -1,0 +1,50 @@
+name: Feature Request
+description: Any ideas how to improve nearcore
+title: "Feature: "
+labels: ["community"]
+assignees:
+  - walnut-the-cat
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this feature request!
+        Before you go ahead, please make sure that the feature request has not been reported already.
+        Please, follow steps below to explain the feature request better.
+  - type: input
+    id: contact
+    attributes:
+      label: Contact Details
+      description: How can we get in touch with you if we need more info?
+      placeholder: ex. email@example.com
+    validations:
+      required: false
+  - type: textarea
+    id: feature-request
+    attributes:
+      label: Feature Request
+      description: Describe your feature request
+    validations:
+      required: true
+  - type: textarea
+    id: beneficiary
+    attributes:
+      label: Beneficiary
+      description: Who is the main beneficiary of this feature?
+    validations:
+      required: true
+  - type: textarea
+    id: priority
+    attributes:
+      label: Priority
+      description: How important this feature is? Why should developers prioritize this?
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: ready-to-contribute
+    attributes:
+      label: Contributing
+      description: Are you interested in implementing this feature?
+      options:
+        - label: Yes, I am interested

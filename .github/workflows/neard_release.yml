@@ -44,7 +44,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout  repository for master branch
+      - name: Checkout repository for master branch
         # In case of master branch we want to checkout with depth 1
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
         uses: actions/checkout@v4
