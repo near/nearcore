@@ -2292,7 +2292,7 @@ fn test_validate_chunk_extra() {
     env.pause_block_processing(&mut capture, block2.hash());
 
     let mut chain_store =
-        ChainStore::new(env.clients[0].chain.chain_store().store().clone(), genesis_height, true);
+        ChainStore::new(env.clients[0].chain.chain_store().store(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
@@ -3583,7 +3583,7 @@ fn test_long_chain_with_restart_from_snapshot() {
     }
 
     let mut env2 = TestEnv::builder(&genesis.config)
-        .stores(vec![env1.clients[0].chain.chain_store().store().clone()])
+        .stores(vec![env1.clients[0].chain.chain_store().store()])
         .nightshade_runtimes(&genesis)
         .archive(false)
         .build();

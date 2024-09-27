@@ -43,6 +43,7 @@ tracing.workspace = true
 
 near-time.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
+near-chain-primitives.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true

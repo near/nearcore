@@ -496,7 +496,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
                     self.client.runtime_adapter.clone(),
-                    self.client.chain.chain_store().store().clone(),
+                    self.client.chain.chain_store().store(),
                     self.adv.is_archival(),
                 );
                 store_validator.set_timeout(timeout);

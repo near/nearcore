@@ -780,7 +780,7 @@ pub(crate) fn view_genesis(
     if view_config || compare {
         tracing::info!(target: "state_viewer", "Computing genesis from config...");
         let state_roots =
-            near_store::get_genesis_state_roots(chain_store.store()).unwrap().unwrap();
+            near_store::get_genesis_state_roots(&chain_store.store()).unwrap().unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),

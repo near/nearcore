@@ -349,8 +349,8 @@ fn run_state_sync_with_dumped_parts(
             {
                 let store0 = env.clients[0].chain.chain_store().store();
                 let store1 = env.clients[1].chain.chain_store().store();
-                let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(store0);
-                let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(store1);
+                let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(&store0);
+                let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(&store1);
                 // Nothing new created, number of flat state values should be identical.
                 assert_eq!(num_inlined_before, num_inlined_after);
                 assert_eq!(num_ref_before, num_ref_after);
@@ -368,8 +368,8 @@ fn run_state_sync_with_dumped_parts(
             {
                 let store0 = env.clients[0].chain.chain_store().store();
                 let store1 = env.clients[1].chain.chain_store().store();
-                let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(store0);
-                let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(store1);
+                let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(&store0);
+                let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(&store1);
                 // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.
                 assert!(num_inlined_before >= num_inlined_after);
                 assert!(num_inlined_after > 0);

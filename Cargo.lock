@@ -4935,6 +4935,7 @@ dependencies = [
  "lru 0.12.3",
  "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-chunks",
  "near-crypto",
  "near-fmt",

@@ -620,7 +620,7 @@ impl Chain {
         congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_id as usize;
-        let state_root = *get_genesis_state_roots(self.chain_store.store())?
+        let state_root = *get_genesis_state_roots(&self.chain_store.store())?
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
