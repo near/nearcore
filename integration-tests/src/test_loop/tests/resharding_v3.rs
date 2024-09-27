@@ -36,7 +36,7 @@ fn test_resharding_v3() {
     }
     let genesis_and_epoch_config_store = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { test_loop, datas: node_datas, tempdir } = builder
         .genesis_and_epoch_config_store(genesis_and_epoch_config_store)
         .clients(clients)
         .build();

@@ -328,7 +328,7 @@ impl TestGenesisBuilder {
             derived_validator_setup.num_chunk_validator_seats;
         let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
             protocol_version,
-            Arc::new(epoch_config.clone()),
+            Arc::new(epoch_config),
         )]));
         let shard_layout =
             epoch_config_store.get_config(protocol_version).as_ref().shard_layout.clone();
