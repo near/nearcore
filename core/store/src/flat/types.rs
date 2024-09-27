@@ -188,6 +188,8 @@ pub struct SplittingParentStatus {
     pub right_child_shard: ShardUId,
     /// The new shard layout.
     pub shard_layout: ShardLayout,
+    /// The block has at which the split began.
+    pub block_hash: CryptoHash,
 }
 
 pub type FlatStateIterator<'a> =

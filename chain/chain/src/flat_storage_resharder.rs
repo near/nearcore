@@ -2,15 +2,28 @@
 //!
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{Receiver, Sender};
+use near_chain_configs::ReshardingHandle;
 use near_chain_primitives::Error;
-use near_primitives::{shard_layout::ShardLayout, state::FlatStateValue};
+use near_primitives::{
+    hash::CryptoHash,
+    shard_layout::{account_id_to_shard_id, ShardLayout},
+    state::FlatStateValue,
+    trie_key::{
+        col,
+        trie_key_parsers::{
+            parse_account_id_from_access_key_key, parse_account_id_from_account_key,
+            parse_account_id_from_contract_code_key,
+        },
+    },
+    types::AccountId,
+};
 use near_store::{
     adapter::{flat_store::FlatStoreUpdateAdapter, StoreAdapter},
     flat::{FlatStorageReshardingStatus, FlatStorageStatus, SplittingParentStatus},
-    ShardUId, StorageError
+    ShardUId, StorageError,
 };
 use tracing::{debug, error, info, warn};
 
@@ -54,13 +67,18 @@ impl FlatStorageResharder {
 
     /// Resumes a resharding event that was in progress.
     ///
-    /// Returns an optional controller to manage the execution of background tasks.
+    /// # Args:
+    /// * `shard_uid`: UId of the shard
+    /// * `status`: resharding status of the shard
+    /// * `scheduler`: component used to schedule the background tasks
+    /// * `controller`: manages the execution of the background tasks
     pub fn resume(
         &self,
         shard_uid: ShardUId,
         status: &FlatStorageReshardingStatus,
         scheduler: &dyn FlatStorageResharderScheduler,
-    ) -> Result<Option<Arc<FlatStorageResharderController>>, Error> {
+        controller: FlatStorageResharderController,
+    ) -> Result<(), Error> {
         match status {
             FlatStorageReshardingStatus::CreatingChild => {
                 // Nothing to do here because the parent will take care of resuming work.
@@ -73,7 +91,7 @@ impl FlatStorageResharder {
                 // However, we don't know the current state of children shards,
                 // so it's better to clean them.
                 self.clean_children_shards(&status)?;
-                return Ok(Some(self.schedule_split_shard(parent_shard_uid, &status, scheduler)));
+                self.schedule_split_shard(parent_shard_uid, &status, scheduler, controller);
             }
             FlatStorageReshardingStatus::CatchingUp(_) => {
                 info!(target: "resharding", ?shard_uid, ?status, "resuming flat storage shard catchup");
@@ -85,7 +103,7 @@ impl FlatStorageResharder {
                 // Nothing else to do.
             }
         }
-        Ok(None)
+        Ok(())
     }
 
     /// Starts a resharding event deduced from the new shard layout provided.
@@ -94,17 +112,22 @@ impl FlatStorageResharder {
     ///
     /// # Args:
     /// * `shard_layout`: the new shard layout, it must contain a layout change or an error is returned
+    /// * `block_hash`: block hash of the block in which the split happens
     /// * `scheduler`: component used to schedule the background tasks
-    ///
-    /// Returns a controller to manage the execution of the background task.
+    /// * `controller`: manages the execution of the background tasks
     pub fn start_resharding_from_new_shard_layout(
         &self,
         shard_layout: &ShardLayout,
+        block_hash: &CryptoHash,
         scheduler: &dyn FlatStorageResharderScheduler,
-    ) -> Result<Arc<FlatStorageResharderController>, Error> {
+        controller: FlatStorageResharderController,
+    ) -> Result<(), Error> {
         match event_type_from_shard_layout(&shard_layout)? {
-            ReshardingEventType::Split(params) => self.split_shard(params, shard_layout, scheduler),
-        }
+            ReshardingEventType::Split(params) => {
+                self.split_shard(params, shard_layout, block_hash, scheduler, controller)?
+            }
+        };
+        Ok(())
     }
 
     /// Starts the event of splitting a parent shard flat storage into two children.
@@ -112,8 +135,10 @@ impl FlatStorageResharder {
         &self,
         split_params: ReshardingSplitParams,
         shard_layout: &ShardLayout,
+        block_hash: &CryptoHash,
         scheduler: &dyn FlatStorageResharderScheduler,
-    ) -> Result<Arc<FlatStorageResharderController>, Error> {
+        controller: FlatStorageResharderController,
+    ) -> Result<(), Error> {
         let ReshardingSplitParams { parent_shard, left_child_shard, right_child_shard } =
             split_params;
         info!(target: "resharding", ?parent_shard, ?left_child_shard, ?right_child_shard, "initiating flat storage split");
@@ -125,6 +150,7 @@ impl FlatStorageResharder {
             left_child_shard,
             right_child_shard,
             shard_layout: shard_layout.clone(),
+            block_hash: *block_hash,
         };
         store_update.set_flat_storage_status(
             parent_shard,
@@ -142,7 +168,8 @@ impl FlatStorageResharder {
         );
         store_update.commit()?;
 
-        Ok(self.schedule_split_shard(parent_shard, &status, scheduler))
+        self.schedule_split_shard(parent_shard, &status, scheduler, controller);
+        Ok(())
     }
 
     /// Returns an error if a resharding event is in progress.
@@ -171,17 +198,15 @@ impl FlatStorageResharder {
         parent_shard: ShardUId,
         status: &SplittingParentStatus,
         scheduler: &dyn FlatStorageResharderScheduler,
-    ) -> Arc<FlatStorageResharderController> {
+        controller: FlatStorageResharderController,
+    ) {
         let event = FlatStorageReshardingEvent::Split(parent_shard, status.clone());
         self.set_resharding_event(event);
         debug!(target: "resharding", ?parent_shard, "scheduling flat storage split: copy of key-value pairs");
 
         let resharder = self.inner.clone();
-        let controller = Arc::new(FlatStorageResharderController::new());
-        let controller_clone = controller.clone();
-        let task = Box::new(move || split_shard_task(resharder, controller_clone));
+        let task = Box::new(move || split_shard_task(resharder, controller));
         scheduler.schedule(task);
-        controller
     }
 
     /// Cleans up children shards flat storage's content (status is excluded).
@@ -207,8 +232,11 @@ enum ReshardingEventType {
 
 #[cfg_attr(test, derive(PartialEq, Eq))]
 struct ReshardingSplitParams {
+    // Shard being split.
     parent_shard: ShardUId,
+    // Child to the left of the account boundary.
     left_child_shard: ShardUId,
+    // Child to the right of the account boundary.
     right_child_shard: ShardUId,
 }
 
@@ -263,14 +291,28 @@ fn event_type_from_shard_layout(shard_layout: &ShardLayout) -> Result<Resharding
 /// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
 fn split_shard_task(
     resharder: FlatStorageResharderInner,
-    controller: Arc<FlatStorageResharderController>,
+    controller: FlatStorageResharderController,
 ) {
     let success = split_shard_task_impl(resharder.clone(), controller.clone());
     split_shard_task_postprocessing(resharder, success);
     info!(target: "resharding", "flat storage shard split task finished, success: {success}");
     if let Err(err) = controller.completion_sender.send(success) {
-        warn!(target: "resharding", "error notifying completion of flat storage shard split task ({err})")
+        warn!(target: "resharding", ?err, "error notifying completion of flat storage shard split task")
     };
+}
+
+/// Retrieve parent shard UIds and current resharding event status.
+/// Resharding event must be of type "Split".
+fn get_parent_shard_and_status(
+    resharder: &FlatStorageResharderInner,
+) -> (ShardUId, SplittingParentStatus) {
+    let event = resharder.resharding_event.lock().unwrap();
+    match event.as_ref() {
+        Some(FlatStorageReshardingEvent::Split(parent_shard, status)) => {
+            (*parent_shard, status.clone())
+        }
+        None => panic!("a resharding event must exist!"),
+    }
 }
 
 /// Performs the bulk of [split_shard_task].
@@ -278,7 +320,7 @@ fn split_shard_task(
 /// Returns `true` if the routine completed successfully.
 fn split_shard_task_impl(
     resharder: FlatStorageResharderInner,
-    controller: Arc<FlatStorageResharderController>,
+    controller: FlatStorageResharderController,
 ) -> bool {
     if controller.is_interrupted() {
         return false;
@@ -288,17 +330,7 @@ fn split_shard_task_impl(
     /// commit changes and to check interruptions.
     const BATCH_SIZE: usize = 10_000;
 
-    // Retrieve shard UIds and current resharding event status.
-    let (parent_shard, status) = {
-        let event = resharder.resharding_event.lock().unwrap();
-        match event.as_ref() {
-            Some(FlatStorageReshardingEvent::Split(parent_shard, status)) => {
-                (*parent_shard, status.clone())
-            }
-            None => panic!("a resharding event must exist!"),
-        }
-    };
-    let SplittingParentStatus { left_child_shard, right_child_shard, .. } = status;
+    let (parent_shard, status) = get_parent_shard_and_status(&resharder);
 
     // Prepare the store object for commits and the iterator over parent's flat storage.
     let flat_store = resharder.runtime.store().flat_store();
@@ -312,10 +344,13 @@ fn split_shard_task_impl(
         for _ in 0..BATCH_SIZE {
             match iter.next() {
                 Some(Ok(kv)) => {
-                    shard_split_handle_key_value(kv, &mut store_update);
+                    if let Err(err) = shard_split_handle_key_value(kv, &mut store_update, &status) {
+                        error!(target: "resharding", ?err, "failed to handle flat storage key");
+                        return false;
+                    }
                 }
                 Some(Err(err)) => {
-                    error!(target: "resharding", "failed to read flat storage value from parent shard ({err})");
+                    error!(target: "resharding", ?err, "failed to read flat storage value from parent shard");
                     return false;
                 }
                 None => {
@@ -326,7 +361,7 @@ fn split_shard_task_impl(
 
         // Make a pause to commit and check if the routine should stop.
         if let Err(err) = store_update.commit() {
-            error!(target: "resharding", "failed to commit store update ({err})");
+            error!(target: "resharding", ?err, "failed to commit store update");
             return false;
         }
 
@@ -347,21 +382,90 @@ fn split_shard_task_impl(
 fn shard_split_handle_key_value(
     kv: (Vec<u8>, FlatStateValue),
     store_update: &mut FlatStoreUpdateAdapter,
-) {
-    // TODO(Trisfald): implement
+    status: &SplittingParentStatus,
+) -> Result<(), std::io::Error> {
+    let (key, value) = kv;
+    if key.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "flat storage key is empty",
+        ));
+    }
+    let key_column_prefix = key[0];
+    let SplittingParentStatus { left_child_shard, right_child_shard, shard_layout, .. } = status;
+
+    // Copies a key value pair to the correct child by matching the account id to the new shard.
+    let copy_kv_to_child =
+        |account_id_parser: fn(&[u8]) -> Result<AccountId, _>| -> Result<(), std::io::Error> {
+            // Derive the shard uid for this account in the new shard layout.
+            let account_id = account_id_parser(&key)?;
+            let new_shard_id = account_id_to_shard_id(&account_id, shard_layout);
+            let mut new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
+
+            // TODO(Trisfald): HACK until ShardLayoutV2 is there.
+            new_shard_uid.shard_id += 1;
+
+            // Sanity check we are truly writing to one of the expected children shards.
+            if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
+                let err_msg = "account id doesn't map to any child shard!";
+                error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, err_msg);
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err_msg));
+            }
+            // Add the new flat store entry.
+            store_update.set(new_shard_uid, key, Some(value));
+            Ok(())
+        };
+
+    match key_column_prefix {
+        col::ACCOUNT => {
+            copy_kv_to_child(parse_account_id_from_account_key)?;
+        }
+        col::CONTRACT_DATA => todo!(),
+        col::CONTRACT_CODE => {
+            copy_kv_to_child(parse_account_id_from_contract_code_key)?;
+        }
+        col::ACCESS_KEY => {
+            copy_kv_to_child(parse_account_id_from_access_key_key)?;
+        }
+        col::RECEIVED_DATA => todo!(),
+        col::POSTPONED_RECEIPT_ID => todo!(),
+        col::PENDING_DATA_COUNT => todo!(),
+        col::POSTPONED_RECEIPT => todo!(),
+        col::DELAYED_RECEIPT_OR_INDICES => todo!(),
+        _ => unreachable!(),
+    }
+    Ok(())
 }
 
 /// Performs post-processing of shard splitting after all key-values have been moved from parent to children.
 /// `success` indicates whether or not the previous phase was successful.
 fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success: bool) {
+    let (parent_shard, status) = get_parent_shard_and_status(&resharder);
+    let SplittingParentStatus { left_child_shard, right_child_shard, block_hash, .. } = status;
+    let flat_store = resharder.runtime.store().flat_store();
+    let mut store_update = flat_store.store_update();
     if success {
         // Split shard completed successfully.
-        // TODO(Trisfald): see what to do
+        // Parent flat storage can be later deleted.
+        store_update.set_flat_storage_status(
+            parent_shard,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::ToBeDeleted),
+        );
+        // TODO(trisfald): trigger parent delete
+        // Children must perform catchup.
+        for shard in [left_child_shard, right_child_shard] {
+            store_update.set_flat_storage_status(
+                shard,
+                FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(block_hash)),
+            );
+        }
+        // TODO(trisfald): trigger catchup
     } else {
         // We got an error or an interrupt request.
         // Remove children shards leftovers and reset parent shard status.
         // TODO(Trisfald): implement
     }
+    store_update.commit().unwrap();
     // Terminate the resharding event.
     *resharder.resharding_event.lock().unwrap() = None;
 }
@@ -376,9 +480,10 @@ pub enum FlatStorageReshardingEvent {
 
 /// Helps control the flat storage resharder operation. More specifically,
 /// it has a way to know when the background task is done or to interrupt it.
+#[derive(Clone)]
 pub struct FlatStorageResharderController {
-    /// Set this flag to true if the resharding should be interrupted.
-    interrupt: AtomicBool,
+    /// Resharding handle to control interruption.
+    handle: ReshardingHandle,
     /// This object will be used to signal when the background task is completed.
     /// A value of `true` means that the operation completed successfully.
     completion_sender: Sender<bool>,
@@ -387,20 +492,25 @@ pub struct FlatStorageResharderController {
 }
 
 impl FlatStorageResharderController {
-    /// Creates a new `FlatStorageResharderController`.
+    /// Creates a new `FlatStorageResharderController` with its own handle.
     pub fn new() -> Self {
         let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
-        Self { interrupt: AtomicBool::new(false), completion_sender, completion_receiver }
+        let handle = ReshardingHandle::new();
+        Self { handle, completion_sender, completion_receiver }
     }
 
-    /// Interrupts any ongoing task.
-    pub fn interrupt(&self) {
-        self.interrupt.store(true, std::sync::atomic::Ordering::SeqCst);
+    pub fn from_resharding_handle(handle: ReshardingHandle) -> Self {
+        let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
+        Self { handle, completion_sender, completion_receiver }
+    }
+
+    pub fn handle(&self) -> &ReshardingHandle {
+        &self.handle
     }
 
     /// Returns whether or not background task is interrupted.
     pub fn is_interrupted(&self) -> bool {
-        self.interrupt.load(std::sync::atomic::Ordering::SeqCst)
+        !self.handle.get()
     }
 }
 
@@ -411,12 +521,15 @@ pub trait FlatStorageResharderScheduler {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use near_async::time::Clock;
     use near_chain_configs::Genesis;
     use near_epoch_manager::EpochManager;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
-        shard_layout::ShardLayout, state::FlatStateValue, trie_key::TrieKey, types::AccountId,
+        hash::CryptoHash, shard_layout::ShardLayout, state::FlatStateValue, trie_key::TrieKey,
+        types::AccountId,
     };
     use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 
@@ -502,13 +615,14 @@ mod tests {
         init_test_logger();
         let _resharder = create_fs_resharder(simple_shard_layout());
         let _new_shard_layout = shard_layout_after_split();
+        let controller = FlatStorageResharderController::new();
 
         // TODO(Trisfald): it won't work until we have shard layout v2.
 
         // assert!(resharder.start_resharding_from_new_shard_layout(&new_shard_layout).is_ok());
 
         // Immediately interrupt the resharding.
-        // TODO
+        controller.handle().stop();
 
         // assert!(resharder.resharding_event.lock().unwrap().is_some());
         // assert!(resharder.start_resharding_from_new_shard_layout(&new_shard_layout).is_err());
@@ -520,7 +634,7 @@ mod tests {
         init_test_logger();
         let resharder = create_fs_resharder(simple_shard_layout());
         let _new_shard_layout = shard_layout_after_split();
-        let mut flat_store = resharder.inner.runtime.store().flat_store();
+        let flat_store = resharder.inner.runtime.store().flat_store();
 
         // TODO(Trisfald): it won't work until we have shard layout v2.
 
@@ -576,6 +690,7 @@ mod tests {
                 left_child_shard,
                 right_child_shard,
                 shard_layout,
+                block_hash: CryptoHash::default(),
             });
         store_update.set_flat_storage_status(
             parent_shard,
@@ -586,7 +701,8 @@ mod tests {
 
         // Resume resharding.
         let scheduler = TestScheduler {};
-        let _ = resharder.resume(parent_shard, &resharding_status, &scheduler).unwrap();
+        let controller = FlatStorageResharderController::new();
+        resharder.resume(parent_shard, &resharding_status, &scheduler, controller).unwrap();
 
         // Children should not contain the random keys written before.
         for child_shard in [left_child_shard, right_child_shard] {
@@ -612,16 +728,29 @@ mod tests {
         // Perform resharding.
         let resharder = create_fs_resharder(simple_shard_layout());
         let new_shard_layout = shard_layout_after_split();
+        let block_hash = CryptoHash::default();
         let scheduler = TestScheduler {};
+        let controller = FlatStorageResharderController::new();
 
-        let result =
-            resharder.start_resharding_from_new_shard_layout(&new_shard_layout, &scheduler);
+        let result = resharder.split_shard(
+            ReshardingSplitParams {
+                parent_shard: ShardUId { version: 3, shard_id: 1 },
+                left_child_shard: ShardUId { version: 3, shard_id: 2 },
+                right_child_shard: ShardUId { version: 3, shard_id: 3 },
+            },
+            &new_shard_layout,
+            &CryptoHash::default(),
+            &scheduler,
+            controller.clone(),
+        );
+        // TODO(Trisfald): replace the above with this simple call
+        // let result =
+        //     resharder.start_resharding_from_new_shard_layout(&new_shard_layout, &scheduler);
         assert!(result.is_ok());
-        let controller = result.unwrap();
 
         // Check flat storages of children contain the correct accounts.
-        let left_child = ShardUId::from_shard_id_and_layout(2, &new_shard_layout);
-        let right_child = ShardUId::from_shard_id_and_layout(3, &new_shard_layout);
+        let left_child = ShardUId { version: 3, shard_id: 2 };
+        let right_child = ShardUId { version: 3, shard_id: 3 };
         let flat_store = resharder.inner.runtime.store().flat_store();
         let account_mm_key = TrieKey::Account { account_id: account!("mm") };
         let account_vv_key = TrieKey::Account { account_id: account!("vv") };
@@ -632,10 +761,27 @@ mod tests {
             .get(right_child, &account_vv_key.to_vec())
             .is_ok_and(|val| val.is_some()));
 
-        // Check status of children and parent flat storages.
-        todo!();
-
         // Controller should signal that resharding ended.
-        todo!();
+        assert_eq!(controller.completion_receiver.recv_timeout(Duration::from_secs(1)), Ok(true));
+
+        // Check final status of children and parent flat storages.
+        let parent = ShardUId { version: 3, shard_id: 1 };
+        assert_eq!(
+            flat_store.get_flat_storage_status(parent),
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::ToBeDeleted))
+        );
+        assert_eq!(
+            flat_store.get_flat_storage_status(left_child),
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(block_hash)))
+        );
+        assert_eq!(
+            flat_store.get_flat_storage_status(left_child),
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(block_hash)))
+        );
+    }
+
+    #[test]
+    fn interrupt_split_shard() {
+        // TODO(Trisfald): implement
     }
 }
