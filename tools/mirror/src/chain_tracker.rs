@@ -288,6 +288,18 @@ impl TxTracker {
         Ok(())
     }
 
+    fn get_target_nonce<'a>(
+        &'a mut self,
+        db: &DB,
+        access_key: &(AccountId, PublicKey),
+        source_height: Option<BlockHeight>,
+    ) -> anyhow::Result<&'a mut NonceInfo> {
+        if !self.nonces.contains_key(access_key) {
+            self.initialize_target_nonce(db, &access_key, source_height)?;
+        }
+        Ok(self.nonces.get_mut(access_key).unwrap())
+    }
+
     pub(crate) async fn next_nonce(
         lock: &Mutex<Self>,
         target_view_client: &Addr<ViewClientActor>,
@@ -300,10 +312,7 @@ impl TxTracker {
         let access_key = (signer_id.clone(), public_key.clone());
         Self::store_target_nonce(target_view_client, db, &access_key).await?;
         let mut me = lock.lock().unwrap();
-        if !me.nonces.contains_key(&access_key) {
-            me.initialize_target_nonce(db, &access_key, source_height)?;
-        }
-        let info = me.nonces.get_mut(&access_key).unwrap();
+        let info = me.get_target_nonce(db, &access_key, source_height).unwrap();
         if source_height > info.last_height {
             info.last_height = source_height;
         }
@@ -388,10 +397,7 @@ impl TxTracker {
     ) -> anyhow::Result<()> {
         let source_height = Some(source_height);
         for access_key in nonce_updates.iter() {
-            if !self.nonces.contains_key(&access_key) {
-                self.initialize_target_nonce(db, &access_key, source_height)?;
-            }
-            let info = self.nonces.get_mut(&access_key).unwrap();
+            let info = self.get_target_nonce(db, &access_key, source_height).unwrap();
 
             if info.last_height < source_height {
                 info.last_height = source_height;
