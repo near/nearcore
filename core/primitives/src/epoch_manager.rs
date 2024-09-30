@@ -95,14 +95,16 @@ pub struct AllEpochConfig {
     /// Chain Id. Some parameters are specific to certain chains.
     chain_id: String,
     epoch_length: BlockHeightDelta,
+    /// The fields below are DEPRECATED.
+    /// Epoch config must be controlled by `config_store` only.
     /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
     /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
-    use_production_config: bool,
+    _use_production_config: bool,
     /// EpochConfig from genesis
-    genesis_epoch_config: EpochConfig,
+    _genesis_epoch_config: EpochConfig,
 
     /// Testing overrides to apply to the EpochConfig returned by the `for_protocol_version`.
-    test_overrides: AllEpochConfigTestOverrides,
+    _test_overrides: AllEpochConfigTestOverrides,
 }
 
 impl AllEpochConfig {
@@ -131,10 +133,10 @@ impl AllEpochConfig {
             config_store: Some(epoch_config_store),
             chain_id: chain_id.to_string(),
             epoch_length,
-            // The fields below SHOULD NOT be used.
-            use_production_config: false,
-            genesis_epoch_config,
-            test_overrides: AllEpochConfigTestOverrides::default(),
+            // The fields below must be DEPRECATED.
+            _use_production_config: false,
+            _genesis_epoch_config: genesis_epoch_config,
+            _test_overrides: AllEpochConfigTestOverrides::default(),
         }
     }
 
@@ -156,9 +158,9 @@ impl AllEpochConfig {
             config_store: config_store.clone(),
             chain_id: chain_id.to_string(),
             epoch_length: genesis_epoch_config.epoch_length,
-            use_production_config,
-            genesis_epoch_config,
-            test_overrides: test_overrides.unwrap_or_default(),
+            _use_production_config: use_production_config,
+            _genesis_epoch_config: genesis_epoch_config,
+            _test_overrides: test_overrides.unwrap_or_default(),
         };
         // Sanity check: Validate that the stored genesis config equals to the config generated for the genesis protocol version.
         // Note that we cannot do this in unittests because we do not have direct access to the genesis config for mainnet/testnet.
@@ -178,7 +180,10 @@ impl AllEpochConfig {
         if self.config_store.is_some() {
             let mut config =
                 self.config_store.as_ref().unwrap().get_config(protocol_version).as_ref().clone();
-            config.epoch_length = self.epoch_length; // :(
+            // TODO(#11265): epoch length is overridden in many tests so we
+            // need to support it here. Consider removing `epoch_length` from
+            // EpochConfig.
+            config.epoch_length = self.epoch_length;
             config
         } else {
             self.generate_epoch_config(protocol_version)
@@ -187,11 +192,11 @@ impl AllEpochConfig {
 
     /// TODO(#11265): Remove this and use the stored configs only.
     pub fn generate_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
-        let mut config = self.genesis_epoch_config.clone();
+        let mut config = self._genesis_epoch_config.clone();
 
         Self::config_mocknet(&mut config, &self.chain_id);
 
-        if !self.use_production_config {
+        if !self._use_production_config {
             return config;
         }
 
@@ -207,7 +212,7 @@ impl AllEpochConfig {
 
         Self::config_chunk_endorsement_thresholds(&mut config, protocol_version);
 
-        Self::config_test_overrides(&mut config, &self.test_overrides);
+        Self::config_test_overrides(&mut config, &self._test_overrides);
 
         config
     }
@@ -488,16 +493,13 @@ impl EpochConfigStore {
     /// This panics if no config is found for the given version, thus the initialization via `for_chain_id` should
     /// only be performed for chains with some configs stored in files.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<EpochConfig> {
-        let c = self
-            .store
+        self.store
             .range((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
             .unwrap_or_else(|| {
                 panic!("Failed to find EpochConfig for protocol version {}", protocol_version)
             })
-            .1;
-        // println!("{:?}", c);
-        c
+            .1
     }
 }
 

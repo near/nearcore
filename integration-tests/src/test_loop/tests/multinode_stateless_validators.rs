@@ -58,8 +58,10 @@ fn test_stateless_validators_with_multi_test_loop() {
     }
     let genesis_and_epoch_config_store = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis_and_epoch_config_store(genesis_and_epoch_config_store).clients(clients).build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis_and_epoch_config_store(genesis_and_epoch_config_store)
+        .clients(clients)
+        .build();
 
     // Capture the initial validator info in the first epoch.
     let client_handle = node_datas[0].client_sender.actor_handle();

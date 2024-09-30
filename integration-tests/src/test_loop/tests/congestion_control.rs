@@ -93,7 +93,10 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     }
     let genesis_and_epoch_config_store = genesis_builder.build();
 
-    let env = builder.genesis_and_epoch_config_store(genesis_and_epoch_config_store).clients(clients).build();
+    let env = builder
+        .genesis_and_epoch_config_store(genesis_and_epoch_config_store)
+        .clients(clients)
+        .build();
     (env, rpc_id.clone())
 }
 
