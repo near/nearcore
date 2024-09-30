@@ -97,6 +97,7 @@ pub struct AllEpochConfig {
     epoch_length: BlockHeightDelta,
     /// The fields below are DEPRECATED.
     /// Epoch config must be controlled by `config_store` only.
+    /// TODO(#11265): remove these fields.
     /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
     /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
     _use_production_config: bool,
@@ -133,7 +134,9 @@ impl AllEpochConfig {
             config_store: Some(epoch_config_store),
             chain_id: chain_id.to_string(),
             epoch_length,
-            // The fields below must be DEPRECATED.
+            // The fields below must be DEPRECATED. Don't use it for epoch
+            // config creation.
+            // TODO(#11265): remove them.
             _use_production_config: false,
             _genesis_epoch_config: genesis_epoch_config,
             _test_overrides: AllEpochConfigTestOverrides::default(),
