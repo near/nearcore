@@ -546,8 +546,8 @@ mod tests {
     use std::{cell::RefCell, time::Duration};
 
     use near_async::time::Clock;
-    use near_chain_configs::Genesis;
-    use near_epoch_manager::EpochManager;
+    use near_chain_configs::{Genesis, MutableConfigValue};
+    use near_epoch_manager::{shard_tracker::ShardTracker, EpochManager};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
         hash::CryptoHash, shard_layout::ShardLayout, state::FlatStateValue, trie_key::TrieKey,
@@ -559,7 +559,10 @@ mod tests {
         test_utils::create_test_store,
     };
 
-    use crate::runtime::NightshadeRuntime;
+    use crate::{
+        rayon_spawner::RayonAsyncComputationSpawner, runtime::NightshadeRuntime,
+        types::ChainConfig, Chain, ChainGenesis, DoomslugThresholdMode,
+    };
 
     use super::*;
 
@@ -608,7 +611,7 @@ mod tests {
     }
 
     /// Generic test setup.
-    fn create_fs_resharder(shard_layout: ShardLayout) -> FlatStorageResharder {
+    fn create_fs_resharder(shard_layout: ShardLayout) -> (Chain, FlatStorageResharder) {
         let num_shards = shard_layout.shard_ids().count();
         let genesis = Genesis::test_with_seeds(
             Clock::real(),
@@ -621,9 +624,25 @@ mod tests {
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime =
-            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager);
-        FlatStorageResharder::new(runtime)
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+        let chain_genesis = ChainGenesis::new(&genesis.config);
+        let chain = Chain::new(
+            Clock::real(),
+            epoch_manager,
+            shard_tracker,
+            runtime.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            ChainConfig::test(),
+            None,
+            Arc::new(RayonAsyncComputationSpawner),
+            MutableConfigValue::new(None, "validator_signer"),
+        )
+        .unwrap();
+
+        (chain, FlatStorageResharder::new(runtime))
     }
 
     /// Verify that the correct type of resharding is deduced from a new shard layout.
@@ -675,7 +694,7 @@ mod tests {
     #[test]
     fn flat_storage_split_status_set() {
         init_test_logger();
-        let resharder = create_fs_resharder(simple_shard_layout());
+        let (_, resharder) = create_fs_resharder(simple_shard_layout());
         let _new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.inner.runtime.store().flat_store();
 
@@ -709,7 +728,7 @@ mod tests {
     #[test]
     fn resume_split_starts_from_clean_state() {
         init_test_logger();
-        let resharder = create_fs_resharder(simple_shard_layout());
+        let (_, resharder) = create_fs_resharder(simple_shard_layout());
         let flat_store = resharder.inner.runtime.store().flat_store();
         let shard_layout = shard_layout_after_split();
         let resharding_type = event_type_from_shard_layout(&shard_layout).unwrap();
@@ -774,9 +793,8 @@ mod tests {
     fn simple_split_shard() {
         init_test_logger();
         // Perform resharding.
-        let resharder = create_fs_resharder(simple_shard_layout());
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
         let new_shard_layout = shard_layout_after_split();
-        let block_hash = CryptoHash::default();
         let scheduler = TestScheduler {};
         let controller = FlatStorageResharderController::new();
 
@@ -817,13 +835,14 @@ mod tests {
             flat_store.get_flat_storage_status(parent),
             Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::ToBeDeleted))
         );
+        let last_hash = chain.head().unwrap().last_block_hash;
         assert_eq!(
             flat_store.get_flat_storage_status(left_child),
-            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(block_hash)))
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(last_hash)))
         );
         assert_eq!(
             flat_store.get_flat_storage_status(left_child),
-            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(block_hash)))
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(last_hash)))
         );
     }
 
@@ -831,7 +850,7 @@ mod tests {
     fn interrupt_split_shard() {
         init_test_logger();
         // Perform resharding.
-        let resharder = create_fs_resharder(simple_shard_layout());
+        let (_, resharder) = create_fs_resharder(simple_shard_layout());
         let new_shard_layout = shard_layout_after_split();
         let scheduler = DelayedScheduler::default();
         let controller = FlatStorageResharderController::new();
