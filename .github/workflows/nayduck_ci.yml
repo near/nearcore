@@ -1,14 +1,15 @@
 name: CI Nayduck tests
 on:
+  pull_request:
   merge_group:
-
   workflow_dispatch:
 
 jobs:
   nayduck_tests:
-    runs-on: "ubuntu-latest"
+    runs-on: ubuntu-latest
     environment: development
     timeout-minutes: 60
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Install JQ json processor
@@ -48,4 +49,5 @@ jobs:
           else
             echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
             echo "Fix them before merging"
+            exit 1
           fi

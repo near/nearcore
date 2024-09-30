@@ -171,7 +171,7 @@ impl SingleShardStorageMutator {
             mem_tries.write().unwrap().delete_until_height(fake_block_height - 1);
         }
         tracing::info!(?shard_uid, num_updates, "committing");
-        update.set_ser(
+        update.store_update().set_ser(
             DBCol::Misc,
             format!("FORK_TOOL_SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
             &state_root,
