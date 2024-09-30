@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::hash::CryptoHash;
 
 /// Account identifier. Provides access to user's state.
@@ -18,8 +20,6 @@ pub type Nonce = u64;
 pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
-/// Shard index, from 0 to NUM_SHARDS - 1.
-pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
@@ -45,3 +45,64 @@ pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
+
+/// The shard identifier. It may be a arbitrary number - it does not need to be
+/// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
+/// sequential or contiguous.
+///
+/// The shard id is wrapped in a newtype to prevent the old pattern of using
+/// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
+/// if fully complete it potentially may be simplified to a regular type alias.
+///
+/// TODO get rid of serde
+#[derive(
+    arbitrary::Arbitrary,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Hash,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+)]
+pub struct ShardId(u64);
+
+impl ShardId {
+    /// Create a new shard id. Please note that this function should not be used
+    /// directly. Instead the ShardId should be obtained from the shard_layout.
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    /// Get the numerical value of the shard id. This should not be used as an
+    /// index into an array, as the shard id may be any arbitrary number.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    pub fn to_le_bytes(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+
+    pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
+        Self(u64::from_le_bytes(bytes))
+    }
+}
+
+impl Display for ShardId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// TODO remove that!!!!
+impl From<u64> for ShardId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
