@@ -47,8 +47,9 @@ use crate::types::RuntimeAdapter;
 ///     The parent shard storage is not needed anymore and can be removed.
 ///
 /// The resharder has also the following properties:
-/// - Background processing: the bulk of resharding is done in a separate task
-/// - Interruptible: a reshard can be interrupted
+/// - Background processing: the bulk of resharding is done in a separate task, see [FlatStorageResharderScheduler]
+/// - Interruptible: a reshard operation can be interrupted through a [FlatStorageResharderController].
+///     - In the case of event `Split` the state of flat storage will go back to what it was previously.
 pub struct FlatStorageResharder {
     inner: FlatStorageResharderInner,
 }
@@ -141,7 +142,7 @@ impl FlatStorageResharder {
     ) -> Result<(), Error> {
         let ReshardingSplitParams { parent_shard, left_child_shard, right_child_shard } =
             split_params;
-        info!(target: "resharding", ?parent_shard, ?left_child_shard, ?right_child_shard, "initiating flat storage split");
+        info!(target: "resharding", ?parent_shard, ?left_child_shard, ?right_child_shard, "initiating flat storage shard split");
         self.check_no_resharding_in_progress()?;
 
         // Parent shard must be in ready state.
@@ -216,7 +217,7 @@ impl FlatStorageResharder {
     ) {
         let event = FlatStorageReshardingEvent::Split(parent_shard, status.clone());
         self.set_resharding_event(event);
-        debug!(target: "resharding", ?parent_shard, "scheduling flat storage split: copy of key-value pairs");
+        info!(target: "resharding", ?parent_shard, ?status,"scheduling flat storage shard split");
 
         let resharder = self.inner.clone();
         let task = Box::new(move || split_shard_task(resharder, controller));
@@ -343,6 +344,8 @@ fn split_shard_task_impl(
     const BATCH_SIZE: usize = 10_000;
 
     let (parent_shard, status) = get_parent_shard_and_status(&resharder);
+
+    info!(target: "resharding", ?parent_shard, "flat storage shard split task: starting key-values copy");
 
     // Prepare the store object for commits and the iterator over parent's flat storage.
     let flat_store = resharder.runtime.store().flat_store();
@@ -472,6 +475,8 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
     let (parent_shard, status) = get_parent_shard_and_status(&resharder);
     let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
     let flat_store = resharder.runtime.store().flat_store();
+    info!(target: "resharding", ?parent_shard, "flat storage shard split task: post-processing");
+
     let mut store_update = flat_store.store_update();
     if success {
         // Split shard completed successfully.
