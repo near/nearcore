@@ -239,12 +239,14 @@ impl FlatStorageResharder {
 }
 
 /// Struct used to destructure a new shard layout definition into the resulting resharding event.
+#[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 enum ReshardingEventType {
     /// Split of a shard.
     Split(ReshardingSplitParams),
 }
 
+#[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 struct ReshardingSplitParams {
     // Shard being split.
@@ -267,31 +269,53 @@ fn event_type_from_shard_layout(shard_layout: &ShardLayout) -> Result<Resharding
             error!(target: "resharding", ?shard_layout, err_msg);
             return Err(Error::ReshardingError(err_msg.to_owned()));
         }
+        ShardLayout::V2(_) => {
+            // Supported.
+        }
     }
 
-    let event = None;
-    // Look for a shard having exactly two children, to trigger a split.
-    for shard in shard_layout.shard_ids() {
-        let parent = shard_layout.get_parent_shard_id(shard)?;
-        if let Some(children) = shard_layout.get_children_shards_uids(parent) {
+    let mut event = None;
+
+    let error_two_reshardings = || {
+        let err_msg = "can't perform two reshardings at the same time!";
+        error!(target: "resharding", ?shard_layout, err_msg);
+        return Err(Error::ReshardingError(err_msg.to_owned()));
+    };
+
+    for shard_id in shard_layout.shard_ids() {
+        // Look for a shard having exactly two children, to detect a split.
+        // - retrieve the parent shard
+        // - if the parent has two children create the split event
+        let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+        if let Some(children) = shard_layout.get_children_shards_uids(parent_shard_id) {
             if children.len() == 2 {
-                if event.is_none() {
-                    let parent_shard = ShardUId::from_shard_id_and_layout(parent, &shard_layout);
-                    let left_child_shard = children[0];
-                    let right_child_shard = children[1];
-                    event = Some(ReshardingEventType::Split(ReshardingSplitParams {
-                        parent_shard,
-                        left_child_shard,
-                        right_child_shard,
-                    }))
-                } else {
-                    let err_msg = "can't perform two reshardings at the same time!";
-                    error!(target: "resharding", ?shard_layout, err_msg);
-                    return Err(Error::ReshardingError(err_msg.to_owned()));
+                match &event {
+                    None => {
+                        let parent_shard = ShardUId {
+                            version: shard_layout.version(),
+                            shard_id: parent_shard_id as u32,
+                        };
+                        let left_child_shard = children[0];
+                        let right_child_shard = children[1];
+                        event = Some(ReshardingEventType::Split(ReshardingSplitParams {
+                            parent_shard,
+                            left_child_shard,
+                            right_child_shard,
+                        }))
+                    }
+                    Some(ReshardingEventType::Split(split)) => {
+                        // It's fine only if this shard is already a child of the existing event.
+                        if split.left_child_shard.shard_id() != shard_id
+                            && split.right_child_shard.shard_id() != shard_id
+                        {
+                            return error_two_reshardings();
+                        }
+                    }
                 }
             }
         }
     }
+    // We must have found at least one resharding event by now.
     event.ok_or_else(|| {
         let err_msg = "no supported shard layout change found!";
         error!(target: "resharding", ?shard_layout, err_msg);
@@ -415,10 +439,7 @@ fn shard_split_handle_key_value(
             // Derive the shard uid for this account in the new shard layout.
             let account_id = account_id_parser(&key)?;
             let new_shard_id = account_id_to_shard_id(&account_id, shard_layout);
-            let mut new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
-
-            // TODO(Trisfald): HACK until ShardLayoutV2 is there.
-            new_shard_uid.shard_id += 1;
+            let new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
 
             // Sanity check we are truly writing to one of the expected children shards.
             if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
@@ -566,7 +587,7 @@ pub trait FlatStorageResharderScheduler {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, time::Duration};
+    use std::{cell::RefCell, collections::BTreeMap, time::Duration};
 
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
@@ -623,14 +644,14 @@ mod tests {
 
     /// Simple shard layout with two shards.
     fn simple_shard_layout() -> ShardLayout {
-        // TODO(Trisfald): use shard layout v2
-        ShardLayout::v1(vec![account!("ff")], None, 3)
+        let shards_split_map = BTreeMap::from([(0, vec![0]), (1, vec![1])]);
+        ShardLayout::v2(vec![account!("ff")], vec![0, 1], Some(shards_split_map))
     }
 
     /// Derived from [simple_shard_layout] by splitting the second shard.
     fn shard_layout_after_split() -> ShardLayout {
-        // TODO(Trisfald): use shard layout v2
-        ShardLayout::v1(vec![account!("ff"), account!("pp")], Some(vec![vec![0], vec![1, 2]]), 3)
+        let shards_split_map = BTreeMap::from([(0, vec![0]), (1, vec![2, 3])]);
+        ShardLayout::v2(vec![account!("ff"), account!("pp")], vec![0, 2, 3], Some(shards_split_map))
     }
 
     /// Generic test setup.
@@ -680,16 +701,22 @@ mod tests {
 
         // Single split shard is ok.
         let layout = shard_layout_after_split();
-        let _event_type = event_type_from_shard_layout(&layout);
-        // TODO(Trisfald): it won't work until we have shard layout v2.
-        // assert_eq!(event_type, ReshardingEventType::Split(...));
+        let event_type = event_type_from_shard_layout(&layout).unwrap();
+        assert_eq!(
+            event_type,
+            ReshardingEventType::Split(ReshardingSplitParams {
+                parent_shard: ShardUId { version: 3, shard_id: 1 },
+                left_child_shard: ShardUId { version: 3, shard_id: 2 },
+                right_child_shard: ShardUId { version: 3, shard_id: 3 }
+            })
+        );
 
         // Double split shard is not ok.
-        // TODO(Trisfald): use shard layout v2
-        let layout = ShardLayout::v1(
+        let shards_split_map = BTreeMap::from([(0, vec![2, 3]), (1, vec![4, 5])]);
+        let layout = ShardLayout::v2(
             vec![account!("ff"), account!("pp"), account!("ss")],
-            Some(vec![vec![0, 2], vec![1, 2]]),
-            3,
+            vec![2, 3, 4, 5],
+            Some(shards_split_map),
         );
         assert!(event_type_from_shard_layout(&layout).is_err());
     }
@@ -698,19 +725,30 @@ mod tests {
     #[test]
     fn concurrent_reshardings_are_disallowed() {
         init_test_logger();
-        let _resharder = create_fs_resharder(simple_shard_layout());
-        let _new_shard_layout = shard_layout_after_split();
+        let (_, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = DelayedScheduler::default();
         let controller = FlatStorageResharderController::new();
 
-        // TODO(Trisfald): it won't work until we have shard layout v2.
-
-        // assert!(resharder.start_resharding_from_new_shard_layout(&new_shard_layout).is_ok());
+        assert!(resharder
+            .start_resharding_from_new_shard_layout(
+                &new_shard_layout,
+                &scheduler,
+                controller.clone()
+            )
+            .is_ok());
 
         // Immediately interrupt the resharding.
         controller.handle().stop();
 
-        // assert!(resharder.resharding_event.lock().unwrap().is_some());
-        // assert!(resharder.start_resharding_from_new_shard_layout(&new_shard_layout).is_err());
+        assert!(resharder.resharding_event().is_some());
+        assert!(resharder
+            .start_resharding_from_new_shard_layout(
+                &new_shard_layout,
+                &scheduler,
+                controller.clone()
+            )
+            .is_err());
     }
 
     /// Flat storage shard status should be set correctly upon starting a shard split.
@@ -718,12 +756,14 @@ mod tests {
     fn flat_storage_split_status_set() {
         init_test_logger();
         let (_, resharder) = create_fs_resharder(simple_shard_layout());
-        let _new_shard_layout = shard_layout_after_split();
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = DelayedScheduler::default();
+        let controller = FlatStorageResharderController::new();
         let flat_store = resharder.inner.runtime.store().flat_store();
 
-        // TODO(Trisfald): it won't work until we have shard layout v2.
-
-        // assert!(resharder.start_resharding_from_new_shard_layout(&new_shard_layout).is_ok());
+        assert!(resharder
+            .start_resharding_from_new_shard_layout(&new_shard_layout, &scheduler, controller)
+            .is_ok());
 
         let resharding_event = resharder.resharding_event();
         match resharding_event.unwrap() {
