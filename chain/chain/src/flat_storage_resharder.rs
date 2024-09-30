@@ -11,10 +11,11 @@ use near_primitives::{
     shard_layout::{account_id_to_shard_id, ShardLayout},
     state::FlatStateValue,
     trie_key::{
-        col,
+        col::{self, ALL_COLUMNS_WITH_NAMES},
         trie_key_parsers::{
             parse_account_id_from_access_key_key, parse_account_id_from_account_key,
-            parse_account_id_from_contract_code_key,
+            parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
+            parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
         },
     },
     types::AccountId,
@@ -428,21 +429,38 @@ fn shard_split_handle_key_value(
         };
 
     match key_column_prefix {
-        col::ACCOUNT => {
-            copy_kv_to_child(parse_account_id_from_account_key)?;
-        }
-        col::CONTRACT_DATA => todo!(),
-        col::CONTRACT_CODE => {
-            copy_kv_to_child(parse_account_id_from_contract_code_key)?;
-        }
-        col::ACCESS_KEY => {
-            copy_kv_to_child(parse_account_id_from_access_key_key)?;
-        }
-        col::RECEIVED_DATA => todo!(),
-        col::POSTPONED_RECEIPT_ID => todo!(),
-        col::PENDING_DATA_COUNT => todo!(),
-        col::POSTPONED_RECEIPT => todo!(),
+        col::ACCOUNT => copy_kv_to_child(parse_account_id_from_account_key)?,
+        col::CONTRACT_DATA => copy_kv_to_child(parse_account_id_from_contract_data_key)?,
+        col::CONTRACT_CODE => copy_kv_to_child(parse_account_id_from_contract_code_key)?,
+        col::ACCESS_KEY => copy_kv_to_child(parse_account_id_from_access_key_key)?,
+        col::RECEIVED_DATA => copy_kv_to_child(parse_account_id_from_received_data_key)?,
+        col::POSTPONED_RECEIPT_ID => copy_kv_to_child(|raw_key: &[u8]| {
+            parse_account_id_from_trie_key_with_separator(
+                col::POSTPONED_RECEIPT_ID,
+                raw_key,
+                ALL_COLUMNS_WITH_NAMES[col::POSTPONED_RECEIPT_ID as usize].1,
+            )
+        })?,
+        col::PENDING_DATA_COUNT => copy_kv_to_child(|raw_key: &[u8]| {
+            parse_account_id_from_trie_key_with_separator(
+                col::PENDING_DATA_COUNT,
+                raw_key,
+                ALL_COLUMNS_WITH_NAMES[col::PENDING_DATA_COUNT as usize].1,
+            )
+        })?,
+        col::POSTPONED_RECEIPT => copy_kv_to_child(|raw_key: &[u8]| {
+            parse_account_id_from_trie_key_with_separator(
+                col::POSTPONED_RECEIPT,
+                raw_key,
+                ALL_COLUMNS_WITH_NAMES[col::POSTPONED_RECEIPT as usize].1,
+            )
+        })?,
         col::DELAYED_RECEIPT_OR_INDICES => todo!(),
+        col::PROMISE_YIELD_INDICES => todo!(),
+        col::PROMISE_YIELD_TIMEOUT => todo!(),
+        col::PROMISE_YIELD_RECEIPT => todo!(),
+        col::BUFFERED_RECEIPT_INDICES => todo!(),
+        col::BUFFERED_RECEIPT => todo!(),
         _ => unreachable!(),
     }
     Ok(())
