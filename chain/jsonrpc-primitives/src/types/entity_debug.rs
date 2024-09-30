@@ -37,6 +37,10 @@ impl EntityDataStruct {
     pub fn add(&mut self, name: &str, value: EntityDataValue) {
         self.entries.push(EntityDataEntry { name: name.to_string(), value });
     }
+
+    pub fn add_string(&mut self, name: &str, value: &str) {
+        self.add(name, EntityDataValue::String(value.to_string()));
+    }
 }
 
 /// All queries supported by the Entity Debug UI.
@@ -57,16 +61,26 @@ pub enum EntityQuery {
     BlockByHash { block_hash: CryptoHash },
     BlockHashByHeight { block_height: BlockHeight },
     BlockHeaderByHash { block_hash: CryptoHash },
+    BlockInfoByHash { block_hash: CryptoHash },
+    BlockMerkleTreeByHash { block_hash: CryptoHash },
+    BlockMisc(()),
     ChunkByHash { chunk_hash: CryptoHash },
+    ChunkExtraByChunkHash { chunk_hash: CryptoHash },
+    ChunkExtraByBlockHashShardUId { block_hash: CryptoHash, shard_uid: ShardUId },
+    EpochInfoAggregator(()),
     EpochInfoByEpochId { epoch_id: EpochId },
     FlatStateByTrieKey { trie_key: String, shard_uid: ShardUId },
     FlatStateChangesByBlockHash { block_hash: CryptoHash, shard_uid: ShardUId },
     FlatStateDeltaMetadataByBlockHash { block_hash: CryptoHash, shard_uid: ShardUId },
     FlatStorageStatusByShardUId { shard_uid: ShardUId },
+    NextBlockHashByHash { block_hash: CryptoHash },
     OutcomeByReceiptId { receipt_id: CryptoHash },
     OutcomeByReceiptIdAndBlockHash { receipt_id: CryptoHash, block_hash: CryptoHash },
     OutcomeByTransactionHash { transaction_hash: CryptoHash },
     OutcomeByTransactionHashAndBlockHash { transaction_hash: CryptoHash, block_hash: CryptoHash },
+    RawTrieNodeByHash { trie_node_hash: CryptoHash, shard_uid: ShardUId },
+    RawTrieRootByChunkHash { chunk_hash: CryptoHash },
+    RawTrieValueByHash { trie_value_hash: CryptoHash, shard_uid: ShardUId },
     ReceiptById { receipt_id: CryptoHash },
     ShardIdByAccountId { account_id: String, epoch_id: EpochId },
     ShardLayoutByEpochId { epoch_id: EpochId },
@@ -82,17 +96,25 @@ pub enum EntityQuery {
     ValidatorAssignmentsAtHeight { block_height: BlockHeight, epoch_id: EpochId },
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct EntityQueryWithParams {
+    #[serde(flatten)]
+    pub query: EntityQuery,
+    #[serde(default)]
+    pub use_cold_storage: bool,
+}
+
 /// We use a trait for this, because jsonrpc does not have access to low-level
 /// blockchain data structures for implementing the queries.
 pub trait EntityDebugHandler: Sync + Send {
-    fn query(&self, query: EntityQuery) -> Result<EntityDataValue, RpcError>;
+    fn query(&self, query: EntityQueryWithParams) -> Result<EntityDataValue, RpcError>;
 }
 
 /// For tests.
 pub struct DummyEntityDebugHandler {}
 
 impl EntityDebugHandler for DummyEntityDebugHandler {
-    fn query(&self, _query: EntityQuery) -> Result<EntityDataValue, RpcError> {
+    fn query(&self, _query: EntityQueryWithParams) -> Result<EntityDataValue, RpcError> {
         Err(RpcError::new_internal_error(None, "Not implemented".to_string()))
     }
 }

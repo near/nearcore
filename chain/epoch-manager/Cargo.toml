@@ -14,10 +14,12 @@ workspace = true
 [dependencies]
 borsh.workspace = true
 chrono = { workspace = true, optional = true }
+num-bigint.workspace = true
 num-rational.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
 rand_hc.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tracing.workspace = true
@@ -31,8 +33,10 @@ near-store.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-cache.workspace = true
+near-schema-checker-lib.workspace = true
 
 [features]
+default = ["near-primitives/rand"]
 expensive_tests = []
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
@@ -52,4 +56,9 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 no_cache = []
-new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
+protocol_schema = [
+  "near-schema-checker-lib/protocol_schema",
+  "near-crypto/protocol_schema",
+  "near-primitives/protocol_schema",
+  "near-store/protocol_schema",
+]

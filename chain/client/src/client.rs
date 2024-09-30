@@ -5,12 +5,11 @@ use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributi
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
-use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
-use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::SyncAdapter;
@@ -27,7 +26,6 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::PrepareTransactionsChunkContext;
@@ -64,7 +62,7 @@ use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -94,15 +92,10 @@ use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
+use crate::sync::epoch::EpochSync;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
-/// The time we wait for the response to a Epoch Sync request before retrying
-// TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::milliseconds(1_000);
-/// How frequently a Epoch Sync response can be sent to a particular peer
-// TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::milliseconds(10);
 /// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
 const BLOCK_HORIZON: u64 = 500;
 
@@ -194,7 +187,7 @@ pub struct Client {
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
-    pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
@@ -224,8 +217,8 @@ impl Client {
 
     /// Updates client's mutable validator signer.
     /// It will update all validator signers that synchronize with it.
-    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
-        self.validator_signer.update(Some(signer))
+    pub(crate) fn update_validator_signer(&self, signer: Option<Arc<ValidatorSigner>>) -> bool {
+        self.validator_signer.update(signer)
     }
 }
 
@@ -286,22 +279,12 @@ impl Client {
         let sharded_tx_pool =
             ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
-        let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
             clock.clone(),
             network_adapter.clone(),
-            *genesis_block.header().epoch_id(),
-            *genesis_block.header().next_epoch_id(),
-            epoch_manager
-                .get_epoch_block_producers_ordered(
-                    genesis_block.header().epoch_id(),
-                    genesis_block.hash(),
-                )?
-                .iter()
-                .map(|x| x.0.clone())
-                .collect(),
-            EPOCH_SYNC_REQUEST_TIMEOUT,
-            EPOCH_SYNC_PEER_TIMEOUT,
+            chain.genesis().clone(),
+            async_computation_spawner.clone(),
+            config.epoch_sync.clone(),
         );
         let header_sync = HeaderSync::new(
             clock.clone(),
@@ -355,8 +338,10 @@ impl Client {
             config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker =
-            Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
+        let chunk_endorsement_tracker = ChunkEndorsementTracker::new(
+            epoch_manager.clone(),
+            chain.chain_store().store().clone(),
+        );
         // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
         let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
             && config.chain_id != near_primitives::chains::TESTNET;
@@ -364,7 +349,6 @@ impl Client {
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
-            chunk_endorsement_tracker.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
             panic_on_validation_error,
@@ -584,7 +568,7 @@ impl Client {
         if prepare_chunk_headers {
             self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                 &head.last_block_hash,
-                self.chunk_endorsement_tracker.as_ref(),
+                &mut self.chunk_endorsement_tracker,
             )?;
         }
 
@@ -1476,7 +1460,7 @@ impl Client {
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1660,6 +1644,7 @@ impl Client {
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
+            // TODO check if this logic works in resharding V3
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
@@ -1867,9 +1852,8 @@ impl Client {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
-        // If endorsement was received before chunk header, we can process it
-        // only now.
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        // If endorsement was received before chunk header, we can process it only now.
+        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         self.chunk_inclusion_tracker
             .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
     }
@@ -2471,7 +2455,6 @@ impl Client {
         state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
         load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         state_parts_future_spawner: &dyn FutureSpawner,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -2548,7 +2531,6 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 load_memtrie_scheduler,
-                resharding_scheduler,
                 state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),

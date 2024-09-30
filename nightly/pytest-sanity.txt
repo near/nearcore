@@ -35,8 +35,6 @@ pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=240 sanity/state_sync4.py --features nightly
 pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=240 sanity/state_sync5.py --features nightly
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
@@ -52,12 +50,15 @@ pytest --timeout=3600 sanity/state_sync_massive_validator.py
 pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
 pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 
+# TODO(#12108): Enable the test again once decentralized state sync is implemented.
+# pytest sanity/state_sync_decentralized.py
+# TODO(#12108): Enable the test again once decentralized state sync is implemented.
+# pytest sanity/state_sync_decentralized.py --features nightly
+
 pytest sanity/sync_chunks_from_archival.py
 pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
-pytest --timeout=480 sanity/skip_epoch.py
-pytest --timeout=480 sanity/skip_epoch.py --features nightly
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/one_val.py nightly --features nightly
 pytest --timeout=240 sanity/lightclnt.py
@@ -86,12 +87,10 @@ pytest sanity/rpc_max_gas_burnt.py
 pytest sanity/rpc_max_gas_burnt.py --features nightly
 pytest sanity/rpc_tx_status.py
 pytest sanity/rpc_tx_status.py --features nightly
-pytest --timeout=120 sanity/garbage_collection.py
-pytest --timeout=120 sanity/garbage_collection.py --features nightly
 pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=120 sanity/garbage_collection1.py --features nightly
-pytest --timeout=120 sanity/garbage_collection_intense.py
-pytest --timeout=120 sanity/garbage_collection_intense.py --features nightly
+pytest --timeout=180 sanity/garbage_collection_intense.py
+pytest --timeout=180 sanity/garbage_collection_intense.py --features nightly
 pytest --timeout=120 sanity/garbage_collection_archival.py
 pytest --timeout=120 sanity/garbage_collection_archival.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync.py
@@ -110,8 +109,8 @@ pytest sanity/repro_2916.py
 pytest sanity/repro_2916.py --features nightly
 pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly
-pytest --timeout=120 sanity/validator_switch_key_quick.py
-pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
+pytest --timeout=120 sanity/validator_remove_key_quick.py
+pytest --timeout=120 sanity/validator_remove_key_quick.py --features nightly
 pytest --timeout=60 sanity/shadow_tracking.py
 pytest --timeout=60 sanity/shadow_tracking.py --features nightly
 pytest sanity/proxy_simple.py
@@ -147,25 +146,15 @@ pytest sanity/restart.py --features nightly
 pytest sanity/rpc_finality.py
 pytest sanity/rpc_finality.py --features nightly
 
-pytest sanity/rpc_hash.py
-pytest sanity/rpc_hash.py --features nightly
+pytest --timeout=300 sanity/rpc_hash.py
+pytest --timeout=300 sanity/rpc_hash.py --features nightly
 
 # Rosetta RPC tests
 pytest sanity/rosetta.py
 pytest sanity/rosetta.py --features nightly
 
-# Make sure Docker image can be build and run
-pytest --skip-build --timeout=1h sanity/docker.py
-
-pytest sanity/recompress_storage.py
-pytest sanity/recompress_storage.py --features nightly
-
 # This is the test for meta transactions.
 pytest sanity/meta_tx.py --features nightly
-
-# Tests for split storage and split storage migration
-pytest --timeout=600 sanity/split_storage.py
-pytest --timeout=600 sanity/split_storage.py --features nightly
 
 # Tests for resharding
 # TODO(resharding) Tests for resharding are disabled because resharding is not
@@ -189,8 +178,7 @@ pytest sanity/slow_chunk.py --features nightly
 pytest sanity/large_witness.py --features nightly
 
 # Tests for congestion control
-# TODO(congestion_control) - enable pytest on stabilization
-# pytest sanity/congestion_control.py
+pytest sanity/congestion_control.py
 pytest sanity/congestion_control.py --features nightly
 pytest sanity/congestion_control_genesis_bootstrap.py
 pytest sanity/congestion_control_genesis_bootstrap.py --features nightly

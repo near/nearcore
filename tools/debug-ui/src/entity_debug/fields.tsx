@@ -24,6 +24,8 @@ const chunkHash = stringField('chunk_hash');
 const epochId = stringField('epoch_id');
 const transactionHash = stringField('transaction_hash');
 const receiptId = stringField('receipt_id');
+const trieNodeHash = stringField('trie_node_hash');
+const trieValueHash = stringField('trie_value_hash');
 const accountId = stringField('account_id');
 const shardId = numericField('shard_id');
 const shardUId: FieldSemantic = {
@@ -66,6 +68,30 @@ const blockHeader = {
     },
 };
 
+const validatorStake = {
+    titleKey: 'account_id',
+};
+
+const blockInfoV1V2 = {
+    struct: {
+        hash: blockHash,
+        height: blockHeight,
+        last_finalized_height: blockHeight,
+        last_final_block_hash: blockHash,
+        prev_hash: blockHash,
+        epoch_first_block: blockHash,
+        epoch_id: epochId,
+        proposals: { array: validatorStake },
+    },
+};
+
+const blockInfo = {
+    struct: {
+        V1: blockInfoV1V2,
+        V2: blockInfoV1V2,
+    },
+};
+
 const chunkHeader = {
     struct: {
         chunk_hash: chunkHash,
@@ -76,6 +102,21 @@ const chunkHeader = {
         shard_id: shardId,
     },
     titleKey: 'chunk_hash',
+};
+
+const chunkExtraV1V2V3 = {
+    struct: {
+        state_root: stateRoot,
+        validator_proposals: { array: validatorStake },
+    },
+};
+
+const chunkExtra = {
+    struct: {
+        V1: chunkExtraV1V2V3,
+        V2: chunkExtraV1V2V3,
+        V3: chunkExtraV1V2V3,
+    },
 };
 
 const transaction = {
@@ -118,19 +159,27 @@ const block = {
     },
 };
 
-const validatorStake = {
-    titleKey: 'account_id',
+const epochInfoV1V2V3V4 = {
+    struct: {
+        validators: {
+            array: validatorStake,
+        },
+    },
 };
 
 const epochInfo = {
     struct: {
-        V3: {
-            struct: {
-                validators: {
-                    array: validatorStake,
-                },
-            },
-        },
+        V1: epochInfoV1V2V3V4,
+        V2: epochInfoV1V2V3V4,
+        V3: epochInfoV1V2V3V4,
+        V4: epochInfoV1V2V3V4,
+    },
+};
+
+const epochInfoAggregator = {
+    struct: {
+        epoch_id: epochId,
+        last_block_hash: blockHash,
     },
 };
 
@@ -170,11 +219,39 @@ const tip = {
     },
 };
 
-const blockInfo = {
+const stateSyncDumpProgress = {
     struct: {
-        hash: blockHash,
-        height: blockHeight,
-        prev_hash: blockHash,
+        AllDumped: {
+            struct: {
+                epoch_id: epochId,
+            },
+        },
+        Skipped: {
+            struct: {
+                epoch_id: epochId,
+            },
+        },
+        InProgress: {
+            struct: {
+                epoch_id: epochId,
+                sync_hash: blockHash,
+            },
+        },
+    },
+};
+
+const blockMiscData = {
+    struct: {
+        head: tip,
+        tail: blockHeight,
+        chunk_tail: blockHeight,
+        fork_tail: blockHeight,
+        header_head: tip,
+        final_head: tip,
+        largest_target_height: blockHeight,
+        genesis_state_roots: { array: stateRoot },
+        cold_head: tip,
+        state_sync_dump_progress: stateSyncDumpProgress,
     },
 };
 
@@ -258,18 +335,34 @@ const validatorAssignmentsAtHeight = {
     },
 };
 
+const rawTrieNode = {
+    struct: {
+        extension: nibbles,
+        value_hash: trieValueHash,
+        children: { array: trieNodeHash },
+        child: trieNodeHash,
+    },
+};
+
 export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     AllShards: { array: shardUId },
     Block: block,
     BlockHash: blockHash,
     BlockHeader: blockHeader,
+    BlockInfo: blockInfo,
+    BlockMerkleTree: undefined,
+    BlockMiscData: blockMiscData,
+    Bytes: nibbles,
     Chunk: chunk,
+    ChunkExtra: chunkExtra,
     EpochInfo: epochInfo,
+    EpochInfoAggregator: epochInfoAggregator,
     ExecutionOutcome: executionOutcome,
     FlatState: undefined,
     FlatStateChanges: flatStateChanges,
     FlatStateDeltaMetadata: flatStateDeltaMetadata,
     FlatStorageStatus: flatStorageStatus,
+    RawTrieNode: rawTrieNode,
     Receipt: receipt,
     ShardId: shardId,
     ShardLayout: undefined,

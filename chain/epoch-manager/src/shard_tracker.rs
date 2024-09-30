@@ -210,7 +210,7 @@ mod tests {
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives::epoch_manager::block_info::BlockInfo;
+    use near_primitives::epoch_block_info::BlockInfo;
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -255,13 +255,16 @@ mod tests {
             epoch_length: 1,
             protocol_reward_rate: Ratio::from_integer(0),
             protocol_treasury_account: "test".parse().unwrap(),
-            online_max_threshold: initial_epoch_config.online_max_threshold,
-            online_min_threshold: initial_epoch_config.online_min_threshold,
             num_seconds_per_year: 1000000,
         };
         EpochManager::new(
             store,
-            AllEpochConfig::new(use_production_config, initial_epoch_config, "test-chain"),
+            AllEpochConfig::new(
+                use_production_config,
+                genesis_protocol_version,
+                initial_epoch_config,
+                "test-chain",
+            ),
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
@@ -296,6 +299,7 @@ mod tests {
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
                     height * 10u64.pow(9),
+                    None,
                 ),
                 [0; 32],
             )

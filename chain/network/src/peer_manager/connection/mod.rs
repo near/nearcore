@@ -36,8 +36,12 @@ impl tcp::Tier {
         match msg {
             PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
             PeerMessage::Tier2Handshake(_) => self == tcp::Tier::T2,
+            PeerMessage::Tier3Handshake(_) => self == tcp::Tier::T3,
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
+            PeerMessage::VersionedStateResponse(_) => {
+                self == tcp::Tier::T2 || self == tcp::Tier::T3
+            }
             PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
             _ => self == tcp::Tier::T2,
         }
@@ -180,7 +184,7 @@ impl Connection {
                 })
                 .await;
             if res.is_err() {
-                tracing::info!(
+                tracing::debug!(
                     "peer {} disconnected, while sending SyncAccountsData",
                     this.peer_info.id
                 );
@@ -232,7 +236,7 @@ impl Connection {
                 })
                 .await;
             if res.is_err() {
-                tracing::info!(
+                tracing::debug!(
                     "peer {} disconnected, while sending SyncSnapshotHosts",
                     this.peer_info.id
                 );

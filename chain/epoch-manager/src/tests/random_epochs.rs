@@ -8,9 +8,8 @@ use crate::test_utils::{
 };
 use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::SlashState;
+use near_primitives::epoch_block_info::{BlockInfo, SlashState};
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason};

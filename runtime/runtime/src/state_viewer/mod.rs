@@ -1,13 +1,14 @@
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
+use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use crate::{prepare_function_call, ApplyState};
+use crate::ApplyState;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ActionReceipt;
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
@@ -223,31 +224,36 @@ impl TrieViewer {
             migration_flags: MigrationFlags::default(),
             congestion_info: Default::default(),
         };
-        let action_receipt = ActionReceipt {
-            signer_id: originator_id.clone(),
-            signer_public_key: public_key,
-            gas_price: 0,
-            output_data_receivers: vec![],
-            input_data_ids: vec![],
-            actions: vec![],
-        };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
             gas: self.max_gas_burnt_view,
             deposit: 0,
         };
-        let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let contract = prepare_function_call(
-            &state_update,
-            &apply_state,
-            &account,
-            &contract_id,
-            &function_call,
-            config,
-            epoch_info_provider,
-            view_config.clone(),
+        let action_receipt = ActionReceipt {
+            signer_id: originator_id.clone(),
+            signer_public_key: public_key,
+            gas_price: 0,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![function_call.clone().into()],
+        };
+        let receipt = Receipt::V1(ReceiptV1 {
+            predecessor_id: contract_id.clone(),
+            receiver_id: contract_id.clone(),
+            receipt_id: empty_hash,
+            receipt: ReceiptEnum::Action(action_receipt.clone()),
+            priority: 0,
+        });
+        let pipeline = ReceiptPreparationPipeline::new(
+            Arc::clone(config),
+            apply_state.cache.as_ref().map(|v| v.handle()),
+            apply_state.current_protocol_version,
+            state_update.contract_storage.clone(),
         );
+        let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
+        let contract = pipeline.get_contract(&receipt, account.code_hash(), 0, view_config.clone());
+
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             &mut receipt_manager,

@@ -3,9 +3,10 @@ use anyhow;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use clap;
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
-use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
@@ -59,14 +60,15 @@ enum SubCommand {
 }
 
 impl ColdStoreCommand {
-    pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         let mode =
             if self.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
-        let mut near_config = nearcore::config::load_config(
-            &home_dir,
-            near_chain_configs::GenesisValidationMode::Full,
-        )
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         let opener = self.get_opener(home_dir, &mut near_config);
 

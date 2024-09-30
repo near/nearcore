@@ -9,26 +9,26 @@ use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
 };
 use near_chain_configs::{
-    default_enable_multiline_logging, default_epoch_sync_enabled,
+    default_enable_multiline_logging, default_epoch_sync,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
-    default_sync_check_period, default_sync_height_threshold, default_sync_max_block_requests,
-    default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
-    ChunkDistributionNetworkConfig, ClientConfig, GCConfig, Genesis, GenesisConfig,
-    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, MutableValidatorSigner,
-    ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
-    EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
-    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE,
-    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
+    ClientConfig, EpochSyncConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    LogSummaryStyle, MutableConfigValue, MutableValidatorSigner, ReshardingConfig, StateSyncConfig,
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
+    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    TRANSACTION_VALIDITY_PERIOD,
 };
-use near_config_utils::{ValidationError, ValidationErrors};
+use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
@@ -249,7 +249,6 @@ pub struct Config {
     #[serde(flatten)]
     pub gc: GCConfig,
     pub view_client_threads: usize,
-    pub epoch_sync_enabled: bool,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub view_client_throttle_period: Duration,
     pub trie_viewer_state_size_limit: Option<u64>,
@@ -274,6 +273,8 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Options for epoch sync
+    pub epoch_sync: Option<EpochSyncConfig>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     ///
@@ -350,7 +351,6 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
-            epoch_sync_enabled: default_epoch_sync_enabled(),
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
@@ -359,7 +359,8 @@ impl Default for Config {
             cold_store: None,
             split_storage: None,
             expected_shutdown: None,
-            state_sync: default_state_sync(),
+            state_sync: None,
+            epoch_sync: default_epoch_sync(),
             state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             enable_multiline_logging: default_enable_multiline_logging(),
@@ -571,7 +572,6 @@ impl NearConfig {
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
-                epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
@@ -581,6 +581,7 @@ impl NearConfig {
                 flat_storage_creation_period: Duration::seconds(1),
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
+                epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
                 resharding_config: MutableConfigValue::new(
@@ -810,7 +811,7 @@ pub fn init_configs(
     should_download_genesis: bool,
     download_genesis_url: Option<&str>,
     download_records_url: Option<&str>,
-    should_download_config: bool,
+    download_config_type: Option<DownloadConfigType>,
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
@@ -852,8 +853,8 @@ pub fn init_configs(
         download_config(url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
-    } else if should_download_config {
-        let url = get_config_url(&chain_id);
+    } else if let Some(config_type) = download_config_type {
+        let url = get_config_url(&chain_id, config_type);
         download_config(&url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
@@ -876,6 +877,7 @@ pub fn init_configs(
             }
             config.telemetry.endpoints.push(NETWORK_LEGACY_TELEMETRY_URL.replace("{}", &chain_id));
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
+            config.state_sync = Some(StateSyncConfig::gcs_default());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -1326,10 +1328,10 @@ pub fn get_records_url(chain_id: &str) -> String {
     )
 }
 
-pub fn get_config_url(chain_id: &str) -> String {
+pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String {
     format!(
-        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
-        chain_id,
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/{}/config.json",
+        chain_id, config_type.to_string()
     )
 }
 
@@ -1542,7 +1544,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
@@ -1600,7 +1602,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,
@@ -1633,7 +1635,7 @@ mod tests {
             false,
             None,
             None,
-            false,
+            None,
             None,
             None,
             None,

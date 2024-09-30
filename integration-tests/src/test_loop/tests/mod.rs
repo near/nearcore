@@ -1,9 +1,12 @@
 mod chunk_validator_kickout;
 pub mod congestion_control;
 pub mod congestion_control_genesis_bootstrap;
+pub mod epoch_sync;
+pub mod fix_min_stake_ratio;
 pub mod in_memory_tries;
 pub mod max_receipt_size;
 pub mod multinode_stateless_validators;
 pub mod multinode_test_loop_example;
 pub mod simple_test_loop_example;
+pub mod syncing;
 pub mod view_requests_to_archival_node;

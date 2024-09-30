@@ -3,10 +3,22 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+* Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
 
 ### Non-protocol Changes
-**No Changes**
+* Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
+* **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
+
+### 2.2.0
+
+### Protocol Changes
+* The minimum validator stake has been set to a lower value. The small-stake validators that were kicked out during the shift to stateless validation will be able to rejoin the network.
+* Better algorithm for validator kickouts
+* (Testnet only) update the eth-implicit accounts contract on testnet to match the one on mainnet.
+
+### Non-protocol Changes
+* Fix spammy messages about calculating gas for PromiseYield receipts.
+* Don't crash when the CPU doesn't have SHA-NI instructions. It's still a hardware requirement, there is no guarantee that nodes without this instruction will be able to keep up with the network, but `neard` will now be able to run (slowly) on CPUs without this instruction.
 
 ## 2.1.0
 

@@ -1,4 +1,5 @@
 use clap::Parser;
+use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageManager;
 use near_store::{get_delayed_receipt_indices, ShardTries, StateSnapshotConfig, TrieConfig};
 use std::collections::HashMap;
@@ -37,8 +38,12 @@ pub(crate) struct AnalyzeDelayedReceiptCommand {
 }
 
 impl AnalyzeDelayedReceiptCommand {
-    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        let mut near_config = load_config(home, GenesisValidationMode::Full).unwrap();
+    pub(crate) fn run(
+        &self,
+        home: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let mut near_config = load_config(home, genesis_validation).unwrap();
         let node_storage = open_storage(&home, &mut near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
@@ -54,10 +59,10 @@ impl AnalyzeDelayedReceiptCommand {
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let shard_tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             TrieConfig::default(),
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         );
         // Create an iterator over the blocks that should be analysed

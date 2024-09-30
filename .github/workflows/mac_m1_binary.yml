@@ -9,15 +9,25 @@ on:
 jobs:
   build_binary:
     runs-on: macos-latest-xlarge
+    environment: deploy
+    permissions:
+      id-token: write # required to use OIDC authentication
 
     steps:
-    - uses: actions/checkout@master
-    - uses: isbang/setup-awscli@v0.1.0
-    - run: scripts/mac-release.sh
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    - run: scripts/mac-release.sh nightly-release
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
+          aws-region: us-west-1
+          
+      - name: Checkout  repository for master branch
+        # In case of master branch we want to checkout with depth 1
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+        uses: actions/checkout@v4
+
+      - name: Neard binary build and upload to S3
+        run: ./scripts/mac-release.sh
+
+      - name: Neard binary build and upload to S3
+        run: ./scripts/mac-release.sh nightly-release
+

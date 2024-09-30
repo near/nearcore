@@ -15,11 +15,13 @@ use near_primitives::account::id::AccountIdRef;
 use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
@@ -70,6 +72,7 @@ fn test_stake_validator() {
         reward(vec![("near".parse().unwrap(), 0)]),
         0,
         4,
+        PROTOCOL_VERSION,
     );
     let compare_epoch_infos = |a: &EpochInfo, b: &EpochInfo| -> bool {
         a.validators_iter().eq(b.validators_iter())
@@ -113,6 +116,7 @@ fn test_stake_validator() {
         reward(vec![("test1".parse().unwrap(), 0), ("near".parse().unwrap(), 0)]),
         0,
         4,
+        PROTOCOL_VERSION,
     );
     // no validator change in the last epoch
     let epoch3 = epoch_manager.get_epoch_id(&h[3]).unwrap();
@@ -660,8 +664,6 @@ fn test_validator_reward_one_validator() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager =
@@ -713,6 +715,11 @@ fn test_validator_reward_one_validator() {
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
+        ValidatorOnlineThresholds {
+            online_min_threshold: Ratio::new(90, 100),
+            online_max_threshold: Ratio::new(99, 100),
+            endorsement_cutoff_threshold: None,
+        },
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -743,8 +750,6 @@ fn test_validator_reward_weight_by_stake() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager =
@@ -796,6 +801,11 @@ fn test_validator_reward_weight_by_stake() {
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
+        ValidatorOnlineThresholds {
+            online_min_threshold: Ratio::new(90, 100),
+            online_max_threshold: Ratio::new(99, 100),
+            endorsement_cutoff_threshold: None,
+        },
     );
     let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
@@ -840,8 +850,6 @@ fn test_reward_multiple_shards() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
@@ -911,6 +919,11 @@ fn test_reward_multiple_shards() {
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
+        ValidatorOnlineThresholds {
+            online_min_threshold: Ratio::new(90, 100),
+            online_max_threshold: Ratio::new(99, 100),
+            endorsement_cutoff_threshold: None,
+        },
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
@@ -1158,8 +1171,6 @@ fn test_rewards_with_kickouts() {
         epoch_length,
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     };
     let mut em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator);
@@ -1527,7 +1538,7 @@ fn test_chunk_producer_kickout() {
 /// Test when all blocks are produced and all chunks are skipped, chunk
 /// validator is not kicked out.
 #[test]
-fn test_chunk_validator_kickout() {
+fn test_chunk_validator_kickout_using_production_stats() {
     let stake_amount = 1_000_000;
     let validators: Vec<(AccountId, Balance)> =
         (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
@@ -1580,6 +1591,97 @@ fn test_chunk_validator_kickout() {
     let total_produced_chunks = total_expected_chunks / 2;
 
     // Chunk producers skip only every second chunk and pass the threshold.
+    // Chunk validator validates all chunks, so its performance is determined
+    // by the chunk production ratio, which is not enough.
+    assert_eq!(
+        last_epoch_info.unwrap().validator_kickout(),
+        &[(
+            "test2".parse().unwrap(),
+            NotEnoughChunkEndorsements {
+                produced: total_produced_chunks,
+                expected: total_expected_chunks
+            }
+        )]
+        .into_iter()
+        .collect::<HashMap<_, _>>(),
+    );
+}
+
+/// Similar to test_chunk_validator_kickout_using_production_stats, however all chunks are produced but
+/// but some validators miss chunks and got kicked out.
+#[test]
+fn test_chunk_validator_kickout_using_endorsement_stats() {
+    let stake_amount = 1_000_000;
+    let validators: Vec<(AccountId, Balance)> =
+        (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
+    let epoch_length = 10;
+    let total_supply = stake_amount * validators.len() as u128;
+    let num_shards = 2;
+    let epoch_config =
+        epoch_config_with_production_config(epoch_length, num_shards, 2, 2, 90, 40, 75, false);
+    let mut em = EpochManager::new(
+        create_test_store(),
+        epoch_config,
+        PROTOCOL_VERSION,
+        default_reward_calculator(),
+        validators
+            .iter()
+            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
+            .collect(),
+    )
+    .unwrap();
+    let rng_seed = [0; 32];
+    let hashes = hash_range((epoch_length + 2) as usize);
+    record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+    for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
+        let height = height as u64;
+        let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
+        // All chunks are produced.
+        let chunk_mask = vec![true; num_shards as usize];
+        // Prepare the chunk endorsements so that "test2" misses some of the endorsements.
+        let mut bitmap = ChunkEndorsementsBitmap::new(num_shards as usize);
+        for shard_id in 0..num_shards {
+            let chunk_validators = em
+                .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                .unwrap()
+                .ordered_chunk_validators();
+            bitmap.add_endorsements(
+                shard_id,
+                chunk_validators
+                    .iter()
+                    .map(|account| account.as_str() != "test2" || (height + shard_id) % 2 == 0)
+                    .collect(),
+            )
+        }
+        em.record_block_info(
+            BlockInfo::V3(BlockInfoV3 {
+                hash: *curr_block,
+                height,
+                last_finalized_height: height - 1,
+                last_final_block_hash: *prev_block,
+                prev_hash: *prev_block,
+                epoch_id: Default::default(),
+                epoch_first_block: epoch_id.0,
+                proposals: vec![],
+                chunk_mask,
+                latest_protocol_version: PROTOCOL_VERSION,
+                slashed: Default::default(),
+                total_supply,
+                timestamp_nanosec: height * NUM_NS_IN_SECOND,
+                chunk_endorsements: bitmap,
+            }),
+            rng_seed,
+        )
+        .unwrap();
+    }
+
+    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let total_expected_chunks = num_shards * (epoch_length - 1);
+    // Every second chunk is skipped.
+    let total_produced_chunks = total_expected_chunks / 2;
+
+    // Chunk producers produce all chunks, but the chuink validator skips
+    // sending endorsements for every second chunk and does not pass the threshold.
     // Chunk validator validates all chunks, so its performance is determined
     // by the chunk production ratio, which is not enough.
     assert_eq!(
@@ -2101,6 +2203,7 @@ fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: Proto
     match info {
         BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
         BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
+        BlockInfo::V3(v2) => v2.latest_protocol_version = protocol_version,
     }
 }
 
@@ -2214,7 +2317,7 @@ fn test_protocol_version_switch_with_many_seats() {
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(false, epoch_config, "test-chain");
+    let config = AllEpochConfig::new(false, PROTOCOL_VERSION, epoch_config, "test-chain");
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2426,6 +2529,274 @@ fn test_chunk_producers() {
     );
 }
 
+#[test]
+fn test_validator_kickout_determinism() {
+    let mut epoch_config = epoch_config_with_production_config(5, 2, 4, 4, 90, 80, 90, false)
+        .for_protocol_version(PROTOCOL_VERSION);
+    epoch_config.validator_max_kickout_stake_perc = 99;
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 1000),
+        ("test3".parse().unwrap(), 1000),
+        ("test4".parse().unwrap(), 500),
+        ("test5".parse().unwrap(), 500),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
+    let block_validator_tracker = HashMap::from([
+        (0, ValidatorStats { produced: 100, expected: 100 }),
+        (1, ValidatorStats { produced: 90, expected: 100 }),
+        (2, ValidatorStats { produced: 100, expected: 100 }),
+        (3, ValidatorStats { produced: 89, expected: 100 }),
+    ]);
+    let chunk_stats0 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (
+            1,
+            ChunkStats {
+                production: ValidatorStats { produced: 80, expected: 100 },
+                // Note that test1 would not pass chunk endorsement
+                // threshold, but it is applied to nodes which are only
+                // chunk validators.
+                endorsement: ValidatorStats { produced: 0, expected: 100 },
+            },
+        ),
+        (2, ChunkStats::new_with_production(70, 100)),
+        (5, ChunkStats::new_with_endorsement(91, 100)),
+    ]);
+    let chunk_stats1 = Vec::from([
+        (0, ChunkStats::new_with_production(70, 100)),
+        (
+            1,
+            ChunkStats {
+                production: ValidatorStats { produced: 81, expected: 100 },
+                endorsement: ValidatorStats { produced: 1, expected: 100 },
+            },
+        ),
+        (3, ChunkStats::new_with_production(100, 100)),
+        // test4 is only a chunk validator and should be kicked out.
+        (4, ChunkStats::new_with_endorsement(89, 100)),
+    ]);
+    let chunk_stats_tracker1 = HashMap::from([
+        (0, chunk_stats0.clone().into_iter().collect()),
+        (1, chunk_stats1.clone().into_iter().collect()),
+    ]);
+    let chunk_stats0: Vec<_> = chunk_stats0.into_iter().rev().collect();
+    let chunk_stats_tracker2 = HashMap::from([
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
+    ]);
+    let (_validator_stats, kickouts1) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker1,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    let (_validator_stats, kickouts2) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker2,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(kickouts1, kickouts2);
+}
+
+/// Tests the scenario that there are two chunk validators (test2 and test3) with different endorsement ratio, and
+/// so the validator with the lower endorsement ratio is kicked out.
+#[test]
+fn test_chunk_validators_with_different_endorsement_ratio() {
+    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
+        .for_protocol_version(PROTOCOL_VERSION);
+    // Set the max kickout stake percentage so that only one of the chunk validators
+    // is kicked out, and the other chunk validator is exempted from kickout.
+    // Both chunk validators have endorsement ratio lower than the kickout threshold.
+    epoch_config.validator_max_kickout_stake_perc = 30;
+    // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 500),
+        ("test3".parse().unwrap(), 500),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
+    let block_validator_tracker = HashMap::from([
+        (0, ValidatorStats { produced: 100, expected: 100 }),
+        (1, ValidatorStats { produced: 100, expected: 100 }),
+    ]);
+    let chunk_stats0 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (2, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats1 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (3, ChunkStats::new_with_endorsement(60, 100)),
+    ]);
+    let chunk_stats_tracker = HashMap::from([
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
+    ]);
+    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(
+        kickouts,
+        HashMap::from([(
+            "test3".parse().unwrap(),
+            NotEnoughChunkEndorsements { produced: 60, expected: 100 }
+        ),])
+    );
+}
+
+/// Tests the scenario that there are two chunk validators (test2 and test3) have the same online ratio but different stake,
+/// so the validator with the lower stake is kicked out.
+#[test]
+fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
+    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
+        .for_protocol_version(PROTOCOL_VERSION);
+    // Set the max kickout stake percentage so that only one of the chunk validators
+    // is kicked out, and the other chunk validator is exempted from kickout.
+    // Both chunk validators have endorsement ratio lower than the kickout threshold.
+    epoch_config.validator_max_kickout_stake_perc = 30;
+    // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 500),
+        ("test3".parse().unwrap(), 499),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
+    let block_validator_tracker = HashMap::from([
+        (0, ValidatorStats { produced: 100, expected: 100 }),
+        (1, ValidatorStats { produced: 100, expected: 100 }),
+    ]);
+    let chunk_stats0 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (2, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats1 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (3, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats_tracker = HashMap::from([
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
+    ]);
+    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(
+        kickouts,
+        HashMap::from([(
+            "test3".parse().unwrap(),
+            NotEnoughChunkEndorsements { produced: 65, expected: 100 }
+        ),])
+    );
+}
+
+/// Tests the scenario that there are two chunk validators (test2 and test3) have the same online ratio and stake,
+/// so we select the exempted validator based on the ordering of the account id.
+#[test]
+fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
+    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
+        .for_protocol_version(PROTOCOL_VERSION);
+    // Set the max kickout stake percentage so that only one of the chunk validators
+    // is kicked out, and the other chunk validator is exempted from kickout.
+    // Both chunk validators have endorsement ratio lower than the kickout threshold.
+    epoch_config.validator_max_kickout_stake_perc = 30;
+    // Test 0-1 are block+chunk producers and 2-3 are chunk validators only.
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 500),
+        ("test3".parse().unwrap(), 500),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
+    let block_validator_tracker = HashMap::from([
+        (0, ValidatorStats { produced: 100, expected: 100 }),
+        (1, ValidatorStats { produced: 100, expected: 100 }),
+    ]);
+    let chunk_stats0 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (2, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats1 = Vec::from([
+        (0, ChunkStats::new_with_production(100, 100)),
+        (1, ChunkStats::new_with_production(100, 100)),
+        (3, ChunkStats::new_with_endorsement(65, 100)),
+    ]);
+    let chunk_stats_tracker = HashMap::from([
+        (0, chunk_stats0.into_iter().collect()),
+        (1, chunk_stats1.into_iter().collect()),
+    ]);
+    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_validator_tracker,
+        &chunk_stats_tracker,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(
+        kickouts,
+        HashMap::from([(
+            "test2".parse().unwrap(),
+            NotEnoughChunkEndorsements { produced: 65, expected: 100 }
+        ),])
+    );
+}
+
 /// A sanity test for the compute_validators_to_reward_and_kickout function,
 /// checks that validators that don't meet their kickout thresholds are kicked out.
 #[test]
@@ -2440,7 +2811,13 @@ fn test_validator_kickout_sanity() {
         ("test4".parse().unwrap(), 500),
         ("test5".parse().unwrap(), 500),
     ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
         (1, ValidatorStats { produced: 90, expected: 100 }),
@@ -2571,7 +2948,13 @@ fn test_chunk_endorsement_stats() {
         ("test2".parse().unwrap(), 1000),
         ("test3".parse().unwrap(), 1000),
     ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        PROTOCOL_VERSION,
+    );
     let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
@@ -2649,7 +3032,8 @@ fn test_max_kickout_stake_ratio() {
         ("test3".parse().unwrap(), 1000),
         ("test4".parse().unwrap(), 1000),
     ];
-    let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1], vec![2, 4]]);
+    let epoch_info =
+        epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1], vec![2, 4]], PROTOCOL_VERSION);
     let block_stats = HashMap::from([
         (0, ValidatorStats { produced: 50, expected: 100 }),
         // here both test1 and test2 produced the most number of blocks, we made that intentionally
@@ -2735,7 +3119,7 @@ fn test_max_kickout_stake_ratio() {
         ),
     ]);
     assert_eq!(validator_stats, wanted_validator_stats,);
-    // At most 50% of total stake can be kicked out
+    // At most 40% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
     let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2756,6 +3140,147 @@ fn test_max_kickout_stake_ratio() {
         ),])
     );
     assert_eq!(validator_stats, wanted_validator_stats,);
+}
+
+/// Common test scenario for a couple of tests exercising chunk validator kickouts.
+fn test_chunk_validator_kickout(
+    expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>,
+    use_endorsement_cutoff_threshold: bool,
+) {
+    let mut epoch_config = epoch_config(5, 2, 4, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 1000),
+        ("test3".parse().unwrap(), 1000),
+        ("test4".parse().unwrap(), 1000),
+        ("test5".parse().unwrap(), 1000),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1], vec![0, 2]],
+        if use_endorsement_cutoff_threshold {
+            PROTOCOL_VERSION
+        } else {
+            ProtocolFeature::ChunkEndorsementsInBlockHeader.protocol_version() - 1
+        },
+    );
+    let block_stats = HashMap::from([
+        (0, ValidatorStats { produced: 90, expected: 100 }),
+        (1, ValidatorStats { produced: 90, expected: 100 }),
+        (2, ValidatorStats { produced: 90, expected: 100 }),
+        (3, ValidatorStats { produced: 0, expected: 0 }),
+    ]);
+    let chunk_stats = HashMap::from([
+        (
+            0,
+            HashMap::from([
+                (0, ChunkStats::new_with_production(90, 100)),
+                (1, ChunkStats::new_with_production(90, 100)),
+                (3, ChunkStats::new_with_endorsement(0, 0)),
+                (4, ChunkStats::new_with_endorsement(10, 100)),
+                (5, ChunkStats::new_with_endorsement(90, 100)),
+            ]),
+        ),
+        (
+            1,
+            HashMap::from([
+                (0, ChunkStats::new_with_production(90, 100)),
+                (2, ChunkStats::new_with_production(90, 100)),
+                (3, ChunkStats::new_with_endorsement(0, 0)),
+                (4, ChunkStats::new_with_endorsement(10, 100)),
+                (5, ChunkStats::new_with_endorsement(90, 100)),
+            ]),
+        ),
+    ]);
+
+    let prev_validator_kickout =
+        HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
+    // At most 40% of total stake can be kicked out
+    epoch_config.validator_max_kickout_stake_perc = 40;
+    let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_stats,
+        &chunk_stats,
+        &HashMap::new(),
+        &prev_validator_kickout,
+    );
+    assert_eq!(kickouts, expected_kickouts);
+}
+
+/// Tests the case where a chunk validator has low endorsement stats but is exempted from being kicked out.
+#[test]
+fn test_chunk_validator_exempted() {
+    test_chunk_validator_kickout(HashMap::new(), false);
+}
+
+#[test]
+/// Tests the case where a chunk validator has low endorsement stats and is kicked out (not exempted).
+/// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.  
+fn test_chunk_validator_kicked_out_for_low_endorsement() {
+    test_chunk_validator_kickout(
+        HashMap::from([(
+            "test4".parse().unwrap(),
+            NotEnoughChunkEndorsements { produced: 20, expected: 200 },
+        )]),
+        true,
+    );
+}
+
+#[test]
+/// Tests that a validator is not kicked out due to low endorsement only (as long as it produces most of its blocks and chunks).
+fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
+    let mut epoch_config = epoch_config(5, 2, 4, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 1000),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2],
+        vec![vec![0, 1, 2], vec![0, 1, 2]],
+        PROTOCOL_VERSION,
+    );
+    let block_stats = HashMap::from([
+        (0, ValidatorStats { produced: 90, expected: 100 }),
+        (1, ValidatorStats { produced: 90, expected: 100 }),
+        (2, ValidatorStats { produced: 90, expected: 100 }),
+    ]);
+    let chunk_stats = HashMap::from([
+        (
+            0,
+            HashMap::from([
+                (0, ChunkStats::new(90, 100, 10, 100)),
+                (1, ChunkStats::new(90, 100, 10, 100)),
+                (2, ChunkStats::new(90, 100, 10, 100)),
+            ]),
+        ),
+        (
+            1,
+            HashMap::from([
+                (0, ChunkStats::new(90, 100, 10, 100)),
+                (1, ChunkStats::new(90, 100, 10, 100)),
+                (2, ChunkStats::new(90, 100, 10, 100)),
+            ]),
+        ),
+    ]);
+
+    // At most 40% of total stake can be kicked out
+    epoch_config.validator_max_kickout_stake_perc = 40;
+    let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &block_stats,
+        &chunk_stats,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(kickouts, HashMap::new());
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {

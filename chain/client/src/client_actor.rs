@@ -31,7 +31,6 @@ use near_chain::chain::{
     BlockCatchUpResponse, ChunkStateWitnessMessage, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -166,7 +165,7 @@ pub fn start_client(
         partial_witness_adapter,
     )
     .unwrap();
-    let resharding_handle = client.chain.resharding_handle.clone();
+    let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
@@ -209,7 +208,6 @@ pub struct SyncJobsSenderForClient {
     pub apply_state_parts: Sender<ApplyStatePartsRequest>,
     pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
-    pub resharding: Sender<ReshardingRequest>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -1147,7 +1145,7 @@ impl ClientActorInner {
             if me == next_block_producer_account {
                 self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                     &head.last_block_hash,
-                    self.client.chunk_endorsement_tracker.as_ref(),
+                    &mut self.client.chunk_endorsement_tracker,
                 )?;
                 let num_chunks = self
                     .client
@@ -1208,11 +1206,10 @@ impl ClientActorInner {
             );
 
             if update_result.validator_signer_updated {
-                let validator_signer =
-                    self.client.validator_signer.get().expect("Validator signer just updated");
-
-                check_validator_tracked_shards(&self.client, validator_signer.validator_id())
-                    .expect("Could not check validator tracked shards");
+                if let Some(validator_signer) = self.client.validator_signer.get() {
+                    check_validator_tracked_shards(&self.client, validator_signer.validator_id())
+                        .expect("Could not check validator tracked shards");
+                }
 
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
@@ -1617,7 +1614,6 @@ impl ClientActorInner {
                 &self.sync_jobs_sender.apply_state_parts,
                 &self.sync_jobs_sender.load_memtrie,
                 &self.sync_jobs_sender.block_catch_up,
-                &self.sync_jobs_sender.resharding,
                 Some(self.myself_sender.apply_chunks_done.clone()),
                 self.state_parts_future_spawner.as_ref(),
                 &validator_signer,
@@ -1712,9 +1708,19 @@ impl ClientActorInner {
 
     /// Handle the SyncRequirement::SyncNeeded.
     ///
-    /// This method runs the header sync, the block sync
+    /// This method performs whatever syncing technique is needed (epoch sync, header sync,
+    /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64, signer: &Option<Arc<ValidatorSigner>>) {
-        // Run each step of syncing separately.
+        // Run epoch sync first; if this is applicable then nothing else is.
+        let epoch_sync_result = self.client.epoch_sync.run(
+            &mut self.client.sync_status,
+            &self.client.chain,
+            highest_height,
+            &self.network_info.highest_height_peers,
+        );
+        unwrap_and_report_state_sync_result!(epoch_sync_result);
+
+        // Run header sync as long as there are headers to catch up.
         let header_sync_result = self.client.header_sync.run(
             &mut self.client.sync_status,
             &mut self.client.chain,
@@ -1784,7 +1790,6 @@ impl ClientActorInner {
             shards_to_sync,
             &self.sync_jobs_sender.apply_state_parts,
             &self.sync_jobs_sender.load_memtrie,
-            &self.sync_jobs_sender.resharding,
             self.state_parts_future_spawner.as_ref(),
             use_colour,
             self.client.runtime_adapter.clone(),
@@ -2082,6 +2087,7 @@ impl ClientActorInner {
         if &block_hash == header.prev_hash() {
             // The last block of the previous epoch.
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save prev hash block");
+            // Prev sync block will have its refcount increased later when processing sync block.
             if let Err(err) = self.client.chain.save_block(block) {
                 error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
             }
@@ -2093,6 +2099,11 @@ impl ClientActorInner {
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save extra block");
             if let Err(err) = self.client.chain.save_block(block) {
                 error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
+            } else {
+                // save_block() does not increase refcount, and for extra blocks we need to increase the refcount manually.
+                let mut store_update = self.client.chain.mut_chain_store().store_update();
+                store_update.inc_block_refcount(&block_hash).unwrap();
+                store_update.commit().unwrap();
             }
             return true;
         }
@@ -2125,19 +2136,6 @@ impl Handler<BlockCatchUpResponse> for ClientActorInner {
             );
         } else {
             panic!("block catch up processing result from unknown sync hash");
-        }
-    }
-}
-
-impl Handler<ReshardingResponse> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: ReshardingResponse) {
-        tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
-            // We are doing catchup
-            sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
-        } else {
-            self.client.state_sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
         }
     }
 }

@@ -1332,6 +1332,7 @@ dependencies = [
  "log",
  "near-async",
  "near-chain-configs",
+ "near-config-utils",
  "near-crypto",
  "near-network",
  "near-o11y",
@@ -2618,16 +2619,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs2"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "fs_extra"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3208,6 +3199,7 @@ dependencies = [
  "actix",
  "anyhow",
  "clap",
+ "near-config-utils",
  "near-indexer",
  "near-o11y",
  "openssl-probe",
@@ -4026,6 +4018,7 @@ dependencies = [
  "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
+ "near-schema-checker-lib",
  "near-store",
  "near-vm-runner",
  "node-runtime",
@@ -4035,6 +4028,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rayon",
+ "serde",
  "serde_json",
  "strum",
  "tempfile",
@@ -4225,9 +4219,10 @@ dependencies = [
  "hex-literal",
  "near-account-id",
  "near-config-utils",
+ "near-schema-checker-lib",
  "near-stdx",
- "near-structs-checker-lib",
  "primitive-types 0.10.1",
+ "rand",
  "secp256k1",
  "serde",
  "serde_json",
@@ -4246,6 +4241,7 @@ dependencies = [
  "bytesize",
  "clap",
  "indicatif",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
@@ -4258,6 +4254,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "tracing",
  "zstd",
 ]
 
@@ -4292,28 +4289,16 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-schema-checker-lib",
  "near-store",
+ "num-bigint 0.3.3",
  "num-rational 0.3.2",
  "primitive-types 0.10.1",
  "rand",
  "rand_hc",
+ "serde",
  "serde_json",
  "smart-default",
- "tracing",
-]
-
-[[package]]
-name = "near-epoch-sync-tool"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "near-chain",
- "near-chain-configs",
- "near-epoch-manager",
- "near-primitives",
- "near-store",
- "nearcore",
  "tracing",
 ]
 
@@ -4377,6 +4362,7 @@ dependencies = [
  "futures",
  "near-chain-configs",
  "near-client",
+ "near-config-utils",
  "near-crypto",
  "near-dyn-configs",
  "near-indexer-primitives",
@@ -4424,7 +4410,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-primitives",
- "near-rpc-error-macro",
  "serde",
  "serde_json",
  "serde_with",
@@ -4481,7 +4466,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-primitives",
- "near-rpc-error-macro",
+ "near-schema-checker-lib",
  "serde",
  "serde_json",
  "thiserror",
@@ -4527,6 +4512,7 @@ name = "near-mirror"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "actix-rt",
  "anyhow",
  "async-trait",
  "borsh 1.2.0",
@@ -4597,6 +4583,7 @@ dependencies = [
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
+ "near-schema-checker-lib",
  "near-store",
  "opentelemetry",
  "parking_lot 0.12.1",
@@ -4666,6 +4653,7 @@ dependencies = [
  "insta",
  "near-account-id",
  "near-primitives-core",
+ "near-schema-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_repr",
@@ -4734,6 +4722,7 @@ dependencies = [
  "assert_matches",
  "base64 0.21.0",
  "bencher",
+ "bitvec",
  "bolero",
  "borsh 1.2.0",
  "bytes",
@@ -4752,9 +4741,8 @@ dependencies = [
  "near-parameters",
  "near-primitives",
  "near-primitives-core",
- "near-rpc-error-macro",
+ "near-schema-checker-lib",
  "near-stdx",
- "near-structs-checker-lib",
  "near-time",
  "num-rational 0.3.2",
  "ordered-float",
@@ -4787,7 +4775,7 @@ dependencies = [
  "expect-test",
  "insta",
  "near-account-id",
- "near-structs-checker-lib",
+ "near-schema-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_json",
@@ -4803,9 +4791,11 @@ dependencies = [
  "anyhow",
  "borsh 1.2.0",
  "clap",
+ "itertools",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
+ "near-chunks",
  "near-epoch-manager",
  "near-o11y",
  "near-primitives",
@@ -4850,23 +4840,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-rpc-error-core"
+name = "near-schema-checker-core"
 version = "0.0.0"
 dependencies = [
- "quote",
- "serde",
- "serde_json",
- "syn 2.0.70",
+ "inventory",
 ]
 
 [[package]]
-name = "near-rpc-error-macro"
+name = "near-schema-checker-lib"
 version = "0.0.0"
 dependencies = [
- "fs2",
- "near-rpc-error-core",
- "serde",
- "serde_json",
+ "inventory",
+ "near-schema-checker-core",
+ "near-schema-checker-macro",
+]
+
+[[package]]
+name = "near-schema-checker-macro"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
  "syn 2.0.70",
 ]
 
@@ -4947,6 +4941,7 @@ dependencies = [
  "near-o11y",
  "near-parameters",
  "near-primitives",
+ "near-schema-checker-lib",
  "near-stdx",
  "near-time",
  "near-vm-runner",
@@ -4967,31 +4962,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-structs-checker-core"
-version = "0.0.0"
-dependencies = [
- "inventory",
-]
-
-[[package]]
-name = "near-structs-checker-lib"
-version = "0.0.0"
-dependencies = [
- "inventory",
- "near-structs-checker-core",
- "near-structs-checker-macro",
-]
-
-[[package]]
-name = "near-structs-checker-macro"
-version = "0.0.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.70",
-]
-
-[[package]]
 name = "near-telemetry"
 version = "0.0.0"
 dependencies = [
@@ -5002,6 +4972,7 @@ dependencies = [
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "near-time",
  "openssl",
  "serde",
  "serde_json",
@@ -5144,6 +5115,7 @@ dependencies = [
  "near-o11y",
  "near-parameters",
  "near-primitives-core",
+ "near-schema-checker-lib",
  "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",
@@ -5158,6 +5130,7 @@ dependencies = [
  "prometheus",
  "pwasm-utils",
  "rand",
+ "rayon",
  "ripemd",
  "rustix",
  "serde",
@@ -5369,7 +5342,6 @@ dependencies = [
  "near-crypto",
  "near-database-tool",
  "near-dyn-configs",
- "near-epoch-sync-tool",
  "near-flat-storage",
  "near-fork-network",
  "near-jsonrpc-primitives",
@@ -6350,11 +6322,18 @@ name = "protocol-schema-check"
 version = "0.0.0"
 dependencies = [
  "inventory",
+ "near-chain",
  "near-crypto",
+ "near-epoch-manager",
+ "near-jsonrpc-primitives",
+ "near-network",
+ "near-parameters",
  "near-primitives",
  "near-primitives-core",
+ "near-schema-checker-lib",
  "near-stable-hasher",
- "near-structs-checker-lib",
+ "near-store",
+ "near-vm-runner",
  "serde_json",
  "toml",
 ]
@@ -7516,6 +7495,7 @@ dependencies = [
  "itertools",
  "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-client",
  "near-crypto",
  "near-epoch-manager",

@@ -32,6 +32,10 @@ pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
 
+/// The default number of attempts to obtain a state part from peers in the network
+/// before giving up and downloading it from external storage.
+pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 5;
+
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(default)]
@@ -77,6 +81,10 @@ fn default_num_concurrent_requests_during_catchup() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
 }
 
+fn default_external_storage_fallback_threshold() -> u64 {
+    DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
@@ -89,6 +97,10 @@ pub struct ExternalStorageConfig {
     /// to reduce the performance impact of state sync.
     #[serde(default = "default_num_concurrent_requests_during_catchup")]
     pub num_concurrent_requests_during_catchup: u32,
+    /// The number of attempts the node will make to obtain a part from peers in
+    /// the network before it fetches from external storage.
+    #[serde(default = "default_external_storage_fallback_threshold")]
+    pub external_storage_fallback_threshold: u64,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -152,10 +164,48 @@ pub struct StateSyncConfig {
     pub sync: SyncConfig,
 }
 
+impl StateSyncConfig {
+    pub fn gcs_default() -> Self {
+        Self {
+            dump: None,
+            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+                location: GCS { bucket: "state-parts".to_string() },
+                num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+                num_concurrent_requests_during_catchup:
+                    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+                external_storage_fallback_threshold: DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD,
+            }),
+        }
+    }
+}
+
 impl SyncConfig {
     /// Checks whether the object equals its default value.
     fn is_default(&self) -> bool {
         matches!(self, Self::Peers)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct EpochSyncConfig {
+    pub enabled: bool,
+    pub epoch_sync_horizon: BlockHeightDelta,
+    pub epoch_sync_accept_proof_max_horizon: BlockHeightDelta,
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub timeout_for_epoch_sync: Duration,
+}
+
+impl Default for EpochSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
+            // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
+            // (Epoch sync should not be picking a target epoch more than 2 epochs old.)
+            epoch_sync_horizon: 216000,
+            epoch_sync_accept_proof_max_horizon: 86400,
+            timeout_for_epoch_sync: Duration::seconds(60),
+        }
     }
 }
 
@@ -265,20 +315,8 @@ pub fn default_sync_height_threshold() -> u64 {
     1
 }
 
-pub fn default_epoch_sync_enabled() -> bool {
-    false
-}
-
-pub fn default_state_sync() -> Option<StateSyncConfig> {
-    Some(StateSyncConfig {
-        dump: None,
-        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-            location: GCS { bucket: "state-parts".to_string() },
-            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-            num_concurrent_requests_during_catchup:
-                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
-        }),
-    })
+pub fn default_epoch_sync() -> Option<EpochSyncConfig> {
+    Some(EpochSyncConfig::default())
 }
 
 pub fn default_state_sync_enabled() -> bool {
@@ -433,8 +471,6 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
-    /// Run Epoch Sync on the start.
-    pub epoch_sync_enabled: bool,
     /// Number of seconds between state requests for view client.
     pub view_client_throttle_period: Duration,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
@@ -456,6 +492,8 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Options for epoch sync.
+    pub epoch_sync: EpochSyncConfig,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
@@ -501,7 +539,6 @@ impl ClientConfig {
         num_block_producer_seats: NumSeats,
         archive: bool,
         save_trie_changes: bool,
-        epoch_sync_enabled: bool,
         state_sync_enabled: bool,
     ) -> Self {
         assert!(
@@ -555,7 +592,6 @@ impl ClientConfig {
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
-            epoch_sync_enabled,
             view_client_throttle_period: Duration::seconds(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
@@ -565,6 +601,7 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::seconds(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
+            epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
             resharding_config: MutableConfigValue::new(

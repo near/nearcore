@@ -143,30 +143,6 @@ pub(crate) static LARGEST_FINAL_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub(crate) enum ReshardingStatus {
-    /// The ReshardingRequest was send to the SyncJobsActor.
-    Scheduled,
-    /// The SyncJobsActor is performing the resharding.
-    BuildingState,
-    /// The resharding is finished.
-    Finished,
-    /// The resharding failed. Manual recovery is necessary!
-    Failed,
-}
-
-impl From<ReshardingStatus> for i64 {
-    /// Converts status to integer to export to prometheus later.
-    /// Cast inside enum does not work because it is not fieldless.
-    fn from(value: ReshardingStatus) -> Self {
-        match value {
-            ReshardingStatus::Scheduled => 0,
-            ReshardingStatus::BuildingState => 1,
-            ReshardingStatus::Finished => 2,
-            ReshardingStatus::Failed => -1,
-        }
-    }
-}
-
 pub(crate) static SHARD_LAYOUT_VERSION: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_shard_layout_version",
@@ -179,63 +155,6 @@ pub(crate) static SHARD_LAYOUT_NUM_SHARDS: LazyLock<IntGauge> = LazyLock::new(||
     try_create_int_gauge(
         "near_shard_layout_num_shards",
         "The number of shards in the shard layout of the current head.",
-    )
-    .unwrap()
-});
-
-pub(crate) static RESHARDING_BATCH_COUNT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_resharding_batch_count",
-        "The number of batches committed to the db.",
-        &["shard_uid"],
-    )
-    .unwrap()
-});
-
-pub(crate) static RESHARDING_BATCH_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_resharding_batch_size",
-        "The size of batches committed to the db.",
-        &["shard_uid"],
-    )
-    .unwrap()
-});
-
-pub static RESHARDING_BATCH_PREPARE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_resharding_batch_prepare_time",
-        "Time needed to prepare a batch in resharding.",
-        &["shard_uid"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-
-pub static RESHARDING_BATCH_APPLY_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_resharding_batch_apply_time",
-        "Time needed to apply a batch in resharding.",
-        &["shard_uid"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-
-pub static RESHARDING_BATCH_COMMIT_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_resharding_batch_commit_time",
-        "Time needed to commit a batch in resharding.",
-        &["shard_uid"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static RESHARDING_STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_resharding_status",
-        "The status of the resharding process.",
-        &["shard_uid"],
     )
     .unwrap()
 });

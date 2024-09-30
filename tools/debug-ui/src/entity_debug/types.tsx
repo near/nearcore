@@ -12,6 +12,8 @@ export type EntityKeyType =
     | 'state_root'
     | 'transaction_hash'
     | 'trie_key'
+    | 'trie_node_hash'
+    | 'trie_value_hash'
     | 'trie_path';
 
 /// Each entity type represents a unique kind of output from an entity debug
@@ -21,13 +23,20 @@ export type EntityType =
     | 'Block'
     | 'BlockHash'
     | 'BlockHeader'
+    | 'BlockInfo'
+    | 'BlockMerkleTree'
+    | 'BlockMiscData'
+    | 'Bytes'
     | 'Chunk'
+    | 'ChunkExtra'
     | 'EpochInfo'
+    | 'EpochInfoAggregator'
     | 'ExecutionOutcome'
     | 'FlatState'
     | 'FlatStateChanges'
     | 'FlatStateDeltaMetadata'
     | 'FlatStorageStatus'
+    | 'RawTrieNode'
     | 'Receipt'
     | 'ShardId'
     | 'ShardLayout'
@@ -55,6 +64,8 @@ export class EntityDataRootNode {
     constructor(
         /// The query that produces the data in this node.
         public query: EntityQuery,
+        /// Whether the query uses cold storage.
+        public useColdStorage: boolean,
         /// A promise that resolves to the result data.
         public entry: Promise<EntityDataValueNode>
     ) {}
@@ -124,16 +135,26 @@ export type EntityQuery = {
     BlockByHash?: { block_hash: string };
     BlockHashByHeight?: { block_height: number };
     BlockHeaderByHash?: { block_hash: string };
+    BlockInfoByHash?: { block_hash: string };
+    BlockMerkleTreeByHash?: { block_hash: string };
+    BlockMisc?: null;
     ChunkByHash?: { chunk_hash: string };
+    ChunkExtraByBlockHashShardUId?: { block_hash: string; shard_uid: string };
+    ChunkExtraByChunkHash?: { chunk_hash: string };
+    EpochInfoAggregator?: null;
     EpochInfoByEpochId?: { epoch_id: string };
     FlatStateByTrieKey?: { trie_key: string };
     FlatStateChangesByBlockHash?: { block_hash: string };
     FlatStateDeltaMetadataByBlockHash?: { block_hash: string };
     FlatStorageStatusByShardUId?: { shard_uid: string };
+    NextBlockHashByHash?: { block_hash: string };
     OutcomeByReceiptId?: { receipt_id: string };
     OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
     OutcomeByTransactionHash?: { transaction_hash: string };
     OutcomeByTransactionHashAndBlockHash?: { transaction_hash: string; block_hash: string };
+    RawTrieNodeByHash?: { trie_node_hash: string; shard_uid: string };
+    RawTrieRootByChunkHash?: { chunk_hash: string };
+    RawTrieValueByHash?: { trie_value_hash: string; shard_uid: string };
     ReceiptById?: { receipt_id: string };
     ShardIdByAccountId?: { account_id: string };
     ShardLayoutByEpochId?: { epoch_id: string };
@@ -149,6 +170,10 @@ export type EntityQuery = {
     ValidatorAssignmentsAtHeight?: { block_height: number; epoch_id: string };
 };
 
+export type EntityQueryWithParams = EntityQuery & {
+    use_cold_storage?: boolean;
+};
+
 export type EntityQueryType = keyof EntityQuery;
 
 export function getQueryType(query: EntityQuery): EntityQueryType {
@@ -160,16 +185,26 @@ export const entityQueryTypes: EntityQueryType[] = [
     'BlockByHash',
     'BlockHashByHeight',
     'BlockHeaderByHash',
+    'BlockInfoByHash',
+    'BlockMerkleTreeByHash',
+    'BlockMisc',
     'ChunkByHash',
+    'ChunkExtraByBlockHashShardUId',
+    'ChunkExtraByChunkHash',
+    'EpochInfoAggregator',
     'EpochInfoByEpochId',
     'FlatStateByTrieKey',
     'FlatStateChangesByBlockHash',
     'FlatStateDeltaMetadataByBlockHash',
     'FlatStorageStatusByShardUId',
+    'NextBlockHashByHash',
     'OutcomeByReceiptId',
     'OutcomeByReceiptIdAndBlockHash',
     'OutcomeByTransactionHash',
     'OutcomeByTransactionHashAndBlockHash',
+    'RawTrieNodeByHash',
+    'RawTrieRootByChunkHash',
+    'RawTrieValueByHash',
     'ReceiptById',
     'ShardIdByAccountId',
     'ShardLayoutByEpochId',
@@ -220,12 +255,19 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     BlockByHash: [queryKey('block_hash')],
     BlockHashByHeight: [queryKey('block_height')],
     BlockHeaderByHash: [queryKey('block_hash')],
+    BlockInfoByHash: [queryKey('block_hash')],
+    BlockMerkleTreeByHash: [queryKey('block_hash')],
+    BlockMisc: [],
     ChunkByHash: [queryKey('chunk_hash')],
+    ChunkExtraByBlockHashShardUId: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
+    ChunkExtraByChunkHash: [queryKey('chunk_hash')],
+    EpochInfoAggregator: [],
     EpochInfoByEpochId: [queryKey('epoch_id')],
     FlatStateByTrieKey: [queryKey('trie_key'), implicitQueryKey('shard_uid')],
     FlatStateChangesByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
     FlatStateDeltaMetadataByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
     FlatStorageStatusByShardUId: [queryKey('shard_uid')],
+    NextBlockHashByHash: [queryKey('block_hash')],
     OutcomeByReceiptId: [queryKey('receipt_id')],
     OutcomeByReceiptIdAndBlockHash: [queryKey('receipt_id'), implicitQueryKey('block_hash')],
     OutcomeByTransactionHash: [queryKey('transaction_hash')],
@@ -233,6 +275,9 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
         queryKey('transaction_hash'),
         implicitQueryKey('block_hash'),
     ],
+    RawTrieNodeByHash: [queryKey('trie_node_hash'), queryKey('shard_uid')],
+    RawTrieRootByChunkHash: [queryKey('chunk_hash')],
+    RawTrieValueByHash: [queryKey('trie_value_hash'), queryKey('shard_uid')],
     ReceiptById: [queryKey('receipt_id')],
     ShardIdByAccountId: [queryKey('account_id'), implicitQueryKey('epoch_id')],
     ShardLayoutByEpochId: [queryKey('epoch_id')],
@@ -254,16 +299,26 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     BlockByHash: 'Block',
     BlockHashByHeight: 'BlockHash',
     BlockHeaderByHash: 'BlockHeader',
+    BlockInfoByHash: 'BlockInfo',
+    BlockMerkleTreeByHash: 'BlockMerkleTree',
+    BlockMisc: 'BlockMiscData',
     ChunkByHash: 'Chunk',
+    ChunkExtraByBlockHashShardUId: 'ChunkExtra',
+    ChunkExtraByChunkHash: 'ChunkExtra',
+    EpochInfoAggregator: 'EpochInfoAggregator',
     EpochInfoByEpochId: 'EpochInfo',
     FlatStateByTrieKey: 'FlatState',
     FlatStateChangesByBlockHash: 'FlatStateChanges',
     FlatStateDeltaMetadataByBlockHash: 'FlatStateDeltaMetadata',
     FlatStorageStatusByShardUId: 'FlatStorageStatus',
+    NextBlockHashByHash: 'BlockHash',
     OutcomeByReceiptId: 'ExecutionOutcome',
     OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
     OutcomeByTransactionHash: 'ExecutionOutcome',
     OutcomeByTransactionHashAndBlockHash: 'ExecutionOutcome',
+    RawTrieNodeByHash: 'RawTrieNode',
+    RawTrieRootByChunkHash: 'RawTrieNode',
+    RawTrieValueByHash: 'Bytes',
     ReceiptById: 'Receipt',
     ShardIdByAccountId: 'ShardId',
     ShardLayoutByEpochId: 'ShardLayout',

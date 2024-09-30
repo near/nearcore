@@ -1,8 +1,7 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ProcessTxRequest, RecvChallenge, StateRequestHeader,
-    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -24,12 +23,7 @@ use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
-use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostInfoError;
-use crate::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage,
-};
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -38,14 +32,13 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
-use near_async::messaging::{CanSend, SendAsync};
+use near_async::messaging::SendAsync;
 use near_async::time;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
@@ -291,6 +284,18 @@ impl PeerActor {
                             .start_outbound(peer_id.clone())
                             .map_err(ClosingReason::OutboundNotAllowed)?
                     }
+                    tcp::Tier::T3 => {
+                        // Loop connections are allowed only on T1; see comment above
+                        if peer_id == &network_state.config.node_id() {
+                            return Err(ClosingReason::OutboundNotAllowed(
+                                connection::PoolError::UnexpectedLoopConnection,
+                            ));
+                        }
+                        network_state
+                            .tier3
+                            .start_outbound(peer_id.clone())
+                            .map_err(ClosingReason::OutboundNotAllowed)?
+                    }
                 },
                 handshake_spec: HandshakeSpec {
                     partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
@@ -300,10 +305,12 @@ impl PeerActor {
                 },
             },
         };
-        // Override force_encoding for outbound Tier1 connections,
-        // since Tier1Handshake is supported only with proto encoding.
+        // Override force_encoding for outbound Tier1 and Tier3 connections;
+        // Tier1Handshake and Tier3Handshake are supported only with proto encoding.
         let force_encoding = match &stream.type_ {
-            tcp::StreamType::Outbound { tier, .. } if tier == &tcp::Tier::T1 => {
+            tcp::StreamType::Outbound { tier, .. }
+                if tier == &tcp::Tier::T1 || tier == &tcp::Tier::T3 =>
+            {
                 Some(Encoding::Proto)
             }
             _ => force_encoding,
@@ -487,6 +494,7 @@ impl PeerActor {
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
             tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+            tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
         };
         self.send_message_or_log(&msg);
     }
@@ -946,6 +954,9 @@ impl PeerActor {
             (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, tcp::Tier::T2, msg)
             }
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier3Handshake(msg)) => {
+                self.process_handshake(ctx, tcp::Tier::T3, msg)
+            }
             (_, msg) => {
                 tracing::warn!(target:"network","unexpected message during handshake: {}",msg)
             }
@@ -966,94 +977,7 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        Ok(match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
-                .client
-                .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
-                .await
-                .ok()
-                .flatten()
-                .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
-            RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
-                None
-            }
-            RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.send_async(BlockApproval(approval, peer_id)).await.ok();
-                None
-            }
-            RoutedMessageBody::ForwardTx(transaction) => {
-                network_state
-                    .client
-                    .send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    })
-                    .await
-                    .ok();
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                        partial_encoded_chunk_request: request,
-                        route_back: msg_hash,
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                        partial_encoded_chunk_response: response,
-                        received_time: clock.now().into(),
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state
-                    .shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state
-                    .shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                network_state.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
-                None
-            }
-            RoutedMessageBody::ChunkEndorsement(endorsement) => {
-                let endorsement = ChunkEndorsement::V1(endorsement);
-                network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                network_state
-                    .partial_witness_adapter
-                    .send(PartialEncodedStateWitnessMessage(witness));
-                None
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                network_state
-                    .partial_witness_adapter
-                    .send(PartialEncodedStateWitnessForwardMessage(witness));
-                None
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
-            body => {
-                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
-                None
-            }
-        })
+        Ok(network_state.receive_routed_message(clock, peer_id, msg_hash, body).await)
     }
 
     fn receive_message(
@@ -1234,7 +1158,9 @@ impl PeerActor {
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
+            PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
@@ -1276,8 +1202,20 @@ impl PeerActor {
                     self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
                 }
 
-                // Add received peers to the peer store
                 let node_id = self.network_state.config.node_id();
+
+                // Record our own IP address as observed by the peer.
+                if self.network_state.my_public_addr.read().is_none() {
+                    if let Some(my_peer_info) =
+                        direct_peers.iter().find(|peer_info| peer_info.id == node_id)
+                    {
+                        if let Some(addr) = my_peer_info.addr {
+                            let mut my_public_addr = self.network_state.my_public_addr.write();
+                            *my_public_addr = Some(addr);
+                        }
+                    }
+                }
+                // Add received indirect peers to the peer store
                 self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
                     peers.into_iter().filter(|peer_info| peer_info.id != node_id),
@@ -1497,7 +1435,7 @@ impl PeerActor {
                     } else {
                         #[cfg(test)]
                         self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::warn!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
+                        tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
                         metrics::ROUTED_MESSAGE_DROPPED
                             .with_label_values(&[msg.body_variant()])
                             .inc();
@@ -1623,7 +1561,7 @@ impl actix::Actor for PeerActor {
                 tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
             }
             Some(reason) => {
-                tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+                tracing::debug!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
 
                 // If we are on the inbound side of the connection, set a flag in the disconnect
                 // message advising the outbound side whether to attempt to re-establish the connection.

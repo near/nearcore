@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 arbitrary.workspace = true
 base64.workspace = true
+bitvec.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 bytes.workspace = true
@@ -45,17 +46,15 @@ near-time = { workspace = true }
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
-near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
-near-structs-checker-lib.workspace = true
+near-schema-checker-lib.workspace = true
 
 [features]
 sandbox = []
 test_features = []
 solomon = ["reed-solomon-erasure", "itertools"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand", "itertools"]
-clock = ["near-time/clock"]
-dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
+clock = ["near-time/clock", "near-time/serde"]
 protocol_feature_fix_staking_threshold = [
   "near-primitives-core/protocol_feature_fix_staking_threshold",
 ]
@@ -88,14 +87,10 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 
-statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
-
-new_epoch_sync = []
-default = ["near-primitives/rand"]
 calimero_zero_storage = []
 
 protocol_schema = [
-  "near-structs-checker-lib/protocol_schema",
+  "near-schema-checker-lib/protocol_schema",
 ]
 
 [dev-dependencies]

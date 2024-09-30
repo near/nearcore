@@ -218,6 +218,9 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 Some((PartialEncodedStateWitnessForward, 1))
             }
             RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
+            RoutedMessageBody::EpochSyncRequest => None,
+            RoutedMessageBody::EpochSyncResponse(_) => None,
+            RoutedMessageBody::StatePartRequest(_) => None, // TODO
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
             | RoutedMessageBody::_UnusedChunkStateWitness
@@ -237,6 +240,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
+        | PeerMessage::Tier3Handshake(_)
         | PeerMessage::HandshakeFailure(_, _)
         | PeerMessage::LastEdge(_)
         | PeerMessage::Disconnect(_)

@@ -45,7 +45,7 @@ impl VMLogicBuilder {
             &self.context,
             Arc::new(self.fees_config.clone()),
             result_state,
-            self.memory.clone(),
+            &mut self.memory,
         ))
     }
 

@@ -1,6 +1,6 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::{EpochError, StorageError};
+use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -138,6 +138,9 @@ pub enum Error {
     #[error("Invalid Chunk Endorsement")]
     InvalidChunkEndorsement,
     /// Invalid chunk mask
+    #[error("Invalid Chunk Endorsement Bitmap")]
+    InvalidChunkEndorsementBitmap(String),
+    /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
     /// The chunk height is outside of the horizon
@@ -146,7 +149,7 @@ pub enum Error {
     /// Invalid epoch hash
     #[error("Invalid Epoch Hash")]
     InvalidEpochHash,
-    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    /// `next_bps_hash` doesn't correspond to the actual next block producers set
     #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
     /// The block has a protocol version that's outdated
@@ -277,6 +280,7 @@ impl Error {
             | Error::InvalidChunkStateWitness(_)
             | Error::InvalidPartialChunkStateWitness(_)
             | Error::InvalidChunkEndorsement
+            | Error::InvalidChunkEndorsementBitmap(_)
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -353,6 +357,7 @@ impl Error {
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
             Error::InvalidPartialChunkStateWitness(_) => "invalid_partial_chunk_state_witness",
             Error::InvalidChunkEndorsement => "invalid_chunk_endorsement",
+            Error::InvalidChunkEndorsementBitmap(_) => "invalid_chunk_endorsement_bitmap",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",
@@ -435,6 +440,14 @@ impl From<BlockValidityError> for Error {
     }
 }
 
+impl From<ChunkAccessError> for Error {
+    fn from(error: ChunkAccessError) -> Self {
+        match error {
+            ChunkAccessError::ChunkMissing(chunk_hash) => Error::ChunkMissing(chunk_hash),
+        }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, thiserror::Error)]
 pub enum BlockKnownError {
     #[error("already known in header")]
@@ -451,17 +464,4 @@ pub enum BlockKnownError {
     KnownInProcessing,
     #[error("already known in invalid blocks")]
     KnownAsInvalid,
-}
-
-#[cfg(feature = "new_epoch_sync")]
-pub mod epoch_sync {
-    #[derive(thiserror::Error, std::fmt::Debug)]
-    pub enum EpochSyncInfoError {
-        #[error(transparent)]
-        EpochSyncInfoErr(#[from] near_primitives::errors::epoch_sync::EpochSyncInfoError),
-        #[error(transparent)]
-        IOErr(#[from] std::io::Error),
-        #[error(transparent)]
-        ChainErr(#[from] crate::Error),
-    }
 }

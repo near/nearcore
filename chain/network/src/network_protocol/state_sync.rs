@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
-
+use near_schema_checker_lib::ProtocolSchema;
 // TODO(saketh): Consider moving other types related to state sync into this file
 // e.g. StateResponseInfo
 
@@ -14,7 +14,16 @@ use near_primitives::types::ShardId;
 ///
 /// A signature is included so that we know it was really published by that peer.
 ///
-#[derive(Clone, Debug, Eq, PartialEq, Hash, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
 pub struct SnapshotHostInfo {
     /// Id of the node serving the snapshot
     pub peer_id: PeerId,
@@ -74,7 +83,16 @@ impl SnapshotHostInfo {
 // vs. full sync behavior here (similar to what we have for SyncAccountsData).
 // It doesn't seem necessary, but I don't fully understand why we need it for
 // SyncAccountsData either so it's worth revisiting.
-#[derive(Clone, Debug, Eq, PartialEq, Hash, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
 pub struct SyncSnapshotHosts {
     pub hosts: Vec<Arc<SnapshotHostInfo>>,
 }
@@ -88,4 +106,27 @@ pub enum SnapshotHostInfoVerificationError {
         MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
     )]
     TooManyShards(usize),
+}
+
+/// Message used to request a state part.
+///
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub struct StatePartRequest {
+    /// Requested shard id
+    pub shard_id: ShardId,
+    /// Hash of the requested snapshot's state root
+    pub sync_hash: CryptoHash,
+    /// Requested part id
+    pub part_id: u64,
+    /// Public address of the node making the request
+    pub addr: std::net::SocketAddr,
 }

@@ -2,14 +2,15 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
+use near_schema_checker_lib::ProtocolSchema;
 
 /// Trie node with memory cost of its subtree.
 ///
 /// memory_usage is serialized, stored and contributes to hash.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub struct RawTrieNodeWithSize {
     pub node: RawTrieNode,
-    pub(super) memory_usage: u64,
+    pub memory_usage: u64,
 }
 
 impl RawTrieNodeWithSize {
@@ -19,7 +20,7 @@ impl RawTrieNodeWithSize {
 }
 
 /// Trie node.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
     /// Leaf(key, value_length, value_hash)

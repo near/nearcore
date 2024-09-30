@@ -45,6 +45,8 @@ pub struct TestGenesisBuilder {
     protocol_treasury_account: Option<String>,
     shuffle_shard_assignment_for_chunk_producers: Option<bool>,
     kickouts_config: Option<KickoutsConfig>,
+    minimum_stake_ratio: Option<Rational32>,
+    max_inflation_rate: Option<Rational32>,
     user_accounts: Vec<UserAccount>,
 }
 
@@ -197,6 +199,16 @@ impl TestGenesisBuilder {
             num_chunk_validator_seats: num_block_and_chunk_producer_seats
                 + num_chunk_validator_only_seats,
         });
+        self
+    }
+
+    pub fn minimum_stake_ratio(&mut self, minimum_stake_ratio: Rational32) -> &mut Self {
+        self.minimum_stake_ratio = Some(minimum_stake_ratio);
+        self
+    }
+
+    pub fn max_inflation_rate(&mut self, max_inflation_rate: Rational32) -> &mut Self {
+        self.max_inflation_rate = Some(max_inflation_rate);
         self
     }
 
@@ -391,6 +403,24 @@ impl TestGenesisBuilder {
             );
             default
         });
+        let minimum_stake_ratio = self.minimum_stake_ratio.unwrap_or_else(|| {
+            // Set minimum stake ratio to zero; that way, we don't have to worry about
+            // chunk producers not having enough stake to be selected as desired.
+            let default = Rational32::new(0, 1);
+            tracing::warn!(
+                "Genesis minimum_stake_ratio not explicitly set, defaulting to {:?}.",
+                default
+            );
+            default
+        });
+        let max_inflation_rate = self.max_inflation_rate.unwrap_or_else(|| {
+            let default = Rational32::new(1, 1);
+            tracing::warn!(
+                "Genesis max_inflation_rate not explicitly set, defaulting to {:?}.",
+                default
+            );
+            default
+        });
 
         if self
             .user_accounts
@@ -492,7 +522,7 @@ impl TestGenesisBuilder {
             validators: derived_validator_setup.validators,
             num_block_producer_seats: derived_validator_setup.num_block_producer_seats,
             num_chunk_only_producer_seats: 0,
-            minimum_stake_ratio: derived_validator_setup.minimum_stake_ratio,
+            minimum_stake_ratio,
             minimum_validators_per_shard,
             minimum_stake_divisor: 10,
             shuffle_shard_assignment_for_chunk_producers,
@@ -502,9 +532,12 @@ impl TestGenesisBuilder {
                 .collect(),
             avg_hidden_validator_seats_per_shard: Vec::new(),
             shard_layout,
-            max_inflation_rate: Rational32::new(1, 1),
+            max_inflation_rate,
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
-            use_production_config: false,
+            // Hack to ensure that `FixMinStakeRatio` is tested.
+            // TODO(#11265): always use production config or `EpochConfigStore`
+            // instance for testing.
+            use_production_config: self.minimum_stake_ratio.is_some(),
             num_chunk_producer_seats: derived_validator_setup.num_chunk_producer_seats,
             num_chunk_validator_seats: derived_validator_setup.num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: 5,
@@ -522,7 +555,6 @@ struct DerivedValidatorSetup {
     num_block_producer_seats: NumSeats,
     num_chunk_producer_seats: NumSeats,
     num_chunk_validator_seats: NumSeats,
-    minimum_stake_ratio: Rational32,
 }
 
 const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
@@ -532,9 +564,6 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
         ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
             let num_block_and_chunk_producer_seats = block_and_chunk_producers.len() as NumSeats;
             let num_chunk_validator_only_seats = chunk_validators_only.len() as NumSeats;
-            // Set minimum stake ratio to zero; that way, we don't have to worry about
-            // chunk producers not having enough stake to be selected as desired.
-            let minimum_stake_ratio = Rational32::new(0, 1);
             let mut validators = Vec::new();
             for i in 0..num_block_and_chunk_producer_seats as usize {
                 let account_id: AccountId = block_and_chunk_producers[i].parse().unwrap();
@@ -561,7 +590,6 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 num_chunk_producer_seats: num_block_and_chunk_producer_seats,
                 num_chunk_validator_seats: num_block_and_chunk_producer_seats
                     + num_chunk_validator_only_seats,
-                minimum_stake_ratio,
             }
         }
         ValidatorsSpec::Raw {
@@ -574,7 +602,6 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
             num_block_producer_seats,
             num_chunk_producer_seats,
             num_chunk_validator_seats,
-            minimum_stake_ratio: Rational32::new(160, 1000000),
         },
     }
 }

@@ -1,18 +1,21 @@
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
+
 extern crate core;
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, resharding, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
+    estimator, resharding_v2, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
     PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
     StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
     STATE_SNAPSHOT_COLUMNS,
 };
+use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
-use db::GENESIS_CONGESTION_INFO_KEY;
+use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -41,9 +44,11 @@ use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
 
+pub mod adapter;
 pub mod cold_storage;
 mod columns;
 pub mod config;
+pub mod contract;
 pub mod db;
 pub mod flat;
 pub mod genesis;
@@ -107,6 +112,12 @@ pub struct NodeStorage {
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+}
+
+impl StoreAdapter for Store {
+    fn store(&self) -> Store {
+        self.clone()
+    }
 }
 
 impl NodeStorage {
@@ -220,12 +231,13 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        match &self.cold_storage {
-            Some(cold_storage) => Some(Store {
-                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
-            }),
-            None => None,
-        }
+        self.get_split_db().map(|split_db| Store { storage: split_db })
+    }
+
+    pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
+        self.cold_storage
+            .as_ref()
+            .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
     }
 
     /// Returns underlying database for given temperature.
@@ -280,6 +292,10 @@ impl NodeStorage {
 }
 
 impl Store {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        Self { storage }
+    }
+
     /// Fetches value from given column.
     ///
     /// If the key does not exist in the column returns `None`.  Otherwise
@@ -440,6 +456,12 @@ impl Store {
 pub struct StoreUpdate {
     transaction: DBTransaction,
     storage: Arc<dyn Database>,
+}
+
+impl StoreUpdateAdapter for StoreUpdate {
+    fn store_update(&mut self) -> &mut StoreUpdate {
+        self
+    }
 }
 
 impl StoreUpdate {
@@ -746,6 +768,22 @@ pub fn get<T: BorshDeserialize>(
     match trie.get(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
+            Err(err) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to deserialize. err={err:?}"
+            ))),
+            Ok(value) => Ok(Some(value)),
+        },
+    }
+}
+
+/// [`get`] without incurring side effects.
+pub fn get_pure<T: BorshDeserialize>(
+    trie: &dyn TrieAccess,
+    key: &TrieKey,
+) -> Result<Option<T>, StorageError> {
+    match trie.get_no_side_effects(key)? {
+        None => Ok(None),
+        Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
                 Err(StorageError::StorageInconsistentState("Failed to deserialize".to_string()))
             }
@@ -963,15 +1001,6 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
 }
 
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-}
-
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
@@ -1055,17 +1084,6 @@ pub fn set_genesis_congestion_infos(
         .expect("Borsh cannot fail");
 }
 
-fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> io::Result<T>
-where
-    F: std::string::ToString,
-{
-    match res {
-        Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(io::Error::new(io::ErrorKind::NotFound, field_name.to_string())),
-        Err(e) => Err(e),
-    }
-}
-
 #[derive(Clone)]
 pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,
@@ -1125,6 +1143,18 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
+}
+
+/// Get the contract WASM code from The State.
+///
+/// Executing all the usual storage access side-effects.
+pub fn get_code(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
+) -> Result<Option<ContractCode>, StorageError> {
+    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 #[cfg(test)]

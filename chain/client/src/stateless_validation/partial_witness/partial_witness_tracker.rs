@@ -19,6 +19,7 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 
 use super::encoding::{WitnessEncoder, WitnessEncoderCache, WitnessPart};
+use near_primitives::utils::compression::CompressedData;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -60,8 +61,8 @@ impl CacheEntry {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Option<std::io::Result<EncodedChunkStateWitness>> {
-        let shard_id = partial_witness.shard_id();
-        let height_created = partial_witness.height_created();
+        let ChunkProductionKey { shard_id, height_created, .. } =
+            partial_witness.chunk_production_key();
         let (part_ord, part, encoded_length) = partial_witness.decompose();
 
         // Check if the part is already present.
@@ -185,13 +186,11 @@ impl PartialEncodedStateWitnessTracker {
 
     fn get_num_parts(&self, partial_witness: &PartialEncodedStateWitness) -> Result<usize, Error> {
         // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
+        let ChunkProductionKey { shard_id, epoch_id, height_created } =
+            partial_witness.chunk_production_key();
         Ok(self
             .epoch_manager
-            .get_chunk_validator_assignments(
-                partial_witness.epoch_id(),
-                partial_witness.shard_id(),
-                partial_witness.height_created(),
-            )?
+            .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?
             .len())
     }
 

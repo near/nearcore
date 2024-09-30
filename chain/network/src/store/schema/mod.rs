@@ -7,6 +7,7 @@ use near_async::time;
 use near_crypto::Signature;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_schema_checker_lib::ProtocolSchema;
 use near_store::DBCol;
 use std::io;
 use std::sync::Arc;
@@ -26,7 +27,7 @@ impl Format for AccountIdFormat {
 }
 
 /// A Borsh representation of the primitives::ConnectionInfo.
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub(super) struct ConnectionInfoRepr {
     peer_info: primitives::PeerInfo,
     /// UNIX timestamps in nanos.
@@ -57,7 +58,7 @@ impl BorshRepr for ConnectionInfoRepr {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub(super) struct EdgeRepr {
     key: (PeerId, PeerId),
     nonce: u64,
@@ -99,27 +100,6 @@ impl Column for RecentOutboundConnections {
     const COL: DBCol = DBCol::RecentOutboundConnections;
     type Key = Borsh<()>;
     type Value = Vec<ConnectionInfoRepr>;
-}
-
-pub(super) struct PeerComponent;
-impl Column for PeerComponent {
-    const COL: DBCol = DBCol::PeerComponent;
-    type Key = Borsh<PeerId>;
-    type Value = Borsh<u64>;
-}
-
-pub(super) struct ComponentEdges;
-impl Column for ComponentEdges {
-    const COL: DBCol = DBCol::ComponentEdges;
-    type Key = U64LE;
-    type Value = Vec<EdgeRepr>;
-}
-
-pub(super) struct LastComponentNonce;
-impl Column for LastComponentNonce {
-    const COL: DBCol = DBCol::LastComponentNonce;
-    type Key = Borsh<()>;
-    type Value = Borsh<u64>;
 }
 
 ////////////////////////////////////////////////////

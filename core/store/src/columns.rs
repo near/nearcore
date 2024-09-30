@@ -71,11 +71,11 @@ pub enum DBCol {
     RecentOutboundConnections,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
+    /// - *Content type*: [near_primitives::epoch_info::EpochInfo]
     EpochInfo,
     /// Mapping from BlockHash to BlockInfo
     /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::block_info::BlockInfo]
+    /// - *Content type*: [near_primitives::epoch_block_info::BlockInfo]
     BlockInfo,
     /// Mapping from ChunkHash to ShardChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
@@ -293,12 +293,13 @@ pub enum DBCol {
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
     LatestWitnessesByIndex,
-    /// Column to store data for Epoch Sync.
-    /// Does not contain data for genesis epoch.
-    /// - *Rows*: `epoch_id`
-    /// - *Column type*: `EpochSyncInfo
-    #[cfg(feature = "new_epoch_sync")]
-    EpochSyncInfo,
+    /// A valid epoch sync proof that proves the transition from the genesis to some epoch,
+    /// beyond which we keep all headers in this node. Nodes bootstrapped via Epoch Sync will
+    /// have this column, which allows it to compute a more recent EpochSyncProof using block
+    /// headers collected after the stored EpochSyncProof.
+    /// - *Rows*: only one key with 0 bytes.
+    /// - *Column type*: `EpochSyncProof`
+    EpochSyncProof,
 }
 
 /// Defines different logical parts of a db key.
@@ -436,8 +437,6 @@ impl DBCol {
             | DBCol::NextBlockHashes
             | DBCol::OutcomeIds
             | DBCol::OutgoingReceipts
-            // TODO can be changed to reconstruction on request instead of saving in cold storage.
-            | DBCol::PartialChunks
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
@@ -473,6 +472,8 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => false,
             // Deprecated.
             DBCol::_ReceiptIdToShardId => false,
+            // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
+            DBCol::PartialChunks => false,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
@@ -500,9 +501,8 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => false,
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => false
+            | DBCol::FlatStorageStatus
+            | DBCol::EpochSyncProof => false,
         }
     }
 
@@ -574,8 +574,7 @@ impl DBCol {
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
+            DBCol::EpochSyncProof => &[DBKeyType::Empty],
         }
     }
 }

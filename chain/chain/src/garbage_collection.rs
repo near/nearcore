@@ -11,7 +11,7 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
-use near_store::flat::store_helper;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
@@ -195,7 +195,6 @@ impl ChainStore {
                 .cloned()
                 .collect::<Vec<_>>();
             let epoch_manager = epoch_manager.clone();
-            let runtime = runtime_adapter.clone();
             let mut chain_store_update = self.store_update();
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
@@ -209,11 +208,6 @@ impl ChainStore {
                         epoch_manager.as_ref(),
                         *block_hash,
                         GCMode::Canonical(tries.clone()),
-                    )?;
-                    chain_store_update.clear_resharding_data(
-                        runtime.as_ref(),
-                        epoch_manager.as_ref(),
-                        *block_hash,
                     )?;
                     gc_blocks_remaining -= 1;
                 } else {
@@ -315,6 +309,11 @@ impl ChainStore {
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
         let head = self.head()?;
+        if head.prev_block_hash == CryptoHash::default() {
+            // This is genesis. It means we are state syncing right after epoch sync. Don't clear
+            // anything at genesis, or else the node will never boot up again.
+            return Ok(());
+        }
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
@@ -383,12 +382,11 @@ impl ChainStore {
         chain_store_update.commit()?;
 
         // clear all trie data
-
         let tries = runtime_adapter.get_tries();
         let mut chain_store_update = self.store_update();
         let mut store_update = tries.store_update();
-        store_update.delete_all(DBCol::State);
-        chain_store_update.merge(store_update);
+        store_update.delete_all_state();
+        chain_store_update.merge(store_update.into());
 
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
@@ -522,59 +520,6 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_uids_to_gc
     }
 
-    /// GC trie state and flat state data after a resharding event
-    /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
-    /// During GC, when we detect a change in shard layout, we can clear off all entries from
-    /// the parent shards
-    /// TODO(resharding): Need to clean remaining columns after resharding
-    fn clear_resharding_data(
-        &mut self,
-        runtime: &dyn RuntimeAdapter,
-        epoch_manager: &dyn EpochManagerAdapter,
-        block_hash: CryptoHash,
-    ) -> Result<(), Error> {
-        // Need to check if this is the last block of the epoch where resharding is completed
-        // which means shard layout changed in the previous epoch
-        if !epoch_manager.is_last_block_in_finished_epoch(&block_hash)? {
-            return Ok(());
-        }
-
-        // Since this code is related to GC, we need to be careful about accessing block_infos. Note
-        // that the BlockInfo exists for the current block_hash as it's not been GC'd yet.
-        // However, we need to use the block header to get the epoch_id and shard_layout for
-        // first_block_epoch_header and last_block_prev_epoch_hash as BlockInfo for these blocks is
-        // already GC'd while BlockHeader isn't GC'd.
-        let block_info = epoch_manager.get_block_info(&block_hash)?;
-        let first_block_epoch_hash = block_info.epoch_first_block();
-        if first_block_epoch_hash == &CryptoHash::default() {
-            return Ok(());
-        }
-        let first_block_epoch_header = self.get_block_header(first_block_epoch_hash)?;
-        let last_block_prev_epoch_header =
-            self.get_block_header(first_block_epoch_header.prev_hash())?;
-
-        let epoch_id = first_block_epoch_header.epoch_id();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let prev_epoch_id = last_block_prev_epoch_header.epoch_id();
-        let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
-        if shard_layout == prev_shard_layout {
-            return Ok(());
-        }
-
-        // Now we can proceed to removing the trie state and flat state
-        let mut store_update = self.store().store_update();
-        for shard_uid in prev_shard_layout.shard_uids() {
-            tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
-            runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
-            runtime
-                .get_flat_storage_manager()
-                .remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
-        }
-
-        self.merge(store_update);
-        Ok(())
-    }
-
     // Clearing block data of `block_hash`, if on a fork.
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
@@ -583,7 +528,7 @@ impl<'a> ChainStoreUpdate<'a> {
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
-        let mut store_update = self.store().store_update();
+        let mut store_update = self.store().trie_store().store_update();
 
         tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
@@ -715,7 +660,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Chunks deleted separately
             }
         };
-        self.merge(store_update);
+        self.merge(store_update.into());
         Ok(())
     }
 
@@ -765,7 +710,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
             let mut store_update = self.store().store_update();
-            store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
+            store_update.flat_store_update().remove_delta(shard_uid, block_hash);
             self.merge(store_update);
         }
 
@@ -1045,11 +990,10 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
+            | DBCol::EpochSyncProof
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             => unreachable!(),
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => unreachable!(),
         }
         self.merge(store_update);
     }

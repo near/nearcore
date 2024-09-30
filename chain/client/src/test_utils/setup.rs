@@ -16,7 +16,9 @@ use actix::{Actor, Addr, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
-use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{
+    noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
+};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -50,13 +52,14 @@ use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMes
 use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, GenesisId};
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
@@ -85,7 +88,6 @@ pub fn setup(
     max_block_prod_time: u64,
     enable_doomslug: bool,
     archive: bool,
-    epoch_sync_enabled: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
@@ -128,7 +130,6 @@ pub fn setup(
             num_validator_seats,
             archive,
             true,
-            epoch_sync_enabled,
             state_sync_enabled,
         );
         base.chunk_distribution_network = chunk_distribution_config;
@@ -190,6 +191,7 @@ pub fn setup(
     );
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
+        epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
         network_adapter.into_sender(),
@@ -221,7 +223,6 @@ pub fn setup_only_view(
     max_block_prod_time: u64,
     enable_doomslug: bool,
     archive: bool,
-    epoch_sync_enabled: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
@@ -282,7 +283,6 @@ pub fn setup_only_view(
         num_validator_seats,
         archive,
         true,
-        epoch_sync_enabled,
         state_sync_enabled,
     );
 
@@ -316,7 +316,7 @@ pub fn setup_mock(
         ) -> PeerManagerMessageResponse,
     >,
 ) -> ActorHandlesForTesting {
-    setup_mock_with_validity_period_and_no_epoch_sync(
+    setup_mock_with_validity_period(
         clock,
         validators,
         account_id,
@@ -327,7 +327,7 @@ pub fn setup_mock(
     )
 }
 
-pub fn setup_mock_with_validity_period_and_no_epoch_sync(
+pub fn setup_mock_with_validity_period(
     clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
@@ -354,12 +354,10 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
         MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
         enable_doomslug,
         false,
-        false,
         true,
         network_adapter.as_multi_sender(),
         transaction_validity_period,
         clock.now_utc(),
-        // ctx,
         None,
     );
     let client_addr1 = client_addr.clone();
@@ -766,7 +764,9 @@ fn process_peer_manager_message_default(
         | NetworkRequests::TxStatus(_, _, _)
         | NetworkRequests::SnapshotHostInfo { .. }
         | NetworkRequests::Challenge(_)
-        | NetworkRequests::ChunkStateWitnessAck(_, _) => {}
+        | NetworkRequests::ChunkStateWitnessAck(_, _)
+        | NetworkRequests::EpochSyncRequest { .. }
+        | NetworkRequests::EpochSyncResponse { .. } => {}
     }
 }
 
@@ -821,7 +821,6 @@ pub fn setup_mock_all_validators(
     epoch_length: BlockHeightDelta,
     enable_doomslug: bool,
     archive: Vec<bool>,
-    epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
     peer_manager_mock: Box<
@@ -868,7 +867,6 @@ pub fn setup_mock_all_validators(
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
-        let epoch_sync_enabled1 = epoch_sync_enabled.clone();
         let chunk_distribution_config1 = chunk_distribution_config.clone();
         let client_sender = LateBoundSender::new();
         let client_sender1 = client_sender.clone();
@@ -914,7 +912,6 @@ pub fn setup_mock_all_validators(
             block_prod_time * 3,
             enable_doomslug,
             archive1[index],
-            epoch_sync_enabled1[index],
             false,
             pm.into_multi_sender(),
             10000,
@@ -944,7 +941,7 @@ pub fn setup_no_network(
     skip_sync_wait: bool,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
-    setup_no_network_with_validity_period_and_no_epoch_sync(
+    setup_no_network_with_validity_period(
         clock,
         validators,
         account_id,
@@ -954,7 +951,7 @@ pub fn setup_no_network(
     )
 }
 
-pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
+pub fn setup_no_network_with_validity_period(
     clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
@@ -962,13 +959,29 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
-    setup_mock_with_validity_period_and_no_epoch_sync(
+    let my_account_id = account_id.clone();
+    setup_mock_with_validity_period(
         clock,
         validators,
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        Box::new(|_, _, _| {
+        Box::new(move |request, _, client| {
+            // Handle network layer sending messages to self
+            match request {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
+                    account_id,
+                    endorsement,
+                )) => {
+                    if account_id == &my_account_id {
+                        let future = client.send_async(
+                            ChunkEndorsementMessage(endorsement.clone()).with_span_context(),
+                        );
+                        drop(future);
+                    }
+                }
+                _ => {}
+            };
             PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
         }),
         transaction_validity_period,
@@ -992,16 +1005,8 @@ pub fn setup_client_with_runtime(
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: Arc<ValidatorSigner>,
 ) -> Client {
-    let mut config = ClientConfig::test(
-        true,
-        10,
-        20,
-        num_validator_seats,
-        archive,
-        save_trie_changes,
-        true,
-        true,
-    );
+    let mut config =
+        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         noop().into_sender(),
@@ -1045,6 +1050,7 @@ pub fn setup_synchronous_shards_manager(
     // ShardsManager. This way we don't have to wait to construct the Client first.
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
+    let chunk_store = runtime.store().chunk_store();
     let chain = Chain::new(
         clock.clone(),
         epoch_manager.clone(),
@@ -1071,11 +1077,12 @@ pub fn setup_synchronous_shards_manager(
     let shards_manager = ShardsManagerActor::new(
         clock,
         MutableConfigValue::new(validator_signer, "validator_signer"),
+        epoch_manager.clone(),
         epoch_manager,
         shard_tracker,
         network_adapter.request_sender,
         client_adapter,
-        chain.chain_store().new_read_only_chunks_store(),
+        chunk_store,
         chain_head,
         chain_header_head,
         Duration::hours(1),

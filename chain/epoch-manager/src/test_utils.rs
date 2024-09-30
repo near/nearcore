@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use near_primitives::types::EpochId;
+use near_primitives::types::ProtocolVersion;
 use near_store::Store;
 use num_rational::Ratio;
 
@@ -10,8 +11,8 @@ use crate::RngSeed;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::block_info::BlockInfoV2;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_block_info::BlockInfoV2;
+use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -48,6 +49,7 @@ pub fn epoch_info(
     accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    protocol_version: ProtocolVersion,
 ) -> EpochInfo {
     let num_seats = block_producers_settlement.len() as u64;
     epoch_info_with_num_seats(
@@ -60,6 +62,7 @@ pub fn epoch_info(
         Default::default(),
         0,
         num_seats,
+        protocol_version,
     )
 }
 
@@ -73,6 +76,7 @@ pub fn epoch_info_with_num_seats(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     num_seats: NumSeats,
+    protocol_version: ProtocolVersion,
 ) -> EpochInfo {
     let seat_price =
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
@@ -114,7 +118,7 @@ pub fn epoch_info_with_num_seats(
         validator_kickout.into_iter().collect(),
         minted_amount,
         seat_price,
-        PROTOCOL_VERSION,
+        protocol_version,
         TEST_SEED,
         validator_mandates,
     )
@@ -154,7 +158,7 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::v0(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, epoch_config, "test-chain")
+    AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
 }
 
 pub fn epoch_config(
@@ -190,8 +194,6 @@ pub fn default_reward_calculator() -> RewardCalculator {
         epoch_length: 1,
         protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }
@@ -326,6 +328,7 @@ pub fn record_block_with_final_block_hash(
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                None,
             ),
             [0; 32],
         )
@@ -356,6 +359,7 @@ pub fn record_block_with_slashes(
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                None,
             ),
             [0; 32],
         )
@@ -364,6 +368,7 @@ pub fn record_block_with_slashes(
         .unwrap();
 }
 
+// TODO(#11900): Start using BlockInfoV3 in the tests.
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -374,6 +379,7 @@ pub fn record_block(
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }
 
+// TODO(#11900): Start using BlockInfoV3 in the tests.
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,

@@ -76,7 +76,11 @@ impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
             download_genesis: config_args.download_genesis,
             download_genesis_url: config_args.download_genesis_url,
             download_records_url: config_args.download_records_url,
-            download_config: config_args.download_config,
+            download_config: if config_args.download_config {
+                Some(near_config_utils::DownloadConfigType::RPC)
+            } else {
+                None
+            },
             download_config_url: config_args.download_config_url,
             boot_nodes: config_args.boot_nodes,
             max_gas_burnt_view: config_args.max_gas_burnt_view,

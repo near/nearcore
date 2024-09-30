@@ -10,8 +10,6 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
-#[cfg(feature = "new_epoch_sync")]
-use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -34,7 +32,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesForResharding, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -42,6 +40,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{
     DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
@@ -49,12 +48,12 @@ use near_store::{
 };
 
 use crate::byzantine_assert;
-use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
 mod latest_witnesses;
+pub use latest_witnesses::LatestWitnessesInfo;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -495,10 +494,6 @@ impl ChainStore {
         }
     }
 
-    pub fn new_read_only_chunks_store(&self) -> ReadOnlyChunksStore {
-        ReadOnlyChunksStore::new(self.store.clone())
-    }
-
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
         ChainStoreUpdate::new(self)
     }
@@ -519,18 +514,6 @@ impl ChainStore {
                 Err(err) => Err(err.into()),
             })
             .collect()
-    }
-
-    pub fn get_state_changes_for_resharding(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<StateChangesForResharding, Error> {
-        let key = &get_block_shard_id(block_hash, shard_id);
-        option_to_not_found(
-            self.store.get_ser(DBCol::StateChangesForSplitStates, key),
-            format_args!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
-        )
     }
 
     /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
@@ -598,6 +581,7 @@ impl ChainStore {
         }
     }
 
+    /// TODO validate if this logic works for Resharding V3.
     fn reassign_outgoing_receipts_for_resharding(
         receipts: &mut Vec<Receipt>,
         protocol_version: ProtocolVersion,
@@ -617,10 +601,6 @@ impl ChainStore {
             )?;
             return Ok(());
         }
-
-        // Otherwise use the old reassignment. Keep in mind it only works for
-        // 1 shard -> n shards reshardings, otherwise receipts get lost.
-        Self::reassign_outgoing_receipts_for_resharding_v1(receipts, shard_layout, shard_id)?;
         Ok(())
     }
 
@@ -664,28 +644,6 @@ impl ChainStore {
             receipts.clear();
             Ok(())
         }
-    }
-
-    /// Reassign the outgoing receipts from the parent shard to the children
-    /// shards.
-    ///
-    /// This method does it based on the "receipt receiver" approach where the
-    /// receipt is assigned to the shard of the receiver.
-    ///
-    /// This approach worked well for the 1->4 shards resharding but it doesn't
-    /// work for following reshardings. The reason is that it's only the child
-    /// shards that look at parents shard's outgoing receipts. If the receipt
-    /// receiver happens to not fall within one of the children shards then the
-    /// receipt is lost.
-    fn reassign_outgoing_receipts_for_resharding_v1(
-        receipts: &mut Vec<Receipt>,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-    ) -> Result<(), Error> {
-        receipts.retain(|receipt| {
-            account_id_to_shard_id(receipt.receiver_id(), &shard_layout) == shard_id
-        });
-        Ok(())
     }
 
     /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
@@ -898,15 +856,6 @@ impl ChainStore {
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
         self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
-    }
-
-    /// Save epoch sync info
-    #[cfg(feature = "new_epoch_sync")]
-    pub fn get_epoch_sync_info(&self, epoch_id: &EpochId) -> Result<EpochSyncInfo, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::EpochSyncInfo, epoch_id.as_ref()),
-            "EpochSyncInfo",
-        )
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.
@@ -1429,9 +1378,6 @@ pub struct ChainStoreUpdate<'a> {
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
-    // All state changes made by a chunk, this is only used for resharding.
-    add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
-    remove_all_state_changes_for_resharding: bool,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1457,8 +1403,6 @@ impl<'a> ChainStoreUpdate<'a> {
             largest_target_height: None,
             trie_changes: vec![],
             state_transition_data: Default::default(),
-            add_state_changes_for_resharding: HashMap::new(),
-            remove_all_state_changes_for_resharding: false,
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -2072,22 +2016,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    pub fn add_state_changes_for_resharding(
-        &mut self,
-        block_hash: CryptoHash,
-        shard_id: ShardId,
-        state_changes: StateChangesForResharding,
-    ) {
-        let prev =
-            self.add_state_changes_for_resharding.insert((block_hash, shard_id), state_changes);
-        // We should not save state changes for the same chunk twice
-        assert!(prev.is_none());
-    }
-
-    pub fn remove_all_state_changes_for_resharding(&mut self) {
-        self.remove_all_state_changes_for_resharding = true;
-    }
-
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
         self.add_blocks_to_catchup.push((prev_hash, block_hash));
     }
@@ -2535,17 +2463,15 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the store.
         {
             let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
-            let mut deletions_store_update = self.store().store_update();
+            let mut deletions_store_update = self.store().trie_store().store_update();
             for mut wrapped_trie_changes in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
-                wrapped_trie_changes.insertions_into(&mut store_update);
+                wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes.state_changes_into(&mut store_update);
+                wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
 
                 if self.chain_store.save_trie_changes {
-                    wrapped_trie_changes
-                        .trie_changes_into(&mut store_update)
-                        .map_err(|err| Error::Other(err.to_string()))?;
+                    wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
                 }
             }
 
@@ -2557,19 +2483,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(&block_hash, shard_id),
                     &state_transition_data,
                 )?;
-            }
-            for ((block_hash, shard_id), state_changes) in
-                self.add_state_changes_for_resharding.drain()
-            {
-                store_update.set_ser(
-                    DBCol::StateChangesForSplitStates,
-                    &get_block_shard_id(&block_hash, shard_id),
-                    &state_changes,
-                )?;
-            }
-
-            if self.remove_all_state_changes_for_resharding {
-                store_update.delete_all(DBCol::StateChangesForSplitStates);
             }
         }
         {
@@ -2943,7 +2856,7 @@ mod tests {
         let signer = Arc::new(create_test_signer("test1"));
         let block1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         let mut block2 = block1.clone();
-        block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
+        block2.mut_header().set_epoch_id(EpochId(hash(&[1, 2, 3])));
         block2.mut_header().resign(&*signer);
 
         let mut store_update = chain.mut_chain_store().store_update();

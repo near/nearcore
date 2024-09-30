@@ -20,7 +20,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-time.workspace = true
+near-time = { workspace = true, features = ["clock"] }
 near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-o11y.workspace = true

@@ -58,7 +58,9 @@ class BlockBodyV2:
 class BlockHeader:
 
     def inner_lite(self):
-        if self.enum == 'BlockHeaderV4':
+        if self.enum == 'BlockHeaderV5':
+            return self.BlockHeaderV5.inner_lite
+        elif self.enum == 'BlockHeaderV4':
             return self.BlockHeaderV4.inner_lite
         elif self.enum == 'BlockHeaderV3':
             return self.BlockHeaderV3.inner_lite
@@ -85,6 +87,10 @@ class BlockHeaderV4:
     pass
 
 
+class BlockHeaderV5:
+    pass
+
+
 class BlockHeaderInnerLite:
     pass
 
@@ -102,6 +108,14 @@ class BlockHeaderInnerRestV3:
 
 
 class BlockHeaderInnerRestV4:
+    pass
+
+
+class BlockHeaderInnerRestV5:
+    pass
+
+
+class ChunkEndorsementsBitmap:
     pass
 
 
@@ -298,7 +312,19 @@ class ChunkEndorsement:
     pass
 
 
+class ChunkEndorsementV1:
+    pass
+
+
+class ChunkEndorsementV2:
+    pass
+
+
 class ChunkEndorsementInner:
+    pass
+
+
+class ChunkEndorsementMetadata:
     pass
 
 
@@ -431,7 +457,8 @@ block_schema = [
             'values': [['BlockHeaderV1', BlockHeaderV1],
                        ['BlockHeaderV2', BlockHeaderV2],
                        ['BlockHeaderV3', BlockHeaderV3],
-                       ['BlockHeaderV4', BlockHeaderV4]]
+                       ['BlockHeaderV4', BlockHeaderV4],
+                       ['BlockHeaderV5', BlockHeaderV5]]
         }
     ],
     [
@@ -478,6 +505,18 @@ block_schema = [
                 ['prev_hash', [32]],
                 ['inner_lite', BlockHeaderInnerLite],
                 ['inner_rest', BlockHeaderInnerRestV4],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        BlockHeaderV5, {
+            'kind':
+                'struct',
+            'fields': [
+                ['prev_hash', [32]],
+                ['inner_lite', BlockHeaderInnerLite],
+                ['inner_rest', BlockHeaderInnerRestV5],
                 ['signature', Signature],
             ]
         }
@@ -614,6 +653,46 @@ block_schema = [
                 }]],
                 ['latest_protocol_version', 'u32'],
             ]
+        }
+    ],
+    [
+        BlockHeaderInnerRestV5,
+        {
+            'kind':
+                'struct',
+            'fields': [
+                ['block_body_hash', [32]],
+                ['chunk_receipts_root', [32]],
+                ['chunk_headers_root', [32]],
+                ['chunk_tx_root', [32]],
+                ['challenges_root', [32]],
+                ['random_value', [32]],
+                ['validator_proposals', [ValidatorStake]],
+                ['chunk_mask', ['u8']],
+                ['gas_price', 'u128'],
+                ['total_supply', 'u128'],
+                ['challenges_result', [()]],  # TODO
+                ['last_final_block', [32]],
+                ['last_ds_final_block', [32]],
+                ['block_ordinal', 'u64'],
+                ['prev_height', 'u64'],
+                ['epoch_sync_data_hash', {
+                    'kind': 'option',
+                    'type': [32]
+                }],
+                ['approvals', [{
+                    'kind': 'option',
+                    'type': Signature
+                }]],
+                ['latest_protocol_version', 'u32'],
+                ['chunk_endorsements', ChunkEndorsementsBitmap],
+            ]
+        }
+    ],
+    [
+        ChunkEndorsementsBitmap, {
+            'kind': 'struct',
+            'fields': [['inner', [['u8']]],],
         }
     ],
     [
@@ -902,6 +981,13 @@ block_schema = [
     ],
     [
         ChunkEndorsement, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ChunkEndorsementV1], ['V2', ChunkEndorsementV2]]
+        }
+    ],
+    [
+        ChunkEndorsementV1, {
             'kind':
                 'struct',
             'fields': [
@@ -912,12 +998,36 @@ block_schema = [
         }
     ],
     [
+        ChunkEndorsementV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkEndorsementInner],
+                ['signature', Signature],
+                ['metadata', ChunkEndorsementMetadata],
+                ['metadata_signature', Signature],
+            ]
+        }
+    ],
+    [
         ChunkEndorsementInner, {
             'kind':
                 'struct',
             'fields': [
                 ['chunk_hash', [32]],
                 ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkEndorsementMetadata, {
+            'kind':
+                'struct',
+            'fields': [
+                ['account_id', 'string'],
+                ['shard_id', 'u64'],
+                ['epoch_id', [32]],
+                ['height_created', 'u64'],
             ]
         }
     ],

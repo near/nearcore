@@ -1,10 +1,8 @@
-use std::sync::{Arc, Mutex};
-
+use crate::test_loop::env::TestLoopChunksStorage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::types::AccountId;
-
-use crate::test_loop::env::TestLoopChunksStorage;
+use std::sync::{Arc, Mutex};
 
 /// Handler to drop all network messages relevant to chunk validated by
 /// `validator_of_chunks_to_drop`. If number of nodes on chain is significant
@@ -16,8 +14,8 @@ pub fn partial_encoded_chunks_dropper(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     validator_of_chunks_to_drop: AccountId,
-) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
-    Arc::new(move |request| {
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+    Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
         // network; extract `chunk_hash` from the message.
         let chunk_hash = match &request {
@@ -75,5 +73,19 @@ pub fn partial_encoded_chunks_dropper(
         }
 
         return None;
+    })
+}
+
+/// Handler to drop all network messages containing chunk endorsements sent from a given chunk-validator account.
+pub fn chunk_endorsement_dropper(
+    validator: AccountId,
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+    Box::new(move |request| {
+        if let NetworkRequests::ChunkEndorsement(_target, endorsement) = &request {
+            if endorsement.validator_account() == &validator {
+                return None;
+            }
+        }
+        Some(request)
     })
 }

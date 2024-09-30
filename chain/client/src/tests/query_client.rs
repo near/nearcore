@@ -84,8 +84,8 @@ fn query_status_not_crash() {
                 &header,
                 block.header.height + 1,
                 header.block_ordinal() + 1,
-                block.chunks.into_iter().map(|c| c.into()).collect(),
-                vec![],
+                block.chunks.iter().cloned().map(|c| c.into()).collect(),
+                vec![vec![]; block.chunks.len()],
                 EpochId(block.header.next_epoch_id),
                 EpochId(block.header.hash),
                 None,
@@ -102,9 +102,10 @@ fn query_status_not_crash() {
                 Clock::real(),
                 None,
             );
-            next_block.mut_header().get_mut().inner_lite.timestamp =
-                (next_block.header().timestamp() + Duration::seconds(60)).unix_timestamp_nanos()
-                    as u64;
+            let timestamp = next_block.header().timestamp();
+            next_block
+                .mut_header()
+                .set_timestamp((timestamp + Duration::seconds(60)).unix_timestamp_nanos() as u64);
             next_block.mut_header().resign(&signer);
 
             actix::spawn(
@@ -232,7 +233,6 @@ fn test_state_request() {
             400,
             false,
             true,
-            false,
             true,
             MockPeerManagerAdapter::default().into_multi_sender(),
             100,

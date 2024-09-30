@@ -1,6 +1,6 @@
 use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
+use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::mem::node::{MemTrieNodeId, MemTrieNodePtr};
 use crate::trie::Children;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -37,7 +37,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
         self.mask.count_ones() as usize * size_of::<usize>()
     }
 
-    fn encode_flexible_data<M: ArenaMemory>(
+    fn encode_flexible_data<M: ArenaMemoryMut>(
         &self,
         children: &[Option<MemTrieNodeId>; 16],
         target: &mut ArenaSliceMut<M>,
@@ -84,16 +84,35 @@ impl<'a, M: ArenaMemory> ChildrenView<'a, M> {
 
     /// Converts to a Children struct used in RawTrieNode.
     pub fn to_children(&self) -> Children {
-        let mut children = Children::default();
-        let mut j = 0;
-        for i in 0..16 {
-            if self.mask & (1 << i) != 0 {
-                let child = MemTrieNodePtr::from(self.children.read_ptr_at(j));
-                children.0[i] = Some(child.view().node_hash());
-                j += size_of::<usize>();
+        let mut nodes = [None; 16];
+        if self.mask == 0 {
+            return Children(nodes);
+        };
+
+        let mut node_ptrs = [None; 16];
+        let mut j = size_of::<usize>() * self.mask.count_ones() as usize;
+        // Execute all `read_ptr_at` in reverse to avoid repeat bound checks.
+        // Additionally, issue reads for the node kinds before moving on to compute sha256 hashes,
+        // thus hopefully giving CPU more time to load the relevant lines into the cache.
+        for i in (0..16).rev() {
+            let bit = self.mask & (1 << i);
+            if bit != 0 {
+                j -= size_of::<usize>();
+                let ptr = MemTrieNodePtr::from(self.children.read_ptr_at(j));
+                let kind = ptr.get_kind();
+                node_ptrs[i] = Some((ptr, kind));
             }
         }
-        children
+
+        for (node, node_ptr) in std::iter::zip(nodes.iter_mut().rev(), node_ptrs.into_iter().rev())
+        {
+            if let Some((node_ptr, kind)) = node_ptr {
+                let node_view = node_ptr.view_kind(kind);
+                *node = Some(node_view.node_hash());
+            }
+        }
+
+        Children(nodes)
     }
 
     /// Iterates only through existing children.

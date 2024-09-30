@@ -109,7 +109,7 @@ fn test_eth_implicit_account_creation() {
         env.produce_block(0, i);
     }
 
-    let magic_bytes = wallet_contract_magic_bytes(chain_id);
+    let magic_bytes = wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION);
 
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
@@ -219,7 +219,8 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let wallet_contract_code = wallet_contract(chain_id).code().to_vec();
+    let magic_bytes = wallet_contract_magic_bytes(&chain_id, PROTOCOL_VERSION);
+    let wallet_contract_code = wallet_contract(*magic_bytes.hash()).unwrap().code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
         eth_implicit_account_id.clone(),

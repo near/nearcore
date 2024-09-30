@@ -96,6 +96,14 @@ fn test_nearvm_upgrade() {
         capture.drain()
     };
 
-    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
-    assert!(dbg!(logs_at_new_version).iter().any(|l| l.contains(&"vm_kind=NearVm")));
+    assert!(
+        logs_at_old_version.iter().any(|l| l.contains(&"Wasmer2VM::run_method")),
+        "{:#?}",
+        logs_at_old_version
+    );
+    assert!(
+        logs_at_new_version.iter().any(|l| l.contains(&"NearVM::run_method")),
+        "{:#?}",
+        logs_at_new_version
+    );
 }

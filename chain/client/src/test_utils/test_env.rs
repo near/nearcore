@@ -23,13 +23,11 @@ use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::RngSeed;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsement, ChunkEndorsementV1,
-};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -131,6 +129,7 @@ impl TestEnv {
                     .unwrap();
             }
         }
+        self.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -434,36 +433,33 @@ impl TestEnv {
     /// Wait until an endorsement for `chunk_hash` appears in the network messages send by
     /// the Client with index `client_idx`. Times out after CHUNK_ENDORSEMENTS_TIMEOUT.
     /// Doesn't process or consume the message, it just waits until the message appears on the network_adapter.
-    /// TODO(ChunkEndorsementV2): This function is only used by orphan_chunk_state_witnesses test.
-    /// Can remove once we shift to ChunkEndorsementV2.
     pub fn wait_for_chunk_endorsement(
         &mut self,
         client_idx: usize,
         chunk_hash: &ChunkHash,
-    ) -> Result<ChunkEndorsementV1, TimeoutError> {
+    ) -> Result<(), TimeoutError> {
         let start_time = Instant::now();
         let network_adapter = self.network_adapters[client_idx].clone();
+        let mut endorsement_found = false;
         loop {
-            let mut endorsement_opt = None;
             network_adapter.handle_filtered(|request| {
                 match &request {
                     PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
+                        NetworkRequests::ChunkEndorsement(_, endorsement),
                     ) => {
-                        let endorsement = match endorsement {
-                            ChunkEndorsement::V1(endorsement) => endorsement,
+                        let endorsement_chunk_hash = match endorsement {
+                            ChunkEndorsement::V1(endorsement) => endorsement.chunk_hash(),
+                            ChunkEndorsement::V2(endorsement) => endorsement.chunk_hash(),
                         };
-                        if endorsement.chunk_hash() == chunk_hash {
-                            endorsement_opt = Some(endorsement.clone());
-                        }
+                        endorsement_found = endorsement_chunk_hash == chunk_hash;
                     }
                     _ => {}
                 };
                 Some(request)
             });
 
-            if let Some(endorsement) = endorsement_opt {
-                return Ok(endorsement);
+            if endorsement_found {
+                return Ok(());
             }
 
             let elapsed_since_start = Instant::now().signed_duration_since(start_time);
@@ -812,9 +808,12 @@ impl TestEnv {
     pub fn print_block_summary(&self, height: u64) {
         let client = &self.clients[0];
         let block = client.chain.get_block_by_height(height);
-        let Ok(block) = block else {
-            tracing::info!(target: "test", "Block {}: missing", height);
-            return;
+        let block = match block {
+            Ok(block) => block,
+            Err(err) => {
+                tracing::info!(target: "test", ?err, "Block {}: missing", height);
+                return;
+            }
         };
         let prev_hash = block.header().prev_hash();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();

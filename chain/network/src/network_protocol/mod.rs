@@ -20,6 +20,10 @@ pub(crate) mod testonly;
 mod tests;
 
 mod _proto {
+    // TODO: protobuf codegen includes `#![allow(box_pointers)]` which Clippy
+    // doesn’t like.  Allow renamed_and_removed_lints to silence that warning.
+    // Remove this once protobuf codegen is updated.
+    #![allow(renamed_and_removed_lints)]
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
@@ -35,6 +39,7 @@ use near_crypto::Signature;
 use near_o11y::OpenTelemetrySpanExt;
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -47,6 +52,7 @@ use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
+use near_schema_checker_lib::ProtocolSchema;
 use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
@@ -405,6 +411,7 @@ pub struct Disconnect {
 pub enum PeerMessage {
     Tier1Handshake(Handshake),
     Tier2Handshake(Handshake),
+    Tier3Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
@@ -507,7 +514,13 @@ impl PeerMessage {
 
 // TODO(#1313): Use Box
 #[derive(
-    borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, strum::IntoStaticStr,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    strum::IntoStaticStr,
+    ProtocolSchema,
 )]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
@@ -538,6 +551,9 @@ pub enum RoutedMessageBody {
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
+    StatePartRequest(StatePartRequest),
 }
 
 impl RoutedMessageBody {
@@ -551,6 +567,20 @@ impl RoutedMessageBody {
             | RoutedMessageBody::VersionedPartialEncodedChunk(_) => IMPORTANT_MESSAGE_RESENT_COUNT,
             // Default value is sending just once.
             _ => 1,
+        }
+    }
+
+    // Return true if we allow the message sent to our own account_id to be redirected back to us.
+    // The default behavior is to drop all messages sent to our own account_id.
+    // This is helpful in managing scenarios like sending chunk_endorsement to block_producer, where
+    // we may be the block_producer.
+    pub fn allow_sending_to_self(&self) -> bool {
+        match self {
+            RoutedMessageBody::ChunkEndorsement(_)
+            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
+            _ => false,
         }
     }
 }
@@ -613,6 +643,11 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
             }
+            RoutedMessageBody::EpochSyncRequest => write!(f, "EpochSyncRequest"),
+            RoutedMessageBody::EpochSyncResponse(_) => {
+                write!(f, "EpochSyncResponse")
+            }
+            RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
         }
     }
 }
@@ -624,7 +659,9 @@ impl fmt::Debug for RoutedMessageBody {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
+)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -696,6 +733,7 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
+                | RoutedMessageBody::EpochSyncRequest
         )
     }
 
@@ -710,7 +748,16 @@ impl RoutedMessage {
     }
 }
 
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    Hash,
+    ProtocolSchema,
+)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
@@ -719,7 +766,9 @@ pub enum PeerIdOrHash {
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
-#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
+)]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,
@@ -732,14 +781,32 @@ pub struct PartialEncodedChunkForwardMsg {
 }
 
 /// Test code that someone become part of our protocol?
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    Hash,
+    ProtocolSchema,
+)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
 }
 
 /// Test code that someone become part of our protocol?
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    Hash,
+    ProtocolSchema,
+)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
@@ -768,35 +835,45 @@ impl PartialEncodedChunkForwardMsg {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
+)]
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
+)]
 pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
+)]
 pub struct StateResponseInfoV1 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponseV1,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
+)]
 pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
+#[derive(
+    PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
+)]
 pub enum StateResponseInfo {
     V1(StateResponseInfoV1),
     V2(StateResponseInfoV2),

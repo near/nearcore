@@ -20,13 +20,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
-    StateChangesForResharding, StateRoot, StateRootNode,
+    StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
@@ -34,10 +34,10 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
+use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use num_rational::Rational32;
-use std::collections::HashMap;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -78,27 +78,6 @@ pub struct AcceptedBlock {
     pub hash: CryptoHash,
     pub status: BlockStatus,
     pub provenance: Provenance,
-}
-
-#[derive(Debug)]
-pub struct ApplyResultForResharding {
-    pub shard_uid: ShardUId,
-    pub trie_changes: WrappedTrieChanges,
-    pub new_root: StateRoot,
-}
-
-// ReshardingResults contains the results of applying depending on whether
-// resharding is finished.
-// If resharding is finished the results should be applied immediately.
-// If resharding is not finished the results should be stored and applied later.
-#[derive(Debug)]
-pub enum ReshardingResults {
-    /// Immediately apply the resharding result.
-    /// Happens during IsCaughtUp and CatchingUp
-    ApplyReshardingResults(Vec<ApplyResultForResharding>),
-    /// Store the resharding results so that they can be applied later.
-    /// Happens during NotCaughtUp.
-    StoreReshardingResults(StateChangesForResharding),
 }
 
 #[derive(Debug)]
@@ -509,15 +488,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns false if the resulting part doesn't match the expected one.
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
-    fn apply_update_to_children_states(
-        &self,
-        block_hash: &CryptoHash,
-        block_height: BlockHeight,
-        state_roots: HashMap<ShardUId, StateRoot>,
-        next_shard_layout: &ShardLayout,
-        state_changes: StateChangesForResharding,
-    ) -> Result<Vec<ApplyResultForResharding>, Error>;
-
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,
@@ -554,7 +524,9 @@ pub trait RuntimeAdapter: Send + Sync {
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, Default, serde::Serialize, ProtocolSchema,
+)]
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,

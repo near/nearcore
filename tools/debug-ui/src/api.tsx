@@ -1,4 +1,4 @@
-import { EntityQuery } from './entity_debug/types';
+import { EntityQueryWithParams } from './entity_debug/types';
 
 export interface StatusResponse {
     chain_id: string;
@@ -477,7 +477,7 @@ export type ApiEntityDataEntry = { name: string; value: ApiEntityDataEntryValue 
 
 export async function fetchEntity(
     addr: string,
-    request: EntityQuery
+    request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
     const response = await fetch(`http://${addr}/debug/api/entity`, {
         body: JSON.stringify(request),

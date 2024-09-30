@@ -14,6 +14,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
 use std::collections::BTreeMap;
@@ -28,7 +29,7 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
     InvalidReceiptRoot,
@@ -38,7 +39,7 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
@@ -49,7 +50,7 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
@@ -61,14 +62,14 @@ pub struct BlockV2 {
 }
 
 /// V2 -> V3: added BlockBodyV1
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV3 {
     pub header: BlockHeader,
     pub body: BlockBodyV1,
 }
 
 /// V3 -> V4: use versioned BlockBody
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV4 {
     pub header: BlockHeader,
     pub body: BlockBody,
@@ -76,7 +77,7 @@ pub struct BlockV4 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub enum Block {
     BlockV1(Arc<BlockV1>),
     BlockV2(Arc<BlockV2>),
@@ -299,7 +300,12 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
-        use crate::hash::hash;
+        use itertools::Itertools;
+        use near_primitives_core::version::ProtocolFeature;
+
+        use crate::{
+            hash::hash, stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+        };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
@@ -349,14 +355,36 @@ impl Block {
             };
 
         match prev {
-            BlockHeader::BlockHeaderV1(_) => debug_assert_eq!(prev.block_ordinal(), 0),
-            BlockHeader::BlockHeaderV2(_) => debug_assert_eq!(prev.block_ordinal(), 0),
-            BlockHeader::BlockHeaderV3(_) => {
+            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
+                debug_assert_eq!(prev.block_ordinal(), 0)
+            }
+            BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
-            BlockHeader::BlockHeaderV4(_) => {
-                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
-            }
+        };
+
+        let chunk_endorsements_bitmap = if ProtocolFeature::ChunkEndorsementsInBlockHeader
+            .enabled(this_epoch_protocol_version)
+        {
+            debug_assert_eq!(
+                chunk_endorsements.len(),
+                chunk_mask.len(),
+                "Chunk endorsements size is different from number of shards."
+            );
+            // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
+            // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
+            Some(ChunkEndorsementsBitmap::from_endorsements(
+                chunk_endorsements
+                    .iter()
+                    .map(|endorsements_for_shard| {
+                        endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
+                    })
+                    .collect_vec(),
+            ))
+        } else {
+            None
         };
 
         let body = BlockBody::new(
@@ -398,6 +426,7 @@ impl Block {
             block_merkle_root,
             prev.height(),
             clock,
+            chunk_endorsements_bitmap,
         );
 
         Self::block_from_protocol_version(
@@ -790,7 +819,9 @@ impl<'a> ChunksCollection<'a> {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, serde::Serialize, ProtocolSchema,
+)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockHeight,

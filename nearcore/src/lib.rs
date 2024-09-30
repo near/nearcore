@@ -1,5 +1,6 @@
 pub use crate::config::NightshadeRuntimeExt;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig};
+#[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
@@ -35,16 +36,14 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::types::EpochId;
-use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
-use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
+use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
-use tracing::info;
 
 pub mod append_only_map;
 pub mod cold_storage;
@@ -221,9 +220,6 @@ pub struct NearNode {
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dumper: StateSyncDumper,
-    /// A handle to control background flat state values inlining migration.
-    /// Needed temporarily, will be removed after the migration is completed.
-    pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
@@ -413,6 +409,7 @@ pub fn start_with_config_and_synchronization(
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
+        view_epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
@@ -421,13 +418,6 @@ pub fn start_with_config_and_synchronization(
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
-
-    let flat_state_migration_handle =
-        FlatStateValuesInliningMigrationHandle::start_background_migration(
-            storage.get_hot_store(),
-            runtime.get_flat_storage_manager(),
-            config.client_config.client_background_migration_threads,
-        );
 
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
@@ -443,6 +433,7 @@ pub fn start_with_config_and_synchronization(
     state_sync_dumper.start()?;
 
     let hot_store = storage.get_hot_store();
+    let cold_store = storage.get_cold_store();
 
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
@@ -464,7 +455,8 @@ pub fn start_with_config_and_synchronization(
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
             runtime: view_runtime,
-            store: hot_store,
+            hot_store,
+            cold_store,
         };
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
@@ -515,134 +507,6 @@ pub fn start_with_config_and_synchronization(
         arbiters,
         cold_store_loop_handle,
         state_sync_dumper,
-        flat_state_migration_handle,
         resharding_handle,
     })
-}
-
-pub struct RecompressOpts {
-    pub dest_dir: PathBuf,
-    pub keep_partial_chunks: bool,
-    pub keep_invalid_chunks: bool,
-    pub keep_trie_changes: bool,
-}
-
-pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
-    use strum::IntoEnumIterator;
-
-    let config_path = home_dir.join(config::CONFIG_FILENAME);
-    let config = config::Config::from_file(&config_path)
-        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?;
-    let archive = config.archive;
-    let mut skip_columns = Vec::new();
-    if archive && !opts.keep_partial_chunks {
-        skip_columns.push(DBCol::PartialChunks);
-    }
-    if archive && !opts.keep_invalid_chunks {
-        skip_columns.push(DBCol::InvalidChunks);
-    }
-    if archive && !opts.keep_trie_changes {
-        skip_columns.push(DBCol::TrieChanges);
-    }
-
-    let src_opener = NodeStorage::opener(home_dir, archive, &config.store, None);
-    let src_path = src_opener.path();
-
-    let mut dst_config = config.store.clone();
-    dst_config.path = Some(opts.dest_dir);
-    // Note: opts.dest_dir is resolved relative to current working directory
-    // (since it’s a command line option) which is why we set home to cwd.
-    let cwd = std::env::current_dir()?;
-    let dst_opener = NodeStorage::opener(&cwd, archive, &dst_config, None);
-    let dst_path = dst_opener.path();
-
-    info!(target: "recompress",
-          src = %src_path.display(), dest = %dst_path.display(),
-          "Recompressing database");
-
-    info!("Opening database at {}", src_path.display());
-    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_hot_store();
-
-    let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
-        let tip: Option<near_primitives::block::Tip> =
-            src_store.get_ser(DBCol::BlockMisc, near_store::FINAL_HEAD_KEY)?;
-        anyhow::ensure!(
-            tip.is_some(),
-            "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
-            src_path.display(),
-            std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
-        );
-        tip.map(|tip| tip.height)
-    } else {
-        None
-    };
-
-    info!("Creating database at {}", dst_path.display());
-    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_hot_store();
-
-    const BATCH_SIZE_BYTES: u64 = 150_000_000;
-
-    for column in DBCol::iter() {
-        let skip = skip_columns.contains(&column);
-        info!(
-            target: "recompress",
-            column_id = column as usize,
-            %column,
-            "{}",
-            if skip { "Clearing  " } else { "Processing" }
-        );
-        if skip {
-            continue;
-        }
-
-        let mut store_update = dst_store.store_update();
-        let mut total_written: u64 = 0;
-        let mut batch_written: u64 = 0;
-        let mut count_keys: u64 = 0;
-        for item in src_store.iter_raw_bytes(column) {
-            let (key, value) = item.with_context(|| format!("scanning column {column}"))?;
-            store_update.set_raw_bytes(column, &key, &value);
-            total_written += value.len() as u64;
-            batch_written += value.len() as u64;
-            count_keys += 1;
-            if batch_written >= BATCH_SIZE_BYTES {
-                store_update.commit()?;
-                info!(
-                    target: "recompress",
-                    column_id = column as usize,
-                    %count_keys,
-                    %total_written,
-                    "Processing",
-                );
-                batch_written = 0;
-                store_update = dst_store.store_update();
-            }
-        }
-        info!(
-            target: "recompress",
-            column_id = column as usize,
-            %count_keys,
-            %total_written,
-            "Done with "
-        );
-        store_update.commit()?;
-    }
-
-    // If we’re not keeping DBCol::PartialChunks, update chunk tail to point to
-    // current final block.  If we don’t do that, the gc will try to work its
-    // way from the genesis even though chunks at those heights have been
-    // deleted.
-    if skip_columns.contains(&DBCol::PartialChunks) {
-        let chunk_tail = final_head_height.unwrap();
-        info!(target: "recompress", %chunk_tail, "Setting chunk tail");
-        let mut store_update = dst_store.store_update();
-        store_update.set_ser(DBCol::BlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
-        store_update.commit()?;
-    }
-
-    core::mem::drop(dst_store);
-    core::mem::drop(src_store);
-
-    info!(target: "recompress", dest = %dst_path.display(), "Database recompressed");
-    Ok(())
 }

@@ -1,10 +1,11 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ProtocolVersion;
-use near_rpc_error_macro::RpcError;
+use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
@@ -15,9 +16,9 @@ use std::fmt::{Debug, Display};
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
+    ProtocolSchema,
 )]
 pub enum TxExecutionError {
     /// An error happened during Action execution
@@ -86,6 +87,7 @@ impl std::error::Error for RuntimeError {}
     serde::Serialize,
     BorshSerialize,
     BorshDeserialize,
+    ProtocolSchema,
 )]
 pub enum MissingTrieValueContext {
     /// Missing trie value when reading from TrieIterator.
@@ -109,6 +111,7 @@ pub enum MissingTrieValueContext {
     serde::Serialize,
     BorshSerialize,
     BorshDeserialize,
+    ProtocolSchema,
 )]
 pub enum StorageError {
     /// Key-value db internal failure
@@ -149,9 +152,9 @@ impl std::error::Error for StorageError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
+    ProtocolSchema,
 )]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
@@ -246,9 +249,9 @@ impl std::error::Error for InvalidTxError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
+    ProtocolSchema,
 )]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
@@ -280,9 +283,9 @@ pub enum InvalidAccessKeyError {
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum ActionsValidationError {
     /// The delete action must be a final aciton in transaction
@@ -328,9 +331,9 @@ pub enum ActionsValidationError {
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
@@ -473,9 +476,9 @@ impl std::error::Error for ActionsValidationError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
+    ProtocolSchema,
 )]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
@@ -494,9 +497,9 @@ impl std::error::Error for ActionError {}
     Clone,
     PartialEq,
     Eq,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
+    ProtocolSchema,
 )]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
@@ -703,7 +706,7 @@ impl Display for InvalidAccessKeyError {
 impl std::error::Error for InvalidAccessKeyError {}
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(Debug, Clone, PartialEq, Eq, RpcError, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, ProtocolSchema)]
 pub struct BalanceMismatchError {
     // Input balances
     #[serde(with = "dec_format")]
@@ -798,7 +801,7 @@ impl Display for BalanceMismatchError {
 
 impl std::error::Error for BalanceMismatchError {}
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct IntegerOverflowError;
 
 impl std::fmt::Display for IntegerOverflowError {
@@ -1022,9 +1025,9 @@ impl From<std::io::Error> for EpochError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
+    ProtocolSchema,
 )]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
@@ -1063,10 +1066,10 @@ pub enum PrepareError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
+    ProtocolSchema,
 )]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
@@ -1096,10 +1099,10 @@ pub enum WasmTrap {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
+    ProtocolSchema,
 )]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
@@ -1179,10 +1182,10 @@ pub enum HostError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
+    ProtocolSchema,
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
@@ -1197,10 +1200,10 @@ pub enum MethodResolveError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    RpcError,
     serde::Deserialize,
     serde::Serialize,
     strum::IntoStaticStr,
+    ProtocolSchema,
 )]
 pub enum CompilationError {
     CodeDoesNotExist {
@@ -1228,6 +1231,7 @@ pub enum CompilationError {
     BorshSerialize,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 pub enum FunctionCallError {
     /// Wasm compilation error
@@ -1253,27 +1257,15 @@ pub enum FunctionCallError {
     ExecutionError(String),
 }
 
-#[cfg(feature = "new_epoch_sync")]
-pub mod epoch_sync {
-    use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::EpochHeight;
-    use std::fmt::Debug;
+#[derive(Debug)]
+pub enum ChunkAccessError {
+    ChunkMissing(ChunkHash),
+}
 
-    #[derive(Eq, PartialEq, Clone, strum::Display, Debug)]
-    pub enum EpochSyncHashType {
-        LastEpochBlock,
-        LastFinalBlock,
-        FirstEpochBlock,
-        NextEpochFirstBlock,
-        Other,
-        BlockToSave,
-    }
-
-    #[derive(Eq, PartialEq, Clone, thiserror::Error, Debug)]
-    pub enum EpochSyncInfoError {
-        #[error("{hash_type} hash {hash:?} not a part of EpochSyncInfo for epoch {epoch_height}")]
-        HashNotFound { hash: CryptoHash, hash_type: EpochSyncHashType, epoch_height: EpochHeight },
-        #[error("all_block_hashes.len() < 2 for epoch {epoch_height}")]
-        ShortEpoch { epoch_height: EpochHeight },
+impl std::fmt::Display for ChunkAccessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!("{:?}", self))
     }
 }
+
+impl std::error::Error for ChunkAccessError {}

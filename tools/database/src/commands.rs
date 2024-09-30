@@ -8,10 +8,12 @@ use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
+use crate::resharding_v2::ReshardingV2Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
+use near_chain_configs::GenesisValidationMode;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -59,31 +61,44 @@ enum SubCommand {
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
+
+    /// Perform on demand resharding V2
+    Resharding(ReshardingV2Command),
 }
 
 impl DatabaseCommand {
-    pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
+    pub fn run(
+        &self,
+        home: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         match &self.subcmd {
             SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
-            SubCommand::AnalyseGasUsage(cmd) => cmd.run(home),
-            SubCommand::ChangeDbKind(cmd) => cmd.run(home),
+            SubCommand::AnalyseGasUsage(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ChangeDbKind(cmd) => cmd.run(home, genesis_validation),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {
-                let near_config = nearcore::config::load_config(
-                    &home,
-                    near_chain_configs::GenesisValidationMode::UnsafeFast,
-                )
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+                let near_config = load_config(home, genesis_validation);
                 cmd.run(home, near_config.config.archive, &near_config.config.store)
             }
-            SubCommand::RunMigrations(cmd) => cmd.run(home),
+            SubCommand::RunMigrations(cmd) => cmd.run(home, genesis_validation),
             SubCommand::StatePerf(cmd) => cmd.run(home),
-            SubCommand::LoadMemTrie(cmd) => cmd.run(home),
-            SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
+            SubCommand::LoadMemTrie(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::WriteCryptoHash(cmd) => cmd.run(home, genesis_validation),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
-            SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
-            SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home),
+            SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::Resharding(cmd) => {
+                let near_config = load_config(home, genesis_validation);
+                cmd.run(near_config, home)
+            }
         }
     }
+}
+
+fn load_config(home: &PathBuf, genesis_validation: GenesisValidationMode) -> nearcore::NearConfig {
+    let near_config = nearcore::config::load_config(&home, genesis_validation);
+    let near_config = near_config.unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+    near_config
 }

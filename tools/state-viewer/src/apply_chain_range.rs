@@ -1,5 +1,5 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
-use crate::commands::maybe_save_trie_changes;
+use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
 use crate::progress_reporter::{timestamp_ms, ProgressReporter};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -15,6 +15,7 @@ use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutc
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
@@ -248,6 +249,7 @@ fn apply_block_from_range(
                 println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             }
             if !smart_equals(&existing_chunk_extra, &chunk_extra) {
+                maybe_print_db_stats(write_store);
                 panic!("Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(read_store, &apply_result.outcomes));
             }
         }
@@ -301,7 +303,7 @@ fn apply_block_from_range(
         flat_storage.update_flat_head(&block_hash).unwrap();
 
         // Apply trie changes to trie node caches.
-        let mut fake_store_update = read_store.store_update();
+        let mut fake_store_update = read_store.trie_store().store_update();
         apply_result.trie_changes.insertions_into(&mut fake_store_update);
         apply_result.trie_changes.deletions_into(&mut fake_store_update);
     } else {
@@ -359,10 +361,7 @@ pub fn apply_chain_range(
                 shard_id,
                 &shard_layout,
             );
-            let flat_head = match near_store::flat::store_helper::get_flat_storage_status(
-                &read_store,
-                shard_uid,
-            ) {
+            let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
                 Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
                 status => {
                     panic!("cannot create flat storage for shard {shard_id} with status {status:?}")

@@ -4,10 +4,12 @@
 
 It is a common task to need to look where `neard` is spending time. Outside of instrumentation
 we've also been successfully using sampling profilers to gain an intuition over how the code works
-and where it spends time.
+and where it spends time. It is a very quick way to get some baseline understanding of the
+performance characteristics, but due to its probabilistic nature it is also not particularly precise
+when it comes to small details.
 
-Linux's `perf` has been a tool of choice in most cases. In order to use it, first prepare your
-system:
+Linux's `perf` has been a tool of choice in most cases, although tools like Intel VTune could be
+used too. In order to use either, first prepare your system:
 
 ```command
 $ sudo sysctl kernel.perf_event_paranoid=0
@@ -28,22 +30,89 @@ Then collect a profile as such:
 
 ```command
 $ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 YOUR_COMMAND_HERE
+# or attach to a running process:
+$ perf record -e cpu-clock -F1000 -g --call-graph dwarf,65528 -p NEARD_PID
 ```
 
-(you may omit `-e cpu-clock` in certain environments for a more precise sampling timer.)
+This command will use the CPU time clock to determine when to trigger a sampling process and will
+do such sampling roughly 1000 times (the `-F` argument) every CPU second.
 
-This will produce a profile file in the current working directory. Although you can inspect the
-profile already with `perf report`, we've had much better experience with using [Firefox
-Profiler](https://profiler.firefox.com/) as the viewer. Although Firefox Profiler supports `perf`
-and many other different data formats, for `perf` in particular a conversion step is necessary:
+Once terminated, this command will produce a profile file in the current working directory.
+Although you can inspect the profile already with `perf report`, we've had much better experience
+with using [Firefox Profiler](https://profiler.firefox.com/) as the viewer. Although Firefox
+Profiler supports `perf` and many other different data formats, for `perf` in particular a
+conversion step is necessary:
 
 ```command
 $ perf script -F +pid > mylittleprofile.script
 ```
 
-Then, load this `mylittleprofile.script` with the tool.
+Then, load this `mylittleprofile.script` file with the profiler.
 
-## Memory profiling
+### Low overhead stack frame collection
+
+The command above uses `-g --call-graph dwarf,65528` parameter to instruct `perf` to collect
+stack trace for each sample using DWARF unwinding metadata. This will work no matter how `neard` is
+built, but is expensive and not super precise (e.g. it has trouble with JIT code.) If you have an
+ability to build a profiling-tuned build of `neard`, you can use higher quality stack frame
+collection.
+
+```command
+$ cargo build --release --config .cargo/config.profiling.toml -p neard
+```
+
+Then, replace the `--call-graph dwarf` with `--call-graph fp`:
+
+```command
+$ perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
+```
+
+### Profiling with hardware counters
+
+As mentioned earlier, sampling profiler is probablistic and the data it produces is only really
+suitable for a broad overview. Any attempt to analyze the performance of the code at the
+microarchitectural level (which you might want to do if investigating how to speed up a small but
+frequently invoked function) will be severely hampered by the low quality of data.
+
+For a long time now, CPUs are able to expose information about how it operates on the code at a
+very fine grained level: how many cycles have passed, how many instructions have been processed,
+how many branches have been taken, how many predictions were incorrect, how many cycles were spent
+waiting of a memory accesses and many more. These allow a much better look at how the code behaves.
+
+Until recently, use of these detailed counters was still sampling based -- the CPU would produce
+some information at a certain cadence of these counters (e.g. every 1000 instructions or cycles)
+which still shares a fair number of the same downsides as sampling `cpu-clock`. In order to address
+this downside, recent CPUs from both Intel and AMD have implemented a list of recent branches taken
+-- [Last Branch Record](https://lwn.net/Articles/680985/) or LBR. This is available on reasonably
+recent Intel architectures as well as starting with Zen 4 on the side of AMD. With LBRs profilers
+are able to gather information about the cycle counts between each branch, giving an accurate and
+precise evaluation of the performance at a [basic block](https://en.wikipedia.org/wiki/Basic_block)
+or function call level.
+
+It all sounds really nice, so why are we not using these mechanisms all the time? That's because
+GCP VMs don't allow access to these counters! In order to access them the code has to be run on
+your own hardware, or a VM instance that provides direct access to the hardware, such as the (quite
+expensive) `c3-highcpu-192-metal` type.
+
+Once everything is set up, though, the following command can gather some interesting information
+for you.
+
+```command
+$ perf record -e cycles:u -b -g --call-graph fp,65528 YOUR_COMMAND_HERE
+```
+
+Analyzing this data is, unfortunately, not as easy as chucking it away to Firefox Profiler. I'm not
+aware of any other ways to inspect the data other than using `perf report`:
+
+```command
+$ perf report -g --branch-history
+$ perf report -g --branch-stack
+```
+
+You may also be able to gather some interesting results if you use `--call-graph lbr` and the
+relevant reporting options as well.
+
+## Memory usage profiling
 
 `neard` is a pretty memory-intensive application with many allocations occurring constantly.
 Although Rust makes it pretty hard to introduce memory problems, it is still possible to leak
@@ -54,7 +123,7 @@ for example is introducing enough slowdown to significantly alter the behaviour 
 mention that to run it successfully and without crashing it will be necessary to comment out
 `neard`’s use of `jemalloc` for yet another substantial slowdown.
 
-So far the only took that worked out well out of the box was
+So far the only tool that worked out well out of the box was
 [`bytehound`](https://github.com/koute/bytehound). Using it is quite straightforward, but needs
 Linux, and ability to execute privileged commands.
 
@@ -115,8 +184,8 @@ However, `heaptrack myexportedfile` worked perfectly. I recommend opening the fi
 
 #### Crashes
 
-If the profiled `neard` crashes in your tests, there are a couple things you can try to get past
-it. First, makes sure your binary has the necessary ambient capabilities (`setcap` command above
+If the profiled `neard` crashes in your tests, there are a couple of things you can try to get past
+it. First, make sure your binary has the necessary ambient capabilities (`setcap` command above
 needs to be executed every time binary is replaced!)
 
 Another thing to try is disabling `jemalloc`. Comment out this code in `neard/src/main.rs`:

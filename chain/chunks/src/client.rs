@@ -7,7 +7,7 @@ use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use near_primitives::{
-    epoch_manager::RngSeed,
+    epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
     transaction::SignedTransaction,
     types::{AccountId, ShardId},
@@ -120,6 +120,7 @@ impl ShardedTransactionPool {
     /// the new shard layout.
     /// It works by emptying the pools for old shard uids and re-inserting the
     /// transactions back to the pool with the new shard uids.
+    /// TODO check if this logic works in resharding V3
     pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
         tracing::debug!(
             target: "resharding",
@@ -157,7 +158,7 @@ mod tests {
     use near_o11y::testonly::init_test_logger;
     use near_pool::types::TransactionGroupIterator;
     use near_primitives::{
-        epoch_manager::RngSeed,
+        epoch_info::RngSeed,
         hash::CryptoHash,
         shard_layout::{account_id_to_shard_uid, ShardLayout},
         transaction::SignedTransaction,
