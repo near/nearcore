@@ -2,7 +2,6 @@ import sys
 
 LOG_DIR = '/home/ubuntu/logs'
 STATUS_DIR = '/home/ubuntu/logs/status'
-SYSTEMD_DIR = '/etc/neard/'
 
 
 def run_cmd(node, cmd, raise_on_fail=False, return_on_fail=False):
