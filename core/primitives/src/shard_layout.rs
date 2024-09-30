@@ -223,6 +223,7 @@ impl ShardLayout {
         const VERSION: ShardVersion = 3;
 
         assert_eq!(boundary_accounts.len() + 1, shard_ids.len());
+        assert_eq!(boundary_accounts, boundary_accounts.iter().sorted().cloned().collect_vec());
 
         let Some(shards_split_map) = shards_split_map else {
             return Self::V2(ShardLayoutV2 {
