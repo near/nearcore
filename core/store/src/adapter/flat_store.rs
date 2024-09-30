@@ -244,6 +244,10 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
             .expect("Borsh should not have failed here")
     }
 
+    pub fn remove_status(&mut self, shard_uid: ShardUId) {
+        self.store_update.delete(DBCol::FlatStorageStatus, &shard_uid.to_bytes());
+    }
+
     pub fn set_delta(&mut self, shard_uid: ShardUId, delta: &FlatStateDelta) {
         let key =
             KeyForFlatStateDelta { shard_uid, block_hash: delta.metadata.block.hash }.to_bytes();
