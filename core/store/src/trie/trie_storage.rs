@@ -103,7 +103,7 @@ impl TrieCacheInner {
         assert!(total_size_limit > 0);
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
-        let shard_id_str = buffer.format(shard_id);
+        let shard_id_str = buffer.format(shard_id.get());
 
         let metrics_labels: [&str; 2] = [&shard_id_str, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {

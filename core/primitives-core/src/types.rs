@@ -92,6 +92,12 @@ impl ShardId {
     pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
         Self(u64::from_le_bytes(bytes))
     }
+
+    // TODO This is not great, in ShardUId shard_id is u32.
+    // Currently used for some metrics so kinda ok.
+    pub fn max() -> Self {
+        Self(u64::MAX)
+    }
 }
 
 impl Display for ShardId {
