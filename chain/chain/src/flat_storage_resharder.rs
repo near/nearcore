@@ -429,77 +429,57 @@ fn shard_split_handle_key_value(
         ));
     }
     let key_column_prefix = key[0];
-    let SplittingParentStatus { left_child_shard, right_child_shard, shard_layout, .. } = status;
-
-    // Copies a key value pair to the correct child by matching the account id to the new shard.
-    let copy_kv_to_child =
-        |account_id_parser: fn(&[u8]) -> Result<AccountId, _>| -> Result<(), std::io::Error> {
-            // Derive the shard uid for this account in the new shard layout.
-            let account_id = account_id_parser(&key)?;
-            let new_shard_id = account_id_to_shard_id(&account_id, shard_layout);
-            let new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
-
-            // Sanity check we are truly writing to one of the expected children shards.
-            if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
-                let err_msg = "account id doesn't map to any child shard!";
-                error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err_msg));
-            }
-            // Add the new flat store entry.
-            store_update.set(new_shard_uid, key, Some(value));
-            Ok(())
-        };
 
     match key_column_prefix {
-        col::ACCOUNT => copy_kv_to_child(parse_account_id_from_account_key)?,
-        col::CONTRACT_DATA => copy_kv_to_child(parse_account_id_from_contract_data_key)?,
-        col::CONTRACT_CODE => copy_kv_to_child(parse_account_id_from_contract_code_key)?,
-        col::ACCESS_KEY => copy_kv_to_child(parse_account_id_from_access_key_key)?,
-        col::RECEIVED_DATA => copy_kv_to_child(parse_account_id_from_received_data_key)?,
-        col::POSTPONED_RECEIPT_ID => copy_kv_to_child(|raw_key: &[u8]| {
-            parse_account_id_from_trie_key_with_separator(
-                col::POSTPONED_RECEIPT_ID,
-                raw_key,
-                ALL_COLUMNS_WITH_NAMES[col::POSTPONED_RECEIPT_ID as usize].1,
-            )
-        })?,
-        col::PENDING_DATA_COUNT => copy_kv_to_child(|raw_key: &[u8]| {
-            parse_account_id_from_trie_key_with_separator(
-                col::PENDING_DATA_COUNT,
-                raw_key,
-                ALL_COLUMNS_WITH_NAMES[col::PENDING_DATA_COUNT as usize].1,
-            )
-        })?,
-        col::POSTPONED_RECEIPT => copy_kv_to_child(|raw_key: &[u8]| {
-            parse_account_id_from_trie_key_with_separator(
-                col::POSTPONED_RECEIPT,
-                raw_key,
-                ALL_COLUMNS_WITH_NAMES[col::POSTPONED_RECEIPT as usize].1,
-            )
-        })?,
-        col::DELAYED_RECEIPT_OR_INDICES => {
-            // TODO(trisfald): implement logic and remove error log
-            error!(target: "resharding", "flat storage resharding of col::DELAYED_RECEIPT_OR_INDICES is not implemented yet!");
+        col::ACCOUNT => {
+            copy_kv_to_child(&status, key, value, store_update, parse_account_id_from_account_key)?
         }
-        col::PROMISE_YIELD_INDICES => {
-            // TODO(trisfald): implement logic and remove error log
-            error!(target: "resharding", "flat storage resharding of col::PROMISE_YIELD_INDICES is not implemented yet!");
+        col::CONTRACT_DATA => copy_kv_to_child(
+            &status,
+            key,
+            value,
+            store_update,
+            parse_account_id_from_contract_data_key,
+        )?,
+        col::CONTRACT_CODE => copy_kv_to_child(
+            &status,
+            key,
+            value,
+            store_update,
+            parse_account_id_from_contract_code_key,
+        )?,
+        col::ACCESS_KEY => copy_kv_to_child(
+            &status,
+            key,
+            value,
+            store_update,
+            parse_account_id_from_access_key_key,
+        )?,
+        col::RECEIVED_DATA => copy_kv_to_child(
+            &status,
+            key,
+            value,
+            store_update,
+            parse_account_id_from_received_data_key,
+        )?,
+        col::POSTPONED_RECEIPT_ID | col::PENDING_DATA_COUNT | col::POSTPONED_RECEIPT => {
+            copy_kv_to_child(&status, key, value, store_update, |raw_key: &[u8]| {
+                parse_account_id_from_trie_key_with_separator(
+                    key_column_prefix,
+                    raw_key,
+                    ALL_COLUMNS_WITH_NAMES[key_column_prefix as usize].1,
+                )
+            })?
         }
-        col::PROMISE_YIELD_TIMEOUT => {
+        col::DELAYED_RECEIPT_OR_INDICES
+        | col::PROMISE_YIELD_INDICES
+        | col::PROMISE_YIELD_TIMEOUT
+        | col::PROMISE_YIELD_RECEIPT
+        | col::BUFFERED_RECEIPT_INDICES
+        | col::BUFFERED_RECEIPT => {
             // TODO(trisfald): implement logic and remove error log
-            error!(target: "resharding", "flat storage resharding of col::PROMISE_YIELD_TIMEOUT is not implemented yet!");
-        }
-        col::PROMISE_YIELD_RECEIPT => {
-            // TODO(trisfald): implement logic and remove error log
-            error!(target: "resharding", "flat storage resharding of col::PROMISE_YIELD_RECEIPT is not implemented yet!");
-        }
-        col::BUFFERED_RECEIPT_INDICES => {
-            // TODO(trisfald): implement logic and remove error log
-            error!(target: "resharding", "flat storage resharding of col::BUFFERED_RECEIPT_INDICES is not implemented yet!");
-        }
-        col::BUFFERED_RECEIPT => {
-            // TODO(trisfald): implement logic and remove error log
-            error!(target: "resharding", "flat storage resharding of col::BUFFERED_RECEIPT is not implemented yet!");
+            let col_name = ALL_COLUMNS_WITH_NAMES[key_column_prefix as usize].1;
+            error!(target: "resharding", "flat storage resharding of {col_name} is not implemented yet!");
         }
         _ => unreachable!(),
     }
@@ -555,6 +535,31 @@ fn split_shard_task_postprocessing(
     store_update.commit().unwrap();
     // Terminate the resharding event.
     *resharder.resharding_event.lock().unwrap() = None;
+}
+
+/// Copies a key-value pair to the correct child shard by matching the account-id to the provided shard layout.
+fn copy_kv_to_child(
+    status: &SplittingParentStatus,
+    key: Vec<u8>,
+    value: FlatStateValue,
+    store_update: &mut FlatStoreUpdateAdapter,
+    account_id_parser: impl FnOnce(&[u8]) -> Result<AccountId, std::io::Error>,
+) -> Result<(), std::io::Error> {
+    let SplittingParentStatus { left_child_shard, right_child_shard, shard_layout, .. } = &status;
+    // Derive the shard uid for this account in the new shard layout.
+    let account_id = account_id_parser(&key)?;
+    let new_shard_id = account_id_to_shard_id(&account_id, shard_layout);
+    let new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
+
+    // Sanity check we are truly writing to one of the expected children shards.
+    if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
+        let err_msg = "account id doesn't map to any child shard!";
+        error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err_msg));
+    }
+    // Add the new flat store entry.
+    store_update.set(new_shard_uid, key, Some(value));
+    Ok(())
 }
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
