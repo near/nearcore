@@ -480,6 +480,10 @@ impl ShardLayout {
     pub fn get_shard_index(&self, shard_id: ShardId) -> usize {
         todo!()
     }
+
+    pub fn get_shard_id(&self, shard_index: usize) -> ShardId {
+        todo!()
+    }
 }
 
 /// Maps an account to the shard that it belongs to given a shard_layout
