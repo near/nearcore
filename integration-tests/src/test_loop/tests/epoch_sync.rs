@@ -27,7 +27,8 @@ use std::rc::Rc;
 
 struct TestNetworkSetup {
     tempdir: TempDir,
-    genesis_and_epoch_config_store: (Genesis, EpochConfigStore),
+    genesis: Genesis,
+    epoch_config_store: EpochConfigStore,
     accounts: Vec<AccountId>,
     stores: Vec<Store>,
 }
@@ -55,10 +56,11 @@ fn setup_initial_blockchain(num_clients: usize) -> TestNetworkSetup {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis_and_epoch_config_store = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
-        .genesis_and_epoch_config_store(genesis_and_epoch_config_store.clone())
+        .genesis(genesis.clone())
+        .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
         .build();
 
@@ -107,18 +109,19 @@ fn setup_initial_blockchain(num_clients: usize) -> TestNetworkSetup {
     let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
 
-    TestNetworkSetup { tempdir, genesis_and_epoch_config_store, accounts, stores }
+    TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
 }
 
 fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) -> TestNetworkSetup {
     tracing::info!("Starting new TestLoopEnv with new node");
-    let TestNetworkSetup { genesis_and_epoch_config_store, accounts, mut stores, tempdir } = setup;
+    let TestNetworkSetup { genesis, epoch_config_store, accounts, mut stores, tempdir } = setup;
     let num_existing_clients = stores.len();
     let clients = accounts.iter().take(num_existing_clients + 1).cloned().collect_vec();
     stores.push(create_test_store()); // new node starts empty.
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
-        .genesis_and_epoch_config_store(genesis_and_epoch_config_store.clone())
+        .genesis(genesis.clone())
+        .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
         .stores_override_hot_only(stores)
         .test_loop_data_dir(tempdir)
@@ -144,7 +147,7 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
     let peer_info = HighestHeightPeerInfo {
         archival: false,
         genesis_id: GenesisId {
-            chain_id: genesis_and_epoch_config_store.0.config.chain_id.clone(),
+            chain_id: genesis.config.chain_id.clone(),
             hash: *source_chain.genesis().hash(),
         },
         highest_block_hash: source_chain.head().unwrap().last_block_hash,
@@ -253,7 +256,7 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
     let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
 
-    TestNetworkSetup { tempdir, genesis_and_epoch_config_store, accounts, stores }
+    TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
 }
 
 // Test that a new node that only has genesis can use Epoch Sync to bring itself
@@ -283,11 +286,7 @@ impl TestNetworkSetup {
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
         let store = self.stores[node_index].clone();
-        let chain_store = ChainStore::new(
-            store,
-            self.genesis_and_epoch_config_store.0.config.genesis_height,
-            false,
-        );
+        let chain_store = ChainStore::new(store, self.genesis.config.genesis_height, false);
         chain_store.final_head().unwrap().height
     }
 
@@ -346,11 +345,7 @@ fn test_initial_epoch_sync_proof_sanity() {
     let setup = setup_initial_blockchain(4);
     let proof = setup.derive_epoch_sync_proof(0);
     let final_head_height = setup.chain_final_head_height(0);
-    sanity_check_epoch_sync_proof(
-        &proof,
-        final_head_height,
-        &setup.genesis_and_epoch_config_store.0.config,
-    );
+    sanity_check_epoch_sync_proof(&proof, final_head_height, &setup.genesis.config);
     // Requesting the proof should not have persisted the proof on disk. This is intentional;
     // it is to reduce the statefulness of the system so that we may modify the way the proof
     // is presented in the future (for e.g. bug fixes) without a DB migration.
@@ -366,11 +361,7 @@ fn test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     let new_proof = setup.derive_epoch_sync_proof(4);
     let final_head_height_old = setup.chain_final_head_height(0);
     let final_head_height_new = setup.chain_final_head_height(4);
-    sanity_check_epoch_sync_proof(
-        &new_proof,
-        final_head_height_new,
-        &setup.genesis_and_epoch_config_store.0.config,
-    );
+    sanity_check_epoch_sync_proof(&new_proof, final_head_height_new, &setup.genesis.config);
     // Test loop shutdown mechanism should not have left any new block messages unhandled,
     // so the nodes should be at the same height in the end.
     assert_eq!(final_head_height_old, final_head_height_new);
@@ -378,17 +369,9 @@ fn test_epoch_sync_proof_sanity_from_epoch_synced_node() {
 
     // On the original node we should have no proof but all headers.
     setup.assert_epoch_sync_proof_existence_on_disk(0, false);
-    setup.assert_header_existence(
-        0,
-        setup.genesis_and_epoch_config_store.0.config.genesis_height + 1,
-        true,
-    );
+    setup.assert_header_existence(0, setup.genesis.config.genesis_height + 1, true);
 
     // On the new node we should have a proof but missing headers for the old epochs.
     setup.assert_epoch_sync_proof_existence_on_disk(4, true);
-    setup.assert_header_existence(
-        4,
-        setup.genesis_and_epoch_config_store.0.config.genesis_height + 1,
-        false,
-    );
+    setup.assert_header_existence(4, setup.genesis.config.genesis_height + 1, false);
 }

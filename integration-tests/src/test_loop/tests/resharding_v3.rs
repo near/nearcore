@@ -4,7 +4,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::{ShardLayout, ShardLayoutV1};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
@@ -18,7 +18,7 @@ use crate::test_loop::utils::ONE_NEAR;
 /// After uncommenting panics with
 /// StorageInconsistentState("Failed to find root node ... in memtrie")
 #[test]
-#[ignore]
+// #[ignore]
 fn test_resharding_v3() {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
         return;
@@ -33,6 +33,7 @@ fn test_resharding_v3() {
         (0..8).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
     let block_and_chunk_producers = (0..8).map(|idx| accounts[idx].as_str()).collect_vec();
+    // TODO: set up chunk validator-only nodes.
 
     // Prepare shard split configuration.
     let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
@@ -42,18 +43,19 @@ fn test_resharding_v3() {
     base_epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
         false;
     let base_shard_layout = base_epoch_config.shard_layout.clone();
-    let base_num_shards = base_shard_layout.shard_ids().count() as ShardId;
     let mut epoch_config = base_epoch_config.clone();
-    let ShardLayout::V1(ShardLayoutV1 { mut boundary_accounts, version, .. }) =
-        base_shard_layout.clone()
-    else {
-        panic!("Expected shard layout v1");
-    };
-    let mut shards_split_map: Vec<Vec<ShardId>> =
-        (0..base_num_shards - 1).map(|i| vec![i]).collect();
-    shards_split_map.push(vec![base_num_shards - 1, base_num_shards]);
+    let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
+    let mut shard_ids: Vec<_> = base_shard_layout.shard_ids().collect();
+    let max_shard_id = *shard_ids.iter().max().unwrap();
+    let last_shard_id = shard_ids.pop().unwrap();
+    let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
+        shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
+    shard_ids.extend([max_shard_id + 1, max_shard_id + 2]);
+    shards_split_map.insert(last_shard_id, vec![max_shard_id + 1, max_shard_id + 2]);
     boundary_accounts.push(AccountId::try_from("x.near".to_string()).unwrap());
-    epoch_config.shard_layout = ShardLayout::v1(boundary_accounts, Some(shards_split_map), version);
+    epoch_config.shard_layout =
+        ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map));
+    let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),
         (base_protocol_version + 1, Arc::new(epoch_config)),
@@ -71,10 +73,8 @@ fn test_resharding_v3() {
     }
     let (genesis, _) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
-        .genesis_and_epoch_config_store((genesis, epoch_config_store))
-        .clients(clients)
-        .build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
@@ -84,7 +84,7 @@ fn test_resharding_v3() {
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
         assert!(epoch_height < 5);
         let epoch_config = client.epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
-        return epoch_config.shard_layout.shard_ids().count() == base_num_shards as usize + 1;
+        return epoch_config.shard_layout.shard_ids().count() == expected_num_shards;
     };
 
     test_loop.run_until(

@@ -48,7 +48,7 @@ pub fn standard_setup_1() -> TestLoopEnv {
     for account in accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis_and_epoch_config_store = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
-    builder.genesis_and_epoch_config_store(genesis_and_epoch_config_store).clients(clients).build()
+    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build()
 }

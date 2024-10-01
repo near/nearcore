@@ -77,10 +77,8 @@ fn test_fix_min_stake_ratio() {
     }
     let (genesis, _) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
-        .genesis_and_epoch_config_store((genesis, epoch_config_store))
-        .clients(clients)
-        .build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let client_sender = node_datas[0].client_sender.clone();
     let client_handle = node_datas[0].client_sender.actor_handle();

@@ -84,12 +84,10 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis_and_epoch_config_store = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
-        .genesis_and_epoch_config_store(genesis_and_epoch_config_store)
-        .clients(clients)
-        .build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     // Run chain until our targeted chunk validator is (not) kicked out.
     let client_handle = node_datas[0].client_sender.actor_handle();

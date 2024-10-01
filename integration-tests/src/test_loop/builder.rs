@@ -44,7 +44,8 @@ use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dr
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
-    genesis_and_epoch_config_store: Option<(Genesis, EpochConfigStore)>,
+    genesis: Option<Genesis>,
+    epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     /// Overrides the stores; rather than constructing fresh new stores, use
     /// the provided ones (to test with existing data).
@@ -77,7 +78,8 @@ impl TestLoopBuilder {
     pub(crate) fn new() -> Self {
         Self {
             test_loop: TestLoopV2::new(),
-            genesis_and_epoch_config_store: None,
+            genesis: None,
+            epoch_config_store: None,
             clients: vec![],
             stores_override: None,
             test_loop_data_dir: None,
@@ -98,11 +100,13 @@ impl TestLoopBuilder {
     }
 
     /// Set the genesis configuration for the test loop.
-    pub(crate) fn genesis_and_epoch_config_store(
-        mut self,
-        genesis_and_epoch_config_store: (Genesis, EpochConfigStore),
-    ) -> Self {
-        self.genesis_and_epoch_config_store = Some(genesis_and_epoch_config_store);
+    pub(crate) fn genesis(mut self, genesis: Genesis) -> Self {
+        self.genesis = Some(genesis);
+        self
+    }
+
+    pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
+        self.epoch_config_store = Some(epoch_config_store);
         self
     }
 
@@ -179,10 +183,7 @@ impl TestLoopBuilder {
     }
 
     fn ensure_genesis(self) -> Self {
-        assert!(
-            self.genesis_and_epoch_config_store.is_some(),
-            "Genesis must be provided to the test loop"
-        );
+        assert!(self.genesis.is_some(), "Genesis must be provided to the test loop");
         self
     }
 
@@ -236,7 +237,8 @@ impl TestLoopBuilder {
         let partial_witness_adapter = LateBoundSender::new();
         let sync_jobs_adapter = LateBoundSender::new();
 
-        let (genesis, epoch_config_store) = self.genesis_and_epoch_config_store.clone().unwrap();
+        let genesis = self.genesis.as_ref().unwrap();
+        let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
@@ -391,7 +393,7 @@ impl TestLoopBuilder {
                 let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
                     split_store.clone(),
                     &genesis.config,
-                    epoch_config_store,
+                    epoch_config_store.clone(),
                 );
                 let view_shard_tracker = ShardTracker::new(
                     TrackedConfig::from_config(&client_config),

@@ -37,12 +37,10 @@ fn test_client_with_multi_test_loop() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis_and_epoch_config_store = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
-        .genesis_and_epoch_config_store(genesis_and_epoch_config_store)
-        .clients(clients)
-        .build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
