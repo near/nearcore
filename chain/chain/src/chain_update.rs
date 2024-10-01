@@ -268,35 +268,27 @@ impl<'a> ChainUpdate<'a> {
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
-
-        if res.is_some() {
-            // On the epoch switch record the epoch light client block
-            // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
-            // This is necessary because the computation of the light client block relies on
-            // `ColNextBlockHash`-es populated, and they are only populated for the canonical
-            // chain. We need to be careful to avoid a situation when the first block of the epoch
-            // never becomes a tip of the canonical chain.
-            // Presently the epoch boundary is defined by the height, and the fork choice rule
-            // is also just height, so the very first block to cross the epoch end is guaranteed
-            // to be the head of the chain, and result in the light client block produced.
-            let prev = self.chain_store_update.get_previous_header(block.header())?;
-            let prev_epoch_id = *prev.epoch_id();
-            if block.header().epoch_id() != &prev_epoch_id {
-                if prev.last_final_block() != &CryptoHash::default() {
-                    let light_client_block = self.create_light_client_block(&prev)?;
-                    self.chain_store_update
-                        .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
-                }
-            }
-
-            let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
-            SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
-            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
-        }
         Ok(res)
     }
 
-    pub fn create_light_client_block(
+    pub fn save_light_client_block(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let prev = self.chain_store_update.get_previous_header(header)?;
+        let prev_epoch_id = *prev.epoch_id();
+        if header.epoch_id() != &prev_epoch_id {
+            if prev.last_final_block() != &CryptoHash::default() {
+                let light_client_block = self.create_light_client_block(&prev)?;
+                self.chain_store_update
+                    .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
+            }
+        }
+
+        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
+        SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
+        SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
+        Ok(())
+    }
+
+    fn create_light_client_block(
         &mut self,
         header: &BlockHeader,
     ) -> Result<LightClientBlockView, Error> {
