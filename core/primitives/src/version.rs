@@ -82,7 +82,11 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
         // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
         // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
-        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
+        let protocol_version = 72;
+        // Monday
+        let datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-10-07 10:00:00").unwrap();
+        let schedule = vec![(datetime, protocol_version)];
+        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
     });
 
 /// Gives new clients an option to upgrade without announcing that they support
