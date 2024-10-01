@@ -872,20 +872,13 @@ mod tests {
         let scheduler = TestScheduler {};
         let controller = FlatStorageResharderController::new();
 
-        let result = resharder.split_shard(
-            ReshardingSplitParams {
-                parent_shard: ShardUId { version: 3, shard_id: 1 },
-                left_child_shard: ShardUId { version: 3, shard_id: 2 },
-                right_child_shard: ShardUId { version: 3, shard_id: 3 },
-            },
-            &new_shard_layout,
-            &scheduler,
-            controller.clone(),
-        );
-        // TODO(Trisfald): replace the above with this simple call
-        // let result =
-        //     resharder.start_resharding_from_new_shard_layout(&new_shard_layout, &scheduler);
-        assert!(result.is_ok());
+        assert!(resharder
+            .start_resharding_from_new_shard_layout(
+                &new_shard_layout,
+                &scheduler,
+                controller.clone()
+            )
+            .is_ok());
 
         // Check flat storages of children contain the correct accounts.
         let left_child = ShardUId { version: 3, shard_id: 2 };
@@ -965,5 +958,26 @@ mod tests {
             );
             assert_eq!(flat_store.iter(child_shard).count(), 0);
         }
+    }
+
+    /// A shard can't be split if it isn't in ready state.
+    #[test]
+    fn reject_split_shard_if_parent_is_not_ready() {
+        let (_, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = TestScheduler {};
+        let controller = FlatStorageResharderController::new();
+
+        // Make flat storage of parent shard not ready.
+        let parent_shard = ShardUId { version: 3, shard_id: 1 };
+        let flat_store = resharder.inner.runtime.store().flat_store();
+        let mut store_update = flat_store.store_update();
+        store_update.set_flat_storage_status(parent_shard, FlatStorageStatus::Empty);
+        store_update.commit().unwrap();
+
+        // Trigger resharding and it should fail.
+        assert!(resharder
+            .start_resharding_from_new_shard_layout(&new_shard_layout, &scheduler, controller)
+            .is_err());
     }
 }
