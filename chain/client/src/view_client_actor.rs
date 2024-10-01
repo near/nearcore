@@ -299,6 +299,7 @@ impl ViewClientActorInner {
         let head = self.chain.head()?;
         let epoch_id = self.epoch_manager.get_epoch_id(&head.last_block_hash)?;
         let epoch_info: Arc<EpochInfo> = self.epoch_manager.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
         let cur_block_info = self.epoch_manager.get_block_info(&head.last_block_hash)?;
         let next_epoch_start_height =
@@ -309,13 +310,17 @@ impl ViewClientActorInner {
         let mut start_block_of_window: Option<BlockHeight> = None;
         let last_block_of_epoch = next_epoch_start_height - 1;
 
+        // This loop does not go beyond the current epoch so it is valid to use
+        // the EpochInfo and ShardLayout from the current epoch.
         for block_height in head.height..next_epoch_start_height {
             let bp = epoch_info.sample_block_producer(block_height);
             let bp = epoch_info.get_validator(bp).account_id().clone();
             let cps: Vec<AccountId> = shard_ids
                 .iter()
                 .map(|&shard_id| {
-                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id).unwrap();
+                    let cp = epoch_info
+                        .sample_chunk_producer(&shard_layout, shard_id, block_height)
+                        .unwrap();
                     let cp = epoch_info.get_validator(cp).account_id().clone();
                     cp
                 })

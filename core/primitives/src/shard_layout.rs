@@ -433,8 +433,8 @@ impl ShardLayout {
 
     pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> + '_ {
         match self {
-            Self::V0(_) => (0..self.num_shards()).collect_vec().into_iter(),
-            Self::V1(_) => (0..self.num_shards()).collect_vec().into_iter(),
+            Self::V0(_) => (0..self.num_shards()).map(ShardId::new).collect_vec().into_iter(),
+            Self::V1(_) => (0..self.num_shards()).map(ShardId::new).collect_vec().into_iter(),
             Self::V2(v2) => v2.shard_ids.clone().into_iter(),
         }
     }
@@ -443,6 +443,10 @@ impl ShardLayout {
     /// shards in the shard layout
     pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
+    }
+
+    pub(crate) fn get_shard_index(&self, shard_id: ShardId) -> usize {
+        todo!()
     }
 }
 
