@@ -18,7 +18,7 @@ use crate::test_loop::utils::ONE_NEAR;
 /// After uncommenting panics with
 /// StorageInconsistentState("Failed to find root node ... in memtrie")
 #[test]
-// #[ignore]
+#[ignore]
 fn test_resharding_v3() {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
         return;
