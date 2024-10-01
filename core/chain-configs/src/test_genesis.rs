@@ -189,15 +189,18 @@ impl TestGenesisBuilder {
     pub fn validators_raw(
         &mut self,
         validators: Vec<AccountInfo>,
-        num_block_and_chunk_producer_seats: NumSeats,
+        num_block_producer_seats: NumSeats,
+        num_chunk_producer_seats: NumSeats,
         num_chunk_validator_only_seats: NumSeats,
     ) -> &mut Self {
+        let num_chunk_validator_seats =
+            std::cmp::max(num_block_producer_seats, num_chunk_producer_seats)
+                + num_chunk_validator_only_seats;
         self.validators = Some(ValidatorsSpec::Raw {
             validators,
-            num_block_producer_seats: num_block_and_chunk_producer_seats,
-            num_chunk_producer_seats: num_block_and_chunk_producer_seats,
-            num_chunk_validator_seats: num_block_and_chunk_producer_seats
-                + num_chunk_validator_only_seats,
+            num_block_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
         });
         self
     }

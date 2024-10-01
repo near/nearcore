@@ -5,6 +5,7 @@ use near_async::messaging::{CanSend, MessageWithCallback, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
+use near_client::Client;
 use near_client::ProcessTxResponse;
 use near_network::client::ProcessTxRequest;
 use near_primitives::errors::InvalidTxError;
@@ -17,6 +18,21 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::{ONE_NEAR, TGAS};
+
+// Transactions have to be built on top of some block in chain. To make
+// sure all clients accept them, we select the head of the client with
+// the smallest height.
+pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
+    let (_, anchor_hash) = clients
+        .iter()
+        .map(|client| {
+            let head = client.chain.head().unwrap();
+            (head.height, head.last_block_hash)
+        })
+        .min_by_key(|&(height, _)| height)
+        .unwrap();
+    anchor_hash
+}
 
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
@@ -39,17 +55,8 @@ pub(crate) fn execute_money_transfers(
         .collect::<HashMap<_, _>>();
     let num_clients = clients.len();
 
-    // Transactions have to be built on top of some block in chain. To make
-    // sure all clients accept them, we select the head of the client with
-    // the smallest height.
-    let (_, anchor_hash) = clients
-        .iter()
-        .map(|client| {
-            let head = client.chain.head().unwrap();
-            (head.height, head.last_block_hash)
-        })
-        .min_by_key(|&(height, _)| height)
-        .unwrap();
+    let anchor_hash = get_anchor_hash(&clients);
+
     drop(clients);
 
     for i in 0..accounts.len() {

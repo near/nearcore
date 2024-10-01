@@ -60,6 +60,12 @@ pub(crate) struct TestLoopBuilder {
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
+    /// Specifies the chunks that should be produced by their appearance in the
+    /// chain with respect to the start of an epoch. That is, a given chunk at height
+    /// `height_included` for shard `shard_id` will be produced if
+    /// chunks_produced[`height_included` - `epoch_start`][`shard_id`] is true, or if
+    /// `height_included` - `epoch_start` > chunks_produced.len()
+    chunks_produced: Option<Vec<Vec<bool>>>,
     /// Whether test loop should drop all endorsements from the given account.
     drop_endorsements_from: Option<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
@@ -82,6 +88,7 @@ impl TestLoopBuilder {
             test_loop_data_dir: None,
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
+            chunks_produced: None,
             drop_chunks_validated_by: None,
             drop_endorsements_from: None,
             gc_num_epochs_to_keep: None,
@@ -125,6 +132,11 @@ impl TestLoopBuilder {
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
         self.archival_clients = clients;
+        self
+    }
+
+    pub(crate) fn chunks_produced(mut self, chunks_produced: Vec<Vec<bool>>) -> Self {
+        self.chunks_produced = Some(chunks_produced);
         self
     }
 
@@ -525,11 +537,12 @@ impl TestLoopBuilder {
                 Arc::new(self.test_loop.future_spawner()),
             );
 
-            if let Some(account_id) = &self.drop_chunks_validated_by {
+            if self.drop_chunks_validated_by.is_some() || self.chunks_produced.is_some() {
                 peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
                     self.chunks_storage.clone(),
                     epoch_manager_adapters[idx].clone(),
-                    account_id.clone(),
+                    self.drop_chunks_validated_by.clone(),
+                    self.chunks_produced.clone(),
                 ));
             }
 

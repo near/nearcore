@@ -64,7 +64,7 @@ fn test_fix_min_stake_ratio() {
         .shard_layout(ShardLayout::get_simple_nightshade_layout_v3())
         .protocol_version(ProtocolFeature::FixMinStakeRatio.protocol_version() - 1)
         .epoch_length(epoch_length)
-        .validators_raw(validators, 1, 2)
+        .validators_raw(validators, 1, 1, 2)
         // For genesis, set high minimum stake ratio so that small validator
         // will be excluded from the validator set.
         .minimum_stake_ratio(Rational32::new(1, 6_250))
