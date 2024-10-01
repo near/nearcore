@@ -58,6 +58,7 @@ pub type ShardVersion = u32;
     Debug,
     PartialEq,
     Eq,
+    ProtocolSchema,
 )]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
