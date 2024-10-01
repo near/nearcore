@@ -3,6 +3,14 @@
 ## [unreleased]
 
 ### Protocol Changes
+**No Changes**
+
+### Non-protocol Changes
+**No Changes**
+
+## 2.30
+
+### Protocol Changes
 * Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
 
 ### Non-protocol Changes
