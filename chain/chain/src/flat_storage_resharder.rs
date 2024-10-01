@@ -360,7 +360,12 @@ fn split_shard_task_impl(
 
     let (parent_shard, status) = get_parent_shard_and_status(&resharder);
 
-    info!(target: "resharding", ?parent_shard, "flat storage shard split task: starting key-values copy");
+    let parent_flat_head = status.flat_head;
+    info!(target: "resharding", ?parent_shard, ?parent_flat_head, "flat storage shard split task: starting key-values copy");
+
+    // Parent shard flat storage must be on the same height as the chain head. This guarantees that all
+    // deltas have been applied and thus the state of all key-values is up to date.
+    // TODO(trisfald): do this check, maybe call update_flat_storage_for_shard
 
     // Prepare the store object for commits and the iterator over parent's flat storage.
     let flat_store = resharder.runtime.store().flat_store();
