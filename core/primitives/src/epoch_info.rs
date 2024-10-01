@@ -3,7 +3,7 @@ use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::rand::WeightedIndex;
-use crate::shard_layout::{self, ShardLayout};
+use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
