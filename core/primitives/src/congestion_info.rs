@@ -85,7 +85,7 @@ impl CongestionControl {
         // `clamped_f64_fraction` clamps to exactly 1.0.
         if congestion == 1.0 {
             // Red traffic light: reduce to minimum speed
-            if sender_shard == self.info.allowed_shard() as u64 {
+            if sender_shard.get() == self.info.allowed_shard() as u64 {
                 self.config.allowed_shard_outgoing_gas
             } else {
                 0
@@ -97,7 +97,7 @@ impl CongestionControl {
 
     /// How much data another shard can send to us in the next block.
     pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> Gas {
-        if sender_shard == self.info.allowed_shard() as u64 {
+        if sender_shard.get() == self.info.allowed_shard() as u64 {
             // The allowed shard is allowed to send more data to us.
             self.config.outgoing_receipts_big_size_limit
         } else {
@@ -347,7 +347,7 @@ impl CongestionInfo {
         congestion_seed: u64,
     ) {
         let allowed_shard = Self::get_new_allowed_shard(own_shard, all_shards, congestion_seed);
-        self.set_allowed_shard(allowed_shard as u16);
+        self.set_allowed_shard(allowed_shard.get() as u16);
     }
 
     fn get_new_allowed_shard(
