@@ -499,7 +499,6 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
         // Split shard completed successfully.
         // Parent flat storage can be deleted.
         store_update.remove_flat_storage(parent_shard);
-        // TODO(trisfald): trigger parent delete
         // Children must perform catchup.
         for child_shard in [left_child_shard, right_child_shard] {
             store_update.set_flat_storage_status(
