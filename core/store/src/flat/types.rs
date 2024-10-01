@@ -82,7 +82,6 @@ impl Into<i64> for &FlatStorageStatus {
                 FlatStorageReshardingStatus::SplittingParent(_) => 20,
                 FlatStorageReshardingStatus::CreatingChild => 21,
                 FlatStorageReshardingStatus::CatchingUp(_) => 22,
-                FlatStorageReshardingStatus::ToBeDeleted => 23,
             },
         }
     }
@@ -150,8 +149,6 @@ pub enum FlatStorageReshardingStatus {
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
     CatchingUp(CryptoHash),
-    /// The shard does no longer exist and its content should be deleted.
-    ToBeDeleted,
 }
 
 /// Current step of fetching state to fill flat storage.

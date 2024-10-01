@@ -270,6 +270,12 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatStateDeltaMetadata);
     }
 
+    pub fn remove_flat_storage(&mut self, shard_uid: ShardUId) {
+        self.remove_all_deltas(shard_uid);
+        self.remove_all(shard_uid);
+        self.remove_status(shard_uid);
+    }
+
     // helper
     fn remove_range_by_shard_uid(&mut self, shard_uid: ShardUId, col: DBCol) {
         let key_from = shard_uid.to_bytes();

@@ -102,10 +102,6 @@ impl FlatStorageResharder {
                 // TODO(Trisfald): implement child catch up
                 todo!()
             }
-            FlatStorageReshardingStatus::ToBeDeleted => {
-                // Parent shard's content has been previously copied to the children.
-                // Nothing else to do.
-            }
         }
         Ok(())
     }
@@ -501,11 +497,8 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
     let mut store_update = flat_store.store_update();
     if success {
         // Split shard completed successfully.
-        // Parent flat storage can be later deleted.
-        store_update.set_flat_storage_status(
-            parent_shard,
-            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::ToBeDeleted),
-        );
+        // Parent flat storage can be deleted.
+        store_update.remove_flat_storage(parent_shard);
         // TODO(trisfald): trigger parent delete
         // Children must perform catchup.
         for child_shard in [left_child_shard, right_child_shard] {
@@ -526,9 +519,7 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
         );
         // Remove children shards leftovers.
         for child_shard in [left_child_shard, right_child_shard] {
-            store_update.remove_all_deltas(child_shard);
-            store_update.remove_all(child_shard);
-            store_update.remove_status(child_shard);
+            store_update.remove_flat_storage(child_shard);
         }
     }
     store_update.commit().unwrap();
@@ -743,11 +734,7 @@ mod tests {
 
         assert!(resharder.resharding_event().is_some());
         assert!(resharder
-            .start_resharding_from_new_shard_layout(
-                &new_shard_layout,
-                &scheduler,
-                controller.clone()
-            )
+            .start_resharding_from_new_shard_layout(&new_shard_layout, &scheduler, controller)
             .is_err());
     }
 
@@ -894,10 +881,8 @@ mod tests {
 
         // Check final status of children and parent flat storages.
         let parent = ShardUId { version: 3, shard_id: 1 };
-        assert_eq!(
-            flat_store.get_flat_storage_status(parent),
-            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::ToBeDeleted))
-        );
+        assert_eq!(flat_store.get_flat_storage_status(parent), Ok(FlatStorageStatus::Empty));
+        assert_eq!(flat_store.iter(parent).count(), 0);
         let last_hash = chain.head().unwrap().last_block_hash;
         assert_eq!(
             flat_store.get_flat_storage_status(left_child),
