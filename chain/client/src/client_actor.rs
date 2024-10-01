@@ -165,7 +165,7 @@ pub fn start_client(
         partial_witness_adapter,
     )
     .unwrap();
-    let resharding_handle = client.chain.resharding_handle.clone();
+    let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
