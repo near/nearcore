@@ -497,7 +497,12 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
     let mut store_update = flat_store.store_update();
     if success {
         // Split shard completed successfully.
-        // Parent flat storage can be deleted.
+        // Parent flat storage can be deleted from the FlatStoreManager.
+        resharder
+            .runtime
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(parent_shard, &mut store_update)
+            .unwrap();
         store_update.remove_flat_storage(parent_shard);
         // Children must perform catchup.
         for child_shard in [left_child_shard, right_child_shard] {
@@ -878,10 +883,18 @@ mod tests {
         // Controller should signal that resharding ended.
         assert_eq!(controller.completion_receiver.recv_timeout(Duration::from_secs(1)), Ok(true));
 
-        // Check final status of children and parent flat storages.
+        // Check final status of parent flat storage.
         let parent = ShardUId { version: 3, shard_id: 1 };
         assert_eq!(flat_store.get_flat_storage_status(parent), Ok(FlatStorageStatus::Empty));
         assert_eq!(flat_store.iter(parent).count(), 0);
+        assert!(resharder
+            .inner
+            .runtime
+            .get_flat_storage_manager()
+            .get_flat_storage_for_shard(parent)
+            .is_none());
+
+        // Check final status of children flat storages.
         let last_hash = chain.head().unwrap().last_block_hash;
         assert_eq!(
             flat_store.get_flat_storage_status(left_child),
