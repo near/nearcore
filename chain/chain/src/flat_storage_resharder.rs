@@ -53,7 +53,7 @@ pub struct FlatStorageResharder {
 #[derive(Clone)]
 struct FlatStorageResharderInner {
     runtime: Arc<dyn RuntimeAdapter>,
-    resharding_event: Arc<Mutex<Option<FlatStorageReshardingEvent>>>,
+    resharding_event: Arc<Mutex<Option<FlatStorageReshardingEventStatus>>>,
 }
 
 impl FlatStorageResharder {
@@ -189,12 +189,12 @@ impl FlatStorageResharder {
         }
     }
 
-    fn set_resharding_event(&self, event: FlatStorageReshardingEvent) {
+    fn set_resharding_event(&self, event: FlatStorageReshardingEventStatus) {
         *self.inner.resharding_event.lock().unwrap() = Some(event);
     }
 
     /// Returns the current in-progress resharding event, if any.
-    pub fn resharding_event(&self) -> Option<FlatStorageReshardingEvent> {
+    pub fn resharding_event(&self) -> Option<FlatStorageReshardingEventStatus> {
         self.inner.resharding_event.lock().unwrap().clone()
     }
 
@@ -206,7 +206,7 @@ impl FlatStorageResharder {
         scheduler: &dyn FlatStorageResharderScheduler,
         controller: FlatStorageResharderController,
     ) {
-        let event = FlatStorageReshardingEvent::Split(parent_shard, status.clone());
+        let event = FlatStorageReshardingEventStatus::SplitShard(parent_shard, status.clone());
         self.set_resharding_event(event);
         info!(target: "resharding", ?parent_shard, ?status,"scheduling flat storage shard split");
 
@@ -336,7 +336,7 @@ fn get_parent_shard_and_status(
 ) -> (ShardUId, SplittingParentStatus) {
     let event = resharder.resharding_event.lock().unwrap();
     match event.as_ref() {
-        Some(FlatStorageReshardingEvent::Split(parent_shard, status)) => {
+        Some(FlatStorageReshardingEventStatus::SplitShard(parent_shard, status)) => {
             (*parent_shard, status.clone())
         }
         None => panic!("a resharding event must exist!"),
@@ -373,8 +373,10 @@ fn split_shard_task_impl(
         let mut iter_exhausted = false;
         for _ in 0..BATCH_SIZE {
             match iter.next() {
-                Some(Ok(kv)) => {
-                    if let Err(err) = shard_split_handle_key_value(kv, &mut store_update, &status) {
+                Some(Ok((key, value))) => {
+                    if let Err(err) =
+                        shard_split_handle_key_value(key, value, &mut store_update, &status)
+                    {
                         error!(target: "resharding", ?err, "failed to handle flat storage key");
                         return false;
                     }
@@ -410,11 +412,11 @@ fn split_shard_task_impl(
 
 /// Handles the inheritance of a key-value pair from parent shard to children shards.
 fn shard_split_handle_key_value(
-    kv: (Vec<u8>, FlatStateValue),
+    key: Vec<u8>,
+    value: FlatStateValue,
     store_update: &mut FlatStoreUpdateAdapter,
     status: &SplittingParentStatus,
 ) -> Result<(), std::io::Error> {
-    let (key, value) = kv;
     if key.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -435,7 +437,7 @@ fn shard_split_handle_key_value(
             // Sanity check we are truly writing to one of the expected children shards.
             if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
                 let err_msg = "account id doesn't map to any child shard!";
-                error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, err_msg);
+                error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err_msg));
             }
             // Add the new flat store entry.
@@ -470,12 +472,30 @@ fn shard_split_handle_key_value(
                 ALL_COLUMNS_WITH_NAMES[col::POSTPONED_RECEIPT as usize].1,
             )
         })?,
-        col::DELAYED_RECEIPT_OR_INDICES => todo!(),
-        col::PROMISE_YIELD_INDICES => todo!(),
-        col::PROMISE_YIELD_TIMEOUT => todo!(),
-        col::PROMISE_YIELD_RECEIPT => todo!(),
-        col::BUFFERED_RECEIPT_INDICES => todo!(),
-        col::BUFFERED_RECEIPT => todo!(),
+        col::DELAYED_RECEIPT_OR_INDICES => {
+            // TODO(trisfald): implement logic and remove error log
+            error!(target: "resharding", "flat storage resharding of col::DELAYED_RECEIPT_OR_INDICES is not implemented yet!");
+        }
+        col::PROMISE_YIELD_INDICES => {
+            // TODO(trisfald): implement logic and remove error log
+            error!(target: "resharding", "flat storage resharding of col::PROMISE_YIELD_INDICES is not implemented yet!");
+        }
+        col::PROMISE_YIELD_TIMEOUT => {
+            // TODO(trisfald): implement logic and remove error log
+            error!(target: "resharding", "flat storage resharding of col::PROMISE_YIELD_TIMEOUT is not implemented yet!");
+        }
+        col::PROMISE_YIELD_RECEIPT => {
+            // TODO(trisfald): implement logic and remove error log
+            error!(target: "resharding", "flat storage resharding of col::PROMISE_YIELD_RECEIPT is not implemented yet!");
+        }
+        col::BUFFERED_RECEIPT_INDICES => {
+            // TODO(trisfald): implement logic and remove error log
+            error!(target: "resharding", "flat storage resharding of col::BUFFERED_RECEIPT_INDICES is not implemented yet!");
+        }
+        col::BUFFERED_RECEIPT => {
+            // TODO(trisfald): implement logic and remove error log
+            error!(target: "resharding", "flat storage resharding of col::BUFFERED_RECEIPT is not implemented yet!");
+        }
         _ => unreachable!(),
     }
     Ok(())
@@ -487,7 +507,7 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
     let (parent_shard, status) = get_parent_shard_and_status(&resharder);
     let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
     let flat_store = resharder.runtime.store().flat_store();
-    info!(target: "resharding", ?parent_shard, "flat storage shard split task: post-processing");
+    info!(target: "resharding", ?parent_shard, ?success, ?status, "flat storage shard split task: post-processing");
 
     let mut store_update = flat_store.store_update();
     if success {
@@ -528,10 +548,10 @@ fn split_shard_task_postprocessing(resharder: FlatStorageResharderInner, success
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
 #[derive(Clone, Debug)]
-pub enum FlatStorageReshardingEvent {
+pub enum FlatStorageReshardingEventStatus {
     /// Split a shard.
     /// Includes the parent shard uid and the operation' status.
-    Split(ShardUId, SplittingParentStatus),
+    SplitShard(ShardUId, SplittingParentStatus),
 }
 
 /// Helps control the flat storage resharder operation. More specifically,
@@ -753,7 +773,7 @@ mod tests {
 
         let resharding_event = resharder.resharding_event();
         match resharding_event.unwrap() {
-            FlatStorageReshardingEvent::Split(parent, status) => {
+            FlatStorageReshardingEventStatus::SplitShard(parent, status) => {
                 assert_eq!(
                     flat_store.get_flat_storage_status(parent),
                     Ok(FlatStorageStatus::Resharding(
