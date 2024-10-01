@@ -743,13 +743,25 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
+        SyncStatus::StateSync(StateSyncStatus {
+            sync_hash,
+            sync_status: shard_statuses,
+            download_tasks,
+            computation_tasks,
+        }) => {
             let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
+                write!(res, "[{}: {}]", shard_id, shard_status.to_string(),).unwrap();
             }
+            write!(
+                res,
+                " ({} downloads, {} computations)",
+                download_tasks.len(),
+                computation_tasks.len()
+            )
+            .unwrap();
             if let SyncConfig::Peers = state_sync_config {
                 tracing::warn!(
                     target: "stats",

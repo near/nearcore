@@ -1,7 +1,7 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
+    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -1100,7 +1100,14 @@ impl PeerActor {
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
                     //TODO: Route to state sync actor.
-                    network_state.client.send_async(StateResponse(info.into())).await.ok();
+                    network_state
+                        .client
+                        .send_async(StateResponseReceived {
+                            peer_id,
+                            state_response_info: info.into(),
+                        })
+                        .await
+                        .ok();
                     None
                 }
                 msg => {

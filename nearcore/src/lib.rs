@@ -12,6 +12,7 @@ use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 pub use near_chain::runtime::NightshadeRuntime;
@@ -223,6 +224,8 @@ pub struct NearNode {
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
+    // The threads that state sync runs in.
+    pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -381,6 +384,9 @@ pub fn start_with_config_and_synchronization(
         config.client_config.archive,
     ));
 
+    let state_sync_runtime =
+        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -390,6 +396,7 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         node_id,
         sync_adapter,
+        Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone())),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -508,5 +515,6 @@ pub fn start_with_config_and_synchronization(
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,
+        state_sync_runtime,
     })
 }

@@ -8,9 +8,7 @@ use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
-use near_async::messaging::Sender;
 use near_async::time::{Clock, Duration};
-use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -64,7 +62,6 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_primitives_core::num_rational::{Ratio, Rational32};
-use near_primitives_core::types::ShardId;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
@@ -2406,39 +2403,37 @@ fn test_catchup_gas_price_change() {
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
         .collect::<Vec<_>>();
 
-    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header.clone()).unwrap();
     for i in 0..num_parts {
         env.clients[1]
             .chain
             .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
-    let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let f = Sender::from_fn(move |msg: ApplyStatePartsRequest| {
-        let store = rt.store();
-
-        let shard_id = msg.shard_uid.shard_id as ShardId;
+    {
+        let store = env.clients[1].runtime_adapter.store();
         let mut store_update = store.store_update();
-        assert!(rt
+        assert!(env.clients[1]
+            .runtime_adapter
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update.flat_store_update())
+            .remove_flat_storage_for_shard(ShardUId::single_shard(), &mut store_update.flat_store_update())
             .unwrap());
         store_update.commit().unwrap();
-        for part_id in 0..msg.num_parts {
-            let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
+        for part_id in 0..num_parts {
+            let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
-
-            rt.apply_state_part(
-                shard_id,
-                &msg.state_root,
-                PartId::new(part_id, msg.num_parts),
-                &part,
-                &msg.epoch_id,
-            )
-            .unwrap();
+            env.clients[1]
+                .runtime_adapter
+                .apply_state_part(
+                    0,
+                    &state_sync_header.chunk_prev_state_root(),
+                    PartId::new(part_id, num_parts),
+                    &part,
+                    blocks[5].header().epoch_id(),
+                )
+                .unwrap();
         }
-    });
-    env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+    }
     env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
