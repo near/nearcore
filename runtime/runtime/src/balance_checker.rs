@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, ShardId};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, Trie, TrieAccess,
@@ -141,7 +141,7 @@ fn buffered_receipts(
     let mut forwarded_receipts: Vec<Receipt> = vec![];
     let mut new_buffered_receipts: Vec<Receipt> = vec![];
 
-    let mut shards: BTreeSet<u64> = BTreeSet::new();
+    let mut shards: BTreeSet<ShardId> = BTreeSet::new();
     shards.extend(initial_buffers.shards().iter());
     shards.extend(final_buffers.shards().iter());
     for shard_id in shards {
