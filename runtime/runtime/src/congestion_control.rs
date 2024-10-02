@@ -193,7 +193,7 @@ impl ReceiptSinkV2<'_> {
 
     fn forward_from_buffer_to_shard(
         &mut self,
-        shard_id: u64,
+        shard_id: ShardId,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
@@ -317,7 +317,7 @@ impl ReceiptSinkV2<'_> {
         size: u64,
         gas: u64,
         state_update: &mut TrieUpdate,
-        shard: u64,
+        shard: ShardId,
         use_state_stored_receipt: bool,
     ) -> Result<(), RuntimeError> {
         let receipt = match use_state_stored_receipt {
@@ -460,7 +460,7 @@ pub fn bootstrap_congestion_info(
         // It is also irrelevant, since the bootstrapped value is only used at
         // the start of applying a chunk on this shard. Other shards will only
         // see and act on the first congestion info after that.
-        allowed_shard: shard_id as u16,
+        allowed_shard: shard_id.into(),
     }))
 }
 

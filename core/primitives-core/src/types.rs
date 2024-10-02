@@ -141,3 +141,15 @@ impl From<usize> for ShardId {
         Self(id as u64)
     }
 }
+
+impl From<u16> for ShardId {
+    fn from(id: u16) -> Self {
+        Self(id as u64)
+    }
+}
+
+impl Into<u16> for ShardId {
+    fn into(self) -> u16 {
+        self.0 as u16
+    }
+}

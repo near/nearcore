@@ -1351,7 +1351,7 @@ impl Runtime {
         {
             // Note that receipts are restored only on mainnet so restored_receipts will be empty on
             // other chains.
-            migration_data.restored_receipts.get(&0u64).cloned().unwrap_or_default()
+            migration_data.restored_receipts.get(&0.into()).cloned().unwrap_or_default()
         } else {
             vec![]
         };
@@ -2020,7 +2020,10 @@ impl Runtime {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
             let all_shards = apply_state.congestion_info.all_shards();
 
-            let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
+            // TODO(wacban) Using non-contiguous shard id here breaks some
+            // assumptions. The shard index should be used here instead.
+            let congestion_seed =
+                apply_state.block_height.wrapping_add(apply_state.shard_id.into());
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 all_shards.as_slice(),
