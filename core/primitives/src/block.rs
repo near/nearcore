@@ -14,7 +14,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::ShardId;
+use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
@@ -782,7 +782,7 @@ impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
     }
 }
 
-impl<'a> Index<usize> for ChunksCollection<'a> {
+impl<'a> Index<ShardIndex> for ChunksCollection<'a> {
     type Output = ShardChunkHeader;
 
     /// Deprecated. Please use get instead, it's safer.
@@ -809,7 +809,7 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&ShardChunkHeader> {
+    pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
         match self {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),

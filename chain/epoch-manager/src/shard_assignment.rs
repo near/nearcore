@@ -342,8 +342,7 @@ pub(crate) fn assign_chunk_producers_to_shards(
 
 pub(crate) mod old_validator_selection {
     use crate::shard_assignment::{assign_to_satisfy_shards_inner, HasStake, NotEnoughValidators};
-    use near_primitives::types::{Balance, NumShards, ShardId};
-    use near_primitives::utils::min_heap::MinHeap;
+    use near_primitives::types::NumShards;
 
     use super::{
         StakeFirstShardAssignment, StakeFirstShardAssignmentItem, ValidatorsFirstShardAssignment,
