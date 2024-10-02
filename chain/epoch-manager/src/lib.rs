@@ -1998,6 +1998,7 @@ impl EpochManager {
 
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
@@ -2053,7 +2054,7 @@ impl EpochManager {
             };
 
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, prev_height);
+            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
