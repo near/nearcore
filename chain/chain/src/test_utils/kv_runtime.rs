@@ -170,7 +170,7 @@ impl MockEpochManager {
                     })
                     .collect();
 
-                let validators_per_shard = block_producers.len() as ShardId / vs.validator_groups;
+                let validators_per_shard = block_producers.len() / vs.validator_groups;
                 let coef = block_producers.len() as ShardId / vs.num_shards;
 
                 let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)

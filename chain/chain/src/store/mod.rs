@@ -243,8 +243,8 @@ pub trait ChainStoreAccess {
                     target: "chain",
                     version = shard_layout.version(),
                     prev_version = prev_shard_layout.version(),
-                    shard_id,
-                    parent_shard_id,
+                    ?shard_id,
+                    ?parent_shard_id,
                     "crossing epoch boundary with shard layout change, updating shard id"
                 );
                 shard_id = parent_shard_id;
@@ -352,10 +352,12 @@ pub trait ChainStoreAccess {
         let mut shard_id = shard_id;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
+            let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
+            let shard_index = shard_layout.get_shard_index(shard_id);
             if *block_header
                 .chunk_mask()
-                .get(shard_id as usize)
-                .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+                .get(shard_index)
+                .ok_or_else(|| Error::InvalidShardId(shard_id))?
             {
                 break Ok(*block_header.epoch_id());
             }
@@ -370,7 +372,7 @@ pub trait ChainStoreAccess {
 /// incoming receipts and the shard layout changed.
 fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
-    target_shard_id: u64,
+    target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
 ) -> Vec<ReceiptProof> {
     let mut filtered_receipt_proofs = vec![];
@@ -586,10 +588,10 @@ impl ChainStore {
         receipts: &mut Vec<Receipt>,
         protocol_version: ProtocolVersion,
         shard_layout: &ShardLayout,
-        shard_id: u64,
-        receipts_shard_id: u64,
+        shard_id: ShardId,
+        receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
@@ -2173,9 +2175,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 source_store.get_chunk_extra(block_hash, &shard_uid)?.clone(),
             );
         }
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+        for chunk_header in block.chunks().iter() {
+            let shard_id = chunk_header.shard_id();
             let chunk_hash = chunk_header.chunk_hash();
-            let shard_id = shard_id as u64;
             chain_store_update
                 .chain_store_cache_update
                 .chunks
