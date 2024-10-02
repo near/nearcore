@@ -211,7 +211,7 @@ impl ChunkSet {
         Self { chunks: HashMap::default() }
     }
     pub fn make(&mut self) -> Vec<ShardChunk> {
-        let shard_ids: Vec<_> = (0..4).collect();
+        let shard_ids: Vec<_> = (0..4).into_iter().map(Into::into).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(

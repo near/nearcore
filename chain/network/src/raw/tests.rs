@@ -38,7 +38,7 @@ async fn test_raw_conn_pings() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        vec![0],
+        vec![0.into()],
         time::Duration::SECOND,
     )
     .await
@@ -99,7 +99,7 @@ async fn test_raw_conn_state_parts() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        vec![0],
+        vec![0.into()],
         time::Duration::SECOND,
     )
     .await
@@ -110,7 +110,7 @@ async fn test_raw_conn_state_parts() {
     // But the fake node simply ignores the block hash.
     let block_hash = CryptoHash::new();
     for part_id in 0..num_parts {
-        conn.send_message(raw::DirectMessage::StateRequestPart(0, block_hash, part_id))
+        conn.send_message(raw::DirectMessage::StateRequestPart(0.into(), block_hash, part_id))
             .await
             .unwrap();
     }
@@ -174,7 +174,7 @@ async fn test_listener() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        vec![0],
+        vec![0.into()],
         false,
         time::Duration::SECOND,
     )

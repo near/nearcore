@@ -5,6 +5,7 @@ use crate::snapshot_hosts::{priority_score, Config, SnapshotHostInfoError, Snaps
 use crate::testonly::assert_is_superset;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::types::SnapshotHostInfo;
+use itertools::Itertools;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -52,17 +53,19 @@ async fn happy_path() {
     let cache = SnapshotHostsCache::new(config);
     assert_eq!(cache.get_hosts().len(), 0); // initially empty
 
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
     // initial insert
-    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, vec![0, 1, 2, 3], &key0));
-    let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, vec![2], &key1));
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1, 2, 3]), &key0));
+    let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[2]), &key1));
     let res = cache.insert(vec![info0.clone(), info1.clone()]).await;
     assert_eq!([&info0, &info1].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0, &info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
     // second insert with various types of updates
-    let info0new = Arc::new(make_snapshot_host_info(&peer0, 124, vec![1, 3], &key0));
-    let info1old = Arc::new(make_snapshot_host_info(&peer1, 122, vec![0, 1, 2, 3], &key1));
-    let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, vec![2], &key2));
+    let info0new = Arc::new(make_snapshot_host_info(&peer0, 124, sid_vec(&[1, 3]), &key0));
+    let info1old = Arc::new(make_snapshot_host_info(&peer1, 122, sid_vec(&[0, 1, 2, 3]), &key1));
+    let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[2]), &key2));
     let res = cache.insert(vec![info0new.clone(), info1old.clone(), info2.clone()]).await;
     assert_eq!([&info0new, &info2].as_set(), unwrap(&res).as_set());
     assert_eq!(
@@ -86,8 +89,11 @@ async fn invalid_signature() {
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
     let cache = SnapshotHostsCache::new(config);
 
-    let info0_invalid_sig = Arc::new(make_snapshot_host_info(&peer0, 1, vec![0, 1, 2, 3], &key1));
-    let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, vec![0, 1, 2, 3], &key1));
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    let shards = sid_vec(&[0, 1, 2, 3]);
+    let info0_invalid_sig = Arc::new(make_snapshot_host_info(&peer0, 1, shards.clone(), &key1));
+    let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, shards, &key1));
     let res = cache.insert(vec![info0_invalid_sig.clone(), info1.clone()]).await;
     // invalid signature => InvalidSignature
     assert_eq!(
@@ -119,12 +125,14 @@ async fn too_many_shards() {
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
     let cache = SnapshotHostsCache::new(config);
 
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
     // info0 is valid
-    let info0 = Arc::new(make_snapshot_host_info(&peer0, 1, vec![0, 1, 2, 3], &key0));
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 1, sid_vec(&[0, 1, 2, 3]), &key0));
 
     // info1 is invalid - it has more shard ids than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
     let too_many_shards: Vec<ShardId> =
-        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).into_iter().map(Into::into).collect();
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, too_many_shards, &key1));
 
     // info1.verify() should fail
@@ -155,8 +163,10 @@ async fn duplicate_peer_id() {
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
     let cache = SnapshotHostsCache::new(config);
 
-    let info00 = Arc::new(make_snapshot_host_info(&peer0, 1, vec![0, 1, 2, 3], &key0));
-    let info01 = Arc::new(make_snapshot_host_info(&peer0, 2, vec![0, 3], &key0));
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
+    let info00 = Arc::new(make_snapshot_host_info(&peer0, 1, sid_vec(&[0, 1, 2, 3]), &key0));
+    let info01 = Arc::new(make_snapshot_host_info(&peer0, 2, sid_vec(&[0, 3]), &key0));
     let res = cache.insert(vec![info00.clone(), info01.clone()]).await;
     // duplicate peer ids => DuplicatePeerId
     assert_eq!(Some(SnapshotHostInfoError::DuplicatePeerId), res.1);
@@ -182,19 +192,21 @@ async fn test_lru_eviction() {
     let config = Config { snapshot_hosts_cache_size: 2, part_selection_cache_batch_size: 1 };
     let cache = SnapshotHostsCache::new(config);
 
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
     // initial inserts to capacity
-    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, vec![0, 1, 2, 3], &key0));
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 123, sid_vec(&[0, 1, 2, 3]), &key0));
     let res = cache.insert(vec![info0.clone()]).await;
     assert_eq!([&info0].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
-    let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, vec![2], &key1));
+    let info1 = Arc::new(make_snapshot_host_info(&peer1, 123, sid_vec(&[2]), &key1));
     let res = cache.insert(vec![info1.clone()]).await;
     assert_eq!([&info1].as_set(), unwrap(&res).as_set());
     assert_eq!([&info0, &info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 
     // insert past capacity
-    let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, vec![1, 3], &key2));
+    let info2 = Arc::new(make_snapshot_host_info(&peer2, 123, sid_vec(&[1, 3]), &key2));
     let res = cache.insert(vec![info2.clone()]).await;
     // check that the new data is accepted
     assert_eq!([&info2].as_set(), unwrap(&res).as_set());
@@ -318,7 +330,7 @@ async fn run_select_peer_test(
                 assert!(err.is_none());
             }
             SelectPeerAction::CallSelect(wanted) => {
-                let peer = cache.select_host_for_part(sync_hash, 0, part_id);
+                let peer = cache.select_host_for_part(sync_hash, 0.into(), part_id);
                 let wanted = match wanted {
                     Some(idx) => Some(&peers[*idx].peer_id),
                     None => None,
@@ -326,9 +338,10 @@ async fn run_select_peer_test(
                 assert!(peer.as_ref() == wanted, "got: {:?} want: {:?}", &peer, &wanted);
             }
             SelectPeerAction::PartReceived => {
-                assert!(cache.has_selector(0, part_id));
-                cache.part_received(0, part_id);
-                assert!(!cache.has_selector(0, part_id));
+                let shard_id = 0.into();
+                assert!(cache.has_selector(shard_id, part_id));
+                cache.part_received(shard_id, part_id);
+                assert!(!cache.has_selector(shard_id, part_id));
             }
         }
     }
@@ -342,11 +355,15 @@ async fn test_select_peer() {
     let part_id = 0;
     let num_peers = SELECT_PEER_CASES.iter().map(|t| t.num_peers).max().unwrap();
     let mut peers = Vec::with_capacity(num_peers);
+
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+
     for _ in 0..num_peers {
         let key = data::make_secret_key(&mut rng);
         let peer_id = PeerId::new(key.public_key());
-        let score = priority_score(&peer_id, 0u64, part_id);
-        let info = Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, vec![0, 1, 2, 3], &key));
+        let score = priority_score(&peer_id, 0.into(), part_id);
+        let info =
+            Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, sid_vec(&[0, 1, 2, 3]), &key));
         peers.push((info, score));
     }
     peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| {
