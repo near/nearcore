@@ -1,6 +1,5 @@
 use bitvec::prelude::*;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents a collection of bitmaps, one per shard, to store whether the endorsements from the chunk validators has been received.
@@ -90,7 +89,6 @@ impl ChunkEndorsementsBitmap {
 mod tests {
     use super::ChunkEndorsementsBitmap;
     use itertools::Itertools;
-    use near_primitives_core::types::ShardId;
     use rand::Rng;
 
     const NUM_SHARDS: usize = 4;

@@ -72,6 +72,12 @@ pub type ProtocolVersion = u32;
 )]
 pub struct ShardId(u64);
 
+/// The ShardIndex is the index of the shard in an array of shard data.
+/// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
+/// as the shard index. This is no longer the case, and the ShardIndex should be
+/// used instead.
+pub type ShardIndex = usize;
+
 impl ShardId {
     /// Create a new shard id. Please note that this function should not be used
     /// directly. Instead the ShardId should be obtained from the shard_layout.

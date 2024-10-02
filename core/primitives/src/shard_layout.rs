@@ -477,11 +477,11 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
-    pub fn get_shard_index(&self, shard_id: ShardId) -> usize {
+    pub fn get_shard_index(&self, _shard_id: ShardId) -> usize {
         todo!()
     }
 
-    pub fn get_shard_id(&self, shard_index: usize) -> ShardId {
+    pub fn get_shard_id(&self, _shard_index: usize) -> ShardId {
         todo!()
     }
 }
