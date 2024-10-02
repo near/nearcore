@@ -204,6 +204,14 @@ impl ShardLayoutV2 {
         }
         self.shard_ids[shard_id_index]
     }
+
+    pub fn shards_split_map(&self) -> &Option<ShardsSplitMapV2> {
+        &self.shards_split_map
+    }
+
+    pub fn boundary_accounts(&self) -> &Vec<AccountId> {
+        &self.boundary_accounts
+    }
 }
 
 #[derive(Debug)]
