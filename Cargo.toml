@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.0.0"                               # managed by cargo-workspaces, see below
+version = "2.3.0-rc.1"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 rust-version = "1.81.0"
@@ -14,7 +14,7 @@ license = "MIT OR Apache-2.0"
 # anything to the list of stable crates.
 # Only bump  0.x.* to 0.(x+1).0 on any nearcore release as nearcore does not guarantee
 # semver compatibility. i.e. api can change without a protocol upgrade.
-version = "0.20.1"
+version = "0.27.0"
 exclude = ["neard"]
 
 [workspace]
