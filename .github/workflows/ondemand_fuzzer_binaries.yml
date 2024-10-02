@@ -23,7 +23,7 @@ on:
 jobs:
   build_fuzzers:
     name: Build Fuzzers
-    runs-on: "ubuntu-20.04-32core"
+    runs-on: "ubuntu-22.04-16core"
 
     permissions:
       contents: "read"
@@ -57,13 +57,13 @@ jobs:
           rustup install nightly
           rustup default nightly
 
-      - uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-bolero
           # TODO: remove the below once https://github.com/camshaft/bolero/pull/195 is released on crates.io
           # and https://github.com/camshaft/bolero/pull/196 has a proper fix
-          git: https://github.com/camshaft/bolero
-          rev: 4ca2dcd6d658b33b4471081c900364043b018a9a
+          git: https://github.com/Ekleog-NEAR/bolero
+          rev: 56da8e6d1d018519a30b36d85d3a53fe35a42eaf
 
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
