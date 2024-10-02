@@ -176,7 +176,7 @@ outflow per is limited to N * 1000 Tgas but the incoming flow is unlimited.</p>
 <p>For a finite amount of time, we can accept more inflow than outflow, we just have to add buffers to store what we cannot execute, yet. But to stay within finite memory requirements, we need to fall back to a flow diagram where outflows are greater or equal to inflows within a finite time frame.</p>
 <p>Next, we look at ideas one at a time before combining some of them into the
 cross-shard congestion design proposed in
-<a href="https://github.com/near/NEPs/pull/539">NEP-539</a>.</p>
+<a href="https://github.com/near/NEPs/blob/master/neps/nep-0539.md">NEP-539</a>.</p>
 <h2 id="idea-1-compute-the-minimum-max-flow-and-stay-below-that-limit"><a class="header" href="#idea-1-compute-the-minimum-max-flow-and-stay-below-that-limit">Idea 1: Compute the minimum max-flow and stay below that limit</a></h2>
 <p>One approach to solve congestion would be to never allow more work into the
 system than we can execute.</p>
@@ -276,7 +276,7 @@ eventually end up with full buffers. Combined with idea 2, eventually all
 transactions to those shards are rejected. All of this without affecting shards
 that are not on the critical path.</p>
 <h2 id="putting-it-all-together"><a class="header" href="#putting-it-all-together">Putting it all together</a></h2>
-<p>The proposal in <a href="https://github.com/near/NEPs/pull/539">NEP-539</a> combines all
+<p>The proposal in <a href="https://github.com/near/NEPs/blob/master/neps/nep-0539.md">NEP-539</a> combines all
 ideas 2, 3, and 4.</p>
 <p>We have a limit of how much memory we consider to be normal operations (for
 example 500 MB). Then we stop new transaction coming in to that shard but still
