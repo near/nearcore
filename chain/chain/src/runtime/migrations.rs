@@ -55,7 +55,7 @@ mod tests {
             "48ZMJukN7RzvyJSW9MJ5XmyQkQFfjy2ZxPRaDMMHqUcT"
         );
         let mainnet_migration_data = load_migration_data(near_primitives::chains::MAINNET);
-        assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
+        assert_eq!(mainnet_migration_data.restored_receipts.get(&0.into()).unwrap().len(), 383);
         let testnet_migration_data = load_migration_data(near_primitives::chains::TESTNET);
         assert!(testnet_migration_data.restored_receipts.is_empty());
     }

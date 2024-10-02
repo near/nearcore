@@ -130,6 +130,12 @@ impl From<u32> for ShardId {
     }
 }
 
+impl Into<u32> for ShardId {
+    fn into(self) -> u32 {
+        self.0 as u32
+    }
+}
+
 impl From<i32> for ShardId {
     fn from(id: i32) -> Self {
         Self(id as u64)

@@ -587,7 +587,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let height = block.header().height();
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+        for chunk_header in block.chunks().iter() {
+            let shard_id = chunk_header.shard_id();
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
@@ -682,7 +683,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let head_height = block.header().height();
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+        for chunk_header in block.chunks().iter() {
+            let shard_id = chunk_header.shard_id();
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
