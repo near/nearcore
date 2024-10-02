@@ -112,9 +112,26 @@ impl Display for ShardId {
     }
 }
 
-// TODO remove that!!!!
 impl From<u64> for ShardId {
     fn from(id: u64) -> Self {
         Self(id)
+    }
+}
+
+impl From<u32> for ShardId {
+    fn from(id: u32) -> Self {
+        Self(id as u64)
+    }
+}
+
+impl From<i32> for ShardId {
+    fn from(id: i32) -> Self {
+        Self(id as u64)
+    }
+}
+
+impl From<usize> for ShardId {
+    fn from(id: usize) -> Self {
+        Self(id as u64)
     }
 }
