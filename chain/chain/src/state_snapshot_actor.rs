@@ -92,7 +92,7 @@ impl StateSnapshotActor {
                     NetworkRequests::SnapshotHostInfo {
                         sync_hash: prev_block_hash,
                         epoch_height,
-                        shards: res_shard_uids.iter().map(|uid| uid.shard_id as ShardId).collect(),
+                        shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
                     },
                 ));
             }
