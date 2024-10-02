@@ -118,6 +118,12 @@ impl From<u64> for ShardId {
     }
 }
 
+impl Into<u64> for ShardId {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
 impl From<u32> for ShardId {
     fn from(id: u32) -> Self {
         Self(id as u64)
