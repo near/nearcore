@@ -234,7 +234,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         }
     }
 
-    pub fn remove_all(&mut self, shard_uid: ShardUId) {
+    pub fn remove_all_values(&mut self, shard_uid: ShardUId) {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatState);
     }
 
@@ -270,9 +270,10 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatStateDeltaMetadata);
     }
 
+    /// Removes flat storage in its entirety for a shard: deltas, values and status.
     pub fn remove_flat_storage(&mut self, shard_uid: ShardUId) {
         self.remove_all_deltas(shard_uid);
-        self.remove_all(shard_uid);
+        self.remove_all_values(shard_uid);
         self.remove_status(shard_uid);
     }
 

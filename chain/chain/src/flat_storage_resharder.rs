@@ -222,7 +222,7 @@ impl FlatStorageResharder {
         let mut store_update = self.inner.runtime.store().flat_store().store_update();
         for child in [left_child_shard, right_child_shard] {
             store_update.remove_all_deltas(*child);
-            store_update.remove_all(*child);
+            store_update.remove_all_values(*child);
         }
         store_update.commit()?;
         Ok(())
@@ -421,12 +421,9 @@ fn shard_split_handle_key_value(
     value: FlatStateValue,
     store_update: &mut FlatStoreUpdateAdapter,
     status: &SplittingParentStatus,
-) -> Result<(), std::io::Error> {
+) -> Result<(), Error> {
     if key.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "flat storage key is empty",
-        ));
+        panic!("flat storage key is empty!")
     }
     let key_column_prefix = key[0];
 
@@ -544,7 +541,7 @@ fn copy_kv_to_child(
     value: FlatStateValue,
     store_update: &mut FlatStoreUpdateAdapter,
     account_id_parser: impl FnOnce(&[u8]) -> Result<AccountId, std::io::Error>,
-) -> Result<(), std::io::Error> {
+) -> Result<(), Error> {
     let SplittingParentStatus { left_child_shard, right_child_shard, shard_layout, .. } = &status;
     // Derive the shard uid for this account in the new shard layout.
     let account_id = account_id_parser(&key)?;
@@ -555,7 +552,7 @@ fn copy_kv_to_child(
     if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
         let err_msg = "account id doesn't map to any child shard!";
         error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err_msg));
+        return Err(Error::ReshardingError(err_msg.to_string()));
     }
     // Add the new flat store entry.
     store_update.set(new_shard_uid, key, Some(value));
