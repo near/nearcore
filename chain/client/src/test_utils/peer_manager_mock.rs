@@ -1,5 +1,6 @@
-use near_network::types::SetChainInfo;
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
+};
 
 pub struct PeerManagerMock {
     handle: Box<
@@ -36,4 +37,9 @@ impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
 impl actix::Handler<SetChainInfo> for PeerManagerMock {
     type Result = ();
     fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+}
+
+impl actix::Handler<StateSyncEvent> for PeerManagerMock {
+    type Result = ();
+    fn handle(&mut self, _msg: StateSyncEvent, _ctx: &mut Self::Context) {}
 }

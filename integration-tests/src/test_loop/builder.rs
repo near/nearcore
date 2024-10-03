@@ -6,7 +6,6 @@ use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
-use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
@@ -27,9 +26,11 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
 use near_parameters::RuntimeConfigStore;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
+use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
@@ -39,11 +40,12 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::partial_encoded_chunks_dropper;
+use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
+    epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     /// Overrides the stores; rather than constructing fresh new stores, use
     /// the provided ones (to test with existing data).
@@ -60,6 +62,8 @@ pub(crate) struct TestLoopBuilder {
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
+    /// Whether test loop should drop all endorsements from the given account.
+    drop_endorsements_from: Option<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
@@ -75,12 +79,14 @@ impl TestLoopBuilder {
         Self {
             test_loop: TestLoopV2::new(),
             genesis: None,
+            epoch_config_store: None,
             clients: vec![],
             stores_override: None,
             test_loop_data_dir: None,
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
             drop_chunks_validated_by: None,
+            drop_endorsements_from: None,
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
@@ -99,6 +105,11 @@ impl TestLoopBuilder {
         self
     }
 
+    pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
+        self.epoch_config_store = Some(epoch_config_store);
+        self
+    }
+
     /// Set the clients for the test loop.
     pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
@@ -112,6 +123,12 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Like stores_override, but all cold stores are None.
+    pub fn stores_override_hot_only(mut self, stores: Vec<Store>) -> Self {
+        self.stores_override = Some(stores.into_iter().map(|store| (store, None)).collect());
+        self
+    }
+
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
@@ -121,6 +138,11 @@ impl TestLoopBuilder {
 
     pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
         self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
+        self
+    }
+
+    pub(crate) fn drop_endorsements_from(mut self, account_id: &str) -> Self {
+        self.drop_endorsements_from = Some(account_id.parse().unwrap());
         self
     }
 
@@ -215,7 +237,8 @@ impl TestLoopBuilder {
         let partial_witness_adapter = LateBoundSender::new();
         let sync_jobs_adapter = LateBoundSender::new();
 
-        let genesis = self.genesis.clone().unwrap();
+        let genesis = self.genesis.as_ref().unwrap();
+        let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
@@ -236,15 +259,21 @@ impl TestLoopBuilder {
                 location: external_storage_location,
                 num_concurrent_requests: 1,
                 num_concurrent_requests_during_catchup: 1,
+                // We go straight to storage here because the network layer basically
+                // doesn't exist in testloop. We could mock a bunch of stuff to make
+                // the clients transfer state parts "peer to peer" but we wouldn't really
+                // gain anything over having them dump parts to a tempdir.
+                external_storage_fallback_threshold: 0,
             }),
         };
 
         // Configure tracked shards.
         // * single shard tracking for validators
         // * all shard tracking for non-validators (RPCs and archival)
-        let num_block_producer = genesis.config.num_block_producer_seats;
-        let num_chunk_producer = genesis.config.num_chunk_producer_seats;
-        let num_chunk_validator = genesis.config.num_chunk_validator_seats;
+        let epoch_config = epoch_config_store.get_config(genesis.config.protocol_version);
+        let num_block_producer = epoch_config.num_block_producer_seats;
+        let num_chunk_producer = epoch_config.validator_selection_config.num_chunk_producer_seats;
+        let num_chunk_validator = epoch_config.validator_selection_config.num_chunk_validator_seats;
         let validator_num =
             num_block_producer.max(num_chunk_producer).max(num_chunk_validator) as usize;
         if idx < validator_num {
@@ -280,7 +309,11 @@ impl TestLoopBuilder {
 
         let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
         let chain_genesis = ChainGenesis::new(&genesis.config);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+            store.clone(),
+            &genesis.config,
+            epoch_config_store.clone(),
+        );
         let shard_tracker =
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
@@ -357,8 +390,11 @@ impl TestLoopBuilder {
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
         let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
             if let Some(split_store) = &split_store {
-                let view_epoch_manager =
-                    EpochManager::new_arc_handle(split_store.clone(), &genesis.config);
+                let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+                    split_store.clone(),
+                    &genesis.config,
+                    epoch_config_store.clone(),
+                );
                 let view_shard_tracker = ShardTracker::new(
                     TrackedConfig::from_config(&client_config),
                     epoch_manager.clone(),
@@ -398,7 +434,7 @@ impl TestLoopBuilder {
             shard_tracker.clone(),
             network_adapter.as_sender(),
             client_adapter.as_sender(),
-            ReadOnlyChunksStore::new(split_store.as_ref().unwrap_or(&store).clone()),
+            store.chunk_store(),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
             Duration::milliseconds(100),
@@ -517,6 +553,11 @@ impl TestLoopBuilder {
                     epoch_manager_adapters[idx].clone(),
                     account_id.clone(),
                 ));
+            }
+
+            if let Some(account_id) = &self.drop_endorsements_from {
+                peer_manager_actor
+                    .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
             }
 
             self.test_loop.register_actor_for_index(

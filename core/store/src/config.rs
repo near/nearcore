@@ -112,10 +112,10 @@ pub struct StateSnapshotConfig {
 pub enum StateSnapshotType {
     /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
     /// State snapshots involve filesystem operations and costly IO operations.
-    #[default]
     ForReshardingOnly,
     /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
     /// Needed if a node wants to be able to respond to state part requests.
+    #[default]
     EveryEpoch,
 }
 

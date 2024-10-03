@@ -9,6 +9,7 @@ use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::MissingChunksPool;
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use crate::resharding::manager::ReshardingManager;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
@@ -40,9 +41,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{
-    MutableConfigValue, MutableValidatorSigner, ReshardingConfig, ReshardingHandle,
-};
+use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -90,8 +89,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
@@ -277,12 +277,8 @@ pub struct Chain {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    /// Configuration for resharding.
-    pub(crate) resharding_config: MutableConfigValue<near_chain_configs::ReshardingConfig>,
-
-    // A handle that allows the main process to interrupt resharding if needed.
-    // This typically happens when the main process is interrupted.
-    pub resharding_handle: ReshardingHandle,
+    /// Manages all tasks related to resharding.
+    pub resharding_manager: ReshardingManager,
 }
 
 impl Drop for Chain {
@@ -363,6 +359,11 @@ impl Chain {
             state_roots,
         )?;
         let (sc, rc) = unbounded();
+        let resharding_manager = ReshardingManager::new(
+            store.clone(),
+            epoch_manager.clone(),
+            MutableConfigValue::new(Default::default(), "resharding_config"),
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -386,11 +387,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
-            resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
-                "resharding_config",
-            ),
-            resharding_handle: ReshardingHandle::new(),
+            resharding_manager,
         })
     }
 
@@ -483,7 +480,7 @@ impl Chain {
                 let mut tmp_store_update = store_update.store().store_update();
                 for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
                     flat_storage_manager.set_flat_storage_for_genesis(
-                        &mut tmp_store_update,
+                        &mut tmp_store_update.flat_store_update(),
                         shard_uid,
                         genesis.hash(),
                         genesis.header().height(),
@@ -538,6 +535,11 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store().clone(),
+            epoch_manager.clone(),
+            chain_config.resharding_config,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -561,8 +563,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks,
-            resharding_config: chain_config.resharding_config,
-            resharding_handle: ReshardingHandle::new(),
+            resharding_manager,
         })
     }
 
@@ -1936,20 +1937,13 @@ impl Chain {
                 true,
             );
             let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
             if care_about_shard_this_or_next_epoch {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
                 shards_cares_this_or_next_epoch.push(shard_uid);
             }
 
-            // Update flat storage head to be the last final block. Note that this update happens
-            // in a separate db transaction from the update from block processing. This is intentional
-            // because flat_storage need to be locked during the update of flat head, otherwise
-            // flat_storage is in an inconsistent state that could be accessed by the other
-            // apply chunks processes. This means, the flat head is not always the same as
-            // the last final block on chain, which is OK, because in the flat storage implementation
-            // we don't assume that.
-            let need_flat_storage_update = if is_caught_up {
-                // If we already caught up this epoch, then flat storage exists for both shards which we already track
+            let need_storage_update = if is_caught_up {
+                // If we already caught up this epoch, then storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
                 care_about_shard_this_or_next_epoch
             } else {
@@ -1957,9 +1951,23 @@ impl Chain {
                 // during catchup of this block.
                 care_about_shard
             };
-            tracing::debug!(target: "chain", shard_id, need_flat_storage_update, "Updating flat storage");
+            tracing::debug!(target: "chain", shard_id, need_storage_update, "Updating storage");
 
-            if need_flat_storage_update {
+            if need_storage_update {
+                // TODO(#12019): consider adding to catchup flow.
+                self.resharding_manager.process_memtrie_resharding_storage_update(
+                    &block,
+                    shard_uid,
+                    self.runtime_adapter.get_tries(),
+                )?;
+
+                // Update flat storage head to be the last final block. Note that this update happens
+                // in a separate db transaction from the update from block processing. This is intentional
+                // because flat_storage need to be locked during the update of flat head, otherwise
+                // flat_storage is in an inconsistent state that could be accessed by the other
+                // apply chunks processes. This means, the flat head is not always the same as
+                // the last final block on chain, which is OK, because in the flat storage implementation
+                // we don't assume that.
                 self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
@@ -2935,8 +2943,7 @@ impl Chain {
         tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
         let mut store_update = self.runtime_adapter.store().store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
+        store_update.flat_store_update().set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
                 flat_head: near_store::flat::BlockInfo {

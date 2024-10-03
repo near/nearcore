@@ -17,14 +17,14 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
+use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -47,6 +47,7 @@ impl EpochManagerKind {
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
     genesis_config: GenesisConfig,
+    epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
@@ -78,6 +79,7 @@ impl TestEnvBuilder {
         Self {
             clock: None,
             genesis_config,
+            epoch_config_store: None,
             clients,
             validators,
             home_dirs: None,
@@ -111,6 +113,12 @@ impl TestEnvBuilder {
         assert!(self.runtimes.is_none(), "Cannot set clients after runtimes");
         assert!(self.network_adapters.is_none(), "Cannot set clients after network_adapters");
         self.clients = clients;
+        self
+    }
+
+    pub fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
+        assert!(self.epoch_config_store.is_none(), "Cannot set epoch_config_store twice");
+        self.epoch_config_store = Some(epoch_config_store);
         self
     }
 
@@ -256,12 +264,32 @@ impl TestEnvBuilder {
             "Cannot set both num_shards and epoch_managers at the same time"
         );
         let ret = self.ensure_stores();
+
+        // TODO(#11265): consider initialising epoch config separately as it
+        // should be decoupled from the genesis config.
+        // However, there are a lot of tests which only initialise genesis.
+        let mut base_epoch_config: EpochConfig = (&ret.genesis_config).into();
+        if let Some(block_producer_kickout_threshold) =
+            test_overrides.block_producer_kickout_threshold
+        {
+            base_epoch_config.block_producer_kickout_threshold = block_producer_kickout_threshold;
+        }
+        if let Some(chunk_producer_kickout_threshold) =
+            test_overrides.chunk_producer_kickout_threshold
+        {
+            base_epoch_config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
+        }
+        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
+            ret.genesis_config.protocol_version,
+            Arc::new(base_epoch_config),
+        )]));
+
         let epoch_managers = (0..ret.clients.len())
             .map(|i| {
-                EpochManager::new_arc_handle_with_test_overrides(
+                EpochManager::new_arc_handle_from_epoch_config_store(
                     ret.stores.as_ref().unwrap()[i].clone(),
                     &ret.genesis_config,
-                    Some(test_overrides.clone()),
+                    epoch_config_store.clone(),
                 )
             })
             .collect();
@@ -273,6 +301,18 @@ impl TestEnvBuilder {
         let ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
             return ret;
+        }
+        if let Some(epoch_config_store) = &ret.epoch_config_store {
+            let epoch_managers = (0..ret.clients.len())
+                .map(|i| {
+                    EpochManager::new_arc_handle_from_epoch_config_store(
+                        ret.stores.as_ref().unwrap()[i].clone(),
+                        &ret.genesis_config,
+                        epoch_config_store.clone(),
+                    )
+                })
+                .collect();
+            return ret.epoch_managers(epoch_managers);
         }
         ret.epoch_managers_with_test_overrides(AllEpochConfigTestOverrides::default())
     }

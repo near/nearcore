@@ -38,16 +38,17 @@ pub struct RewardCalculator {
 }
 
 impl RewardCalculator {
-    pub fn new(config: &GenesisConfig) -> Self {
+    pub fn new(config: &GenesisConfig, epoch_length: u64) -> Self {
         RewardCalculator {
             max_inflation_rate: config.max_inflation_rate,
             num_blocks_per_year: config.num_blocks_per_year,
-            epoch_length: config.epoch_length,
+            epoch_length,
             protocol_reward_rate: config.protocol_reward_rate,
             protocol_treasury_account: config.protocol_treasury_account.clone(),
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         }
     }
+
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
     /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.

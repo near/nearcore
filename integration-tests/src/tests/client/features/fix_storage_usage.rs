@@ -5,7 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{trie_key::TrieKey, types::AccountId};
-use near_store::{ShardUId, TrieUpdate};
+use near_store::{ShardUId, TrieAccess, TrieUpdate};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 use crate::tests::client::process_blocks::set_block_protocol_version;

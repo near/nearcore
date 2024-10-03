@@ -150,7 +150,7 @@ impl TestEnv {
             {
                 let mut store_update = store.store_update();
                 flat_storage_manager.set_flat_storage_for_genesis(
-                    &mut store_update,
+                    &mut store_update.flat_store_update(),
                     shard_uid,
                     &genesis_hash,
                     0,
@@ -279,8 +279,8 @@ impl TestEnv {
         let mut store_update = self.runtime.store().store_update();
         let flat_state_changes =
             FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
-        apply_result.trie_changes.insertions_into(&mut store_update);
-        apply_result.trie_changes.state_changes_into(&mut store_update);
+        apply_result.trie_changes.insertions_into(&mut store_update.trie_store_update());
+        apply_result.trie_changes.state_changes_into(&mut store_update.trie_store_update());
 
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id =
@@ -301,7 +301,7 @@ impl TestEnv {
                 },
             };
             let new_store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.merge(new_store_update);
+            store_update.merge(new_store_update.into());
         }
         store_update.commit().unwrap();
 
