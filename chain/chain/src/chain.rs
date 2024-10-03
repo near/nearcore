@@ -782,9 +782,6 @@ impl Chain {
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
 
-            // This is not the way protocol features are normally gated, but this is not actually
-            // a protocol feature/change. The protocol version is just an easy way to coordinate
-            // among nodes for now
             let protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
             let sync_hash = if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
