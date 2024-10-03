@@ -47,13 +47,8 @@ use near_store::{ShardUId, StorageError};
 /// - Background processing: the bulk of resharding is done in a separate task, see [FlatStorageResharderScheduler]
 /// - Interruptible: a reshard operation can be interrupted through a [FlatStorageResharderController].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was previously.
-pub struct FlatStorageResharder {
-    inner: FlatStorageResharderInner,
-}
-
-/// Inner clonable object to make sharing internal state easier.
 #[derive(Clone)]
-struct FlatStorageResharderInner {
+pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
     resharding_event: Arc<Mutex<Option<FlatStorageReshardingEventStatus>>>,
 }
@@ -62,8 +57,7 @@ impl FlatStorageResharder {
     /// Creates a new `FlatStorageResharder`.
     pub fn new(runtime: Arc<dyn RuntimeAdapter>) -> Self {
         let resharding_event = Arc::new(Mutex::new(None));
-        let inner = FlatStorageResharderInner { runtime, resharding_event };
-        Self { inner }
+        Self { runtime, resharding_event }
     }
 
     /// Resumes a resharding event that was in progress.
@@ -146,7 +140,7 @@ impl FlatStorageResharder {
         self.check_no_resharding_in_progress()?;
 
         // Change parent and children shards flat storage status.
-        let store = self.inner.runtime.store().flat_store();
+        let store = self.runtime.store().flat_store();
         let mut store_update = store.store_update();
         let flat_head = retrieve_shard_flat_head(parent_shard, &store)?;
         let status = SplittingParentStatus {
@@ -189,12 +183,12 @@ impl FlatStorageResharder {
     }
 
     fn set_resharding_event(&self, event: FlatStorageReshardingEventStatus) {
-        *self.inner.resharding_event.lock().unwrap() = Some(event);
+        *self.resharding_event.lock().unwrap() = Some(event);
     }
 
     /// Returns the current in-progress resharding event, if any.
     pub fn resharding_event(&self) -> Option<FlatStorageReshardingEventStatus> {
-        self.inner.resharding_event.lock().unwrap().clone()
+        self.resharding_event.lock().unwrap().clone()
     }
 
     /// Schedules a task to split a shard.
@@ -209,7 +203,7 @@ impl FlatStorageResharder {
         self.set_resharding_event(event);
         info!(target: "resharding", ?parent_shard, ?status,"scheduling flat storage shard split");
 
-        let resharder = self.inner.clone();
+        let resharder = self.clone();
         let task = Box::new(move || split_shard_task(resharder, controller));
         scheduler.schedule(task);
     }
@@ -218,7 +212,7 @@ impl FlatStorageResharder {
     fn clean_children_shards(&self, status: &SplittingParentStatus) -> Result<(), Error> {
         let SplittingParentStatus { left_child_shard, right_child_shard, .. } = status;
         debug!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
-        let mut store_update = self.inner.runtime.store().flat_store().store_update();
+        let mut store_update = self.runtime.store().flat_store().store_update();
         for child in [left_child_shard, right_child_shard] {
             store_update.remove_all_deltas(*child);
             store_update.remove_all_values(*child);
@@ -245,10 +239,7 @@ fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result
 /// Task to perform the actual split of a flat storage shard. This may be a long operation time-wise.
 ///
 /// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
-fn split_shard_task(
-    resharder: FlatStorageResharderInner,
-    controller: FlatStorageResharderController,
-) {
+fn split_shard_task(resharder: FlatStorageResharder, controller: FlatStorageResharderController) {
     let task_status = split_shard_task_impl(resharder.clone(), controller.clone());
     split_shard_task_postprocessing(resharder, task_status);
     info!(target: "resharding", ?task_status, "flat storage shard split task finished");
@@ -260,7 +251,7 @@ fn split_shard_task(
 /// Retrieve parent shard UIds and current resharding event status.
 /// Resharding event must be of type "Split".
 fn get_parent_shard_and_status(
-    resharder: &FlatStorageResharderInner,
+    resharder: &FlatStorageResharder,
 ) -> (ShardUId, SplittingParentStatus) {
     let event = resharder.resharding_event.lock().unwrap();
     match event.as_ref() {
@@ -275,7 +266,7 @@ fn get_parent_shard_and_status(
 ///
 /// Returns `true` if the routine completed successfully.
 fn split_shard_task_impl(
-    resharder: FlatStorageResharderInner,
+    resharder: FlatStorageResharder,
     controller: FlatStorageResharderController,
 ) -> FlatStorageReshardingTaskStatus {
     if controller.is_interrupted() {
@@ -413,7 +404,7 @@ fn shard_split_handle_key_value(
 /// Performs post-processing of shard splitting after all key-values have been moved from parent to children.
 /// `success` indicates whether or not the previous phase was successful.
 fn split_shard_task_postprocessing(
-    resharder: FlatStorageResharderInner,
+    resharder: FlatStorageResharder,
     task_status: FlatStorageReshardingTaskStatus,
 ) {
     let (parent_shard, split_status) = get_parent_shard_and_status(&resharder);
@@ -688,7 +679,7 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let scheduler = DelayedScheduler::default();
         let controller = FlatStorageResharderController::new();
-        let flat_store = resharder.inner.runtime.store().flat_store();
+        let flat_store = resharder.runtime.store().flat_store();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
@@ -728,7 +719,7 @@ mod tests {
     fn resume_split_starts_from_clean_state() {
         init_test_logger();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout());
-        let flat_store = resharder.inner.runtime.store().flat_store();
+        let flat_store = resharder.runtime.store().flat_store();
         let new_shard_layout = shard_layout_after_split();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
@@ -825,7 +816,7 @@ mod tests {
         // Check flat storages of children contain the correct accounts.
         let left_child = ShardUId { version: 3, shard_id: 2 };
         let right_child = ShardUId { version: 3, shard_id: 3 };
-        let flat_store = resharder.inner.runtime.store().flat_store();
+        let flat_store = resharder.runtime.store().flat_store();
         let account_mm_key = TrieKey::Account { account_id: account!("mm") };
         let account_vv_key = TrieKey::Account { account_id: account!("vv") };
         assert!(flat_store
@@ -846,7 +837,6 @@ mod tests {
         assert_eq!(flat_store.get_flat_storage_status(parent), Ok(FlatStorageStatus::Empty));
         assert_eq!(flat_store.iter(parent).count(), 0);
         assert!(resharder
-            .inner
             .runtime
             .get_flat_storage_manager()
             .get_flat_storage_for_shard(parent)
@@ -888,7 +878,7 @@ mod tests {
                 controller.clone()
             )
             .is_ok());
-        let (parent_shard, status) = get_parent_shard_and_status(&resharder.inner);
+        let (parent_shard, status) = get_parent_shard_and_status(&resharder);
         let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
 
         // Interrupt the task before it starts.
@@ -898,7 +888,7 @@ mod tests {
         scheduler.call();
 
         // Check that resharding was effectively interrupted.
-        let flat_store = resharder.inner.runtime.store().flat_store();
+        let flat_store = resharder.runtime.store().flat_store();
         assert_eq!(
             controller.completion_receiver.recv_timeout(Duration::from_secs(1)),
             Ok(FlatStorageReshardingTaskStatus::Interrupted)
@@ -933,7 +923,7 @@ mod tests {
 
         // Make flat storage of parent shard not ready.
         let parent_shard = ShardUId { version: 3, shard_id: 1 };
-        let flat_store = resharder.inner.runtime.store().flat_store();
+        let flat_store = resharder.runtime.store().flat_store();
         let mut store_update = flat_store.store_update();
         store_update.set_flat_storage_status(parent_shard, FlatStorageStatus::Empty);
         store_update.commit().unwrap();
