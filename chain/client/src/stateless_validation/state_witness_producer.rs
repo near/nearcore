@@ -119,6 +119,7 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -127,17 +128,26 @@ impl Client {
             contract_accesses,
         } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
 
-        let new_transactions = chunk.transactions().to_vec();
-        let new_transactions_validation_state = if new_transactions.is_empty() {
-            PartialState::default()
+        let (new_transactions, new_transactions_validation_state) = if checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            (Vec::new(), PartialState::default())
         } else {
-            // With stateless validation chunk producer uses recording reads when validating transactions.
-            // The storage proof must be available here.
-            transactions_storage_proof.ok_or_else(|| {
-                let message = "Missing storage proof for transactions validation";
-                log_assert_fail!("{message}");
-                Error::Other(message.to_owned())
-            })?
+            let new_transactions = chunk.transactions().to_vec();
+            let new_transactions_validation_state = if new_transactions.is_empty() {
+                PartialState::default()
+            } else {
+                // With stateless validation chunk producer uses recording reads when validating
+                // transactions. The storage proof must be available here.
+                transactions_storage_proof.ok_or_else(|| {
+                    let message = "Missing storage proof for transactions validation";
+                    log_assert_fail!("{message}");
+                    Error::Other(message.to_owned())
+                })?
+            };
+            (new_transactions, new_transactions_validation_state)
         };
 
         let source_receipt_proofs =
