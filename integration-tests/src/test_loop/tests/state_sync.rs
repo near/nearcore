@@ -111,10 +111,14 @@ fn setup_initial_blockchain(num_shards: usize, chunks_produced: Vec<Vec<bool>>) 
             genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
         }
     }
-    let genesis = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
-    let env =
-        builder.genesis(genesis.clone()).clients(clients).chunks_produced(chunks_produced).build();
+    let env = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .chunks_produced(chunks_produced)
+        .build();
 
     TestState { env, accounts }
 }
