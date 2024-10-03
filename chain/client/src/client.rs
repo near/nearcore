@@ -2565,19 +2565,21 @@ impl Client {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
+            assert_eq!(epoch_first_block, state_sync_info.epoch_first_block);
+
             let shards_to_split =
                 self.get_shards_to_split(epoch_first_block, &state_sync_info, &me)?;
             let state_sync_timeout = self.config.state_sync_timeout;
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let CatchupState { state_sync, state_downloads, catchup } = if state_sync_info.sync_hash
-                != CryptoHash::default()
+            let CatchupState { state_sync, state_downloads, catchup } = if let Some(sync_hash) =
+                state_sync_info.sync_hash
             {
-                match self.catchup_state_syncs.entry(state_sync_info.sync_hash) {
+                match self.catchup_state_syncs.entry(sync_hash) {
                     std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                     std::collections::hash_map::Entry::Vacant(e) => {
-                        tracing::debug!(target: "client", ?epoch_first_block, sync_hash = ?&state_sync_info.sync_hash, "inserting new state sync");
+                        tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
                         notify_state_sync = true;
                         e.insert(CatchupState {
                             state_sync: StateSync::new(
@@ -2589,7 +2591,7 @@ impl Client {
                                 true,
                             ),
                             state_downloads: shards_to_split.clone(),
-                            catchup: BlocksCatchUpState::new(state_sync_info.sync_hash, *epoch_id),
+                            catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
                         })
                     }
                 }
@@ -2606,7 +2608,7 @@ impl Client {
                     }
                 };
                 if let Some(sync_hash) = new_chunk_tracker.find_sync_hash(&self.chain)? {
-                    state_sync_info.sync_hash = sync_hash;
+                    state_sync_info.sync_hash = Some(sync_hash);
                     let mut update = self.chain.mut_chain_store().store_update();
                     // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
                     // actually writing to the DB while actively iterating this column
@@ -2640,10 +2642,10 @@ impl Client {
             };
 
             // Here if the state sync structs are set, it must mean we've found a sync hash to use
-            assert_ne!(state_sync_info.sync_hash, CryptoHash::default());
+            let sync_hash = state_sync_info.sync_hash.unwrap();
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            debug!(target: "catchup", ?me, sync_hash = ?&state_sync_info.sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&state_downloads, false), "Catchup");
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&state_downloads, false), "Catchup");
             let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
 
             let tracking_shards: Vec<u64> =
@@ -2679,7 +2681,7 @@ impl Client {
             let new_shard_sync = state_downloads;
             match state_sync.run(
                 &me,
-                state_sync_info.sync_hash,
+                sync_hash,
                 new_shard_sync,
                 &mut self.chain,
                 self.epoch_manager.as_ref(),
@@ -2696,7 +2698,7 @@ impl Client {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(
                         &me,
-                        &state_sync_info.sync_hash,
+                        &sync_hash,
                         catchup,
                         block_catch_up_task_scheduler,
                     )?;
@@ -2707,7 +2709,7 @@ impl Client {
                         self.chain.finish_catchup_blocks(
                             &me,
                             &epoch_first_block,
-                            &state_sync_info.sync_hash,
+                            &sync_hash,
                             &mut block_processing_artifacts,
                             apply_chunks_done_sender.clone(),
                             &catchup.done_blocks,

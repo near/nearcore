@@ -62,16 +62,23 @@ pub struct ShardInfo(pub ShardId, pub ChunkHash);
 /// Contains the information that is used to sync state for shards as epochs switch
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfo {
+    /// For now this is always set to 0. This is included because an improvement we might want to make in the future
+    /// is that when syncing to the current epoch's state, we currently wait for two new chunks in each shard, but
+    /// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
+    /// in order to allow for this change in the future without needing another database migration.
+    pub state_sync_version: u32,
+    /// The first block of the epoch we want to state sync for. This field is not strictly required since
+    /// this struct is keyed by this hash in the database, but it's a small amount of data that makes
+    /// the info in this type more complete.
+    pub epoch_first_block: CryptoHash,
     /// The block we'll use as the "sync_hash" when state syncing. Previously, state sync
     /// used the first block of an epoch as the "sync_hash", and synced state to the epoch before.
     /// Now that state sync downloads the state of the current epoch, we need to wait a few blocks
     /// after applying the first block in an epoch to know what "sync_hash" we'll use.
-    /// In order to avoid the need for a database migration while keeping backward compatibility,
-    /// this field is no longer equal to the database key associated with this value, and is set to
-    /// CryptoHash::default() when we apply the first block in an epoch and want to sync the current
-    /// epoch's state. If we instead want to sync the previous epoch's state, we set this field in the same
-    /// way it used to be set
-    pub sync_hash: CryptoHash,
+    /// After we begin state syncing to the current epoch instead of the previous, this field is set to None
+    /// when we apply the first block. Before this change in the state sync protocol, we set this field
+    /// to Some(self.epoch_first_block). In either case, if it's set, that's the sync hash we want to use.
+    pub sync_hash: Option<CryptoHash>,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
 }

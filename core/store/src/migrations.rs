@@ -1,9 +1,11 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
+use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ShardInfo, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
@@ -355,6 +357,42 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
         tracing::info_span!(target: "migrations", "Deleting contents of deprecated _ReceiptIdToShardId column").entered();
     let mut update = store.store_update();
     update.delete_all(DBCol::_ReceiptIdToShardId);
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 40 to 41.
+///
+/// This rewrites the contents of the StateDlInfos column
+pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshSerialize, BorshDeserialize)]
+    struct LegacyStateSyncInfo {
+        sync_hash: CryptoHash,
+        shards: Vec<ShardInfo>,
+    }
+
+    let mut update = store.store_update();
+
+    for row in store.iter_prefix_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos, &[]) {
+        let (key, LegacyStateSyncInfo { sync_hash, shards }) =
+            row.context("failed deserializing legacy StateSyncInfo in StateDlInfos")?;
+
+        let epoch_first_block = CryptoHash::try_from_slice(&key)
+            .context("failed deserializing CryptoHash key in StateDlInfos")?;
+
+        if epoch_first_block != sync_hash {
+            tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
+        }
+        let new_info = StateSyncInfo {
+            state_sync_version: 0,
+            epoch_first_block: epoch_first_block,
+            sync_hash: Some(sync_hash),
+            shards,
+        };
+        update
+            .set_ser(DBCol::StateDlInfos, &key, &new_info)
+            .context("failed writing to StateDlInfos")?;
+    }
     update.commit()?;
     Ok(())
 }

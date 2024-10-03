@@ -789,11 +789,13 @@ impl Chain {
             let protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
             let sync_hash = if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
-                CryptoHash::default()
+                None
             } else {
-                *block.header().hash()
+                Some(*block.header().hash())
             };
             let state_sync_info = StateSyncInfo {
+                state_sync_version: 0,
+                epoch_first_block: *block.header().hash(),
                 sync_hash,
                 shards: shards_to_state_sync
                     .iter()
