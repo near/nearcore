@@ -183,6 +183,12 @@ pub enum ProtocolFeature {
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
     /// here to coordinate among nodes
     CurrentEpochStateSync,
+    /// Relaxed validation of transactions included in a chunk.
+    ///
+    /// Chunks no longer become entirely invalid in case invalid transactions are included in the
+    /// chunk. Instead the transactions are discarded during their conversion to receipts.
+    #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
+    RelaxedChunkValidation,
 }
 
 impl ProtocolFeature {
@@ -262,6 +268,8 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::CurrentEpochStateSync => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
+            #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
+            ProtocolFeature::RelaxedChunkValidation => 146,
             ProtocolFeature::BandwidthScheduler => 147,
             // Place features that are not yet in Nightly below this line.
         }

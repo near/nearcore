@@ -289,13 +289,17 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Takes one signed transaction, verifies it and converts it to a receipt. Add this receipt
-    /// either to the new local receipts if the signer is the same as receiver or to the new
-    /// outgoing receipts.
+    /// Takes one signed transaction, verifies it and converts it to a receipt.
+    ///
+    /// Add the produced receipt receipt either to the new local receipts if the signer is the same
+    /// as receiver or to the new outgoing receipts.
+    ///
     /// When transaction is converted to a receipt, the account is charged for the full value of
     /// the generated receipt.
-    /// In case of successful verification (expected for valid chunks), returns the receipt and
-    /// `ExecutionOutcomeWithId` for the transaction.
+    ///
+    /// In case of successful verification, returns the receipt and `ExecutionOutcomeWithId` for
+    /// the transaction.
+    ///
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
@@ -1388,13 +1392,16 @@ impl Runtime {
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
+    ///
     /// If the validator accounts update is provided, updates validators accounts.
-    /// All new signed transactions should be valid and already verified by the chunk producer.
-    /// If any transaction is invalid, it would return an `InvalidTxError`.
+    ///
     /// Returns an `ApplyResult` that contains the new state root, trie changes,
-    /// new outgoing receipts, execution outcomes for
-    /// all transactions, local action receipts (generated from transactions with signer ==
-    /// receivers) and incoming action receipts.
+    /// new outgoing receipts, execution outcomes for all transactions, local action receipts
+    /// (generated from transactions with signer == receivers) and incoming action receipts.
+    ///
+    /// Invalid transactions should have been filtered out by the chunk producer, but if such a
+    /// chunk containing invalid transactions makes it to here, these transactions are ignored.
+    // TODO(new-tx): verify the statement above.
     #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
         protocol_version = apply_state.current_protocol_version,
         num_transactions = transactions.len(),
@@ -1552,6 +1559,7 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
+    // TODO(new-tx): describe how invalid transactions are handled here.
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1565,12 +1573,17 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
         for signed_transaction in processing_state.transactions {
-            let (receipt, outcome_with_id) = self.process_transaction(
+            let Ok((receipt, outcome_with_id)) = self.process_transaction(
                 state_update,
                 apply_state,
                 signed_transaction,
                 &mut processing_state.stats,
-            )?;
+            ) else {
+                // TODO(new-tx): do we need to somehow report the invalid transactions somewhere?
+                // TODO(new-tx): if the transaction is invalid, do we still want to charge
+                //               processing fees from somebody somewhere?
+                continue;
+            };
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
                 processing_state.local_receipts.push_back(receipt);
             } else {
