@@ -349,11 +349,12 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<EpochId, Error> {
         let mut candidate_hash = *hash;
+        let block_header = self.get_block_header(&candidate_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut shard_id = shard_id;
+        let mut shard_index = shard_layout.get_shard_index(shard_id);
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
-            let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
-            let shard_index = shard_layout.get_shard_index(shard_id);
             if *block_header
                 .chunk_mask()
                 .get(shard_index)
@@ -362,7 +363,8 @@ pub trait ChainStoreAccess {
                 break Ok(*block_header.epoch_id());
             }
             candidate_hash = *block_header.prev_hash();
-            shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
+            (shard_id, shard_index) =
+                epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
 }

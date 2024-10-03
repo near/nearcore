@@ -205,7 +205,7 @@ mod state_witness_tracker_tests {
     }
 
     fn dummy_witness() -> ChunkStateWitness {
-        ChunkStateWitness::new_dummy(100, 2 as ShardId, hash("fake hash".as_bytes()))
+        ChunkStateWitness::new_dummy(100, 2.into(), hash("fake hash".as_bytes()))
     }
 
     fn dummy_clock() -> FakeClock {

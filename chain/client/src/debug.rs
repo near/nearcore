@@ -21,7 +21,9 @@ use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
+use near_primitives::types::{
+    AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
+};
 use near_primitives::{
     hash::CryptoHash,
     state_sync::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -36,7 +38,7 @@ use time::ext::InstantExt as _;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{shard_chunk_header_inner, ChunkHash};
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
@@ -104,11 +106,11 @@ impl BlockProductionTracker {
 
     /// Record chunk collected after a block is produced if the block didn't include a chunk for the shard.
     /// If called before the block was produced, nothing happens.
-    pub(crate) fn record_chunk_collected(&mut self, height: BlockHeight, shard_id: ShardId) {
+    pub(crate) fn record_chunk_collected(&mut self, height: BlockHeight, shard_index: ShardIndex) {
         if let Some(block_production) = self.0.get_mut(&height) {
             let chunk_collections = &mut block_production.chunks_collection_time;
             // Check that chunk_collection is set and we haven't received this chunk yet.
-            if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
+            if let Some(chunk_collection) = chunk_collections.get_mut(shard_index) {
                 if chunk_collection.received_time.is_none() {
                     chunk_collection.received_time = Some(Clock::real().now_utc());
                 }
@@ -121,13 +123,15 @@ impl BlockProductionTracker {
     pub(crate) fn construct_chunk_collection_info(
         block_height: BlockHeight,
         epoch_id: &EpochId,
-        num_shards: ShardId,
+        num_shards: usize,
         new_chunks: &HashMap<ShardId, ChunkHash>,
         epoch_manager: &dyn EpochManagerAdapter,
         chunk_inclusion_tracker: &ChunkInclusionTracker,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
-        for shard_id in 0..num_shards {
+        for shard_index in 0..num_shards {
+            let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+            let shard_id = shard_layout.get_shard_id(shard_index);
             if let Some(chunk_hash) = new_chunks.get(&shard_id) {
                 let (chunk_producer, received_time) =
                     chunk_inclusion_tracker.get_chunk_producer_and_received_time(chunk_hash)?;
@@ -234,10 +238,10 @@ impl ClientActorInner {
         let shards_size_and_parts: Vec<(u64, u64)> = block
             .chunks()
             .iter()
-            .enumerate()
-            .map(|(shard_id, chunk)| {
+            .map(|chunk| {
+                let shard_id = chunk.shard_id();
                 let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                    shard_id as u64,
+                    shard_id,
                     block.hash(),
                     &chunk.prev_state_root(),
                 );
@@ -252,9 +256,12 @@ impl ClientActorInner {
             })
             .collect();
 
-        let state_header_exists: Vec<bool> = (0..block.chunks().len())
-            .map(|shard_id| {
-                let key = borsh::to_vec(&StateHeaderKey(shard_id as u64, *block.hash()));
+        let state_header_exists: Vec<bool> = block
+            .chunks()
+            .iter()
+            .map(|chunk_header| {
+                let shard_id = chunk_header.shard_id();
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, *block.hash()));
                 match key {
                     Ok(key) => {
                         matches!(
@@ -490,7 +497,7 @@ impl ClientActorInner {
                                 });
 
                             DebugChunkStatus {
-                                shard_id: chunk.shard_id(),
+                                shard_id: chunk.shard_id().into(),
                                 chunk_hash: chunk.chunk_hash(),
                                 chunk_producer: self
                                     .client

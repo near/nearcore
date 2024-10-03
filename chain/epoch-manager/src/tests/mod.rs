@@ -18,7 +18,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
-use near_primitives::shard_layout::{self, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;

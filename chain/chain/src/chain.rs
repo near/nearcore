@@ -4554,16 +4554,11 @@ impl Chain {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
         let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
 
-        let prev_epoch_id = prev_block.header().epoch_id();
-        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
         let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
         let prev_chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
-            .map(|shard_id| {
-                let shard_index = prev_shard_layout.get_shard_index(shard_id);
-                prev_chunks.get(shard_index).unwrap().clone()
-            })
+            .map(|(shard_id, shard_index)| prev_chunks.get(shard_index).unwrap().clone())
             .collect())
     }
 
@@ -4572,14 +4567,12 @@ impl Chain {
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
-        let prev_epoch_id = prev_block.header().epoch_id();
-        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
-        let prev_shard_id = epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
-        let prev_shard_index = prev_shard_layout.get_shard_index(prev_shard_id);
+        let (prev_shard_id, prev_shard_index) =
+            epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
         Ok(prev_block
             .chunks()
             .get(prev_shard_index)
-            .ok_or(Error::InvalidShardId(shard_id))?
+            .ok_or(Error::InvalidShardId(prev_shard_id))?
             .clone())
     }
 

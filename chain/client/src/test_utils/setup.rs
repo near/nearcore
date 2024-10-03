@@ -448,7 +448,7 @@ fn process_peer_manager_message_default(
                             height: last_height[i],
                             hash: CryptoHash::default(),
                         }),
-                        tracked_shards: vec![0, 1, 2, 3],
+                        tracked_shards: vec![0.into(), 1.into(), 2.into(), 3.into()],
                         archival: true,
                     },
                 },

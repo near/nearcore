@@ -2,7 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::types::ShardId;
+use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 use std::{fmt, str};
@@ -477,7 +477,7 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
-    pub fn get_shard_index(&self, _shard_id: ShardId) -> usize {
+    pub fn get_shard_index(&self, _shard_id: ShardId) -> ShardIndex {
         todo!()
     }
 

@@ -12,6 +12,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::ShardId;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
@@ -78,7 +79,7 @@ fn test_bad_shard_id() {
         chunk.encoded_merkle_root(),
         chunk.encoded_length(),
         2,
-        1,
+        1.into(),
         chunk.prev_gas_used(),
         chunk.gas_limit(),
         chunk.prev_balance_burnt(),
@@ -102,7 +103,11 @@ fn test_bad_shard_id() {
     let err = env.clients[0]
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
         .unwrap_err();
-    assert_matches!(err, near_chain::Error::InvalidShardId(1));
+    if let near_chain::Error::InvalidShardId(shard_id) = err {
+        assert!(shard_id == 1.into());
+    } else {
+        panic!("Expected InvalidShardId error, got {:?}", err);
+    }
 }
 
 /// Test that if a block's content (vrf_value) is corrupted, the invalid block will not affect the node's block processing

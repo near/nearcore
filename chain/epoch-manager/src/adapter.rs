@@ -18,7 +18,7 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, ShardId,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
@@ -122,7 +122,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error>;
+    ) -> Result<Vec<(ShardId, ShardIndex)>, Error>;
 
     /// For a `ShardId` in the current block, returns its parent `ShardId`
     /// from previous block.
@@ -134,7 +134,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<ShardId, Error>;
+    ) -> Result<(ShardId, ShardIndex), Error>;
 
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
@@ -596,9 +596,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error> {
+    ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
+        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         if self.is_next_block_epoch_start(prev_hash)? {
-            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
             let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
             if prev_shard_layout != shard_layout {
                 return Ok(shard_ids
@@ -611,22 +611,27 @@ impl EpochManagerAdapter for EpochManagerHandle {
                                     shard_layout,
                                     parent_shard_id
                             );
-                            parent_shard_id
+                            let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id);
+                            (parent_shard_id, parent_shard_index)
                         })
                     })
                     .collect::<Result<_, ShardLayoutError>>()?);
             }
         }
-        Ok(shard_ids)
+
+        Ok(shard_ids
+            .iter()
+            .map(|&shard_id| (shard_id, shard_layout.get_shard_index(shard_id)))
+            .collect())
     }
 
     fn get_prev_shard_id(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<ShardId, Error> {
+    ) -> Result<(ShardId, ShardIndex), Error> {
+        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         if self.is_next_block_epoch_start(prev_hash)? {
-            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
             let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
             if prev_shard_layout != shard_layout {
                 let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
@@ -636,10 +641,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
                                     shard_layout,
                                     parent_shard_id
                             );
-                return Ok(parent_shard_id);
+                let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id);
+                return Ok((parent_shard_id, parent_shard_index));
             }
         }
-        Ok(shard_id)
+        Ok((shard_id, shard_layout.get_shard_index(shard_id)))
     }
 
     fn get_shard_layout_from_prev_block(

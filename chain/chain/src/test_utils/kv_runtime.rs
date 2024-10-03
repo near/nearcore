@@ -43,7 +43,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
-    ShardId, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -170,14 +170,15 @@ impl MockEpochManager {
                     })
                     .collect();
 
-                let validators_per_shard = block_producers.len() / vs.validator_groups;
-                let coef = block_producers.len() as ShardId / vs.num_shards;
+                let validators_per_shard = block_producers.len() / vs.validator_groups as usize;
+                let coef = block_producers.len() / vs.num_shards as usize;
 
                 let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)
-                    .map(|shard_id| {
-                        let offset = (shard_id * coef / validators_per_shard * validators_per_shard)
-                            as usize;
-                        block_producers[offset..offset + validators_per_shard as usize].to_vec()
+                    .map(|shard_index| {
+                        let shard_index = shard_index as usize;
+                        let offset =
+                            shard_index * coef / validators_per_shard * validators_per_shard;
+                        block_producers[offset..offset + validators_per_shard].to_vec()
                     })
                     .collect();
 
@@ -289,8 +290,8 @@ impl MockEpochManager {
         &self.validators_by_valset[valset].block_producers
     }
 
-    fn get_chunk_producers(&self, valset: usize, shard_id: ShardId) -> Vec<ValidatorStake> {
-        self.validators_by_valset[valset].chunk_producers[shard_id as usize].clone()
+    fn get_chunk_producers(&self, valset: usize, shard_index: ShardIndex) -> Vec<ValidatorStake> {
+        self.validators_by_valset[valset].chunk_producers[shard_index].clone()
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, EpochError> {
@@ -423,8 +424,8 @@ impl EpochManagerAdapter for MockEpochManager {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
-    fn shard_ids(&self, _epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
-        Ok((0..self.num_shards).collect())
+    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
+        Ok(self.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
     fn num_total_parts(&self) -> usize {
@@ -463,7 +464,7 @@ impl EpochManagerAdapter for MockEpochManager {
         shard_id: ShardId,
         _epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError> {
-        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+        Ok(ShardUId { version: 0, shard_id: shard_id.into() })
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
@@ -589,16 +590,21 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error> {
-        Ok(shard_ids)
+    ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
+        // This is incorrect in ShardLayoutV2 where the shard ids don't have to
+        // be ordered and contiguous.
+        let num_shards = shard_ids.len();
+        Ok(shard_ids.into_iter().zip(0..num_shards).collect())
     }
 
     fn get_prev_shard_id(
         &self,
         _prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<ShardId, Error> {
-        Ok(shard_id)
+    ) -> Result<(ShardId, ShardIndex), Error> {
+        // This is incorrect in ShardLayoutV2 where the shard ids don't have to
+        // be ordered and contiguous.
+        Ok((shard_id, shard_id.get() as ShardIndex))
     }
 
     fn get_shard_layout_from_prev_block(
@@ -728,8 +734,10 @@ impl EpochManagerAdapter for MockEpochManager {
         shard_id: ShardId,
     ) -> Result<AccountId, EpochError> {
         let valset = self.get_valset_for_epoch(epoch_id)?;
-        let chunk_producers = self.get_chunk_producers(valset, shard_id);
-        let index = (shard_id + height + 1) as usize % chunk_producers.len();
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = self.get_chunk_producers(valset, shard_index);
+        let index = (shard_index + height as usize + 1) % chunk_producers.len();
         Ok(chunk_producers[index].account_id().clone())
     }
 
@@ -977,7 +985,9 @@ impl EpochManagerAdapter for MockEpochManager {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_valset_for_epoch(&epoch_id).unwrap();
-        let chunk_producers = self.get_chunk_producers(epoch_valset, shard_id);
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = self.get_chunk_producers(epoch_valset, shard_index);
         for validator in chunk_producers {
             if validator.account_id() == account_id {
                 return Ok(true);
@@ -996,7 +1006,9 @@ impl EpochManagerAdapter for MockEpochManager {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_id);
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_index);
         for validator in chunk_producers {
             if validator.account_id() == account_id {
                 return Ok(true);
@@ -1015,8 +1027,12 @@ impl EpochManagerAdapter for MockEpochManager {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let chunk_producers = self
-            .get_chunk_producers((epoch_valset.1 + 1) % self.validators_by_valset.len(), shard_id);
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = self.get_chunk_producers(
+            (epoch_valset.1 + 1) % self.validators_by_valset.len(),
+            shard_index,
+        );
         for validator in chunk_producers {
             if validator.account_id() == account_id {
                 return Ok(true);
@@ -1079,7 +1095,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<Trie, Error> {
         Ok(self
             .tries
-            .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
+            .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id.into() }, state_root))
     }
 
     fn get_flat_storage_manager(&self) -> near_store::flat::FlatStorageManager {
@@ -1093,7 +1109,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
         Ok(self.tries.get_view_trie_for_shard(
-            ShardUId { version: 0, shard_id: shard_id as u32 },
+            ShardUId { version: 0, shard_id: shard_id.into() },
             state_root,
         ))
     }
@@ -1278,7 +1294,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                ShardUId { version: 0, shard_id: shard_id as u32 },
+                ShardUId { version: 0, shard_id: shard_id.into() },
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block.block_hash,

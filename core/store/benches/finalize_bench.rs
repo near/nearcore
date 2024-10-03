@@ -30,7 +30,7 @@ use near_primitives::sharding::{
     ShardChunkV2, ShardProof,
 };
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;
@@ -115,7 +115,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
     ]
 }
 
-fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
+fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
     let congestion_info = ProtocolFeature::CongestionControl
         .enabled(PROTOCOL_VERSION)
         .then_some(CongestionInfo::default());
@@ -177,7 +177,7 @@ fn create_shard_chunk(
 ) -> ShardChunk {
     ShardChunk::V2(ShardChunkV2 {
         chunk_hash: chunk_hash.clone(),
-        header: create_chunk_header(0, 0),
+        header: create_chunk_header(0, 0.into()),
         transactions,
         prev_outgoing_receipts: receipts,
     })
@@ -198,7 +198,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        Default::default(),
+        0.into(),
         Default::default(),
         Default::default(),
         Default::default(),
@@ -231,8 +231,8 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let receipt_proofs = proofs
         .into_iter()
         .enumerate()
-        .map(move |(proof_shard_id, proof)| {
-            let proof_shard_id = proof_shard_id as u64;
+        .map(move |(proof_shard_index, proof)| {
+            let proof_shard_id = shard_layout.get_shard_id(proof_shard_index);
             let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
             let shard_proof =
                 ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };

@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let shard_ids: Vec<_> = (0..32).collect();
+        let shard_ids: Vec<_> = (0..32).map(Into::into).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
             vec![Default::default(); shard_ids.len()],

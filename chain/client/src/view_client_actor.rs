@@ -756,9 +756,12 @@ fn get_chunk_from_block(
     shard_id: ShardId,
     chain: &Chain,
 ) -> Result<ShardChunk, near_chain::Error> {
+    let epoch_id = block.header().epoch_id();
+    let shard_layout = chain.epoch_manager.get_shard_layout(epoch_id)?;
+    let shard_index = shard_layout.get_shard_index(shard_id);
     let chunk_header = block
         .chunks()
-        .get(shard_id as usize)
+        .get(shard_index)
         .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
         .clone();
     let chunk_hash = chunk_header.chunk_hash();
@@ -1081,10 +1084,13 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                 let mut outcome_proof = outcome;
                 let epoch_id =
                     *self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
+                let shard_layout =
+                    self.epoch_manager.get_shard_layout(&epoch_id).into_chain_error()?;
                 let target_shard_id = self
                     .epoch_manager
                     .account_id_to_shard_id(&account_id, &epoch_id)
                     .into_chain_error()?;
+                let target_shard_index = shard_layout.get_shard_index(target_shard_id);
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -1100,7 +1106,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                         .iter()
                         .map(|header| header.prev_outcome_root())
                         .collect::<Vec<_>>();
-                    if target_shard_id >= (outcome_roots.len() as u64) {
+                    if target_shard_index >= outcome_roots.len() {
                         return Err(GetExecutionOutcomeError::InconsistentState {
                             number_or_shards: outcome_roots.len(),
                             execution_outcome_shard_id: target_shard_id,
@@ -1108,8 +1114,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     }
                     Ok(GetExecutionOutcomeResponse {
                         outcome_proof: outcome_proof.into(),
-                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_id as usize]
-                            .clone(),
+                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
                     })
                 } else {
                     Err(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })
@@ -1370,14 +1375,14 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
                 {
                     Ok(cached_parts) => Some(cached_parts),
                     Err(err) => {
-                        tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
+                        tracing::error!(target: "sync", ?err, ?sync_hash, ?shard_id, "Failed to get cached state parts");
                         None
                     }
                 };
                 let header = match header {
                     ShardStateSyncResponseHeader::V2(inner) => inner,
                     _ => {
-                        tracing::error!(target: "sync", ?sync_hash, shard_id, "Invalid state sync header format");
+                        tracing::error!(target: "sync", ?sync_hash, ?shard_id, "Invalid state sync header format");
                         return None;
                     }
                 };
@@ -1425,16 +1430,16 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
                 let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
                     Ok(part) => Some((part_id, part)),
                     Err(err) => {
-                        error!(target: "sync", ?err, ?sync_hash, shard_id, part_id, "Cannot build state part");
+                        error!(target: "sync", ?err, ?sync_hash, ?shard_id, part_id, "Cannot build state part");
                         None
                     }
                 };
 
-                tracing::trace!(target: "sync", ?sync_hash, shard_id, part_id, "Finished computation for state request part");
+                tracing::trace!(target: "sync", ?sync_hash, ?shard_id, part_id, "Finished computation for state request part");
                 part
             }
             Ok(false) => {
-                warn!(target: "sync", ?sync_hash, shard_id, "sync_hash didn't pass validation, possible malicious behavior");
+                warn!(target: "sync", ?sync_hash, ?shard_id, "sync_hash didn't pass validation, possible malicious behavior");
                 // Do not respond, possible malicious behavior.
                 return None;
             }
@@ -1452,7 +1457,7 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         let num_parts = part.as_ref().and_then(|_| match self.chain.get_state_response_header(shard_id, sync_hash) {
             Ok(header) => Some(header.num_state_parts()),
             Err(err) => {
-                tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get num state parts");
+                tracing::error!(target: "sync", ?err, ?sync_hash, ?shard_id, "Failed to get num state parts");
                 None
             }
         });
@@ -1460,7 +1465,7 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
             match self.chain.get_cached_state_parts(sync_hash, shard_id, num_parts) {
                 Ok(cached_parts) => Some(cached_parts),
                 Err(err) => {
-                    tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
+                    tracing::error!(target: "sync", ?err, ?sync_hash, ?shard_id, "Failed to get cached state parts");
                     None
                 }
             });

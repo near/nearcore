@@ -134,15 +134,15 @@ impl GenesisBuilder {
         let roots = get_genesis_state_roots(self.runtime.store())?
             .expect("genesis state roots not initialized.");
         let genesis_shard_version = self.genesis.config.shard_layout.version();
-        self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
+        self.roots = roots.into_iter().enumerate().map(|(k, v)| (k.into(), v)).collect();
         self.state_updates = self
             .roots
             .iter()
-            .map(|(shard_idx, root)| {
+            .map(|(&shard_id, root)| {
                 (
-                    *shard_idx,
+                    shard_id,
                     self.runtime.get_tries().new_trie_update(
-                        ShardUId { version: genesis_shard_version, shard_id: *shard_idx as u32 },
+                        ShardUId { version: genesis_shard_version, shard_id: shard_id.into() },
                         *root,
                     ),
                 )

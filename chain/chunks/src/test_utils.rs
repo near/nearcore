@@ -92,7 +92,7 @@ impl ChunkTestFixture {
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
-        let mock_shard_id: ShardId = 0;
+        let mock_shard_id: ShardId = 0.into();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
