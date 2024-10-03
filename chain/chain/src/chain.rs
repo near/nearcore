@@ -4029,7 +4029,7 @@ impl Chain {
             if !checked_feature!("stable", StateSyncHashUpdate, next_block_protocol_version) {
                 is_epoch_boundary
             } else {
-                // FIXME: before submitting, this needs to be fixed. can't be iterating over the whole chain inside of preprocess
+                // FIXME: this needs to be fixed. can't be iterating over the whole chain inside of preprocess
                 // block like that if there are many missed chunks
                 match self.get_current_epoch_sync_hash(next_block)? {
                     Some(sync_hash) => sync_hash == *next_block.hash(),
