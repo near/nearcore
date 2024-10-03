@@ -174,7 +174,8 @@ pub struct FetchingStateStatus {
     pub num_parts: u64,
 }
 
-/// Current step of resharding flat storage - splitting parent.
+/// Holds the state associated to [FlatStorageReshardingStatus::SplittingParent].
+/// This struct stores the necessary data to execute a shard split of a parent shard into two children.
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]

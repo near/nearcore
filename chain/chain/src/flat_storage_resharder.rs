@@ -21,10 +21,11 @@ use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
 };
 use near_primitives::types::AccountId;
-use near_store::adapter::flat_store::FlatStoreUpdateAdapter;
+use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
-    FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus, SplittingParentStatus,
+    BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
+    SplittingParentStatus,
 };
 use near_store::{ShardUId, StorageError};
 
@@ -144,22 +145,10 @@ impl FlatStorageResharder {
         info!(target: "resharding", ?split_params, "initiating flat storage shard split");
         self.check_no_resharding_in_progress()?;
 
-        // Parent shard must be in ready state.
-        let store = self.inner.runtime.store().flat_store();
-        let flat_head = if let FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) =
-            store
-                .get_flat_storage_status(parent_shard)
-                .map_err(|err| Into::<StorageError>::into(err))?
-        {
-            flat_head
-        } else {
-            let err_msg = "flat storage parent shard is not ready!";
-            error!(target: "resharding", ?parent_shard, err_msg);
-            return Err(Error::ReshardingError(err_msg.to_owned()));
-        };
-
         // Change parent and children shards flat storage status.
+        let store = self.inner.runtime.store().flat_store();
         let mut store_update = store.store_update();
+        let flat_head = retrieve_shard_flat_head(parent_shard, &store)?;
         let status = SplittingParentStatus {
             left_child_shard,
             right_child_shard,
@@ -236,6 +225,20 @@ impl FlatStorageResharder {
         }
         store_update.commit()?;
         Ok(())
+    }
+}
+
+/// Retrieves the flat head of the given `shard`.
+/// The shard must be in [FlatStorageStatus::Ready] state otherwise this method returns an error.
+fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result<BlockInfo, Error> {
+    let status =
+        store.get_flat_storage_status(shard).map_err(|err| Into::<StorageError>::into(err))?;
+    if let FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) = status {
+        Ok(flat_head)
+    } else {
+        let err_msg = "flat storage shard status is not ready!";
+        error!(target: "resharding", ?shard, ?status, err_msg);
+        Err(Error::ReshardingError(err_msg.to_owned()))
     }
 }
 
