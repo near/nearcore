@@ -22,7 +22,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -200,7 +200,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
+        challenge(env, shard_id, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -302,13 +302,13 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
+        challenge(env, shard_id, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 fn challenge(
     env: TestEnv,
-    shard_id: usize,
+    shard_id: ShardId,
     chunk: Box<MaybeEncodedShardChunk>,
     block: &Block,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {

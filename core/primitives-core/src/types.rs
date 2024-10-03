@@ -81,7 +81,7 @@ pub type ShardIndex = usize;
 impl ShardId {
     /// Create a new shard id. Please note that this function should not be used
     /// directly. Instead the ShardId should be obtained from the shard_layout.
-    pub fn new(id: u64) -> Self {
+    pub const fn new(id: u64) -> Self {
         Self(id)
     }
 

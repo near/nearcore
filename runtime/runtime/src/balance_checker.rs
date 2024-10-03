@@ -708,12 +708,12 @@ mod tests {
                 let mut indices = BufferedReceiptIndices::default();
                 indices
                     .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 1 });
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 1 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 },
                     &existing_receipt,
                 );
             },
@@ -729,12 +729,12 @@ mod tests {
                 let mut indices = BufferedReceiptIndices::default();
                 indices
                     .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 2 });
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 2 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 1 },
                     &new_receipt,
                 );
             },
@@ -778,17 +778,17 @@ mod tests {
                 let mut indices = BufferedReceiptIndices::default();
                 indices
                     .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 2 });
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 2 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 },
                     &receipt0,
                 );
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 1 },
                     &receipt1,
                 );
             },
@@ -797,10 +797,11 @@ mod tests {
                 let mut indices = BufferedReceiptIndices::default();
                 indices
                     .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 1, next_available_index: 2 });
+                    .insert(0.into(), TrieQueueIndices { first_index: 1, next_available_index: 2 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
-                trie_update.remove(TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 });
+                trie_update
+                    .remove(TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 });
             },
         );
 
@@ -836,12 +837,12 @@ mod tests {
                 let mut indices = BufferedReceiptIndices::default();
                 indices
                     .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 1 });
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 1 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 },
                     &receipt0,
                 );
             },
@@ -850,15 +851,16 @@ mod tests {
                 let mut indices = BufferedReceiptIndices::default();
                 indices
                     .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 1, next_available_index: 2 });
+                    .insert(0.into(), TrieQueueIndices { first_index: 1, next_available_index: 2 });
 
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 1 },
                     &receipt1,
                 );
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
-                trie_update.remove(TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 });
+                trie_update
+                    .remove(TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 });
             },
         );
 

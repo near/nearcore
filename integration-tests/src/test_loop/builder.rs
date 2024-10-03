@@ -269,7 +269,7 @@ impl TestLoopBuilder {
         if idx < validator_num {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![666];
+            client_config.tracked_shards = vec![666.into()];
         }
 
         if let Some(config_modifier) = &self.config_modifier {

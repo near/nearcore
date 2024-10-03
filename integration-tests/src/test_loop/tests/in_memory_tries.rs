@@ -74,7 +74,7 @@ fn test_load_memtrie_after_empty_chunks() {
         current_tracked_shards
             .iter()
             .enumerate()
-            .find_map(|(idx, shards)| if shards.contains(&0) { Some(idx) } else { None })
+            .find_map(|(idx, shards)| if shards.contains(&0.into()) { Some(idx) } else { None })
             .expect("Not found any client tracking shard 0")
     };
 
@@ -84,11 +84,11 @@ fn test_load_memtrie_after_empty_chunks() {
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(0, &shard_layout));
+        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(0.into(), &shard_layout));
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .load_mem_trie(&ShardUId::from_shard_id_and_layout(0, &shard_layout), None, true)
+        .load_mem_trie(&ShardUId::from_shard_id_and_layout(0.into(), &shard_layout), None, true)
         .expect("Couldn't load memtrie");
 
     // Give the test a chance to finish off remaining events in the event loop, which can
