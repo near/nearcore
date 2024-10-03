@@ -385,7 +385,7 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
         }
         let new_info = StateSyncInfo {
             state_sync_version: 0,
-            epoch_first_block: epoch_first_block,
+            epoch_first_block,
             sync_hash: Some(sync_hash),
             shards,
         };
