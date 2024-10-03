@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -1255,3 +1256,16 @@ pub enum FunctionCallError {
     _EVMError,
     ExecutionError(String),
 }
+
+#[derive(Debug)]
+pub enum ChunkAccessError {
+    ChunkMissing(ChunkHash),
+}
+
+impl std::fmt::Display for ChunkAccessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!("{:?}", self))
+    }
+}
+
+impl std::error::Error for ChunkAccessError {}

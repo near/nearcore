@@ -172,6 +172,8 @@ pub enum ProtocolFeature {
     ChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
     StateStoredReceipt,
+    /// Resharding V3
+    SimpleNightshadeV4,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -254,6 +256,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::StateSyncHashUpdate => 144,
+            ProtocolFeature::SimpleNightshadeV4 => 145,
         }
     }
 

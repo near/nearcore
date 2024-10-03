@@ -32,6 +32,10 @@ pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
 
+/// The default number of attempts to obtain a state part from peers in the network
+/// before giving up and downloading it from external storage.
+pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 5;
+
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(default)]
@@ -77,6 +81,10 @@ fn default_num_concurrent_requests_during_catchup() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
 }
 
+fn default_external_storage_fallback_threshold() -> u64 {
+    DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
@@ -89,6 +97,10 @@ pub struct ExternalStorageConfig {
     /// to reduce the performance impact of state sync.
     #[serde(default = "default_num_concurrent_requests_during_catchup")]
     pub num_concurrent_requests_during_catchup: u32,
+    /// The number of attempts the node will make to obtain a part from peers in
+    /// the network before it fetches from external storage.
+    #[serde(default = "default_external_storage_fallback_threshold")]
+    pub external_storage_fallback_threshold: u64,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -161,6 +173,7 @@ impl StateSyncConfig {
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
                 num_concurrent_requests_during_catchup:
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+                external_storage_fallback_threshold: DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD,
             }),
         }
     }

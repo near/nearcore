@@ -20,6 +20,7 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewStateResult,
 };
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
@@ -136,7 +137,7 @@ impl RuntimeUser {
             );
             if use_flat_storage {
                 near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-                    .apply_to_flat_state(&mut update, ShardUId::single_shard());
+                    .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;

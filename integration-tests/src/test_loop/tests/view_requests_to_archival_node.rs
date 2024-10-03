@@ -74,10 +74,11 @@ fn test_view_requests_to_archival_node() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)

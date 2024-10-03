@@ -134,7 +134,7 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
-                self.chain_store_update.merge(store_update);
+                self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
@@ -174,7 +174,7 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
-                self.chain_store_update.merge(store_update);
+                self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
@@ -544,7 +544,7 @@ impl<'a> ChainUpdate<'a> {
             shard_uid,
             apply_result.trie_changes.state_changes(),
         )?;
-        self.chain_store_update.merge(store_update);
+        self.chain_store_update.merge(store_update.into());
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
@@ -643,7 +643,7 @@ impl<'a> ChainUpdate<'a> {
             shard_uid,
             apply_result.trie_changes.state_changes(),
         )?;
-        self.chain_store_update.merge(store_update);
+        self.chain_store_update.merge(store_update.into());
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
         // The chunk is missing but some fields may need to be updated

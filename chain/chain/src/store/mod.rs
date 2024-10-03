@@ -40,6 +40,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{
     DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
@@ -47,7 +48,6 @@ use near_store::{
 };
 
 use crate::byzantine_assert;
-use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
@@ -492,10 +492,6 @@ impl ChainStore {
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
         }
-    }
-
-    pub fn new_read_only_chunks_store(&self) -> ReadOnlyChunksStore {
-        ReadOnlyChunksStore::new(self.store.clone())
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -2467,17 +2463,15 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the store.
         {
             let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
-            let mut deletions_store_update = self.store().store_update();
+            let mut deletions_store_update = self.store().trie_store().store_update();
             for mut wrapped_trie_changes in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
-                wrapped_trie_changes.insertions_into(&mut store_update);
+                wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes.state_changes_into(&mut store_update);
+                wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
 
                 if self.chain_store.save_trie_changes {
-                    wrapped_trie_changes
-                        .trie_changes_into(&mut store_update)
-                        .map_err(|err| Error::Other(err.to_string()))?;
+                    wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
                 }
             }
 
