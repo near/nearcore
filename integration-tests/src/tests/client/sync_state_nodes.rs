@@ -46,6 +46,9 @@ fn sync_state_nodes() {
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
 
+        // In this test and the ones below, we have an Arc<TempDir>, that we make sure to keep alive by cloning it
+        // and keeping the original one around after we pass the clone to run_actix(). Otherwise it will be dropped early
+        // and the directories will actually be removed while the nodes are running.
         let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
         let dir1 = _dir1.clone();
         let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
