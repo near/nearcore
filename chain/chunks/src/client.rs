@@ -129,7 +129,6 @@ impl ShardedTransactionPool {
             "resharding the transaction pool"
         );
         debug_assert!(old_shard_layout != new_shard_layout);
-        debug_assert!(old_shard_layout.version() + 1 == new_shard_layout.version());
 
         let mut transactions = vec![];
 

@@ -4,11 +4,15 @@
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
 use crate::genesis_validate::validate_genesis;
+use crate::{
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, ValidatorSelectionConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::StateRoot;
@@ -746,6 +750,37 @@ impl Genesis {
             _ => {
                 unreachable!("Records should have been set previously");
             }
+        }
+    }
+
+    // Create test-only epoch config.
+    // Not depends on genesis!
+    // TODO(#11265): move to crate with `EpochConfig`.
+    pub fn test_epoch_config(
+        num_block_producer_seats: NumSeats,
+        shard_layout: ShardLayout,
+        epoch_length: BlockHeightDelta,
+    ) -> EpochConfig {
+        EpochConfig {
+            epoch_length,
+            num_block_producer_seats,
+            num_block_producer_seats_per_shard: vec![
+                num_block_producer_seats;
+                shard_layout.shard_ids().count()
+            ],
+            avg_hidden_validator_seats_per_shard: vec![],
+            target_validator_mandates_per_shard: 68,
+            validator_max_kickout_stake_perc: 100,
+            online_min_threshold: Rational32::new(90, 100),
+            online_max_threshold: Rational32::new(99, 100),
+            minimum_stake_divisor: 10,
+            protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            chunk_validator_only_kickout_threshold: CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+            fishermen_threshold: FISHERMEN_THRESHOLD,
+            shard_layout,
+            validator_selection_config: ValidatorSelectionConfig::default(),
         }
     }
 }
