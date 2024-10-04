@@ -1989,6 +1989,9 @@ impl<T: ChainAccess> TxMirror<T> {
         let tracker2 = tracker.clone();
         let index_target_thread = actix::Arbiter::new();
 
+        // TODO: Consider moving this back to the TxTracker struct. Separating these made certain things easier, but now it
+        // means we need to be careful about the lock order to avoid deadlocks. We keep the convention that the TxTracker is
+        // always locked first.
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
