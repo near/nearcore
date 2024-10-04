@@ -274,7 +274,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
-    use near_primitives::types::ShardId;
+    use near_primitives::types::{new_shard_id_tmp, ShardId};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
@@ -304,8 +304,8 @@ mod tests {
     #[test]
     fn test_incomplete_chunks() {
         let mut cache = EncodedChunksCache::new();
-        let header0 = create_chunk_header(1, 0.into());
-        let header1 = create_chunk_header(1, 1.into());
+        let header0 = create_chunk_header(1, new_shard_id_tmp(0));
+        let header1 = create_chunk_header(1, new_shard_id_tmp(1));
         cache.get_or_insert_from_header(&header0);
         cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
             header: header1.clone(),
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
-        let header = create_chunk_header(1, 0.into());
+        let header = create_chunk_header(1, new_shard_id_tmp(0));
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header, parts: vec![], prev_outgoing_receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);

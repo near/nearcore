@@ -42,8 +42,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
-    ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    shard_id_as_u32, AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce,
+    NumShards, ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -464,7 +464,7 @@ impl EpochManagerAdapter for MockEpochManager {
         shard_id: ShardId,
         _epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError> {
-        Ok(ShardUId { version: 0, shard_id: shard_id.into() })
+        Ok(ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) })
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
@@ -604,7 +604,7 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<(ShardId, ShardIndex), Error> {
         // This is incorrect in ShardLayoutV2 where the shard ids don't have to
         // be ordered and contiguous.
-        Ok((shard_id, shard_id.get() as ShardIndex))
+        Ok((shard_id, shard_id as ShardIndex))
     }
 
     fn get_shard_layout_from_prev_block(
@@ -1093,9 +1093,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: StateRoot,
         _use_flat_storage: bool,
     ) -> Result<Trie, Error> {
-        Ok(self
-            .tries
-            .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id.into() }, state_root))
+        Ok(self.tries.get_trie_for_shard(
+            ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
+            state_root,
+        ))
     }
 
     fn get_flat_storage_manager(&self) -> near_store::flat::FlatStorageManager {
@@ -1109,7 +1110,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
         Ok(self.tries.get_view_trie_for_shard(
-            ShardUId { version: 0, shard_id: shard_id.into() },
+            ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
             state_root,
         ))
     }
@@ -1294,7 +1295,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                ShardUId { version: 0, shard_id: shard_id.into() },
+                ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block.block_hash,

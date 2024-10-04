@@ -75,11 +75,11 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use near_primitives::{shard_layout, unwrap_or_return};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;

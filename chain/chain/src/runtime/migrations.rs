@@ -33,6 +33,7 @@ mod tests {
     use near_mainnet_res::mainnet_restored_receipts;
     use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
+    use near_primitives::types::new_shard_id_tmp;
 
     #[test]
     fn test_migration_data() {
@@ -55,7 +56,10 @@ mod tests {
             "48ZMJukN7RzvyJSW9MJ5XmyQkQFfjy2ZxPRaDMMHqUcT"
         );
         let mainnet_migration_data = load_migration_data(near_primitives::chains::MAINNET);
-        assert_eq!(mainnet_migration_data.restored_receipts.get(&0.into()).unwrap().len(), 383);
+        assert_eq!(
+            mainnet_migration_data.restored_receipts.get(&new_shard_id_tmp(0)).unwrap().len(),
+            383
+        );
         let testnet_migration_data = load_migration_data(near_primitives::chains::TESTNET);
         assert!(testnet_migration_data.restored_receipts.is_empty());
     }

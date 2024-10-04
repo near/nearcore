@@ -21,7 +21,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{self, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,

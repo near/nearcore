@@ -61,7 +61,7 @@ fn change_shard_id_to_invalid() {
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
 
     // 1. Corrupt chunks
-    let bad_shard_id = 100.into();
+    let bad_shard_id = 100;
     let mut new_chunks = vec![];
     for chunk in block.chunks().iter() {
         let mut new_chunk = chunk.clone();
@@ -89,7 +89,8 @@ fn change_shard_id_to_invalid() {
     // Try to process corrupt block and expect code to notice invalid shard_id
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     match res {
-        Err(Error::InvalidShardId(bad_shard_id)) => {
+        Err(Error::InvalidShardId(shard_id)) => {
+            assert_eq!(shard_id, bad_shard_id);
             tracing::debug!("process failed successfully");
         }
         Err(e) => {

@@ -40,8 +40,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards,
-    ShardId,
+    new_shard_id_tmp, AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas,
+    NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -845,7 +845,7 @@ pub fn init_configs(
     let mut config = Config::default();
     // Make sure node tracks all shards, see
     // https://github.com/near/nearcore/issues/7388
-    config.tracked_shards = vec![0.into()];
+    config.tracked_shards = vec![new_shard_id_tmp(0)];
     // If a config gets generated, block production times may need to be updated.
     set_block_production_delay(&chain_id, fast, &mut config);
 
@@ -1204,7 +1204,7 @@ fn create_localnet_config(
     // Make non-validator archival and RPC nodes track all shards.
     // Note that validator nodes may track all or some of the shards.
     config.tracked_shards = if !params.is_validator && (params.is_archival || params.is_rpc) {
-        (0..num_shards).map(Into::into).collect()
+        (0..num_shards).map(new_shard_id_tmp).collect()
     } else {
         tracked_shards.clone()
     };
@@ -1522,7 +1522,7 @@ mod tests {
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
     use near_primitives::shard_layout::account_id_to_shard_id;
-    use near_primitives::types::{AccountId, NumShards};
+    use near_primitives::types::{new_shard_id_tmp, AccountId, NumShards};
     use tempfile::tempdir;
 
     use crate::config::{
@@ -1562,21 +1562,21 @@ mod tests {
                 &AccountId::from_str("foobar.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
-            0.into()
+            new_shard_id_tmp(0)
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard1.test.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
-            1.into()
+            new_shard_id_tmp(1)
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard2.test.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
-            2.into()
+            new_shard_id_tmp(2)
         );
     }
 
@@ -1746,7 +1746,10 @@ mod tests {
                 config.split_storage.clone().unwrap().enable_split_storage_view_client,
                 true
             );
-            assert_eq!(config.tracked_shards, (0..num_shards).map(Into::into).collect::<Vec<_>>());
+            assert_eq!(
+                config.tracked_shards,
+                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+            );
         }
 
         // Check non-validator RPC nodes.
@@ -1755,7 +1758,10 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, (0..num_shards).map(Into::into).collect::<Vec<_>>());
+            assert_eq!(
+                config.tracked_shards,
+                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+            );
         }
 
         // Check other non-validator nodes.
@@ -1781,7 +1787,7 @@ mod tests {
         let prefix = "node";
 
         // Validators will track 2 shards and non-validators will track all shards.
-        let tracked_shards = vec![1.into(), 3.into()];
+        let tracked_shards = vec![new_shard_id_tmp(1), new_shard_id_tmp(3)];
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_localnet_configs(
@@ -1823,7 +1829,10 @@ mod tests {
                 config.split_storage.clone().unwrap().enable_split_storage_view_client,
                 true
             );
-            assert_eq!(config.tracked_shards, (0..num_shards).map(Into::into).collect::<Vec<_>>());
+            assert_eq!(
+                config.tracked_shards,
+                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+            );
         }
 
         // Check non-validator RPC nodes.
@@ -1832,7 +1841,10 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, (0..num_shards).map(Into::into).collect::<Vec<_>>());
+            assert_eq!(
+                config.tracked_shards,
+                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+            );
         }
 
         // Check other non-validator nodes.

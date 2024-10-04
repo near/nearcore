@@ -29,8 +29,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateRoot, StateRootNode,
+    new_shard_id_tmp, AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider,
+    Gas, MerkleHash, ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -219,7 +219,7 @@ impl NightshadeRuntime {
             epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
         let shard_version =
             epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
-        Ok(ShardUId { version: shard_version, shard_id: shard_id.into() })
+        Ok(ShardUId { version: shard_version, shard_id: new_shard_id_tmp(shard_id) as u32 })
     }
 
     fn get_shard_uid_from_epoch_id(
@@ -230,7 +230,7 @@ impl NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         let shard_version =
             epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
-        Ok(ShardUId { version: shard_version, shard_id: shard_id.into() })
+        Ok(ShardUId { version: shard_version, shard_id: new_shard_id_tmp(shard_id) as u32 })
     }
 
     fn account_id_to_shard_uid(

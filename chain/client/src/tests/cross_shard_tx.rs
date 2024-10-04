@@ -192,7 +192,7 @@ fn test_cross_shard_tx_callback(
             // This test uses the V0 shard layout so it's ok to cast ShardId to
             // ShardIndex.
             let shard_id = account_id_to_shard_id(&account_id, 8);
-            let shard_index = shard_id.get() as usize;
+            let shard_index = shard_id as usize;
             let actor = &connectors_[shard_index + (*presumable_epoch.read().unwrap() * 8) % 24]
                 .view_client_actor;
             let actor = actor.send(
@@ -260,7 +260,7 @@ fn test_cross_shard_tx_callback(
                 // This test uses the V0 shard layout so it's ok to cast ShardId to
                 // ShardIndex.
                 let shard_id = account_id_to_shard_id(&validators[from], 8);
-                let shard_index = shard_id.get() as usize;
+                let shard_index = shard_id as usize;
 
                 send_tx(
                     validators.len(),
@@ -299,7 +299,7 @@ fn test_cross_shard_tx_callback(
                     // This test uses the V0 shard layout so it's ok to cast ShardId to
                     // ShardIndex.
                     let shard_id = account_id_to_shard_id(&validators[i], 8);
-                    let shard_index = shard_id.get() as usize;
+                    let shard_index = shard_id as usize;
 
                     let actor = &connectors_
                         [shard_index + (*presumable_epoch.read().unwrap() * 8) % 24]
@@ -359,7 +359,7 @@ fn test_cross_shard_tx_callback(
             // This test uses the V0 shard layout so it's ok to cast ShardId to
             // ShardIndex.
             let shard_id = account_id_to_shard_id(&account_id, 8);
-            let shard_index = shard_id.get() as usize;
+            let shard_index = shard_id as usize;
 
             let actor = &connectors_[shard_index + (*presumable_epoch.read().unwrap() * 8) % 24]
                 .view_client_actor;
@@ -521,7 +521,7 @@ fn test_cross_shard_tx_common(
             // This test uses the V0 shard layout so it's ok to cast ShardId to
             // ShardIndex.
             let shard_id = account_id_to_shard_id(&validators[i], 8);
-            let shard_index = shard_id.get() as usize;
+            let shard_index = shard_id as usize;
 
             let actor =
                 &connectors_[shard_index + *presumable_epoch.read().unwrap() * 8].view_client_actor;

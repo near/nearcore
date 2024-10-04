@@ -112,7 +112,7 @@ fn repro_1183() {
                             // This test uses the V0 shard layout so it's ok to
                             // cast ShardId to ShardIndex.
                             let shard_id = account_id_to_shard_id(&from, 4);
-                            let shard_index = shard_id.get() as usize;
+                            let shard_index = shard_id as usize;
                             connectors1.write().unwrap()[shard_index].client_actor.do_send(
                                 ProcessTxRequest {
                                     transaction: SignedTransaction::send_money(

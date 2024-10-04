@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::hash::CryptoHash;
 
 /// Account identifier. Provides access to user's state.
@@ -55,22 +53,24 @@ pub type ProtocolVersion = u32;
 /// if fully complete it potentially may be simplified to a regular type alias.
 ///
 /// TODO get rid of serde
-#[derive(
-    arbitrary::Arbitrary,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-)]
-pub struct ShardId(u64);
+// #[derive(
+//     arbitrary::Arbitrary,
+//     borsh::BorshSerialize,
+//     borsh::BorshDeserialize,
+//     serde::Serialize,
+//     serde::Deserialize,
+//     Hash,
+//     Clone,
+//     Copy,
+//     Debug,
+//     PartialEq,
+//     Eq,
+//     PartialOrd,
+//     Ord,
+// )]
+// pub struct ShardId(u64);
+
+pub type ShardId = u64;
 
 /// The ShardIndex is the index of the shard in an array of shard data.
 /// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
@@ -78,84 +78,105 @@ pub struct ShardId(u64);
 /// used instead.
 pub type ShardIndex = usize;
 
-impl ShardId {
-    /// Create a new shard id. Please note that this function should not be used
-    /// directly. Instead the ShardId should be obtained from the shard_layout.
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
-
-    /// Get the numerical value of the shard id. This should not be used as an
-    /// index into an array, as the shard id may be any arbitrary number.
-    pub fn get(self) -> u64 {
-        self.0
-    }
-
-    pub fn to_le_bytes(self) -> [u8; 8] {
-        self.0.to_le_bytes()
-    }
-
-    pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        Self(u64::from_le_bytes(bytes))
-    }
-
-    // TODO This is not great, in ShardUId shard_id is u32.
-    // Currently used for some metrics so kinda ok.
-    pub fn max() -> Self {
-        Self(u64::MAX)
-    }
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be removed / inlined once the transition
+// is complete.
+pub const fn new_shard_id_tmp(id: u64) -> ShardId {
+    id
 }
 
-impl Display for ShardId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be removed / inlined once the transition
+// is complete.
+pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
+    vec.iter().copied().map(new_shard_id_tmp).collect()
 }
 
-impl From<u64> for ShardId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be removed / inlined once the transition
+// is complete.
+pub const fn shard_id_as_u32(id: ShardId) -> u32 {
+    id as u32
 }
 
-impl Into<u64> for ShardId {
-    fn into(self) -> u64 {
-        self.0
-    }
-}
+// impl ShardId {
+//     /// Create a new shard id. Please note that this function should not be used
+//     /// directly. Instead the ShardId should be obtained from the shard_layout.
+//     pub const fn new(id: u64) -> Self {
+//         Self(id)
+//     }
 
-impl From<u32> for ShardId {
-    fn from(id: u32) -> Self {
-        Self(id as u64)
-    }
-}
+//     /// Get the numerical value of the shard id. This should not be used as an
+//     /// index into an array, as the shard id may be any arbitrary number.
+//     pub fn get(self) -> u64 {
+//         self.0
+//     }
 
-impl Into<u32> for ShardId {
-    fn into(self) -> u32 {
-        self.0 as u32
-    }
-}
+//     pub fn to_le_bytes(self) -> [u8; 8] {
+//         self.0.to_le_bytes()
+//     }
 
-impl From<i32> for ShardId {
-    fn from(id: i32) -> Self {
-        Self(id as u64)
-    }
-}
+//     pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
+//         Self(u64::from_le_bytes(bytes))
+//     }
 
-impl From<usize> for ShardId {
-    fn from(id: usize) -> Self {
-        Self(id as u64)
-    }
-}
+//     // TODO This is not great, in ShardUId shard_id is u32.
+//     // Currently used for some metrics so kinda ok.
+//     pub fn max() -> Self {
+//         Self(u64::MAX)
+//     }
+// }
 
-impl From<u16> for ShardId {
-    fn from(id: u16) -> Self {
-        Self(id as u64)
-    }
-}
+// impl Display for ShardId {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "{}", self.0)
+//     }
+// }
 
-impl Into<u16> for ShardId {
-    fn into(self) -> u16 {
-        self.0 as u16
-    }
-}
+// impl From<u64> for ShardId {
+//     fn from(id: u64) -> Self {
+//         Self(id)
+//     }
+// }
+
+// impl Into<u64> for ShardId {
+//     fn into(self) -> u64 {
+//         self.0
+//     }
+// }
+
+// impl From<u32> for ShardId {
+//     fn from(id: u32) -> Self {
+//         Self(id as u64)
+//     }
+// }
+
+// impl Into<u32> for ShardId {
+//     fn into(self) -> u32 {
+//         self.0 as u32
+//     }
+// }
+
+// impl From<i32> for ShardId {
+//     fn from(id: i32) -> Self {
+//         Self(id as u64)
+//     }
+// }
+
+// impl From<usize> for ShardId {
+//     fn from(id: usize) -> Self {
+//         Self(id as u64)
+//     }
+// }
+
+// impl From<u16> for ShardId {
+//     fn from(id: u16) -> Self {
+//         Self(id as u64)
+//     }
+// }
+
+// impl Into<u16> for ShardId {
+//     fn into(self) -> u16 {
+//         self.0 as u16
+//     }
+// }

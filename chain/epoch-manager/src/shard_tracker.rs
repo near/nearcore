@@ -218,7 +218,9 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
+    use near_primitives::types::{
+        new_shard_id_tmp, BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId,
+    };
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
@@ -337,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_track_accounts() {
-        let shard_ids = (0..4).map(Into::into).collect_vec();
+        let shard_ids = (0..4).map(new_shard_id_tmp).collect_vec();
         let epoch_manager =
             get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false);
         let shard_layout = epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap();
@@ -362,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_track_all_shards() {
-        let shard_ids = (0..4).map(Into::into).collect_vec();
+        let shard_ids = (0..4).map(new_shard_id_tmp).collect_vec();
         let epoch_manager =
             get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false);
         let tracker = ShardTracker::new(TrackedConfig::AllShards, Arc::new(epoch_manager));
@@ -381,13 +383,16 @@ mod tests {
     #[test]
     fn test_track_schedule() {
         // Creates a ShardTracker that changes every epoch tracked shards.
-        let shard_ids = (0..4).map(Into::into).collect_vec();
+        let shard_ids = (0..4).map(new_shard_id_tmp).collect_vec();
 
         let epoch_manager =
             Arc::new(get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false));
-        let subset1: HashSet<ShardId> = HashSet::from([0, 1]).into_iter().map(Into::into).collect();
-        let subset2: HashSet<ShardId> = HashSet::from([1, 2]).into_iter().map(Into::into).collect();
-        let subset3: HashSet<ShardId> = HashSet::from([2, 3]).into_iter().map(Into::into).collect();
+        let subset1: HashSet<ShardId> =
+            HashSet::from([0, 1]).into_iter().map(new_shard_id_tmp).collect();
+        let subset2: HashSet<ShardId> =
+            HashSet::from([1, 2]).into_iter().map(new_shard_id_tmp).collect();
+        let subset3: HashSet<ShardId> =
+            HashSet::from([2, 3]).into_iter().map(new_shard_id_tmp).collect();
         let tracker = ShardTracker::new(
             TrackedConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),

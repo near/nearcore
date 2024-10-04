@@ -39,6 +39,7 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::new_shard_id_tmp;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
@@ -1351,7 +1352,7 @@ impl Runtime {
         {
             // Note that receipts are restored only on mainnet so restored_receipts will be empty on
             // other chains.
-            migration_data.restored_receipts.get(&0.into()).cloned().unwrap_or_default()
+            migration_data.restored_receipts.get(&new_shard_id_tmp(0)).cloned().unwrap_or_default()
         } else {
             vec![]
         };

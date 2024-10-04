@@ -17,6 +17,7 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::new_shard_id_tmp;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
@@ -36,7 +37,7 @@ fn make_snapshot_host_info(
     let max_shard_id = 32;
     let shards_num: usize = rng.gen_range(1..16);
     let shards = (0..max_shard_id).choose_multiple(rng, shards_num);
-    let shards = shards.into_iter().sorted().map(Into::into).collect();
+    let shards = shards.into_iter().sorted().map(new_shard_id_tmp).collect();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -370,7 +371,7 @@ async fn large_shard_id_in_cache() {
     let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
 
     tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
-    let max_shard_id: u64 = ShardId::max().into();
+    let max_shard_id: ShardId = ShardId::MAX;
     let big_shard_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(1234_u64),
@@ -444,9 +445,9 @@ async fn too_many_shards_truncate() {
 
     // The list of shards should contain MAX_SHARDS_PER_SNAPSHOT_HOST_INFO randomly sampled, unique shard ids taken from too_many_shards
     assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
-    for shard_id in &info.shards {
+    for &shard_id in &info.shards {
         // Shard ids are taken from the original vector
-        assert!(shard_id.get() < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
+        assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
     assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));

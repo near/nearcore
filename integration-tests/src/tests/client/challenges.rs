@@ -215,7 +215,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk).into(), &block);
+        challenge(env, shard_id, MaybeEncodedShardChunk::Decoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -228,7 +228,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
+        challenge(env, shard_id, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -265,7 +265,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
+        challenge(env, shard_id, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -317,7 +317,7 @@ fn challenge(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: borsh::to_vec(&block.header()).unwrap(),
             chunk,
-            merkle_proof: merkle_paths[shard_id].clone(),
+            merkle_proof: merkle_paths[shard_id as usize].clone(),
         }),
         &*env.clients[0].validator_signer.get().unwrap(),
     );

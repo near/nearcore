@@ -2263,7 +2263,7 @@ mod test {
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{new_shard_id_tmp, EpochId};
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -2322,7 +2322,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: 0.into(),
+                shard_id: new_shard_id_tmp(0),
                 added,
                 last_requested: added,
             },

@@ -410,6 +410,7 @@ mod test {
         ExternalConnection, StateFileType,
     };
     use near_o11y::testonly::init_test_logger;
+    use near_primitives::types::new_shard_id_tmp;
     use rand::distributions::{Alphanumeric, DistString};
 
     fn random_string(rand_len: usize) -> String {
@@ -460,23 +461,28 @@ mod test {
         let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
-        let files = rt.block_on(async { connection.list_objects(0.into(), &dir).await.unwrap() });
+        let files = rt
+            .block_on(async { connection.list_objects(new_shard_id_tmp(0), &dir).await.unwrap() });
         tracing::debug!("Files before upload: {:?}", files);
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 0);
 
         // Uploading the file.
         rt.block_on(async {
-            connection.put_file(file_type.clone(), &data, 0.into(), &full_filename).await.unwrap()
+            connection
+                .put_file(file_type.clone(), &data, new_shard_id_tmp(0), &full_filename)
+                .await
+                .unwrap()
         });
 
         // After uploading we should see filename in the list of files.
-        let files = rt.block_on(async { connection.list_objects(0.into(), &dir).await.unwrap() });
+        let files = rt
+            .block_on(async { connection.list_objects(new_shard_id_tmp(0), &dir).await.unwrap() });
         tracing::debug!("Files after upload: {:?}", files);
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 1);
 
         // And the data should match generates data.
         let download_data = rt.block_on(async {
-            connection.get_file(0.into(), &full_filename, &file_type).await.unwrap()
+            connection.get_file(new_shard_id_tmp(0), &full_filename, &file_type).await.unwrap()
         });
         assert_eq!(download_data, data);
 
@@ -484,8 +490,9 @@ mod test {
         let filename = random_string(8);
         let full_filename = format!("{}/{}", dir, filename);
 
-        let download_data =
-            rt.block_on(async { connection.get_file(0.into(), &full_filename, &file_type).await });
+        let download_data = rt.block_on(async {
+            connection.get_file(new_shard_id_tmp(0), &full_filename, &file_type).await
+        });
         assert!(download_data.is_err(), "{:?}", download_data);
     }
 }

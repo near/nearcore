@@ -733,10 +733,12 @@ fn test_state_sync() {
     let block_hash = hash(&[env.head.height as u8]);
     let state_part = env
         .runtime
-        .obtain_state_part(0.into(), &block_hash, &env.state_roots[0], PartId::new(0, 1))
+        .obtain_state_part(new_shard_id_tmp(0), &block_hash, &env.state_roots[0], PartId::new(0, 1))
         .unwrap();
-    let root_node =
-        env.runtime.get_state_root_node(0.into(), &block_hash, &env.state_roots[0]).unwrap();
+    let root_node = env
+        .runtime
+        .get_state_root_node(new_shard_id_tmp(0), &block_hash, &env.state_roots[0])
+        .unwrap();
     let mut new_env = TestEnv::new(vec![validators], 2, false);
     for i in 1..=2 {
         let prev_hash = hash(&[new_env.head.height as u8]);
@@ -793,7 +795,13 @@ fn test_state_sync() {
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime
-        .apply_state_part(0.into(), &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
+        .apply_state_part(
+            new_shard_id_tmp(0),
+            &env.state_roots[0],
+            PartId::new(0, 1),
+            &state_part,
+            epoch_id,
+        )
         .unwrap();
     new_env.state_roots[0] = env.state_roots[0];
     for _ in 3..=5 {
@@ -834,9 +842,9 @@ fn test_get_validator_info() {
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
-            let cp = em.get_chunk_producer_info(&epoch_id, height, 0.into()).unwrap();
+            let cp = em.get_chunk_producer_info(&epoch_id, height, new_shard_id_tmp(0)).unwrap();
             let stateless_validators =
-                em.get_chunk_validator_assignments(&epoch_id, 0.into(), height).ok();
+                em.get_chunk_validator_assignments(&epoch_id, new_shard_id_tmp(0), height).ok();
 
             if let Some(vs) = stateless_validators {
                 if vs.contains(&validators[0]) {
@@ -883,7 +891,7 @@ fn test_get_validator_info() {
             public_key: block_producers[0].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![0.into()],
+            shards: vec![new_shard_id_tmp(0)],
             num_produced_blocks: expected_blocks[0],
             num_expected_blocks: expected_blocks[0],
             num_produced_chunks: expected_chunks[0],
@@ -900,7 +908,7 @@ fn test_get_validator_info() {
             public_key: block_producers[1].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![0.into()],
+            shards: vec![new_shard_id_tmp(0)],
             num_produced_blocks: expected_blocks[1],
             num_expected_blocks: expected_blocks[1],
             num_produced_chunks: expected_chunks[1],
@@ -918,13 +926,13 @@ fn test_get_validator_info() {
             account_id: "test1".parse().unwrap(),
             public_key: block_producers[0].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0.into()],
+            shards: vec![new_shard_id_tmp(0)],
         },
         NextEpochValidatorInfo {
             account_id: "test2".parse().unwrap(),
             public_key: block_producers[1].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0.into()],
+            shards: vec![new_shard_id_tmp(0)],
         },
     ];
     let response = env
@@ -995,7 +1003,7 @@ fn test_get_validator_info() {
             account_id: "test2".parse().unwrap(),
             public_key: block_producers[1].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0.into()],
+            shards: vec![new_shard_id_tmp(0)],
         }]
     );
     assert!(response.current_proposals.is_empty());
@@ -1468,13 +1476,13 @@ fn test_flat_state_usage() {
     let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
     let trie = env
         .runtime
-        .get_trie_for_shard(0.into(), &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
+        .get_trie_for_shard(new_shard_id_tmp(0), &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
         .unwrap();
     assert!(trie.has_flat_storage_chunk_view());
 
     let trie = env
         .runtime
-        .get_view_trie_for_shard(0.into(), &env.head.prev_block_hash, Trie::EMPTY_ROOT)
+        .get_view_trie_for_shard(new_shard_id_tmp(0), &env.head.prev_block_hash, Trie::EMPTY_ROOT)
         .unwrap();
     assert!(!trie.has_flat_storage_chunk_view());
 }
@@ -1512,10 +1520,14 @@ fn test_trie_and_flat_state_equality() {
     // - using view state, which should never use flat state
     let head_prev_block_hash = env.head.prev_block_hash;
     let state_root = env.state_roots[0];
-    let state =
-        env.runtime.get_trie_for_shard(0.into(), &head_prev_block_hash, state_root, true).unwrap();
-    let view_state =
-        env.runtime.get_view_trie_for_shard(0.into(), &head_prev_block_hash, state_root).unwrap();
+    let state = env
+        .runtime
+        .get_trie_for_shard(new_shard_id_tmp(0), &head_prev_block_hash, state_root, true)
+        .unwrap();
+    let view_state = env
+        .runtime
+        .get_view_trie_for_shard(new_shard_id_tmp(0), &head_prev_block_hash, state_root)
+        .unwrap();
     let trie_key = TrieKey::Account { account_id: validators[1].clone() };
     let key = trie_key.to_vec();
 
@@ -1659,7 +1671,7 @@ fn prepare_transactions(
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
-    let shard_id = 0.into();
+    let shard_id = new_shard_id_tmp(0);
     let block = chain.get_block(&env.head.prev_block_hash).unwrap();
     let congestion_info = block.block_congestion_info();
 
@@ -1781,7 +1793,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
-    let shard_id = 0.into();
+    let shard_id = new_shard_id_tmp(0);
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;

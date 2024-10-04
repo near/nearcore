@@ -49,7 +49,9 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, StatePartKey,
 };
-use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::types::{
+    shard_id_as_u32, AccountId, EpochHeight, EpochId, ShardId, StateRoot,
+};
 use near_store::DBCol;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -232,7 +234,7 @@ impl StateSync {
 
         for shard_id in tracking_shards {
             let version = prev_shard_layout.version();
-            let shard_uid = ShardUId { version, shard_id: shard_id.into() };
+            let shard_uid = ShardUId { version, shard_id: shard_id_as_u32(shard_id) };
             let mut download_timeout = false;
             let mut run_shard_state_download = false;
             let shard_sync_download = sync_status.entry(shard_id).or_insert_with(|| {
@@ -1312,6 +1314,7 @@ mod test {
     use near_primitives::state_sync::{
         CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
     };
+    use near_primitives::types::new_shard_id_tmp;
     use near_primitives::{test_utils::TestBlockBuilder, types::EpochId};
 
     #[test]
@@ -1354,7 +1357,8 @@ mod test {
         }
 
         let request_hash = &chain.head().unwrap().last_block_hash;
-        let state_sync_header = chain.get_state_response_header(0.into(), *request_hash).unwrap();
+        let state_sync_header =
+            chain.get_state_response_header(new_shard_id_tmp(0), *request_hash).unwrap();
         let state_sync_header = match state_sync_header {
             ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
             ShardStateSyncResponseHeader::V2(internal) => internal,
@@ -1368,7 +1372,7 @@ mod test {
             genesis_id: Default::default(),
             highest_block_height: chain.epoch_length + 10,
             highest_block_hash: Default::default(),
-            tracked_shards: vec![0.into()],
+            tracked_shards: vec![new_shard_id_tmp(0)],
             archival: false,
         };
 
@@ -1381,7 +1385,7 @@ mod test {
                     &mut chain,
                     kv.as_ref(),
                     &[highest_height_peer_info],
-                    vec![0.into()],
+                    vec![new_shard_id_tmp(0)],
                     &noop().into_sender(),
                     &noop().into_sender(),
                     &ActixArbiterHandleFutureSpawner(Arbiter::new().handle()),
@@ -1396,7 +1400,7 @@ mod test {
 
             assert_eq!(
                 NetworkRequests::StateRequestHeader {
-                    shard_id: 0.into(),
+                    shard_id: new_shard_id_tmp(0),
                     sync_hash: *request_hash,
                     peer_id: peer_id.clone(),
                 },
@@ -1404,7 +1408,7 @@ mod test {
             );
 
             assert_eq!(1, new_shard_sync.len());
-            let download = new_shard_sync.get(&0.into()).unwrap();
+            let download = new_shard_sync.get(&new_shard_id_tmp(0)).unwrap();
 
             assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
 
@@ -1428,14 +1432,14 @@ mod test {
             });
 
             state_sync.update_download_on_state_response_message(
-                &mut new_shard_sync.get_mut(&0.into()).unwrap(),
+                &mut new_shard_sync.get_mut(&new_shard_id_tmp(0)).unwrap(),
                 *request_hash,
-                0.into(),
+                new_shard_id_tmp(0),
                 state_response,
                 &mut chain,
             );
 
-            let download = new_shard_sync.get(&0.into()).unwrap();
+            let download = new_shard_sync.get(&new_shard_id_tmp(0)).unwrap();
             assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
             // Download should be marked as done.
             assert_eq!(download.downloads[0].done, true);

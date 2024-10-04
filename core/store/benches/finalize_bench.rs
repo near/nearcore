@@ -30,7 +30,7 @@ use near_primitives::sharding::{
     ShardChunkV2, ShardProof,
 };
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;
@@ -177,7 +177,7 @@ fn create_shard_chunk(
 ) -> ShardChunk {
     ShardChunk::V2(ShardChunkV2 {
         chunk_hash: chunk_hash.clone(),
-        header: create_chunk_header(0, 0.into()),
+        header: create_chunk_header(0, new_shard_id_tmp(0)),
         transactions,
         prev_outgoing_receipts: receipts,
     })
@@ -198,7 +198,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        0.into(),
+        new_shard_id_tmp(0),
         Default::default(),
         Default::default(),
         Default::default(),

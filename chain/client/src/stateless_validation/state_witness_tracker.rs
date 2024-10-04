@@ -153,6 +153,7 @@ mod state_witness_tracker_tests {
     use near_async::time::{Duration, FakeClock, Utc};
     use near_primitives::hash::hash;
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+    use near_primitives::types::new_shard_id_tmp;
 
     const NUM_VALIDATORS: usize = 3;
 
@@ -204,7 +205,7 @@ mod state_witness_tracker_tests {
     }
 
     fn dummy_witness() -> ChunkStateWitness {
-        ChunkStateWitness::new_dummy(100, 2.into(), hash("fake hash".as_bytes()))
+        ChunkStateWitness::new_dummy(100, new_shard_id_tmp(2), hash("fake hash".as_bytes()))
     }
 
     fn dummy_clock() -> FakeClock {

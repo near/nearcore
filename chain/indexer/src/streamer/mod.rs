@@ -79,8 +79,6 @@ pub async fn build_streamer_message(
     let chunks = fetch_block_chunks(&client, &block).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
-    let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
-        as near_primitives::types::NumShards;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
 
     let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
@@ -105,8 +103,6 @@ pub async fn build_streamer_message(
     for (shard_index, chunk) in chunks.into_iter().enumerate() {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
-
-        let shard_id = header.shard_id;
 
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)

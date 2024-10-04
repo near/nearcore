@@ -15,7 +15,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
+use near_primitives::types::{new_shard_id_tmp, BlockId, BlockReference, EpochId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 use near_time::Clock;
 
@@ -90,8 +90,10 @@ fn test_block_query() {
 #[test]
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let chunk =
-            client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 0.into())).await.unwrap();
+        let chunk = client
+            .chunk(ChunkId::BlockShardId(BlockId::Height(0), new_shard_id_tmp(0)))
+            .await
+            .unwrap();
         assert_eq!(chunk.author, "test1");
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
@@ -105,7 +107,7 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
         assert_eq!(chunk.header.rent_paid, 0);
-        assert_eq!(chunk.header.shard_id, 0.into());
+        assert_eq!(chunk.header.shard_id, new_shard_id_tmp(0));
         assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);
@@ -119,7 +121,8 @@ fn test_chunk_by_hash() {
 #[test]
 fn test_chunk_invalid_shard_id() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 100.into())).await;
+        let chunk =
+            client.chunk(ChunkId::BlockShardId(BlockId::Height(0), new_shard_id_tmp(100))).await;
         match chunk {
             Ok(_) => panic!("should result in an error"),
             Err(e) => {
@@ -650,7 +653,7 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
         assert_eq!(chunk.header.rent_paid, 0);
-        assert_eq!(chunk.header.shard_id, 0.into());
+        assert_eq!(chunk.header.shard_id, new_shard_id_tmp(0));
         assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);

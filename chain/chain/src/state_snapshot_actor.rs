@@ -5,7 +5,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{EpochHeight, ShardId};
+use near_primitives::types::EpochHeight;
 use near_store::flat::FlatStorageManager;
 use near_store::ShardTries;
 use std::sync::Arc;

@@ -8,6 +8,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::new_shard_id_tmp;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -38,7 +39,7 @@ async fn test_raw_conn_pings() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        vec![0.into()],
+        vec![new_shard_id_tmp(0)],
         time::Duration::SECOND,
     )
     .await
@@ -99,7 +100,7 @@ async fn test_raw_conn_state_parts() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        vec![0.into()],
+        vec![new_shard_id_tmp(0)],
         time::Duration::SECOND,
     )
     .await
@@ -110,9 +111,13 @@ async fn test_raw_conn_state_parts() {
     // But the fake node simply ignores the block hash.
     let block_hash = CryptoHash::new();
     for part_id in 0..num_parts {
-        conn.send_message(raw::DirectMessage::StateRequestPart(0.into(), block_hash, part_id))
-            .await
-            .unwrap();
+        conn.send_message(raw::DirectMessage::StateRequestPart(
+            new_shard_id_tmp(0),
+            block_hash,
+            part_id,
+        ))
+        .await
+        .unwrap();
     }
 
     let mut part_id_received = -1i64;
@@ -174,7 +179,7 @@ async fn test_listener() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        vec![0.into()],
+        vec![new_shard_id_tmp(0)],
         false,
         time::Duration::SECOND,
     )

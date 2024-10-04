@@ -38,7 +38,7 @@ use time::ext::InstantExt as _;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
-use near_primitives::sharding::{shard_chunk_header_inner, ChunkHash};
+use near_primitives::sharding::ChunkHash;
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };

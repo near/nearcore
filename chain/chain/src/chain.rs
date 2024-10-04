@@ -3916,7 +3916,7 @@ impl Chain {
 
         // The upper bound shard id is not a valid ShardId. It should only be
         // used as a uppoer bound for the shard id in the database.
-        let upper_bound_shard_id = (shard_id.get() + 1).into();
+        let upper_bound_shard_id = (shard_id + 1).into();
         let upper_bound = StatePartKey(sync_hash, upper_bound_shard_id, 0);
         let upper_bound = borsh::to_vec(&upper_bound)?;
         let mut num_cached_parts = 0;
@@ -4558,7 +4558,7 @@ impl Chain {
         let prev_chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
-            .map(|(shard_id, shard_index)| prev_chunks.get(shard_index).unwrap().clone())
+            .map(|(_, shard_index)| prev_chunks.get(shard_index).unwrap().clone())
             .collect())
     }
 

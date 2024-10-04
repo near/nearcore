@@ -28,7 +28,7 @@ use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerAct
 use near_parameters::RuntimeConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::AccountId;
+use near_primitives::types::{new_shard_id_tmp, AccountId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
@@ -269,7 +269,7 @@ impl TestLoopBuilder {
         if idx < validator_num {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![666.into()];
+            client_config.tracked_shards = vec![new_shard_id_tmp(666)];
         }
 
         if let Some(config_modifier) = &self.config_modifier {

@@ -237,12 +237,12 @@ fn get_block_info(
             let height = header.height();
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
-            for chunk_header in chunks.iter() {
+            for (shard_index, chunk_header) in chunks.iter().enumerate() {
                 let shard_id = chunk_header.shard_id();
                 let endorsements = &endorsement_signatures[shard_id as usize];
                 if !chunk_header.is_new_chunk(height) {
                     assert_eq!(endorsements.len(), 0);
-                    bitmap.add_endorsements(shard_id, vec![]);
+                    bitmap.add_endorsements(shard_index, vec![]);
                 } else {
                     let assignments = epoch_manager
                         .get_chunk_validator_assignments(
@@ -253,7 +253,7 @@ fn get_block_info(
                         .ordered_chunk_validators();
                     assert_eq!(endorsements.len(), assignments.len());
                     bitmap.add_endorsements(
-                        shard_id,
+                        shard_index,
                         endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
                     );
                 }

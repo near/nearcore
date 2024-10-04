@@ -677,7 +677,7 @@ impl EpochInfo {
             let mut buffer = [0u8; 48];
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());
-            buffer[40..48].copy_from_slice(&shard_id.get().to_le_bytes());
+            buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
             hash(&buffer).0
         }
     }

@@ -9,7 +9,7 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
     StateStoredReceiptMetadata,
 };
-use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
+use near_primitives::types::{new_shard_id_tmp, EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ReceiptIterator, ShardsOutgoingReceiptBuffer, TrieQueue,
@@ -460,7 +460,7 @@ pub fn bootstrap_congestion_info(
         // It is also irrelevant, since the bootstrapped value is only used at
         // the start of applying a chunk on this shard. Other shards will only
         // see and act on the first congestion info after that.
-        allowed_shard: shard_id.into(),
+        allowed_shard: new_shard_id_tmp(shard_id) as u16,
     }))
 }
 

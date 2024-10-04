@@ -3,7 +3,7 @@ use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{self, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,

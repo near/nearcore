@@ -23,10 +23,10 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::types::ShardIndex;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
+use near_primitives::types::{new_shard_id_tmp, ShardIndex};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1101,7 +1101,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         let expected_chunk_producer = EpochManager::chunk_producer_from_info(
             &epoch_info,
             &shard_layout,
-            0.into(),
+            new_shard_id_tmp(0),
             prev_height + 1,
         )
         .unwrap();
@@ -2601,13 +2601,13 @@ fn test_validator_kickout_determinism() {
         (4, ChunkStats::new_with_endorsement(89, 100)),
     ]);
     let chunk_stats_tracker1 = HashMap::from([
-        (0.into(), chunk_stats0.clone().into_iter().collect()),
-        (1.into(), chunk_stats1.clone().into_iter().collect()),
+        (new_shard_id_tmp(0), chunk_stats0.clone().into_iter().collect()),
+        (new_shard_id_tmp(1), chunk_stats1.clone().into_iter().collect()),
     ]);
     let chunk_stats0: Vec<_> = chunk_stats0.into_iter().rev().collect();
     let chunk_stats_tracker2 = HashMap::from([
-        (0.into(), chunk_stats0.into_iter().collect()),
-        (1.into(), chunk_stats1.into_iter().collect()),
+        (new_shard_id_tmp(0), chunk_stats0.into_iter().collect()),
+        (new_shard_id_tmp(1), chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts1) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2670,8 +2670,8 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         (3, ChunkStats::new_with_endorsement(60, 100)),
     ]);
     let chunk_stats_tracker = HashMap::from([
-        (0.into(), chunk_stats0.into_iter().collect()),
-        (1.into(), chunk_stats1.into_iter().collect()),
+        (new_shard_id_tmp(0), chunk_stats0.into_iter().collect()),
+        (new_shard_id_tmp(1), chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2732,8 +2732,8 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         (3, ChunkStats::new_with_endorsement(65, 100)),
     ]);
     let chunk_stats_tracker = HashMap::from([
-        (0.into(), chunk_stats0.into_iter().collect()),
-        (1.into(), chunk_stats1.into_iter().collect()),
+        (new_shard_id_tmp(0), chunk_stats0.into_iter().collect()),
+        (new_shard_id_tmp(1), chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2794,8 +2794,8 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         (3, ChunkStats::new_with_endorsement(65, 100)),
     ]);
     let chunk_stats_tracker = HashMap::from([
-        (0.into(), chunk_stats0.into_iter().collect()),
-        (1.into(), chunk_stats1.into_iter().collect()),
+        (new_shard_id_tmp(0), chunk_stats0.into_iter().collect()),
+        (new_shard_id_tmp(1), chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2843,7 +2843,7 @@ fn test_validator_kickout_sanity() {
     ]);
     let chunk_stats_tracker = HashMap::from([
         (
-            0.into(),
+            new_shard_id_tmp(0),
             HashMap::from([
                 (0, ChunkStats::new_with_production(100, 100)),
                 (
@@ -2861,7 +2861,7 @@ fn test_validator_kickout_sanity() {
             ]),
         ),
         (
-            1.into(),
+            new_shard_id_tmp(1),
             HashMap::from([
                 (0, ChunkStats::new_with_production(70, 100)),
                 (
@@ -2981,7 +2981,7 @@ fn test_chunk_endorsement_stats() {
         ]),
         &HashMap::from([
             (
-                0.into(),
+                new_shard_id_tmp(0),
                 HashMap::from([
                     (0, ChunkStats::new(100, 100, 100, 100)),
                     (1, ChunkStats::new(90, 100, 100, 100)),
@@ -2990,7 +2990,7 @@ fn test_chunk_endorsement_stats() {
                 ]),
             ),
             (
-                1.into(),
+                new_shard_id_tmp(1),
                 HashMap::from([
                     (0, ChunkStats::new(95, 100, 100, 100)),
                     (1, ChunkStats::new(95, 100, 90, 100)),
@@ -3062,14 +3062,14 @@ fn test_max_kickout_stake_ratio() {
     ]);
     let chunk_stats_tracker = HashMap::from([
         (
-            0.into(),
+            new_shard_id_tmp(0),
             HashMap::from([
                 (0, ChunkStats::new_with_production(0, 100)),
                 (1, ChunkStats::new_with_production(0, 100)),
             ]),
         ),
         (
-            1.into(),
+            new_shard_id_tmp(1),
             HashMap::from([
                 (2, ChunkStats::new_with_production(100, 100)),
                 (4, ChunkStats::new_with_production(50, 100)),
@@ -3192,7 +3192,7 @@ fn test_chunk_validator_kickout(
     ]);
     let chunk_stats_tracker = HashMap::from([
         (
-            0.into(),
+            new_shard_id_tmp(0),
             HashMap::from([
                 (0, ChunkStats::new_with_production(90, 100)),
                 (1, ChunkStats::new_with_production(90, 100)),
@@ -3202,7 +3202,7 @@ fn test_chunk_validator_kickout(
             ]),
         ),
         (
-            1.into(),
+            new_shard_id_tmp(1),
             HashMap::from([
                 (0, ChunkStats::new_with_production(90, 100)),
                 (2, ChunkStats::new_with_production(90, 100)),
@@ -3270,7 +3270,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
     ]);
     let chunk_stats_tracker = HashMap::from([
         (
-            0.into(),
+            new_shard_id_tmp(0),
             HashMap::from([
                 (0, ChunkStats::new(90, 100, 10, 100)),
                 (1, ChunkStats::new(90, 100, 10, 100)),
@@ -3278,7 +3278,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
             ]),
         ),
         (
-            1.into(),
+            new_shard_id_tmp(1),
             HashMap::from([
                 (0, ChunkStats::new(90, 100, 10, 100)),
                 (1, ChunkStats::new(90, 100, 10, 100)),
@@ -3312,7 +3312,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         0,
         1,
-        0.into(),
+        new_shard_id_tmp(0),
         0,
         0,
         0,
@@ -3346,7 +3346,7 @@ fn test_verify_chunk_endorsements() {
 
     // verify if we have one chunk validator
     let chunk_validator_assignments =
-        &epoch_manager.get_chunk_validator_assignments(&epoch_id, 0.into(), 1).unwrap();
+        &epoch_manager.get_chunk_validator_assignments(&epoch_id, new_shard_id_tmp(0), 1).unwrap();
     assert_eq!(chunk_validator_assignments.ordered_chunk_validators().len(), 1);
     assert!(chunk_validator_assignments.contains(&account_id));
 

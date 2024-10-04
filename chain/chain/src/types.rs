@@ -540,6 +540,7 @@ mod tests {
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
+    use near_primitives::types::new_shard_id_tmp;
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
@@ -547,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let shard_ids: Vec<_> = (0..32).map(Into::into).collect();
+        let shard_ids: Vec<_> = (0..32).map(new_shard_id_tmp).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
             vec![Default::default(); shard_ids.len()],

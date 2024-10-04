@@ -10,8 +10,8 @@ use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
+use near_primitives::types::{new_shard_id_tmp, EpochHeight};
 use rand::Rng;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -330,7 +330,7 @@ async fn run_select_peer_test(
                 assert!(err.is_none());
             }
             SelectPeerAction::CallSelect(wanted) => {
-                let peer = cache.select_host_for_part(sync_hash, 0.into(), part_id);
+                let peer = cache.select_host_for_part(sync_hash, new_shard_id_tmp(0), part_id);
                 let wanted = match wanted {
                     Some(idx) => Some(&peers[*idx].peer_id),
                     None => None,
@@ -338,7 +338,7 @@ async fn run_select_peer_test(
                 assert!(peer.as_ref() == wanted, "got: {:?} want: {:?}", &peer, &wanted);
             }
             SelectPeerAction::PartReceived => {
-                let shard_id = 0.into();
+                let shard_id = new_shard_id_tmp(0);
                 assert!(cache.has_selector(shard_id, part_id));
                 cache.part_received(shard_id, part_id);
                 assert!(!cache.has_selector(shard_id, part_id));
@@ -361,7 +361,7 @@ async fn test_select_peer() {
     for _ in 0..num_peers {
         let key = data::make_secret_key(&mut rng);
         let peer_id = PeerId::new(key.public_key());
-        let score = priority_score(&peer_id, 0.into(), part_id);
+        let score = priority_score(&peer_id, new_shard_id_tmp(0), part_id);
         let info =
             Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, sid_vec(&[0, 1, 2, 3]), &key));
         peers.push((info, score));
