@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timedelta
 import pytz
 
+
 # Function to get block data
 def get_block(url, block_hash):
     payload = {
@@ -22,11 +23,14 @@ def get_block(url, block_hash):
     response = requests.post(url, json=payload)
     return response.json()['result']['header']
 
+
 def ns_to_seconds(ns):
     return ns / 1e9
 
+
 def format_time(seconds):
     return time.strftime("%H hours, %M minutes", time.gmtime(seconds))
+
 
 # Function to fetch epoch lengths for the past n epochs and calculate the weighted average using exponential decay
 def get_exponential_weighted_epoch_lengths(url,
@@ -112,6 +116,7 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
 
     return future_epochs
 
+
 # Main function to run the process
 def main(args):
     if not is_valid_timezone(args.timezone):
@@ -127,6 +132,7 @@ def main(args):
     # Get epoch lengths and the exponential weighted average
     epoch_lengths, exponential_weighted_average_epoch_length = get_exponential_weighted_epoch_lengths(
         args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
+
 
     # Predict future epoch start dates
     predict_future_epochs(current_timestamp,
