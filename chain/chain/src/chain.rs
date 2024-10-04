@@ -822,9 +822,8 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
-            let shard_index = shard_layout.get_shard_index(shard_id);
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             if chunk_header.height_created() == genesis_block.header().height() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
                 // We must verify that content matches and signature is empty.
