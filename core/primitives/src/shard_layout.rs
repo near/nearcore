@@ -156,7 +156,7 @@ pub struct ShardLayoutV2 {
     id_to_index_map: BTreeMap<ShardId, ShardIndex>,
 
     /// The mapping from shard index to shard id.
-    /// TODO this is identical to the shard_ids, remove it.
+    /// TODO(wacban) this is identical to the shard_ids, remove it.
     index_to_id_map: BTreeMap<ShardIndex, ShardId>,
 
     /// A mapping from the parent shard to child shards. Maps shards from the
