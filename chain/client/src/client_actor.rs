@@ -31,6 +31,7 @@ use near_chain::chain::{
     BlockCatchUpResponse, ChunkStateWitnessMessage, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -142,6 +143,7 @@ pub fn start_client(
     partial_witness_adapter: PartialWitnessSenderForClient,
     enable_doomslug: bool,
     seed: Option<RngSeed>,
+    resharding_sender: ReshardingSender,
 ) -> StartClientResult {
     let client_arbiter = actix::Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -163,6 +165,7 @@ pub fn start_client(
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
+        resharding_sender,
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();

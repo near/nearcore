@@ -76,6 +76,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        None,
     )
     .unwrap()
 }
@@ -160,6 +161,7 @@ pub fn setup_with_tx_validity_period(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        None,
     )
     .unwrap();
 

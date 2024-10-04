@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use super::event_type::ReshardingEventType;
+use super::types::ReshardingSender;
+use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
+use crate::types::RuntimeAdapter;
+use near_async::messaging::IntoSender;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -23,15 +27,27 @@ pub struct ReshardingManager {
     /// A handle that allows the main process to interrupt resharding if needed.
     /// This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
+    /// Takes care of performing resharding on the flat storage.
+    pub flat_storage_resharder: Option<FlatStorageResharder>,
 }
 
 impl ReshardingManager {
     pub fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         resharding_config: MutableConfigValue<ReshardingConfig>,
+        resharding_sender: Option<ReshardingSender>,
     ) -> Self {
-        Self { store, epoch_manager, resharding_config, resharding_handle: ReshardingHandle::new() }
+        let resharding_handle = ReshardingHandle::new();
+        let flat_storage_resharder = resharding_sender.map(|sender| {
+            FlatStorageResharder::new(
+                runtime_adapter,
+                sender.into_sender(),
+                FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
+            )
+        });
+        Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
 
     /// If shard layout changes after the given block, creates temporary
@@ -64,6 +80,15 @@ impl ReshardingManager {
         let Ok(Some(ReshardingEventType::SplitShard(split_shard_event))) = resharding_event_type
         else {
             return Ok(());
+        };
+
+        // Trigger resharding of flat storage.
+        match &self.flat_storage_resharder {
+            Some(resharder) => resharder.start_resharding(
+                ReshardingEventType::SplitShard(split_shard_event.clone()),
+                &next_shard_layout,
+            )?,
+            None => tracing::info!(target: "resharding", "flat storage resharder not initialized"),
         };
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;

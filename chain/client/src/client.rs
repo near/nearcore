@@ -25,7 +25,6 @@ use near_chain::chain::{
     BlocksCatchUpState, LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
-use near_chain::flat_storage_resharder::FlatStorageResharder;
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -94,6 +93,7 @@ use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
 use crate::sync::epoch::EpochSync;
+use near_chain::resharding::types::ReshardingSender;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -177,8 +177,8 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
-    /// Takes care of performing resharding on the flat storage.
-    pub flat_storage_resharder: FlatStorageResharder,
+    /// Resharding sender.
+    pub resharding_sender: ReshardingSender,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
     /// A map storing the last time a block was requested for state sync.
@@ -249,6 +249,7 @@ impl Client {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_adapter: PartialWitnessSenderForClient,
+        resharding_sender: ReshardingSender,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -271,14 +272,18 @@ impl Client {
             snapshot_callbacks,
             async_computation_spawner.clone(),
             validator_signer.clone(),
+            Some(resharding_sender.clone()),
         )?;
-        let flat_storage_resharder = FlatStorageResharder::new(runtime_adapter.clone());
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
             epoch_manager.clone(),
             runtime_adapter.clone(),
             chain.chain_store(),
-            &flat_storage_resharder,
+            &chain
+                .resharding_manager
+                .flat_storage_resharder
+                .clone()
+                .expect("flat storage resharding manager should exist"),
             chain_config.background_migration_threads,
         )?;
         let sharded_tx_pool =
@@ -402,7 +407,7 @@ impl Client {
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
             tier1_accounts_cache: None,
-            flat_storage_resharder,
+            resharding_sender,
             flat_storage_creator,
             last_time_sync_block_requested: HashMap::new(),
             chunk_validator,

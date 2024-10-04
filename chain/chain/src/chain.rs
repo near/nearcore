@@ -10,6 +10,7 @@ use crate::missing_chunks::MissingChunksPool;
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
+use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
@@ -362,7 +363,9 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
+            runtime_adapter.clone(),
             MutableConfigValue::new(Default::default(), "resharding_config"),
+            None,
         );
         Ok(Chain {
             clock: clock.clone(),
@@ -402,6 +405,7 @@ impl Chain {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
+        resharding_sender: Option<ReshardingSender>,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -538,7 +542,9 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             chain_store.store().clone(),
             epoch_manager.clone(),
+            runtime_adapter.clone(),
             chain_config.resharding_config,
+            resharding_sender,
         );
         Ok(Chain {
             clock: clock.clone(),

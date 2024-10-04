@@ -39,6 +39,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        None,
     )
     .unwrap();
     chain.genesis().clone()
@@ -65,6 +66,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        None,
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

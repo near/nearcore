@@ -14,6 +14,7 @@ use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
+use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
@@ -381,6 +382,9 @@ pub fn start_with_config_and_synchronization(
         config.client_config.archive,
     ));
 
+    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new());
+    let resharding_sender = resharding_sender_addr.with_auto_span_context();
+
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -401,6 +405,7 @@ pub fn start_with_config_and_synchronization(
         partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
         true,
         None,
+        resharding_sender.into_multi_sender(),
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())

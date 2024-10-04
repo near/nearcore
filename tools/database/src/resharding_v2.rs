@@ -160,6 +160,8 @@ impl ReshardingV2Command {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
+            // Resharding sender is not used in resharding-v2.
+            None,
         )
         .unwrap();
         Ok(chain)

@@ -1,6 +1,7 @@
 pub mod block_stats;
 pub mod client;
 mod mock_partial_witness_adapter;
+mod mock_resharding_sender;
 pub mod peer_manager_mock;
 pub mod setup;
 pub mod test_env;

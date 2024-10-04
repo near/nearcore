@@ -211,7 +211,7 @@ impl Default for EpochSyncConfig {
 
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReshardingHandle {
     keep_going: Arc<AtomicBool>,
 }

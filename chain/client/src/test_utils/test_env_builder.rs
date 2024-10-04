@@ -1,4 +1,5 @@
 use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
+use super::mock_resharding_sender::MockReshardingSender;
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
@@ -514,6 +515,8 @@ impl TestEnvBuilder {
             .collect_vec();
         let partial_witness_adapters =
             (0..num_clients).map(|_| MockPartialWitnessAdapter::default()).collect_vec();
+        let resharding_senders =
+            (0..num_clients).map(|_| MockReshardingSender::default()).collect_vec();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
@@ -563,6 +566,7 @@ impl TestEnvBuilder {
                         delete_snapshot_callback,
                     };
                     let validator_signer = Arc::new(create_test_signer(clients[i].as_str()));
+                    let resharding_sender = resharding_senders[i].clone();
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -579,6 +583,7 @@ impl TestEnvBuilder {
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signer,
+                        resharding_sender.into_multi_sender(),
                     )
                 })
                 .collect();

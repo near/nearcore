@@ -40,6 +40,7 @@ use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
+use near_chain::resharding::resharding_actor::ReshardingActor;
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
@@ -228,6 +229,7 @@ impl TestLoopBuilder {
         let state_snapshot_adapter = LateBoundSender::new();
         let partial_witness_adapter = LateBoundSender::new();
         let sync_jobs_adapter = LateBoundSender::new();
+        let resharding_sender = LateBoundSender::new();
 
         let genesis = self.genesis.clone().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
@@ -368,6 +370,7 @@ impl TestLoopBuilder {
             Some(snapshot_callbacks),
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
             partial_witness_adapter.as_multi_sender(),
+            resharding_sender.as_multi_sender(),
         )
         .unwrap();
 
@@ -458,6 +461,8 @@ impl TestLoopBuilder {
         // We don't send messages to `GCActor` so adapter is not needed.
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
+        let resharding_actor = ReshardingActor::new();
+
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
             clock: self.test_loop.clock(),
@@ -491,6 +496,7 @@ impl TestLoopBuilder {
         );
         self.test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
         self.test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
+        self.test_loop.register_actor_for_index(idx, resharding_actor, Some(resharding_sender));
 
         // State sync dumper is not an Actor, handle starting separately.
         let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();

@@ -640,6 +640,7 @@ impl TestEnv {
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.get().unwrap(),
+            self.clients[idx].resharding_sender.clone(),
         )
     }
 

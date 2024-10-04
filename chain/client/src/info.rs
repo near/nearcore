@@ -1003,6 +1003,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             validator.clone(),
+            None,
         )
         .unwrap();
 

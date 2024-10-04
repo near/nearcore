@@ -419,6 +419,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
+            None,
         )
         .unwrap();
         (
