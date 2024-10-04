@@ -133,7 +133,6 @@ def main(args):
     epoch_lengths, exponential_weighted_average_epoch_length = get_exponential_weighted_epoch_lengths(
         args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
 
-
     # Predict future epoch start dates
     predict_future_epochs(current_timestamp,
                           exponential_weighted_average_epoch_length,
