@@ -1,7 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -35,19 +37,14 @@ pub struct TestGenesisBuilder {
     protocol_version: Option<ProtocolVersion>,
     genesis_height: Option<BlockHeight>,
     epoch_length: Option<BlockHeightDelta>,
-    shard_layout: Option<ShardLayout>,
     min_max_gas_price: Option<(Balance, Balance)>,
     gas_limit: Option<Gas>,
     transaction_validity_period: Option<NumBlocks>,
     validators: Option<ValidatorsSpec>,
-    minimum_validators_per_shard: Option<NumSeats>,
-    target_validator_mandates_per_shard: Option<NumSeats>,
     protocol_treasury_account: Option<String>,
-    shuffle_shard_assignment_for_chunk_producers: Option<bool>,
-    kickouts_config: Option<KickoutsConfig>,
-    minimum_stake_ratio: Option<Rational32>,
     max_inflation_rate: Option<Rational32>,
     user_accounts: Vec<UserAccount>,
+    epoch_config: Option<EpochConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,13 +62,6 @@ enum ValidatorsSpec {
 }
 
 #[derive(Debug, Clone)]
-struct KickoutsConfig {
-    block_producer_kickout_threshold: u8,
-    chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
-}
-
-#[derive(Debug, Clone)]
 struct UserAccount {
     account_id: AccountId,
     balance: Balance,
@@ -81,6 +71,18 @@ struct UserAccount {
 impl TestGenesisBuilder {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn epoch_config_mut(&mut self) -> &mut EpochConfig {
+        if self.epoch_config.is_none() {
+            let mut epoch_config =
+                Genesis::test_epoch_config(1, ShardLayout::v0_single_shard(), 100);
+            epoch_config.block_producer_kickout_threshold = 0;
+            epoch_config.chunk_producer_kickout_threshold = 0;
+            epoch_config.chunk_validator_only_kickout_threshold = 0;
+            self.epoch_config = Some(epoch_config);
+        }
+        self.epoch_config.as_mut().unwrap()
     }
 
     pub fn chain_id(&mut self, chain_id: String) -> &mut Self {
@@ -119,21 +121,23 @@ impl TestGenesisBuilder {
     }
 
     pub fn shard_layout_single(&mut self) -> &mut Self {
-        self.shard_layout = Some(ShardLayout::v0_single_shard());
+        self.epoch_config_mut().shard_layout = ShardLayout::v0_single_shard();
         self
     }
 
     pub fn shard_layout_simple_v1(&mut self, boundary_accounts: &[&str]) -> &mut Self {
-        self.shard_layout = Some(ShardLayout::v1(
+        self.epoch_config_mut().shard_layout = ShardLayout::v1(
             boundary_accounts.iter().map(|a| a.parse().unwrap()).collect(),
             None,
             1,
-        ));
+        );
         self
     }
 
+    // TODO(#11265): move this and relevant methods to epoch config builder.
+    // In dynamic resharding world, shard layout will not be static.
     pub fn shard_layout(&mut self, shard_layout: ShardLayout) -> &mut Self {
-        self.shard_layout = Some(shard_layout);
+        self.epoch_config_mut().shard_layout = shard_layout;
         self
     }
 
@@ -203,7 +207,8 @@ impl TestGenesisBuilder {
     }
 
     pub fn minimum_stake_ratio(&mut self, minimum_stake_ratio: Rational32) -> &mut Self {
-        self.minimum_stake_ratio = Some(minimum_stake_ratio);
+        self.epoch_config_mut().validator_selection_config.minimum_stake_ratio =
+            minimum_stake_ratio;
         self
     }
 
@@ -216,7 +221,8 @@ impl TestGenesisBuilder {
         &mut self,
         minimum_validators_per_shard: NumSeats,
     ) -> &mut Self {
-        self.minimum_validators_per_shard = Some(minimum_validators_per_shard);
+        self.epoch_config_mut().validator_selection_config.minimum_validators_per_shard =
+            minimum_validators_per_shard;
         self
     }
 
@@ -224,7 +230,8 @@ impl TestGenesisBuilder {
         &mut self,
         target_validator_mandates_per_shard: NumSeats,
     ) -> &mut Self {
-        self.target_validator_mandates_per_shard = Some(target_validator_mandates_per_shard);
+        self.epoch_config_mut().target_validator_mandates_per_shard =
+            target_validator_mandates_per_shard;
         self
     }
 
@@ -237,37 +244,36 @@ impl TestGenesisBuilder {
     }
 
     pub fn shuffle_shard_assignment_for_chunk_producers(&mut self, shuffle: bool) -> &mut Self {
-        self.shuffle_shard_assignment_for_chunk_producers = Some(shuffle);
+        self.epoch_config_mut()
+            .validator_selection_config
+            .shuffle_shard_assignment_for_chunk_producers = shuffle;
         self
     }
 
     pub fn kickouts_disabled(&mut self) -> &mut Self {
-        self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-        });
+        let epoch_config = self.epoch_config_mut();
+        epoch_config.block_producer_kickout_threshold = 0;
+        epoch_config.chunk_producer_kickout_threshold = 0;
+        epoch_config.chunk_validator_only_kickout_threshold = 0;
         self
     }
 
     /// Validators with performance below 80% are kicked out, similarly to
     /// mainnet as of 28 Jun 2024.
     pub fn kickouts_standard_80_percent(&mut self) -> &mut Self {
-        self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold: 80,
-            chunk_producer_kickout_threshold: 80,
-            chunk_validator_only_kickout_threshold: 80,
-        });
+        let epoch_config = self.epoch_config_mut();
+        epoch_config.block_producer_kickout_threshold = 80;
+        epoch_config.chunk_producer_kickout_threshold = 80;
+        epoch_config.chunk_validator_only_kickout_threshold = 80;
         self
     }
 
     /// Only chunk validator-only nodes can be kicked out.
     pub fn kickouts_for_chunk_validators_only(&mut self) -> &mut Self {
-        self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 50,
-        });
+        let epoch_config = self.epoch_config_mut();
+        epoch_config.block_producer_kickout_threshold = 0;
+        epoch_config.chunk_producer_kickout_threshold = 0;
+        epoch_config.chunk_validator_only_kickout_threshold = 50;
         self
     }
 
@@ -284,18 +290,10 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn build(&self) -> Genesis {
+    pub fn build(mut self) -> (Genesis, EpochConfigStore) {
         let chain_id = self.chain_id.clone().unwrap_or_else(|| {
             let default = "test".to_string();
             tracing::warn!("Genesis chain_id not explicitly set, defaulting to {:?}.", default);
-            default
-        });
-        let genesis_time = self.genesis_time.unwrap_or_else(|| {
-            let default = chrono::Utc::now();
-            tracing::warn!(
-                "Genesis genesis_time not explicitly set, defaulting to current time {:?}.",
-                default
-            );
             default
         });
         let protocol_version = self.protocol_version.unwrap_or_else(|| {
@@ -303,10 +301,13 @@ impl TestGenesisBuilder {
             tracing::warn!("Genesis protocol_version not explicitly set, defaulting to latest protocol version {:?}.", default);
             default
         });
-        let genesis_height = self.genesis_height.unwrap_or_else(|| {
-            let default = 1;
+        let validator_specs = self.validators.clone().unwrap_or_else(|| {
+            let default = ValidatorsSpec::DesiredRoles {
+                block_and_chunk_producers: vec!["validator0".to_string()],
+                chunk_validators_only: vec![],
+            };
             tracing::warn!(
-                "Genesis genesis_height not explicitly set, defaulting to {:?}.",
+                "Genesis validators not explicitly set, defaulting to a single validator setup {:?}.",
                 default
             );
             default
@@ -316,11 +317,38 @@ impl TestGenesisBuilder {
             tracing::warn!("Genesis epoch_length not explicitly set, defaulting to {:?}.", default);
             default
         });
-        let shard_layout = self.shard_layout.clone().unwrap_or_else(|| {
+
+        let derived_validator_setup = derive_validator_setup(validator_specs);
+
+        let mut epoch_config = self.epoch_config_mut().clone();
+        epoch_config.num_block_producer_seats = derived_validator_setup.num_block_producer_seats;
+        epoch_config.validator_selection_config.num_chunk_producer_seats =
+            derived_validator_setup.num_chunk_producer_seats;
+        epoch_config.validator_selection_config.num_chunk_validator_seats =
+            derived_validator_setup.num_chunk_validator_seats;
+        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
+            protocol_version,
+            Arc::new(epoch_config),
+        )]));
+        let shard_layout =
+            epoch_config_store.get_config(protocol_version).as_ref().shard_layout.clone();
+
+        let genesis_time = self.genesis_time.unwrap_or_else(|| {
+            let default = chrono::Utc::now();
             tracing::warn!(
-                "Genesis shard_layout not explicitly set, defaulting to single shard layout."
+                "Genesis genesis_time not explicitly set, defaulting to current time {:?}.",
+                default
             );
-            ShardLayout::v0_single_shard()
+            default
+        });
+
+        let genesis_height = self.genesis_height.unwrap_or_else(|| {
+            let default = 1;
+            tracing::warn!(
+                "Genesis genesis_height not explicitly set, defaulting to {:?}.",
+                default
+            );
+            default
         });
         let (min_gas_price, max_gas_price) = self.min_max_gas_price.unwrap_or_else(|| {
             let default = (0, 0);
@@ -340,35 +368,7 @@ impl TestGenesisBuilder {
             );
             default
         });
-        let validator_specs = self.validators.clone().unwrap_or_else(|| {
-            let default = ValidatorsSpec::DesiredRoles {
-                block_and_chunk_producers: vec!["validator0".to_string()],
-                chunk_validators_only: vec![],
-            };
-            tracing::warn!(
-                "Genesis validators not explicitly set, defaulting to a single validator setup {:?}.",
-                default
-            );
-            default
-        });
-        let derived_validator_setup = derive_validator_setup(validator_specs);
-        let minimum_validators_per_shard = self.minimum_validators_per_shard.unwrap_or_else(|| {
-            let default = 1;
-            tracing::warn!(
-                "Genesis minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-        let target_validator_mandates_per_shard =
-            self.target_validator_mandates_per_shard.unwrap_or_else(|| {
-                let default = 68;
-                tracing::warn!(
-                    "Genesis minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
-                    default
-                );
-                default
-            });
+
         let protocol_treasury_account: AccountId = self
             .protocol_treasury_account
             .clone()
@@ -382,37 +382,6 @@ impl TestGenesisBuilder {
             })
             .parse()
             .unwrap();
-        let shuffle_shard_assignment_for_chunk_producers = self
-            .shuffle_shard_assignment_for_chunk_producers
-            .unwrap_or_else(|| {
-                let default = false;
-                tracing::warn!(
-                    "Genesis shuffle_shard_assignment_for_chunk_producers not explicitly set, defaulting to {:?}.",
-                    default
-                );
-                default
-            });
-        let kickouts_config = self.kickouts_config.clone().unwrap_or_else(|| {
-            let default = KickoutsConfig {
-                block_producer_kickout_threshold: 0,
-                chunk_producer_kickout_threshold: 0,
-                chunk_validator_only_kickout_threshold: 0,
-            };
-            tracing::warn!(
-                "Genesis kickouts_config not explicitly set, defaulting to disabling kickouts.",
-            );
-            default
-        });
-        let minimum_stake_ratio = self.minimum_stake_ratio.unwrap_or_else(|| {
-            // Set minimum stake ratio to zero; that way, we don't have to worry about
-            // chunk producers not having enough stake to be selected as desired.
-            let default = Rational32::new(0, 1);
-            tracing::warn!(
-                "Genesis minimum_stake_ratio not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
         let max_inflation_rate = self.max_inflation_rate.unwrap_or_else(|| {
             let default = Rational32::new(1, 1);
             tracing::warn!(
@@ -504,11 +473,6 @@ impl TestGenesisBuilder {
             gas_limit,
             dynamic_resharding: false,
             fishermen_threshold: 0,
-            block_producer_kickout_threshold: kickouts_config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: kickouts_config.chunk_producer_kickout_threshold,
-            chunk_validator_only_kickout_threshold: kickouts_config
-                .chunk_validator_only_kickout_threshold,
-            target_validator_mandates_per_shard,
             transaction_validity_period,
             protocol_version,
             protocol_treasury_account,
@@ -520,33 +484,29 @@ impl TestGenesisBuilder {
             total_supply,
             max_kickout_stake_perc: 100,
             validators: derived_validator_setup.validators,
+            shard_layout: shard_layout.clone(),
             num_block_producer_seats: derived_validator_setup.num_block_producer_seats,
-            num_chunk_only_producer_seats: 0,
-            minimum_stake_ratio,
-            minimum_validators_per_shard,
-            minimum_stake_divisor: 10,
-            shuffle_shard_assignment_for_chunk_producers,
             num_block_producer_seats_per_shard: shard_layout
                 .shard_ids()
-                .map(|_| minimum_validators_per_shard)
+                .map(|_| derived_validator_setup.num_block_producer_seats)
                 .collect(),
-            avg_hidden_validator_seats_per_shard: Vec::new(),
-            shard_layout,
+            num_chunk_only_producer_seats: 0,
+            minimum_stake_divisor: 10,
             max_inflation_rate,
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
-            // Hack to ensure that `FixMinStakeRatio` is tested.
-            // TODO(#11265): always use production config or `EpochConfigStore`
-            // instance for testing.
-            use_production_config: self.minimum_stake_ratio.is_some(),
             num_chunk_producer_seats: derived_validator_setup.num_chunk_producer_seats,
             num_chunk_validator_seats: derived_validator_setup.num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: 5,
+            ..Default::default()
         };
 
-        Genesis {
-            config: genesis_config,
-            contents: GenesisContents::Records { records: GenesisRecords(records) },
-        }
+        (
+            Genesis {
+                config: genesis_config,
+                contents: GenesisContents::Records { records: GenesisRecords(records) },
+            },
+            epoch_config_store,
+        )
     }
 }
 
