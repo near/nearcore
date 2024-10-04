@@ -2,7 +2,8 @@ import requests
 import time
 import math
 import argparse
-
+from datetime import datetime, timedelta
+import pytz
 
 # Function to get block data
 def get_block(url, block_hash):
@@ -21,14 +22,11 @@ def get_block(url, block_hash):
     response = requests.post(url, json=payload)
     return response.json()['result']['header']
 
-
 def ns_to_seconds(ns):
     return ns / 1e9
 
-
 def format_time(seconds):
     return time.strftime("%H hours, %M minutes", time.gmtime(seconds))
-
 
 # Function to fetch epoch lengths for the past n epochs and calculate the weighted average using exponential decay
 def get_exponential_weighted_epoch_lengths(url,
@@ -79,30 +77,47 @@ def get_exponential_weighted_epoch_lengths(url,
 
     return epoch_lengths, exponential_weighted_average_epoch_length
 
+# Function to check if timezone is valid
+def is_valid_timezone(timezone_str):
+    try:
+        pytz.timezone(timezone_str)
+        return True
+    except pytz.UnknownTimeZoneError:
+        return False
 
 # Function to approximate future epoch start dates
 def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
-                          num_future_epochs):
+                          num_future_epochs, timezone_str):
     future_epochs = []
     current_timestamp = ns_to_seconds(
         starting_epoch_timestamp)  # Convert from nanoseconds to seconds
+
+    # Set up the timezone
+    target_timezone = pytz.timezone(timezone_str)
 
     for i in range(1, num_future_epochs + 1):
         # Add the average epoch length for each future epoch
         future_timestamp = current_timestamp + (i * avg_epoch_length)
 
-        # Convert to human-readable format
-        future_date = time.strftime('%Y-%m-%d %H:%M:%S %A',
-                                    time.gmtime(future_timestamp))
+        # Convert timestamp to datetime in UTC
+        future_datetime_utc = datetime.utcfromtimestamp(future_timestamp).replace(tzinfo=pytz.utc)
+        # Convert to target timezone
+        future_datetime_local = future_datetime_utc.astimezone(target_timezone)
+
+        # Format date
+        future_date = future_datetime_local.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
         future_epochs.append(future_date)
 
         print(f"Predicted start of epoch {i}: {future_date}")
 
     return future_epochs
 
-
 # Main function to run the process
 def main(args):
+    if not is_valid_timezone(args.timezone):
+        print(f"Error: Invalid timezone '{args.timezone}'")
+        return
+
     latest_block = get_block(args.url, None)
     next_epoch_id = latest_block['next_epoch_id']
     current_epoch_first_block = get_block(args.url, next_epoch_id)
@@ -116,8 +131,7 @@ def main(args):
     # Predict future epoch start dates
     predict_future_epochs(current_timestamp,
                           exponential_weighted_average_epoch_length,
-                          args.num_future_epochs)
-
+                          args.num_future_epochs, args.timezone)
 
 # Custom action to set the URL based on chain_id
 class SetURLFromChainID(argparse.Action):
@@ -127,7 +141,6 @@ class SetURLFromChainID(argparse.Action):
             setattr(namespace, 'url', 'https://archival-rpc.mainnet.near.org')
         elif values == 'testnet':
             setattr(namespace, 'url', 'https://archival-rpc.testnet.near.org')
-
 
 # Set up command-line argument parsing
 if __name__ == "__main__":
@@ -156,6 +169,9 @@ if __name__ == "__main__":
                         type=int,
                         default=3,
                         help="Number of future epochs to predict.")
+    parser.add_argument("--timezone",
+                        default="UTC",
+                        help="Time zone to display times in (e.g., 'America/New_York').")
 
     args = parser.parse_args()
     main(args)
