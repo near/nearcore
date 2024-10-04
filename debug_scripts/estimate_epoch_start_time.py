@@ -105,15 +105,12 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
         # Add the average epoch length for each future epoch
         future_timestamp = current_timestamp + (i * avg_epoch_length)
 
-        # Convert timestamp to datetime in UTC
-        future_datetime_utc = datetime.utcfromtimestamp(
-            future_timestamp).replace(tzinfo=pytz.utc)
-        # Convert to target timezone
-        future_datetime_local = future_datetime_utc.astimezone(target_timezone)
+        # Convert timestamp to datetime in target timezone
+        future_datetime = datetime.fromtimestamp(future_timestamp,
+                                                 target_timezone)
 
         # Format date
-        future_date = future_datetime_local.strftime(
-            '%Y-%m-%d %H:%M:%S %Z%z %A')
+        future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
         future_epochs.append(future_date)
 
         print(f"Predicted start of epoch {i}: {future_date}")
