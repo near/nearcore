@@ -150,8 +150,14 @@ pub struct ShardLayoutV2 {
     ///
     /// The shard id at index i corresponds to the shard with account range:
     /// [boundary_accounts[i -1], boundary_accounts[i]).
-    ///
     shard_ids: Vec<ShardId>,
+
+    /// The mapping from shard id to shard index.
+    id_to_index_map: BTreeMap<ShardId, ShardIndex>,
+
+    /// The mapping from shard index to shard id.
+    /// TODO this is identical to the shard_ids, remove it.
+    index_to_id_map: BTreeMap<ShardIndex, ShardId>,
 
     /// A mapping from the parent shard to child shards. Maps shards from the
     /// previous shard layout to shards that they split to in this shard layout.
@@ -238,10 +244,19 @@ impl ShardLayout {
         assert_eq!(boundary_accounts.len() + 1, shard_ids.len());
         assert_eq!(boundary_accounts, boundary_accounts.iter().sorted().cloned().collect_vec());
 
+        let mut id_to_index_map = BTreeMap::new();
+        let mut index_to_id_map = BTreeMap::new();
+        for (shard_index, &shard_id) in shard_ids.iter().enumerate() {
+            id_to_index_map.insert(shard_id, shard_index);
+            index_to_id_map.insert(shard_index, shard_id);
+        }
+
         let Some(shards_split_map) = shards_split_map else {
             return Self::V2(ShardLayoutV2 {
                 boundary_accounts,
                 shard_ids,
+                id_to_index_map,
+                index_to_id_map,
                 shards_split_map: None,
                 shards_parent_map: None,
                 version: VERSION,
@@ -266,6 +281,8 @@ impl ShardLayout {
         Self::V2(ShardLayoutV2 {
             boundary_accounts,
             shard_ids,
+            id_to_index_map,
+            index_to_id_map,
             shards_split_map,
             shards_parent_map,
             version: VERSION,
@@ -473,12 +490,20 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
-    pub fn get_shard_index(&self, _shard_id: ShardId) -> ShardIndex {
-        todo!()
+    pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
+        match self {
+            Self::V0(_) => shard_id as ShardIndex,
+            Self::V1(_) => shard_id as ShardIndex,
+            Self::V2(v2) => v2.id_to_index_map[&shard_id],
+        }
     }
 
-    pub fn get_shard_id(&self, _shard_index: usize) -> ShardId {
-        todo!()
+    pub fn get_shard_id(&self, shard_index: usize) -> ShardId {
+        match self {
+            Self::V0(_) => shard_index as ShardId,
+            Self::V1(_) => shard_index as ShardId,
+            Self::V2(v2) => v2.index_to_id_map[&shard_index],
+        }
     }
 }
 
@@ -1064,6 +1089,24 @@ mod tests {
               4,
               5
             ],
+            "id_to_index_map": {
+              "0": 0,
+              "1": 1,
+              "3": 4,
+              "4": 5,
+              "5": 6,
+              "6": 2,
+              "7": 3
+            },
+            "index_to_id_map": {
+              "0": 0,
+              "1": 1,
+              "2": 6,
+              "3": 7,
+              "4": 3,
+              "5": 4,
+              "6": 5
+            },
             "shards_split_map": {
               "0": [
                 0
