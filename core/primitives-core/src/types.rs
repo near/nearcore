@@ -44,15 +44,45 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
 
-/// The shard identifier. It may be a arbitrary number - it does not need to be
-/// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
-/// sequential or contiguous.
-///
-/// The shard id is wrapped in a newtype to prevent the old pattern of using
-/// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
-/// if fully complete it potentially may be simplified to a regular type alias.
-///
-/// TODO get rid of serde
+/// The shard identifier. The ShardId is currently being migrated to a newtype -
+/// please see the new ShardId definition below.
+pub type ShardId = u64;
+
+/// The ShardIndex is the index of the shard in an array of shard data.
+/// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
+/// as the shard index. This is no longer the case, and the ShardIndex should be
+/// used instead.
+pub type ShardIndex = usize;
+
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be replaced / removed / inlined once the
+// transition is complete.
+pub const fn new_shard_id_tmp(id: u64) -> ShardId {
+    id
+}
+
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be replaced / removed / inlined once the
+// transition is complete.
+pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
+    vec.iter().copied().map(new_shard_id_tmp).collect()
+}
+
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be replaced / removed / inlined once the
+// transition is complete.
+pub const fn shard_id_as_u32(id: ShardId) -> u32 {
+    id as u32
+}
+
+// TODO(wacban) Complete the transition to ShardId as a newtype.
+// /// The shard identifier. It may be a arbitrary number - it does not need to be
+// /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
+// /// sequential or contiguous.
+// ///
+// /// The shard id is wrapped in a newtype to prevent the old pattern of using
+// /// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
+// /// if fully complete it potentially may be simplified to a regular type alias.
 // #[derive(
 //     arbitrary::Arbitrary,
 //     borsh::BorshSerialize,
@@ -69,35 +99,6 @@ pub type ProtocolVersion = u32;
 //     Ord,
 // )]
 // pub struct ShardId(u64);
-
-pub type ShardId = u64;
-
-/// The ShardIndex is the index of the shard in an array of shard data.
-/// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
-/// as the shard index. This is no longer the case, and the ShardIndex should be
-/// used instead.
-pub type ShardIndex = usize;
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be removed / inlined once the transition
-// is complete.
-pub const fn new_shard_id_tmp(id: u64) -> ShardId {
-    id
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be removed / inlined once the transition
-// is complete.
-pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
-    vec.iter().copied().map(new_shard_id_tmp).collect()
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be removed / inlined once the transition
-// is complete.
-pub const fn shard_id_as_u32(id: ShardId) -> u32 {
-    id as u32
-}
 
 // impl ShardId {
 //     /// Create a new shard id. Please note that this function should not be used

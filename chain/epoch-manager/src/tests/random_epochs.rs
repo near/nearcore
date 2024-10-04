@@ -327,7 +327,6 @@ fn verify_block_stats(
                 epoch_manager.get_epoch_info_aggregator_upto_last(&block_hashes[i]).unwrap();
             let epoch_id = block_infos[i].epoch_id();
             let epoch_info = epoch_manager.get_epoch_info(epoch_id).unwrap();
-            let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);
             }
