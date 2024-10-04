@@ -22,6 +22,20 @@ body:
     validations:
       required: false
   - type: dropdown
+    id: node-type
+    attributes:
+      label: Node type
+      description: What type of node are you running?
+      options:
+        - Top 100 Validator
+        - Non-Top 100 Validator
+        - RPC
+        - Split Storage Archival
+        - Legacy Archival (Deprecated)
+      default: 2
+    validations:
+      required: true
+  - type: dropdown
     id: network
     attributes:
       label: Which network are you running?
@@ -30,18 +44,14 @@ body:
         - mainnet
         - testnet
         - other (specify below)
-  - type: dropdown
-    id: node-type
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
     attributes:
-      label: Node type
-      description: What type of node are you running?
-      options:
-        - Top 100 Validator
-        - Non-Top 100 Validator
-        - RPC (Default)
-        - Split Storage Archival
-        - Legacy Archival (Deprecated)
-      default: 2
+      label: What happened?
+      description: Describe your issue with running a near node.
     validations:
       required: true
   - type: textarea
@@ -50,13 +60,6 @@ body:
       label: Version
       description: What version of neard are you running? Please, provide output of `$NEARD --version`.
       render: shell
-    validations:
-      required: true
-  - type: textarea
-    id: what-happened
-    attributes:
-      label: What happened?
-      description: Describe your issue with running a near node.
     validations:
       required: true
   - type: textarea

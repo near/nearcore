@@ -366,8 +366,8 @@ impl Chain {
             state_root,
             next_epoch_shard_layout,
             curr_poll_time: Duration::ZERO,
-            config: self.resharding_config.clone(),
-            handle: self.resharding_handle.clone(),
+            config: self.resharding_manager.resharding_config.clone(),
+            handle: self.resharding_manager.resharding_handle.clone(),
             on_demand: true,
         };
 

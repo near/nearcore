@@ -1,4 +1,5 @@
-use crate::flat::{store_helper, FlatStorageError, FlatStorageManager};
+use crate::adapter::StoreAdapter;
+use crate::flat::{FlatStorageError, FlatStorageManager};
 use crate::{ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
 use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
 use std::time::Instant;
@@ -11,7 +12,7 @@ use std::time::Instant;
 // Please note that the trie is created for the block state with height equal to flat_head
 // flat state can comtain deltas after flat_head and can be different from tip of the blockchain.
 pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: ShardUId) {
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let trie_storage = TrieDBStorage::new(store.trie_store(), shard_uid);
     let flat_state_to_trie_kv =
         |entry: Result<(Vec<u8>, FlatStateValue), FlatStorageError>| -> (Vec<u8>, Vec<u8>) {
             let (key, value) = entry.unwrap();
@@ -24,15 +25,15 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
             (key, value)
         };
 
-    let mut iter = store_helper::iter_flat_state_entries(shard_uid, &store, None, None)
-        .map(flat_state_to_trie_kv);
+    let store = store.flat_store();
+    let mut iter = store.iter(shard_uid).map(flat_state_to_trie_kv);
 
     // new ShardTries for write storage location
     let tries = ShardTries::new(
-        write_store.clone(),
+        write_store.trie_store(),
         TrieConfig::default(),
         &[shard_uid],
-        FlatStorageManager::new(write_store),
+        FlatStorageManager::new(write_store.flat_store()),
         StateSnapshotConfig::default(),
     );
     let mut trie_root = Trie::EMPTY_ROOT;

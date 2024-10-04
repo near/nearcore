@@ -18,8 +18,9 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
-use near_store::Store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
@@ -29,7 +30,7 @@ use crate::client::ShardsManagerResponse;
 use crate::shards_manager_actor::ShardsManagerActor;
 
 pub struct ChunkTestFixture {
-    pub store: Store,
+    pub store: ChunkStoreAdapter,
     pub epoch_manager: EpochManagerHandle,
     pub shard_tracker: ShardTracker,
     pub mock_network: Arc<MockPeerManagerAdapter>,
@@ -175,7 +176,7 @@ impl ChunkTestFixture {
         let chain_store = ChainStore::new(store.clone(), 0, true);
 
         ChunkTestFixture {
-            store,
+            store: store.chunk_store(),
             epoch_manager,
             shard_tracker,
             mock_network,
