@@ -2347,7 +2347,12 @@ impl Chain {
     ) -> bool {
         let result = epoch_manager.will_shard_layout_change(parent_hash);
         let will_shard_layout_change = match result {
-            Ok(will_shard_layout_change) => will_shard_layout_change,
+            Ok(_will_shard_layout_change) => {
+                // Before state sync is fixed, we don't catch up split shards.
+                // Assume that all needed shards are tracked already.
+                // will_shard_layout_change,
+                false
+            }
             Err(err) => {
                 // TODO(resharding) This is a problem, if this happens the node
                 // will not perform resharding and fall behind the network.
