@@ -423,6 +423,14 @@ impl ShardLayout {
         }
     }
 
+    pub fn boundary_accounts(&self) -> &Vec<AccountId> {
+        match self {
+            Self::V1(v1) => &v1.boundary_accounts,
+            Self::V2(v2) => &v2.boundary_accounts,
+            _ => panic!("ShardLayout::V0 doesn't have boundary accounts"),
+        }
+    }
+
     fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,

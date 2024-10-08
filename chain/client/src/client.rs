@@ -2464,7 +2464,10 @@ impl Client {
 
         for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-            let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, &me)?;
+            // I *think* this is not relevant anymore, since we download
+            // already the next epoch's state.
+            // let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, &me)?;
+            let shards_to_split = HashMap::new();
             let state_sync_timeout = self.config.state_sync_timeout;
             let block_header = self.chain.get_block(&sync_hash)?.header().clone();
             let epoch_id = block_header.epoch_id();
@@ -2571,6 +2574,7 @@ impl Client {
     ///
     /// Returns a map from the shard_id to ShardSyncDownload only for those
     /// shards that need to be split.
+    #[allow(unused)]
     fn get_shards_to_split(
         &mut self,
         sync_hash: CryptoHash,
