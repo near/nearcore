@@ -7,13 +7,13 @@
 
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
-use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
-use crate::sync::state::{StateSync, StateSyncResult};
+use crate::sync::state::StateSyncResult;
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{metrics, StatusResponse, SyncAdapter};
 use actix::Actor;
@@ -627,10 +627,10 @@ impl Handler<StateResponse> for ClientActorInner {
         }
 
         // ... Or one of the catchups
-        if let Some((state_sync, shards_to_download, _)) =
+        if let Some(CatchupState { state_sync, state_downloads, .. }) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+            if let Some(shard_download) = state_downloads.get_mut(&shard_id) {
                 state_sync.update_download_on_state_response_message(
                     shard_download,
                     hash,
@@ -1584,11 +1584,11 @@ impl ClientActorInner {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
+    /// TODO(current_epoch_state_sync): allow the new way of computing the sync hash for syncing to the current epoch
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let sync_hash = header_head.last_block_hash;
-        let epoch_start_sync_hash =
-            StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+        let epoch_start_sync_hash = self.client.chain.get_epoch_start_sync_hash(&sync_hash)?;
 
         let genesis_hash = self.client.chain.genesis().hash();
         tracing::debug!(
@@ -2114,9 +2114,11 @@ impl ClientActorInner {
 impl Handler<ApplyStatePartsResponse> for ClientActorInner {
     fn handle(&mut self, msg: ApplyStatePartsResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+        if let Some(CatchupState { state_sync, .. }) =
+            self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
+        {
             // We are doing catchup
-            sync.set_apply_result(msg.shard_id, msg.apply_result);
+            state_sync.set_apply_result(msg.shard_id, msg.apply_result);
         } else {
             self.client.state_sync.set_apply_result(msg.shard_id, msg.apply_result);
         }
@@ -2126,11 +2128,11 @@ impl Handler<ApplyStatePartsResponse> for ClientActorInner {
 impl Handler<BlockCatchUpResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockCatchUpResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((_, _, blocks_catch_up_state)) =
+        if let Some(CatchupState { catchup, .. }) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
-            assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-            blocks_catch_up_state.processed_blocks.insert(
+            assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+            catchup.processed_blocks.insert(
                 msg.block_hash,
                 msg.results.into_iter().map(|res| res.1).collect::<Vec<_>>(),
             );
@@ -2148,9 +2150,11 @@ impl Handler<LoadMemtrieResponse> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: LoadMemtrieResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+        if let Some(CatchupState { state_sync, .. }) =
+            self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
+        {
             // We are doing catchup
-            sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
+            state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
         } else {
             // We are doing state sync
             self.client.state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);

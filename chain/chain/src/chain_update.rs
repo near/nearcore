@@ -237,7 +237,7 @@ impl<'a> ChainUpdate<'a> {
             );
         }
         if let Some(state_sync_info) = state_sync_info {
-            self.chain_store_update.add_state_sync_info(state_sync_info);
+            self.chain_store_update.add_state_sync_info(*block.hash(), state_sync_info);
         }
 
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });

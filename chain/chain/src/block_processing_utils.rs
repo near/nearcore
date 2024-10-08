@@ -18,6 +18,17 @@ pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 
 /// Contains information from preprocessing a block
 pub(crate) struct BlockPreprocessInfo {
+    /// This field has two related but actually different meanings. For the first block of an
+    /// epoch, this will be set to false if we need to download state for shards we'll track in
+    /// the future but don't track currently. This implies the first meaning, which is that if
+    /// this is true, then we are ready to apply all chunks and update flat state for shards
+    /// we'll track in this and the next epoch. This comes into play when we decide what ApplyChunksMode
+    /// to pass to Chain::apply_chunks_preprocessing().
+    /// The other meaning is that the catchup code should process this block. When the state sync sync_hash
+    /// is the first block of the epoch, these two meanings are the same. But if the sync_hash is moved forward
+    /// in order to sync the current epoch's state instead of last epoch's, this field being false no longer implies
+    /// that we want to apply this block during catchup, so some care is needed to ensure we start catchup at the right
+    /// point in Client::run_catchup()
     pub(crate) is_caught_up: bool,
     pub(crate) state_sync_info: Option<StateSyncInfo>,
     pub(crate) incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
