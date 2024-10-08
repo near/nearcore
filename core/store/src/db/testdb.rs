@@ -93,7 +93,7 @@ impl Database for TestDB {
                 DBOp::UpdateRefcount { col, key, value } => {
                     let existing = db[col].get(&key).map(Vec::as_slice);
                     let operands = [value.as_slice()];
-                    let merged = refcount::refcount_merge(existing, operands);
+                    let merged = refcount::refcount_full_merge(existing, operands);
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
