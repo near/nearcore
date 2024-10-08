@@ -2348,8 +2348,9 @@ impl Chain {
         let result = epoch_manager.will_shard_layout_change(parent_hash);
         let will_shard_layout_change = match result {
             Ok(_will_shard_layout_change) => {
-                // Before state sync is fixed, we don't catch up split shards.
-                // Assume that all needed shards are tracked already.
+                // TODO(#11881): before state sync is fixed, we don't catch up
+                // split shards. Assume that all needed shards are tracked
+                // already.
                 // will_shard_layout_change,
                 false
             }

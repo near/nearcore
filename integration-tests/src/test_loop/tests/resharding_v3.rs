@@ -20,8 +20,10 @@ use crate::test_loop::utils::ONE_NEAR;
 /// which is incorrect!!!
 /// - Nodes must not track all shards. State sync must succeed.
 /// - Set up chunk validator-only nodes. State witness must pass validation.
-/// - Tx load must be consistent. Txs and receipts must cross resharding
-/// boundary. All txs must succeed.
+/// - Consistent tx load. All txs must succeed.
+/// - Delayed receipts, congestion control computation.
+/// - Cross-shard receipts of all kinds, crossing resharding boundary.
+/// - Shard layout v2 -> v2 transition.
 /// - Shard layout can be taken from mainnet.
 #[test]
 fn test_resharding_v3() {
@@ -36,6 +38,7 @@ fn test_resharding_v3() {
     let epoch_length = 6;
     let accounts =
         (0..8).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    // #12195 prevents number of BPs bigger than `epoch_length`.
     let clients = vec![accounts[0].clone(), accounts[3].clone(), accounts[6].clone()];
     let block_and_chunk_producers =
         clients.iter().map(|account: &AccountId| account.as_str()).collect_vec();
@@ -47,6 +50,8 @@ fn test_resharding_v3() {
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
     base_epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
         false;
+    // TODO(#11881): enable kickouts when blocks and chunks are produced
+    // properly.
     base_epoch_config.block_producer_kickout_threshold = 0;
     base_epoch_config.chunk_producer_kickout_threshold = 0;
     base_epoch_config.chunk_validator_only_kickout_threshold = 0;
@@ -59,7 +64,7 @@ fn test_resharding_v3() {
     let last_shard_id = shard_ids.pop().unwrap();
     let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
         shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
-    // Keep this way until non-contiguous shard ids are supported.
+    // TODO(#11881): keep this way until non-contiguous shard ids are supported.
     // let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
     let new_shards = vec![max_shard_id, max_shard_id + 1];
     shard_ids.extend(new_shards.clone());
