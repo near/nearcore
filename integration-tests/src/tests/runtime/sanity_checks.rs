@@ -252,7 +252,9 @@ fn test_sanity_used_gas() {
         ContractPrepareVersion::V0 | ContractPrepareVersion::V1 => 0,
         // Gas accounting is precise and instructions executed between calls to the side-effectful
         // `used_gas` host function calls will be observbable.
-        ContractPrepareVersion::V2 => u64::from(runtime_config.wasm_config.regular_op_cost),
+        ContractPrepareVersion::V2 | ContractPrepareVersion::V3 => {
+            u64::from(runtime_config.wasm_config.regular_op_cost)
+        }
     };
 
     // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.

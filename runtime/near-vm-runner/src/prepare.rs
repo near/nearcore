@@ -2,7 +2,7 @@
 //! wasm module before execution.
 
 use crate::logic::errors::PrepareError;
-use near_parameters::vm::{Config, VMKind};
+use near_parameters::vm::{Config, ContractPrepareVersion, VMKind};
 
 mod prepare_v0;
 mod prepare_v1;
@@ -27,8 +27,9 @@ pub fn prepare_contract(
     let prepare = config.limit_config.contract_prepare_version;
     // NearVM => ContractPrepareVersion::V2
     assert!(
-        (kind != VMKind::NearVm) || (prepare == crate::logic::ContractPrepareVersion::V2),
-        "NearVM only works with contract prepare version V2",
+        (kind != VMKind::NearVm)
+            || (prepare == ContractPrepareVersion::V2 || prepare == ContractPrepareVersion::V3),
+        "NearVM only works with contract prepare versions >V2",
     );
     let features = crate::features::WasmFeatures::from(prepare);
     match prepare {
@@ -41,7 +42,7 @@ pub fn prepare_contract(
             prepare_v1::validate_contract(original_code, features, config)?;
             prepare_v1::prepare_contract(original_code, config)
         }
-        crate::logic::ContractPrepareVersion::V2 => {
+        crate::logic::ContractPrepareVersion::V2 | crate::logic::ContractPrepareVersion::V3 => {
             prepare_v2::prepare_contract(original_code, features, config, kind)
         }
     }
