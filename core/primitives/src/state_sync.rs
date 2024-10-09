@@ -180,11 +180,8 @@ pub struct ShardStateSyncResponseV2 {
 pub struct ShardStateSyncResponseV3 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
-    /// Parts that can be provided **cheaply**.
-    // Can be `None` only if both `header` and `part` are `None`.
+    // TODO(saketh): deprecate unused fields cached_parts and can_generate
     pub cached_parts: Option<CachedParts>,
-    /// Whether the node can provide parts for this epoch of this shard.
-    /// Assumes that a node can either provide all state parts or no state parts.
     pub can_generate: bool,
 }
 
