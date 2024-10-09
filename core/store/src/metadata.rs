@@ -43,7 +43,7 @@ pub enum DbKind {
 
 /// Metadata about a database.
 #[derive(Clone, Copy)]
-pub(super) struct DbMetadata {
+pub struct DbMetadata {
     /// Version of the database.
     pub version: DbVersion,
 
