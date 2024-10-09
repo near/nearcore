@@ -282,6 +282,18 @@ impl ShardTries {
             }
         }
 
+        // this will delete any state snapshot parts from db. Will retry 3 times
+        for _ in 0..3 {
+            let mut store_update = self.store_update();
+            store_update.delete_state_parts();
+            match store_update.commit() {
+                Ok(_) => break,
+                Err(err) => {
+                    tracing::error!(target: "state_snapshot", ?err, "Failed to clear StatePart column in rocksdb");
+                }
+            }
+        }
+
         metrics::HAS_STATE_SNAPSHOT.set(0);
     }
 

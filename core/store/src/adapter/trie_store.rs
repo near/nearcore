@@ -140,6 +140,10 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
+    pub fn delete_state_parts(&mut self) {
+        self.store_update.delete_all(DBCol::StateParts)
+    }
+
     pub fn delete_all_state(&mut self) {
         self.store_update.delete_all(DBCol::State)
     }
