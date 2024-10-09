@@ -40,6 +40,10 @@ use std::time::Instant;
 pub enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
     NewChunk(NewChunkData),
+    // TODO(#11881): this is temporary indicator that resharding happened in the
+    // state transition covered by state witness. Won't happen in production
+    // until resharding release. Must be removed and replaced with proper
+    // resharding state transition validation.
     ShardLayoutChange,
 }
 
