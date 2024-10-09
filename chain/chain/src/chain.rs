@@ -1796,6 +1796,15 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
+        // Delete state sync files if needed.
+        if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
+            let mut store_update = self.chain_store.store().store_update();
+            store_update.delete_all(DBCol::StateParts);
+            store_update.delete_all(DBCol::StateHeaders);
+            store_update.commit()?;
+        }
+
         // 2) Start creating snapshot if needed.
         if let Err(err) = self.process_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
