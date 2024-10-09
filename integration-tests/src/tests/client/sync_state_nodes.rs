@@ -870,19 +870,9 @@ fn test_state_sync_headers() {
                             );
                             return ControlFlow::Continue(());
                         }
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            can_generate,
-                            "got header"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, "got header");
                     } else {
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            can_generate,
-                            "got no header"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, "got no header");
                         return ControlFlow::Continue(());
                     }
 
@@ -911,10 +901,7 @@ fn test_state_sync_headers() {
                     let part = state_response.part().clone();
                     assert!(state_response.take_header().is_none());
                     if let Some((part_id, _part)) = part {
-                        if !can_generate
-                            || cached_parts != None
-                            || part_id != 0
-                        {
+                        if !can_generate || cached_parts != None || part_id != 0 {
                             tracing::info!(
                                 ?sync_hash,
                                 shard_id,
@@ -924,20 +911,9 @@ fn test_state_sync_headers() {
                             );
                             return ControlFlow::Continue(());
                         }
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            can_generate,
-                            part_id,
-                            "got part"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, part_id, "got part");
                     } else {
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            can_generate,
-                            "got no part"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, "got no part");
                         return ControlFlow::Continue(());
                     }
                 }
