@@ -524,7 +524,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
             // unless config is enabled.
             return;
         }
-        let store = self.client.chain.chain_store.store().clone();
+        let store = self.client.chain.chain_store.store();
         let network_adapter = self.client.network_adapter.clone();
         let route_back = msg.route_back;
         self.client.epoch_sync.async_computation_spawner.spawn(

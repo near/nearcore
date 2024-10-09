@@ -147,8 +147,8 @@ impl ChainStore {
 
         // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
-            let key_to_delete = self
-                .store()
+            let store = self.store();
+            let key_to_delete = store
                 .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())?
                 .ok_or_else(|| {
                     std::io::Error::new(

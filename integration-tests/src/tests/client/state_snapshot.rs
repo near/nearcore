@@ -208,7 +208,7 @@ fn test_make_state_snapshot() {
     let mut blocks = vec![];
 
     let store = env.clients[0].chain.chain_store().store();
-    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(store);
+    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(&store);
 
     for i in 1..=5 {
         let new_account_id = format!("test_account_{i}");
