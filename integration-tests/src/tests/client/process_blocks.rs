@@ -2711,6 +2711,7 @@ fn test_execution_metadata() {
         // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
         // operand stack (8 bytes worth to hold the return value.)
         near_vm_runner::logic::ContractPrepareVersion::V2 => 10,
+        near_vm_runner::logic::ContractPrepareVersion::V3 => 10,
     };
 
     // Profile for what's happening *inside* wasm vm during function call.
