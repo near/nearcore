@@ -2178,7 +2178,9 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client.mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                self.client
+                    .chunk_inclusion_tracker
+                    .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }
@@ -2216,7 +2218,7 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
 impl Handler<ChunkEndorsementMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
+        if let Err(err) = self.client.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
     }

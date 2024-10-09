@@ -20,9 +20,9 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
@@ -248,7 +248,8 @@ pub fn create_chunk(
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
-    let endorsement = ChunkEndorsementV1::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
+    let endorsement =
+        ChunkEndorsement::new(EpochId::default(), &chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
@@ -257,7 +258,7 @@ pub fn create_chunk(
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature))]],
+        vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
         None,

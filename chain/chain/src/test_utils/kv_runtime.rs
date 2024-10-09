@@ -29,11 +29,9 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsementV1, ChunkEndorsementV2,
-};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
@@ -945,17 +943,9 @@ impl EpochManagerAdapter for MockEpochManager {
         }
     }
 
-    fn verify_chunk_endorsement(
-        &self,
-        _chunk_header: &ShardChunkHeader,
-        _endorsement: &ChunkEndorsementV1,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
     fn verify_chunk_endorsement_signature(
         &self,
-        _endorsement: &ChunkEndorsementV2,
+        _endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error> {
         Ok(true)
     }
