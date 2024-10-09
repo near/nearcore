@@ -145,7 +145,7 @@ pub struct ChunkStateWitness {
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
     // TODO(stateless_validation): Deprecate once we send state witness in parts.
-    signature_differentiator: SignatureDifferentiator,
+    pub signature_differentiator: SignatureDifferentiator,
 }
 
 impl ChunkStateWitness {

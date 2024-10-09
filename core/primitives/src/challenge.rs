@@ -31,7 +31,8 @@ impl Debug for PartialState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PartialState::TrieValues(values) => {
-                f.write_str(&format!("{} trie values", values.len()))
+                let size = bytesize::ByteSize(values.iter().map(|v| v.len() as u64).sum());
+                f.write_str(&format!("{} trie values sized {}", values.len(), size))
             }
         }
     }
