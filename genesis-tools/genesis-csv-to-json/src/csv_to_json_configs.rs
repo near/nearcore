@@ -5,7 +5,7 @@ use near_chain_configs::{
     MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
-use near_primitives::types::{Balance, NumShards, ShardId};
+use near_primitives::types::{new_shard_id_tmp, Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{Config, CONFIG_FILENAME, NODE_KEY_FILE};
@@ -14,7 +14,16 @@ use std::fs::File;
 use std::path::Path;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
-const SHARDS: &'static [ShardId] = &[0, 1, 2, 3, 4, 5, 6, 7];
+const SHARDS: &'static [ShardId] = &[
+    new_shard_id_tmp(0),
+    new_shard_id_tmp(1),
+    new_shard_id_tmp(2),
+    new_shard_id_tmp(3),
+    new_shard_id_tmp(4),
+    new_shard_id_tmp(5),
+    new_shard_id_tmp(6),
+    new_shard_id_tmp(7),
+];
 
 fn verify_total_supply(total_supply: Balance, chain_id: &str) {
     if chain_id == near_primitives::chains::MAINNET {

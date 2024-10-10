@@ -171,6 +171,8 @@ impl<'a> ConfigValidator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::types::new_shard_id_tmp;
+
     use super::*;
 
     #[test]
@@ -179,7 +181,7 @@ mod tests {
         let mut config = Config::default();
         config.gc.gc_blocks_limit = 0;
         // set tracked_shards to be non-empty
-        config.tracked_shards.push(20);
+        config.tracked_shards.push(new_shard_id_tmp(20));
         validate_config(&config).unwrap();
     }
 
@@ -192,7 +194,7 @@ mod tests {
         config.archive = false;
         config.save_trie_changes = Some(false);
         // set tracked_shards to be non-empty
-        config.tracked_shards.push(20);
+        config.tracked_shards.push(new_shard_id_tmp(20));
         validate_config(&config).unwrap();
     }
 
@@ -206,7 +208,7 @@ mod tests {
         config.save_trie_changes = Some(false);
         config.gc.gc_blocks_limit = 0;
         // set tracked_shards to be non-empty
-        config.tracked_shards.push(20);
+        config.tracked_shards.push(new_shard_id_tmp(20));
         validate_config(&config).unwrap();
     }
 

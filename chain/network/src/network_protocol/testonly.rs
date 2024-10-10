@@ -18,7 +18,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
+use near_primitives::types::{new_shard_id_tmp, AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
 use rand::distributions::Standard;
@@ -211,7 +211,7 @@ impl ChunkSet {
         Self { chunks: HashMap::default() }
     }
     pub fn make(&mut self) -> Vec<ShardChunk> {
-        let shard_ids: Vec<_> = (0..4).collect();
+        let shard_ids: Vec<_> = (0..4).into_iter().map(new_shard_id_tmp).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(

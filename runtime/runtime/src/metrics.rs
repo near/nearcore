@@ -800,7 +800,7 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
     // Tracing span to measure time spent on reporting column sizes.
     let _span = tracing::debug_span!(
             target: "runtime", "report_recorded_column_sizes",
-            shard_id = apply_state.shard_id,
+            shard_id = ?apply_state.shard_id,
             block_height = apply_state.block_height)
     .entered();
 

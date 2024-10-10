@@ -15,7 +15,7 @@ use near_primitives::sharding::{
     ShardChunkHeader,
 };
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{new_shard_id_tmp, MerkleHash};
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
@@ -92,7 +92,7 @@ impl ChunkTestFixture {
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
-        let mock_shard_id: ShardId = 0;
+        let mock_shard_id: ShardId = new_shard_id_tmp(0);
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
