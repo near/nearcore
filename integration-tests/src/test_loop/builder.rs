@@ -72,6 +72,8 @@ pub(crate) struct TestLoopBuilder {
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
     /// Whether to do the warmup or not. See `skip_warmup` for more details.
     warmup: bool,
+    /// Whether all nodes must track all shards.
+    track_all_shards: bool,
 }
 
 impl TestLoopBuilder {
@@ -91,6 +93,7 @@ impl TestLoopBuilder {
             runtime_config_store: None,
             config_modifier: None,
             warmup: true,
+            track_all_shards: false,
         }
     }
 
@@ -167,6 +170,11 @@ impl TestLoopBuilder {
     /// warmup if you are interested in the behavior of starting from genesis.
     pub fn skip_warmup(mut self) -> Self {
         self.warmup = false;
+        self
+    }
+
+    pub fn track_all_shards(mut self) -> Self {
+        self.track_all_shards = true;
         self
     }
 
@@ -270,13 +278,11 @@ impl TestLoopBuilder {
         // Configure tracked shards.
         // * single shard tracking for validators
         // * all shard tracking for non-validators (RPCs and archival)
-        let epoch_config = epoch_config_store.get_config(genesis.config.protocol_version);
-        let num_block_producer = epoch_config.num_block_producer_seats;
-        let num_chunk_producer = epoch_config.validator_selection_config.num_chunk_producer_seats;
-        let num_chunk_validator = epoch_config.validator_selection_config.num_chunk_validator_seats;
-        let validator_num =
-            num_block_producer.max(num_chunk_producer).max(num_chunk_validator) as usize;
-        if idx < validator_num {
+        let is_validator = {
+            let epoch_config = epoch_config_store.get_config(genesis.config.protocol_version);
+            idx < epoch_config.num_validators() as usize
+        };
+        if is_validator && !self.track_all_shards {
             client_config.tracked_shards = Vec::new();
         } else {
             client_config.tracked_shards = vec![new_shard_id_tmp(666)];
