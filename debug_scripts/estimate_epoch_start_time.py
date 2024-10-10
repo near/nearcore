@@ -118,7 +118,7 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
 def find_epoch_for_timestamp(future_epochs, voting_datetime):
     for (epoch_number, epoch_datetime) in enumerate(future_epochs):
         if voting_datetime < epoch_datetime:
-            return epoch_number  # The voting date falls into the previous epoch
+            return epoch_number
     return len(future_epochs)
 
 
