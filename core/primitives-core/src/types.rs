@@ -102,7 +102,25 @@ pub const fn shard_id_as_u32(id: ShardId) -> u32 {
 
 // impl ShardId {
 //     /// Create a new shard id. Please note that this function should not be used
-//     /// directly. Instead the ShardId should be obtained from the shard_layout.
+//     /// to convert a shard index (a number in 0..num_shards range) to ShardId.
+//     /// Instead the ShardId should be obtained from the shard_layout.
+//     ///
+//     /// ```
+//     /// // BAD USAGE:
+//     /// for shard_index in 1..num_shards {
+//     ///     let shard_id = ShardId::new(shard_index); // Incorrect!!!
+//     /// }
+//     /// ```
+//     /// ```
+//     /// // GOOD USAGE 1:
+//     /// for shard_index in 1..num_shards {
+//     ///     let shard_id = shard_layout.get_shard_id(shard_index);
+//     /// }
+//     /// // GOOD USAGE 2:
+//     /// for shard_id in shard_layout.shard_ids() {
+//     ///     let shard_id = shard_layout.get_shard_id(shard_index);
+//     /// }
+//     /// ```
 //     pub const fn new(id: u64) -> Self {
 //         Self(id)
 //     }

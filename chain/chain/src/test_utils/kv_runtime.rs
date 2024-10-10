@@ -588,23 +588,33 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn get_prev_shard_ids(
         &self,
-        _prev_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
     ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
-        // This is incorrect in ShardLayoutV2 where the shard ids don't have to
-        // be ordered and contiguous.
-        let num_shards = shard_ids.len();
-        Ok(shard_ids.into_iter().zip(0..num_shards).collect())
+        let mut prev_shard_ids = vec![];
+        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+        for shard_id in shard_ids {
+            // This is not correct if there was a resharding event in between
+            // the previous and current block.
+            let prev_shard_id = shard_id;
+            let prev_shard_index = shard_layout.get_shard_index(prev_shard_id);
+            prev_shard_ids.push((prev_shard_id, prev_shard_index));
+        }
+
+        Ok(prev_shard_ids)
     }
 
     fn get_prev_shard_id(
         &self,
-        _prev_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<(ShardId, ShardIndex), Error> {
-        // This is incorrect in ShardLayoutV2 where the shard ids don't have to
-        // be ordered and contiguous.
-        Ok((shard_id, shard_id as ShardIndex))
+        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+        // This is not correct if there was a resharding event in between
+        // the previous and current block.
+        let prev_shard_id = shard_id;
+        let prev_shard_index = shard_layout.get_shard_index(prev_shard_id);
+        Ok((prev_shard_id, prev_shard_index))
     }
 
     fn get_shard_layout_from_prev_block(

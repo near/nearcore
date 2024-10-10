@@ -214,8 +214,7 @@ impl TestEnv {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
         let prev_block_hash = self.head.last_block_hash;
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id);
         let state_root = self.state_roots[shard_index];

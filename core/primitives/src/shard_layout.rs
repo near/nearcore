@@ -498,6 +498,8 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
+    /// Returns the shard index for a given shard id. The shard index should be
+    /// used when indexing into an array of chunk data.
     pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
         match self {
             Self::V0(_) => shard_id as ShardIndex,
@@ -506,6 +508,8 @@ impl ShardLayout {
         }
     }
 
+    /// Get the shard id for a given shard index. The shard id should be used to
+    /// identify the shard and starting from the ShardLayoutV2 it is unique.
     pub fn get_shard_id(&self, shard_index: usize) -> ShardId {
         match self {
             Self::V0(_) => shard_index as ShardId,

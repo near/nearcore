@@ -118,6 +118,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// resharding happened and some shards were split.
     /// If there was no resharding, it just returns `shard_ids` as is, without any validation.
     /// The resulting Vec will always be of the same length as the `shard_ids` argument.
+    ///
+    /// TODO(wacban) - rename to reflect the new return type
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
@@ -130,6 +132,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Most of the times parent of the shard is the shard itself, unless a
     /// resharding happened and some shards were split.
     /// If there was no resharding, it just returns the `shard_id` as is, without any validation.
+    ///
+    /// TODO(wacban) - rename to reflect the new return type
     fn get_prev_shard_id(
         &self,
         prev_hash: &CryptoHash,
