@@ -174,7 +174,7 @@ expression: config_view
       "yield_create_base": 153411779276,
       "yield_create_byte": 15643988,
       "yield_resume_base": 1195627285210,
-      "yield_resume_byte": 1195627285210,
+      "yield_resume_byte": 47683715,
       "bls12381_p1_sum_base": 16500000000,
       "bls12381_p1_sum_element": 6000000000,
       "bls12381_p2_sum_base": 18600000000,

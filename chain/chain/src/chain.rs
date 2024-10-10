@@ -35,7 +35,6 @@ use crate::{
     Provenance,
 };
 use crate::{metrics, DoomslugThresholdMode};
-use borsh::BorshDeserialize;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
@@ -69,8 +68,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
-    get_num_state_parts, BitArray, CachedParts, ReceiptProofResponse, RootProof,
-    ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
+    ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
@@ -2347,7 +2346,13 @@ impl Chain {
     ) -> bool {
         let result = epoch_manager.will_shard_layout_change(parent_hash);
         let will_shard_layout_change = match result {
-            Ok(will_shard_layout_change) => will_shard_layout_change,
+            Ok(_will_shard_layout_change) => {
+                // TODO(#11881): before state sync is fixed, we don't catch up
+                // split shards. Assume that all needed shards are tracked
+                // already.
+                // will_shard_layout_change,
+                false
+            }
             Err(err) => {
                 // TODO(resharding) This is a problem, if this happens the node
                 // will not perform resharding and fall behind the network.
@@ -3857,41 +3862,6 @@ impl Chain {
         let delete_snapshot = !make_snapshot && is_epoch_boundary;
 
         Ok((make_snapshot, delete_snapshot))
-    }
-
-    /// Returns a description of state parts cached for the given shard of the given epoch.
-    pub fn get_cached_state_parts(
-        &self,
-        sync_hash: CryptoHash,
-        shard_id: ShardId,
-        num_parts: u64,
-    ) -> Result<CachedParts, Error> {
-        let _span = tracing::debug_span!(target: "chain", "get_cached_state_parts").entered();
-        // DBCol::StateParts is keyed by StatePartKey: (BlockHash || ShardId || PartId (u64)).
-        let lower_bound = StatePartKey(sync_hash, shard_id, 0);
-        let lower_bound = borsh::to_vec(&lower_bound)?;
-        let upper_bound = StatePartKey(sync_hash, shard_id + 1, 0);
-        let upper_bound = borsh::to_vec(&upper_bound)?;
-        let mut num_cached_parts = 0;
-        let mut bit_array = BitArray::new(num_parts);
-        for item in self.chain_store.store().iter_range(
-            DBCol::StateParts,
-            Some(&lower_bound),
-            Some(&upper_bound),
-        ) {
-            let key = item?.0;
-            let key = StatePartKey::try_from_slice(&key)?;
-            let part_id = key.2;
-            num_cached_parts += 1;
-            bit_array.set_bit(part_id);
-        }
-        Ok(if num_cached_parts == 0 {
-            CachedParts::NoParts
-        } else if num_cached_parts == num_parts {
-            CachedParts::AllParts
-        } else {
-            CachedParts::BitArray(bit_array)
-        })
     }
 }
 
