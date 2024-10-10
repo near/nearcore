@@ -125,8 +125,7 @@ def find_epoch_for_timestamp(future_epochs, voting_datetime):
 def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
     # Parse the voting date
     try:
-        voting_datetime = datetime.strptime(voting_date,
-                                            '%Y-%m-%d %H:%M:%S')
+        voting_datetime = datetime.strptime(voting_date, '%Y-%m-%d %H:%M:%S')
         voting_datetime = target_timezone.localize(voting_datetime)
     except ValueError:
         print(
@@ -147,8 +146,7 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
             "Not enough future epochs predicted to determine the protocol upgrade time."
         )
         return
-    protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number
-                                              - 1]
+    protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number - 1]
     protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
         '%Y-%m-%d %H:%M:%S %Z%z %A')
     print(f"\nVoting date falls into epoch {epoch_T}.")
@@ -182,7 +180,8 @@ def main(args):
         args.num_future_epochs, target_timezone)
 
     if args.voting_date:
-        find_protocol_upgrade_time(args.voting_date, future_epochs, target_timezone)
+        find_protocol_upgrade_time(args.voting_date, future_epochs,
+                                   target_timezone)
 
 
 # Custom action to set the URL based on chain_id
