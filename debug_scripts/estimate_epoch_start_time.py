@@ -93,13 +93,10 @@ def is_valid_timezone(timezone_str):
 
 # Function to approximate future epoch start dates
 def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
-                          num_future_epochs, timezone_str):
+                          num_future_epochs, target_timezone):
     future_epochs = []
     current_timestamp = ns_to_seconds(
         starting_epoch_timestamp)  # Convert from nanoseconds to seconds
-
-    # Set up the timezone
-    target_timezone = pytz.timezone(timezone_str)
 
     for i in range(1, num_future_epochs + 1):
         # Add the average epoch length for each future epoch
@@ -109,13 +106,20 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
         future_datetime = datetime.fromtimestamp(future_timestamp,
                                                  target_timezone)
 
-        # Format date
-        future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
-        future_epochs.append(future_date)
+        future_epochs.append(future_datetime)
 
+        # Format and print predicted date
+        future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
         print(f"Predicted start of epoch {i}: {future_date}")
 
     return future_epochs
+
+
+def find_epoch_for_timestamp(future_epochs, voting_datetime):
+    for (epoch_number, epoch_datetime) in enumerate(future_epochs):
+        if voting_datetime < epoch_datetime:
+            return epoch_number  # The voting date falls into the previous epoch
+    return len(future_epochs)
 
 
 # Main function to run the process
@@ -134,10 +138,47 @@ def main(args):
     epoch_lengths, exponential_weighted_average_epoch_length = get_exponential_weighted_epoch_lengths(
         args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
 
+    # Set up the timezone
+    target_timezone = pytz.timezone(args.timezone)
+
     # Predict future epoch start dates
-    predict_future_epochs(current_timestamp,
-                          exponential_weighted_average_epoch_length,
-                          args.num_future_epochs, args.timezone)
+    future_epochs = predict_future_epochs(
+        current_timestamp, exponential_weighted_average_epoch_length,
+        args.num_future_epochs, target_timezone)
+
+    if args.voting_date:
+        # Parse the voting date
+        try:
+            voting_datetime = datetime.strptime(args.voting_date,
+                                                '%Y-%m-%d %H:%M:%S')
+            voting_datetime = target_timezone.localize(voting_datetime)
+        except ValueError:
+            print(
+                f"Error: Invalid voting date format. Please use 'YYYY-MM-DD HH:MM:SS'."
+            )
+            return
+
+        # Find the epoch T in which the voting date falls
+        epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime)
+        if epoch_T <= 0:
+            print("Error: Voting date is before the first predicted epoch.")
+            return
+
+        # Calculate when the protocol upgrade will happen (start of epoch T+2)
+        protocol_upgrade_epoch_number = epoch_T + 2
+        if protocol_upgrade_epoch_number > len(future_epochs):
+            print(
+                "Not enough future epochs predicted to determine the protocol upgrade time."
+            )
+            return
+        protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number
+                                                  - 1]
+        protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
+            '%Y-%m-%d %H:%M:%S %Z%z %A')
+        print(f"\nVoting date falls into epoch {epoch_T}.")
+        print(
+            f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
+        )
 
 
 # Custom action to set the URL based on chain_id
@@ -175,12 +216,15 @@ if __name__ == "__main__":
                         help="Decay rate for exponential weighting.")
     parser.add_argument("--num_future_epochs",
                         type=int,
-                        default=3,
+                        default=10,
                         help="Number of future epochs to predict.")
     parser.add_argument(
         "--timezone",
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
+
+    parser.add_argument("--voting_date",
+                        help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
 
     args = parser.parse_args()
     main(args)
