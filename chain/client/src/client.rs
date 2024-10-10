@@ -428,8 +428,9 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if cares_about_shard_this_or_next_epoch(
@@ -458,8 +459,10 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
             if block.header().height() == chunk_header.height_included() {

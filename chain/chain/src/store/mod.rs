@@ -2177,8 +2177,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 source_store.get_chunk_extra(block_hash, &shard_uid)?.clone(),
             );
         }
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let chunk_hash = chunk_header.chunk_hash();
             chain_store_update
                 .chain_store_cache_update

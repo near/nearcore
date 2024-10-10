@@ -53,6 +53,8 @@ impl MainTransition {
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::Genesis { shard_id, .. } => *shard_id,
+            // It is ok to use the shard id from the header because it is a new
+            // chunk. An old chunk may have the shard id from the parent shard.
             Self::NewChunk(data) => data.chunk_header.shard_id(),
         }
     }
@@ -115,6 +117,8 @@ pub fn pre_validate_chunk_state_witness(
     let epoch_id = state_witness.epoch_id;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
+    // It is ok to use the shard id from the header because it is a new
+    // chunk. An old chunk may have the shard id from the parent shard.
     let shard_id = state_witness.chunk_header.shard_id();
     let shard_index = shard_layout.get_shard_index(shard_id);
 

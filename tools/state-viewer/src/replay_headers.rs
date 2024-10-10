@@ -228,6 +228,8 @@ fn get_block_info(
         {
             let block = chain_store.get_block(header.hash())?;
             let chunks = block.chunks();
+            let epoch_id = block.header().epoch_id();
+            let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
             let endorsement_signatures = block.chunk_endorsements().to_vec();
             assert_eq!(endorsement_signatures.len(), chunks.len());
@@ -238,7 +240,7 @@ fn get_block_info(
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
             for (shard_index, chunk_header) in chunks.iter().enumerate() {
-                let shard_id = chunk_header.shard_id();
+                let shard_id = shard_layout.get_shard_id(shard_index);
                 let endorsements = &endorsement_signatures[shard_id as usize];
                 if !chunk_header.is_new_chunk(height) {
                     assert_eq!(endorsements.len(), 0);

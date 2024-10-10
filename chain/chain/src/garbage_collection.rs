@@ -585,10 +585,11 @@ impl<'a> ChainStoreUpdate<'a> {
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
         let height = block.header().height();
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
+        for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
@@ -679,12 +680,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
 
         let epoch_id = block.header().epoch_id();
-
         let head_height = block.header().height();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
+        for shard_id in shard_layout.shard_ids() {
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
@@ -835,6 +835,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for chunk_header in
             block.chunks().iter().filter(|h| h.height_included() == block.header().height())
         {
+            // It is ok to use the shard id from the header because it is a new
+            // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
             let outcome_ids =
                 self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;

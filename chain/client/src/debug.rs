@@ -232,14 +232,17 @@ impl ClientActorInner {
 
         let block = self.client.chain.get_block_by_height(epoch_start_height)?;
         let epoch_id = block.header().epoch_id();
+        let shard_layout = self.client.epoch_manager.get_shard_layout(&epoch_id)?;
+
         let (validators, chunk_only_producers) =
             self.get_producers_for_epoch(&epoch_id, &current_block)?;
 
         let shards_size_and_parts: Vec<(u64, u64)> = block
             .chunks()
             .iter()
-            .map(|chunk| {
-                let shard_id = chunk.shard_id();
+            .enumerate()
+            .map(|(shard_index, chunk)| {
+                let shard_id = shard_layout.get_shard_id(shard_index);
                 let state_root_node = self.client.runtime_adapter.get_state_root_node(
                     shard_id,
                     block.hash(),
@@ -256,11 +259,9 @@ impl ClientActorInner {
             })
             .collect();
 
-        let state_header_exists: Vec<bool> = block
-            .chunks()
-            .iter()
-            .map(|chunk_header| {
-                let shard_id = chunk_header.shard_id();
+        let state_header_exists: Vec<bool> = shard_layout
+            .shard_ids()
+            .map(|shard_id| {
                 let key = borsh::to_vec(&StateHeaderKey(shard_id, *block.hash()));
                 match key {
                     Ok(key) => {

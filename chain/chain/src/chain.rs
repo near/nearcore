@@ -1315,9 +1315,8 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
-            let shard_index = shard_layout.get_shard_index(shard_id);
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
@@ -2483,7 +2482,6 @@ impl Chain {
         let chunks = sync_prev_block.chunks();
         let chunk_header =
             chunks.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
-        debug_assert!(shard_id == chunk_header.shard_id());
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
