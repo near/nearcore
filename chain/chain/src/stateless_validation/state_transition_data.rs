@@ -23,8 +23,11 @@ impl Chain {
             return Ok(());
         }
         let final_block = chain_store.get_block(&final_block_hash)?;
-        let final_block_chunk_created_heights =
-            final_block.chunks().iter().map(|chunk| chunk.height_created()).collect::<Vec<_>>();
+        let final_block_chunk_created_heights = final_block
+            .chunks()
+            .iter()
+            .map(|chunk| (chunk.shard_id(), chunk.height_created()))
+            .collect::<Vec<_>>();
         clear_before_last_final_block(chain_store, &final_block_chunk_created_heights)?;
         Ok(())
     }
@@ -38,7 +41,7 @@ impl Chain {
 /// TODO(resharding): this doesn't work after shard layout change
 fn clear_before_last_final_block(
     chain_store: &ChainStore,
-    last_final_block_chunk_created_heights: &[BlockHeight],
+    last_final_block_chunk_created_heights: &[(ShardId, BlockHeight)],
 ) -> Result<(), Error> {
     let mut start_heights = if let Some(start_heights) =
         chain_store
@@ -56,10 +59,7 @@ fn clear_before_last_final_block(
         "garbage collecting state transition data"
     );
     let mut store_update = chain_store.store().store_update();
-    for (shard_index, &last_final_block_height) in
-        last_final_block_chunk_created_heights.iter().enumerate()
-    {
-        let shard_id = shard_index as ShardId;
+    for &(shard_id, last_final_block_height) in last_final_block_chunk_created_heights.iter() {
         let start_height = *start_heights.get(&shard_id).unwrap_or(&last_final_block_height);
         let mut potentially_deleted_count = 0;
         for height in start_height..last_final_block_height {
@@ -72,7 +72,7 @@ fn clear_before_last_final_block(
         }
         tracing::debug!(
             target: "state_transition_data",
-            shard_id,
+            ?shard_id,
             start_height,
             potentially_deleted_count,
             "garbage collected state transition data for shard"
@@ -116,7 +116,7 @@ mod tests {
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
-    use near_primitives::types::{BlockHeight, EpochId, ShardId};
+    use near_primitives::types::{new_shard_id_tmp, BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
     use near_store::test_utils::create_test_store;
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn initial_state_transition_data_gc() {
-        let shard_id = 0;
+        let shard_id = new_shard_id_tmp(0);
         let block_at_1 = hash(&[1]);
         let block_at_2 = hash(&[2]);
         let block_at_3 = hash(&[3]);
@@ -136,8 +136,9 @@ mod tests {
         for (hash, height) in [(block_at_1, 1), (block_at_2, 2), (block_at_3, 3)] {
             save_state_transition_data(&store, hash, height, shard_id);
         }
-        clear_before_last_final_block(&create_chain_store(&store), &[final_height]).unwrap();
-        check_start_heights(&store, vec![final_height]);
+        clear_before_last_final_block(&create_chain_store(&store), &[(shard_id, final_height)])
+            .unwrap();
+        check_start_heights(&store, vec![(shard_id, final_height)]);
         check_existing_state_transition_data(
             &store,
             vec![(block_at_2, shard_id), (block_at_3, shard_id)],
@@ -145,34 +146,27 @@ mod tests {
     }
     #[test]
     fn multiple_state_transition_data_gc() {
-        let shard_id = 0;
+        let shard_id = new_shard_id_tmp(0);
         let store = create_test_store();
         let chain_store = create_chain_store(&store);
         save_state_transition_data(&store, hash(&[1]), 1, shard_id);
         save_state_transition_data(&store, hash(&[2]), 2, shard_id);
-        clear_before_last_final_block(&chain_store, &[2]).unwrap();
+        clear_before_last_final_block(&chain_store, &[(shard_id, 2)]).unwrap();
         let block_at_3 = hash(&[3]);
         let final_height = 3;
         save_state_transition_data(&store, block_at_3, final_height, shard_id);
-        clear_before_last_final_block(&chain_store, &[3]).unwrap();
-        check_start_heights(&store, vec![final_height]);
+        clear_before_last_final_block(&chain_store, &[(shard_id, 3)]).unwrap();
+        check_start_heights(&store, vec![(shard_id, final_height)]);
         check_existing_state_transition_data(&store, vec![(block_at_3, shard_id)]);
     }
 
     #[track_caller]
-    fn check_start_heights(store: &Store, expected: Vec<BlockHeight>) {
+    fn check_start_heights(store: &Store, expected: Vec<(ShardId, BlockHeight)>) {
         let start_heights = store
             .get_ser::<StateTransitionStartHeights>(DBCol::Misc, STATE_TRANSITION_START_HEIGHTS)
             .unwrap()
             .unwrap();
-        assert_eq!(
-            start_heights,
-            expected
-                .into_iter()
-                .enumerate()
-                .map(|(i, h)| (i as ShardId, h))
-                .collect::<HashMap<_, _>>()
-        );
+        assert_eq!(start_heights, expected.into_iter().collect::<HashMap<_, _>>());
     }
 
     #[track_caller]

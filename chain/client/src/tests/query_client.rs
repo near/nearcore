@@ -20,7 +20,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockId, BlockReference, EpochId};
+use near_primitives::types::{new_shard_id_tmp, BlockId, BlockReference, EpochId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
@@ -210,7 +210,7 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap()
                 .unwrap();
             assert_eq!(execution_outcomes_in_block.len(), 1);
-            let outcomes = execution_outcomes_in_block.remove(&0).unwrap();
+            let outcomes = execution_outcomes_in_block.remove(&new_shard_id_tmp(0)).unwrap();
             assert_eq!(outcomes[0].id, tx_hash);
             System::current().stop();
         });
@@ -249,7 +249,7 @@ fn test_state_request() {
             for _ in 0..30 {
                 let res = view_client
                     .send(
-                        StateRequestHeader { shard_id: 0, sync_hash: block_hash }
+                        StateRequestHeader { shard_id: new_shard_id_tmp(0), sync_hash: block_hash }
                             .with_span_context(),
                     )
                     .await
@@ -258,14 +258,15 @@ fn test_state_request() {
             }
 
             // immediately query again, should be rejected
+            let shard_id = new_shard_id_tmp(0);
             let res = view_client
-                .send(StateRequestHeader { shard_id: 0, sync_hash: block_hash }.with_span_context())
+                .send(StateRequestHeader { shard_id, sync_hash: block_hash }.with_span_context())
                 .await
                 .unwrap();
             assert!(res.is_none());
             actix::clock::sleep(std::time::Duration::from_secs(40)).await;
             let res = view_client
-                .send(StateRequestHeader { shard_id: 0, sync_hash: block_hash }.with_span_context())
+                .send(StateRequestHeader { shard_id, sync_hash: block_hash }.with_span_context())
                 .await
                 .unwrap();
             assert!(res.is_some());

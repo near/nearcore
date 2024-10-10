@@ -1,6 +1,5 @@
 use bitvec::prelude::*;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents a collection of bitmaps, one per shard, to store whether the endorsements from the chunk validators has been received.
@@ -56,21 +55,21 @@ impl ChunkEndorsementsBitmap {
     // Creates an endorsement bitmap for all the shards.
     pub fn from_endorsements(shards_to_endorsements: Vec<Vec<bool>>) -> Self {
         let mut bitmap = ChunkEndorsementsBitmap::new(shards_to_endorsements.len());
-        for (shard_id, endorsements) in shards_to_endorsements.into_iter().enumerate() {
-            bitmap.add_endorsements(shard_id as ShardId, endorsements);
+        for (shard_index, endorsements) in shards_to_endorsements.into_iter().enumerate() {
+            bitmap.add_endorsements(shard_index, endorsements);
         }
         bitmap
     }
 
     /// Adds the provided endorsements to the bitmap for the specified shard.
-    pub fn add_endorsements(&mut self, shard_id: ShardId, endorsements: Vec<bool>) {
+    pub fn add_endorsements(&mut self, shard_index: usize, endorsements: Vec<bool>) {
         let bitvec: BitVecType = endorsements.iter().collect();
-        self.inner[shard_id as usize] = bitvec.into();
+        self.inner[shard_index] = bitvec.into();
     }
 
     /// Returns an iterator over the endorsements (yields true if the endorsement for the respective position was received).
-    pub fn iter(&self, shard_id: ShardId) -> Box<dyn Iterator<Item = bool>> {
-        let bitvec = BitVecType::from_vec(self.inner[shard_id as usize].clone());
+    pub fn iter(&self, shard_index: usize) -> Box<dyn Iterator<Item = bool>> {
+        let bitvec = BitVecType::from_vec(self.inner[shard_index].clone());
         Box::new(bitvec.into_iter())
     }
 
@@ -81,8 +80,8 @@ impl ChunkEndorsementsBitmap {
 
     /// Returns the full length of the bitmap for a given shard.
     /// Note that the size may be greater than the number of validator assignments.
-    pub fn len(&self, shard_id: ShardId) -> Option<usize> {
-        self.inner.get(shard_id as usize).map(|v| v.len() * 8)
+    pub fn len(&self, shard_index: usize) -> Option<usize> {
+        self.inner.get(shard_index).map(|v| v.len() * 8)
     }
 }
 
@@ -90,7 +89,6 @@ impl ChunkEndorsementsBitmap {
 mod tests {
     use super::ChunkEndorsementsBitmap;
     use itertools::Itertools;
-    use near_primitives_core::types::ShardId;
     use rand::Rng;
 
     const NUM_SHARDS: usize = 4;
@@ -102,9 +100,9 @@ mod tests {
         expected_endorsements: &Vec<Vec<bool>>,
     ) {
         // Endorsements from the bitmap iterator must match the endorsements given previously.
-        for (shard_id, endorsements) in expected_endorsements.iter().enumerate() {
-            let num_bits = bitmap.len(shard_id as ShardId).unwrap();
-            let bits = bitmap.iter(shard_id as ShardId).collect_vec();
+        for (shard_index, endorsements) in expected_endorsements.iter().enumerate() {
+            let num_bits = bitmap.len(shard_index).unwrap();
+            let bits = bitmap.iter(shard_index).collect_vec();
             // Number of bits must be equal to the size of the bit iterator for the corresponding shard.
             assert_eq!(num_bits, bits.len());
             // Bitmap must contain the minimal number of bits to represent the endorsements.
@@ -121,13 +119,13 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut bitmap = ChunkEndorsementsBitmap::new(NUM_SHARDS);
         let mut expected_endorsements = vec![];
-        for shard_id in 0..NUM_SHARDS {
+        for shard_index in 0..NUM_SHARDS {
             let mut endorsements = vec![false; num_assignments];
             for _ in 0..num_produced {
                 endorsements[rng.gen_range(0..num_assignments)] = true;
             }
             expected_endorsements.push(endorsements.clone());
-            bitmap.add_endorsements(shard_id as ShardId, endorsements);
+            bitmap.add_endorsements(shard_index, endorsements);
         }
         // Check before serialization.
         assert_bitmap(&bitmap, num_assignments, &expected_endorsements);

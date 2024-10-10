@@ -29,8 +29,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateRoot, StateRootNode,
+    new_shard_id_tmp, AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider,
+    Gas, MerkleHash, ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -223,7 +223,7 @@ impl NightshadeRuntime {
             epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
         let shard_version =
             epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
-        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+        Ok(ShardUId { version: shard_version, shard_id: new_shard_id_tmp(shard_id) as u32 })
     }
 
     fn get_shard_uid_from_epoch_id(
@@ -234,7 +234,7 @@ impl NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         let shard_version =
             epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
-        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+        Ok(ShardUId { version: shard_version, shard_id: new_shard_id_tmp(shard_id) as u32 })
     }
 
     fn account_id_to_shard_uid(
@@ -566,7 +566,7 @@ impl NightshadeRuntime {
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            shard_id,
+            ?shard_id,
             %prev_hash,
             num_parts = part_id.total)
         .entered();
@@ -953,7 +953,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = chunk.shard_id))]
+    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = ?chunk.shard_id))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -1191,7 +1191,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            shard_id,
+            ?shard_id,
             %prev_hash,
             ?state_root,
             num_parts = part_id.total)
@@ -1369,7 +1369,7 @@ fn chunk_tx_gas_limit(
     protocol_version: u32,
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
-    shard_id: u64,
+    shard_id: ShardId,
     gas_limit: u64,
 ) -> u64 {
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
