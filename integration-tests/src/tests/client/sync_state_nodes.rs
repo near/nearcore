@@ -18,7 +18,7 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{CachedParts, StatePartKey};
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
@@ -824,7 +824,6 @@ fn test_state_sync_headers() {
                         None => return ControlFlow::Continue(()),
                     };
                     let state_response = state_response_info.take_state_response();
-                    let cached_parts = state_response.cached_parts().clone();
                     let can_generate = state_response.can_generate();
                     assert!(state_response.part().is_none());
                     if let Some(_header) = state_response.take_header() {
@@ -832,27 +831,14 @@ fn test_state_sync_headers() {
                             tracing::info!(
                                 ?sync_hash,
                                 shard_id,
-                                ?cached_parts,
                                 can_generate,
                                 "got header but cannot generate"
                             );
                             return ControlFlow::Continue(());
                         }
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            ?cached_parts,
-                            can_generate,
-                            "got header"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, "got header");
                     } else {
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            ?cached_parts,
-                            can_generate,
-                            "got no header"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, "got no header");
                         return ControlFlow::Continue(());
                     }
 
@@ -881,36 +867,19 @@ fn test_state_sync_headers() {
                     let part = state_response.part().clone();
                     assert!(state_response.take_header().is_none());
                     if let Some((part_id, _part)) = part {
-                        if !can_generate
-                            || cached_parts != Some(CachedParts::AllParts)
-                            || part_id != 0
-                        {
+                        if !can_generate || cached_parts != None || part_id != 0 {
                             tracing::info!(
                                 ?sync_hash,
                                 shard_id,
-                                ?cached_parts,
                                 can_generate,
                                 part_id,
                                 "got part but shard info is unexpected"
                             );
                             return ControlFlow::Continue(());
                         }
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            ?cached_parts,
-                            can_generate,
-                            part_id,
-                            "got part"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, part_id, "got part");
                     } else {
-                        tracing::info!(
-                            ?sync_hash,
-                            shard_id,
-                            ?cached_parts,
-                            can_generate,
-                            "got no part"
-                        );
+                        tracing::info!(?sync_hash, shard_id, can_generate, "got no part");
                         return ControlFlow::Continue(());
                     }
                 }
