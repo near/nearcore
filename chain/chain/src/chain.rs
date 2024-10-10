@@ -3626,14 +3626,17 @@ impl Chain {
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
 
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+
         let mut maybe_jobs = vec![];
-        for (chunk_header, prev_chunk_header) in
-            block.chunks().iter().zip(prev_chunk_headers.iter())
+        for (shard_index, (chunk_header, prev_chunk_header)) in
+            block.chunks().iter().zip(prev_chunk_headers.iter()).enumerate()
         {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
-            let shard_id = chunk_header.shard_id();
+            let shard_id = shard_layout.get_shard_id(shard_index);
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
