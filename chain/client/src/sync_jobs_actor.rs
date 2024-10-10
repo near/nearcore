@@ -9,7 +9,6 @@ use near_chain::chain::{
 use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::types::ShardId;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
 
@@ -73,7 +72,7 @@ impl SyncJobsActor {
             tracing::debug_span!(target: "sync", "apply_parts").entered();
         let store = msg.runtime_adapter.store();
 
-        let shard_id = msg.shard_uid.shard_id as ShardId;
+        let shard_id = msg.shard_uid.shard_id();
         for part_id in 0..msg.num_parts {
             let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id))?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
@@ -124,7 +123,7 @@ impl SyncJobsActor {
         // Unload mem-trie (in case it is still loaded) before we apply state parts.
         msg.runtime_adapter.get_tries().unload_mem_trie(&msg.shard_uid);
 
-        let shard_id = msg.shard_uid.shard_id as ShardId;
+        let shard_id = msg.shard_uid.shard_id();
         match self.clear_flat_state(&msg) {
             Err(err) => {
                 self.client_sender.send(ApplyStatePartsResponse {

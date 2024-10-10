@@ -261,17 +261,17 @@ fn get_current_state(
         epoch_height: new_epoch_height,
         sync_hash: new_sync_hash,
     } = latest_epoch_info.map_err(|err| {
-        tracing::error!(target: "state_sync_dump", shard_id, ?err, "Failed to get the latest epoch");
+        tracing::error!(target: "state_sync_dump", ?shard_id, ?err, "Failed to get the latest epoch");
         err
     })?;
 
     if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
+        tracing::debug!(target: "state_sync_dump", ?shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
         Ok(StateDumpAction::Wait)
     } else if epoch_manager.get_shard_layout(&prev_epoch_id)
         != epoch_manager.get_shard_layout(&new_epoch_id)
     {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Shard layout change detected, will skip dumping for this epoch. Idle");
+        tracing::debug!(target: "state_sync_dump", ?shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Shard layout change detected, will skip dumping for this epoch. Idle");
         chain.chain_store().set_state_sync_dump_progress(
             *shard_id,
             Some(StateSyncDumpProgress::Skipped {
@@ -287,7 +287,7 @@ fn get_current_state(
             sync_hash: new_sync_hash,
         })
     } else {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
+        tracing::debug!(target: "state_sync_dump", ?shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
         Ok(StateDumpAction::Wait)
     }
 }
@@ -313,11 +313,11 @@ async fn upload_state_header(
                 external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
             match external.put_file(file_type, &header, shard_id, &location).await {
                 Err(err) => {
-                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
+                    tracing::warn!(target: "state_sync_dump", ?shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
                     false
                 }
                 Ok(_) => {
-                    tracing::trace!(target: "state_sync_dump", shard_id, epoch_height, "Header saved to external storage.");
+                    tracing::trace!(target: "state_sync_dump", ?shard_id, epoch_height, "Header saved to external storage.");
                     true
                 }
             }
@@ -341,17 +341,17 @@ async fn state_sync_dump(
     validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
 ) {
-    tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
+    tracing::info!(target: "state_sync_dump", ?shard_id, "Running StateSyncDump loop");
 
     if restart_dump_for_shards.contains(&shard_id) {
-        tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
+        tracing::debug!(target: "state_sync_dump", ?shard_id, "Dropped existing progress");
         chain.chain_store().set_state_sync_dump_progress(shard_id, None).unwrap();
     }
 
     // Stop if the node is stopped.
     // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
     while keep_running.load(std::sync::atomic::Ordering::Relaxed) {
-        tracing::debug!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop iteration");
+        tracing::debug!(target: "state_sync_dump", ?shard_id, "Running StateSyncDump loop iteration");
         let account_id = validator.get().map(|v| v.validator_id().clone());
         let current_state = get_current_state(
             &chain,
@@ -370,7 +370,7 @@ async fn state_sync_dump(
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
                     Err(err) => {
-                        tracing::error!(target: "state_sync_dump", ?err, ? shard_id, "Failed to get in progress data");
+                        tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to get in progress data");
                         None
                     }
                     Ok((state_root, num_parts, sync_prev_prev_hash)) => {
@@ -472,7 +472,7 @@ async fn state_sync_dump(
                                     let state_part = match state_part {
                                         Ok(state_part) => state_part,
                                         Err(err) => {
-                                            tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to obtain and store part. Will skip this part.");
+                                            tracing::warn!(target: "state_sync_dump", ?shard_id, epoch_height, part_id, ?err, "Failed to obtain and store part. Will skip this part.");
                                             failures_cnt += 1;
                                             continue;
                                         }
@@ -492,7 +492,7 @@ async fn state_sync_dump(
                                     {
                                         // no need to break if there's an error, we should keep dumping other parts.
                                         // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
-                                        tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to put a store part into external storage. Will skip this part.");
+                                        tracing::warn!(target: "state_sync_dump", ?shard_id, epoch_height, part_id, ?err, "Failed to put a store part into external storage. Will skip this part.");
                                         failures_cnt += 1;
                                         continue;
                                     }
@@ -540,19 +540,19 @@ async fn state_sync_dump(
         // Record the next state of the state machine.
         let has_progress = match next_state {
             Some(next_state) => {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?next_state);
+                tracing::debug!(target: "state_sync_dump", ?shard_id, ?next_state);
                 match chain.chain_store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
                     Ok(_) => true,
                     Err(err) => {
                         // This will be retried.
-                        tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to set progress");
+                        tracing::debug!(target: "state_sync_dump", ?shard_id, ?err, "Failed to set progress");
                         false
                     }
                 }
             }
             None => {
                 // Nothing to do, will check again later.
-                tracing::debug!(target: "state_sync_dump", shard_id, "Idle");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, "Idle");
                 false
             }
         };
@@ -562,7 +562,7 @@ async fn state_sync_dump(
             clock.sleep(iteration_delay).await;
         }
     }
-    tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
+    tracing::debug!(target: "state_sync_dump", ?shard_id, "Stopped state dump thread");
 }
 
 // Extracts extra data needed for obtaining state parts.
@@ -658,7 +658,7 @@ fn get_latest_epoch(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<LatestEpochInfo, Error> {
     let head = chain.head()?;
-    tracing::debug!(target: "state_sync_dump", shard_id, "Check if a new complete epoch is available");
+    tracing::debug!(target: "state_sync_dump", ?shard_id, "Check if a new complete epoch is available");
     let hash = head.last_block_hash;
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();

@@ -226,6 +226,7 @@ mod tests {
             PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderInnerV3,
             ShardChunkHeaderV3,
         },
+        types::new_shard_id_tmp,
         validator_signer::EmptyValidatorSigner,
     };
     use std::{collections::HashMap, convert::Infallible, future::Future};
@@ -235,7 +236,7 @@ mod tests {
     fn test_request_chunks() {
         let (mock_sender, mut message_receiver) = mpsc::unbounded_channel();
         let mut client = MockClient::default();
-        let missing_chunk = mock_shard_chunk(0, 0);
+        let missing_chunk = mock_shard_chunk(0, 0u64.into());
         let mut blocks_delay_tracker = BlocksDelayTracker::new(Clock::real());
         let shards_manager = MockSender::new(mock_sender);
         let shards_manager_adapter = shards_manager.into_sender();
@@ -309,8 +310,8 @@ mod tests {
 
         // When chunks are known by the client, the shards manager
         // is told to process the chunk directly
-        let known_chunk_1 = mock_shard_chunk(1, 0);
-        let known_chunk_2 = mock_shard_chunk(2, 0);
+        let known_chunk_1 = mock_shard_chunk(1, new_shard_id_tmp(0));
+        let known_chunk_2 = mock_shard_chunk(2, new_shard_id_tmp(0));
         client.publish_chunk(&known_chunk_1).now_or_never();
         client.publish_chunk(&known_chunk_2).now_or_never();
         let blocks_missing_chunks = vec![BlockMissingChunks {
@@ -392,7 +393,7 @@ mod tests {
         });
     }
 
-    fn mock_shard_chunk(height: u64, shard_id: u64) -> PartialEncodedChunk {
+    fn mock_shard_chunk(height: u64, shard_id: ShardId) -> PartialEncodedChunk {
         let prev_block_hash =
             hash(&[height.to_le_bytes().as_slice(), shard_id.to_le_bytes().as_slice()].concat());
         let mut mock_hashes = MockHashes::new(prev_block_hash);

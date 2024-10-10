@@ -578,8 +578,9 @@ pub(crate) fn trie_changes_chunk_extra_exists(
 
     // 5. There should be ShardChunk with ShardId `shard_id`
     let shard_id = shard_uid.shard_id();
+    let shard_index = shard_layout.get_shard_index(shard_id);
     let chunks = block.chunks();
-    if let Some(chunk_header) = chunks.get(shard_id as usize) {
+    if let Some(chunk_header) = chunks.get(shard_index) {
         // if the chunk is not a new chunk, skip the check
         if chunk_header.height_included() != block.header().height() {
             return Ok(());

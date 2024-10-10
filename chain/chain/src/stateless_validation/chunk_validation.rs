@@ -59,6 +59,8 @@ impl MainTransition {
     pub fn shard_id(&self) -> ShardId {
         match self {
             Self::Genesis { shard_id, .. } => *shard_id,
+            // It is ok to use the shard id from the header because it is a new
+            // chunk. An old chunk may have the shard id from the parent shard.
             Self::NewChunk(data) => data.chunk_header.shard_id(),
             Self::ShardLayoutChange => panic!("shard_id called on ShardLayoutChange"),
         }
@@ -128,17 +130,27 @@ pub fn pre_validate_chunk_state_witness(
     // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
     let mut blocks_after_last_last_chunk = Vec::new();
 
-    let last_chunk_shard_id = {
+    let (last_chunk_shard_id, last_chunk_shard_index) = {
         let mut block_hash = *state_witness.chunk_header.prev_block_hash();
         let mut prev_chunks_seen = 0;
+
+        let epoch_id = state_witness.epoch_id;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+
+        // It is ok to use the shard id from the header because it is a new
+        // chunk. An old chunk may have the shard id from the parent shard.
         let mut current_shard_id = state_witness.chunk_header.shard_id();
+        let mut current_shard_index = shard_layout.get_shard_index(current_shard_id);
+
         let mut last_chunk_shard_id = current_shard_id;
+        let mut last_chunk_shard_index = current_shard_index;
         loop {
             let block = store.get_block(&block_hash)?;
-            current_shard_id = epoch_manager.get_prev_shard_id(&block_hash, current_shard_id)?;
+            (current_shard_id, current_shard_index) =
+                epoch_manager.get_prev_shard_id(&block_hash, current_shard_id)?;
 
             let chunks = block.chunks();
-            let Some(chunk) = chunks.get(current_shard_id as usize) else {
+            let Some(chunk) = chunks.get(current_shard_index) else {
                 return Err(Error::InvalidChunkStateWitness(format!(
                     "Shard {} does not exist in block {:?}",
                     current_shard_id, block_hash
@@ -152,6 +164,7 @@ pub fn pre_validate_chunk_state_witness(
             }
             if prev_chunks_seen == 0 {
                 last_chunk_shard_id = current_shard_id;
+                last_chunk_shard_index = current_shard_index;
                 blocks_after_last_chunk.push(block);
             } else if prev_chunks_seen == 1 {
                 blocks_after_last_last_chunk.push(block);
@@ -160,7 +173,7 @@ pub fn pre_validate_chunk_state_witness(
                 break;
             }
         }
-        last_chunk_shard_id
+        (last_chunk_shard_id, last_chunk_shard_index)
     };
 
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
@@ -190,8 +203,11 @@ pub fn pre_validate_chunk_state_witness(
         )));
     }
     let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions);
+    let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
+        Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
+    })?;
     let last_new_chunk_tx_root =
-        last_chunk_block.chunks().get(last_chunk_shard_id as usize).unwrap().tx_root();
+        last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().tx_root();
     if last_new_chunk_tx_root != tx_root_from_state_witness {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Transaction root {:?} does not match expected transaction root {:?}",
@@ -239,12 +255,14 @@ pub fn pre_validate_chunk_state_witness(
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
         let epoch_id = last_chunk_block.header().epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let congestion_info = last_chunk_block
             .block_congestion_info()
             .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
         let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let chunk_extra = chain.genesis_chunk_extra(
+            &shard_layout,
             last_chunk_shard_id,
             genesis_protocol_version,
             congestion_info,
@@ -256,11 +274,7 @@ pub fn pre_validate_chunk_state_witness(
         }
     } else {
         MainTransition::NewChunk(NewChunkData {
-            chunk_header: last_chunk_block
-                .chunks()
-                .get(last_chunk_shard_id as usize)
-                .unwrap()
-                .clone(),
+            chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
@@ -564,7 +578,7 @@ impl Chain {
         let height_created = witness.chunk_header.height_created();
         let chunk_hash = witness.chunk_header.chunk_hash();
         let parent_span = tracing::debug_span!(
-            target: "chain", "shadow_validate", shard_id, height_created);
+            target: "chain", "shadow_validate", ?shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer =
@@ -591,7 +605,7 @@ impl Chain {
             pre_validate_chunk_state_witness(&witness, &self, epoch_manager, runtime_adapter)?;
         tracing::debug!(
             parent: &parent_span,
-            shard_id,
+            ?shard_id,
             ?chunk_hash,
             witness_size = encoded_witness.size_bytes(),
             raw_witness_size,
@@ -617,7 +631,7 @@ impl Chain {
                 Ok(()) => {
                     tracing::debug!(
                         parent: &parent_span,
-                        shard_id,
+                        ?shard_id,
                         ?chunk_hash,
                         validation_elapsed = ?validation_start.elapsed(),
                         "completed shadow chunk validation"
@@ -629,7 +643,7 @@ impl Chain {
                     tracing::error!(
                         parent: &parent_span,
                         ?err,
-                        shard_id,
+                        ?shard_id,
                         ?chunk_hash,
                         "shadow chunk validation failed"
                     );
