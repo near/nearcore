@@ -122,6 +122,51 @@ def find_epoch_for_timestamp(future_epochs, voting_datetime):
     return len(future_epochs)
 
 
+def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
+    WORKING_HOURS_START = 8  # 8:00 UTC
+    WORKING_HOURS_END = 22  # 22:00 UTC
+
+    valid_hours = []
+
+    for hour in range(24):
+        # Construct datetime for each hour of the voting date
+        voting_datetime = datetime.strptime(
+            f"{voting_date_str} {hour:02d}:00:00", '%Y-%m-%d %H:%M:%S')
+        voting_datetime = target_timezone.localize(voting_datetime)
+
+        # Find the epoch T in which the voting date falls
+        epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime)
+        if epoch_T <= 0:
+            continue  # Voting date is before the first predicted epoch
+
+        # Calculate when the protocol upgrade will happen (start of epoch T+2)
+        protocol_upgrade_epoch_number = epoch_T + 2
+        if protocol_upgrade_epoch_number > len(future_epochs):
+            print(
+                "Not enough future epochs predicted to determine all the protocol upgrade times."
+            )
+            break
+
+        protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number
+                                                  - 1]
+        upgrade_datetime_utc = protocol_upgrade_datetime.astimezone(pytz.utc)
+        upgrade_hour_utc = upgrade_datetime_utc.hour
+
+        if WORKING_HOURS_START <= upgrade_hour_utc < WORKING_HOURS_END:
+            valid_hours.append((hour, protocol_upgrade_epoch_number))
+
+    if valid_hours:
+        print(
+            f"\nVoting hours on {voting_date_str} that result in upgrade during working hours (UTC {WORKING_HOURS_START}:00-{WORKING_HOURS_END}:00):"
+        )
+        for (hour, epoch) in valid_hours:
+            print(f"- {hour:02d}:00, Upgrade Epoch: {epoch}")
+    else:
+        print(
+            "\nNo voting hours on the given date result in an upgrade during working hours."
+        )
+
+
 # Main function to run the process
 def main(args):
     if not is_valid_timezone(args.timezone):
@@ -179,6 +224,9 @@ def main(args):
         print(
             f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
         )
+    elif args.voting_date_day:
+        find_best_voting_hour(args.voting_date_day, future_epochs,
+                              target_timezone)
 
 
 # Custom action to set the URL based on chain_id
@@ -223,8 +271,15 @@ if __name__ == "__main__":
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
 
-    parser.add_argument("--voting_date",
-                        help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
+    # Voting date arguments
+    voting_group = parser.add_mutually_exclusive_group()
+    voting_group.add_argument(
+        "--voting_date", help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
+    voting_group.add_argument(
+        "--voting_date_day",
+        help=
+        "Voting date (day) in 'YYYY-MM-DD' format to find voting hours resulting in upgrade during working hours."
+    )
 
     args = parser.parse_args()
     main(args)
