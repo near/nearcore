@@ -1,0 +1,30 @@
+[package]
+name = "near-jsonrpc-traits"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "This crate hosts traits for the NEAR JSON RPC and Params parsing"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+near-primitives.workspace = true
+near-jsonrpc-primitives.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+nightly = [
+  "near-jsonrpc-primitives/nightly",
+  "near-primitives/nightly",
+  "nightly_protocol",
+]
+nightly_protocol = [
+  "near-jsonrpc-primitives/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]
