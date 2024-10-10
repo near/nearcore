@@ -483,6 +483,34 @@ impl ShardTries {
             memtries.write().unwrap().delete_until_height(height);
         }
     }
+
+    pub fn freeze(
+        &self,
+        source_shard_uid: ShardUId,
+        target_shard_uids: Vec<ShardUId>,
+    ) -> Result<(), StorageError> {
+        let mut outer_guard = self.0.mem_tries.write().unwrap();
+        let Some(memtries) = outer_guard.remove(&source_shard_uid) else {
+            return Err(StorageError::MemTrieLoadingError("Memtrie not loaded".to_string()));
+        };
+        let mut guard = memtries.write().unwrap();
+        let memtries = std::mem::replace(&mut *guard, MemTries::new(source_shard_uid));
+        let (arena, roots, heights) = memtries.freeze();
+
+        for shard_uid in [vec![source_shard_uid], target_shard_uids].concat() {
+            outer_guard.insert(
+                shard_uid,
+                Arc::new(RwLock::new(MemTries::from_frozen(
+                    shard_uid,
+                    arena.clone(),
+                    roots.clone(),
+                    heights.clone(),
+                ))),
+            );
+        }
+
+        Ok(())
+    }
 }
 
 pub struct WrappedTrieChanges {

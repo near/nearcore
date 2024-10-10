@@ -1955,7 +1955,9 @@ impl Chain {
 
             if need_storage_update {
                 // TODO(#12019): consider adding to catchup flow.
+                let chain_store_update = self.chain_store.store_update();
                 self.resharding_manager.process_memtrie_resharding_storage_update(
+                    chain_store_update,
                     &block,
                     shard_uid,
                     self.runtime_adapter.get_tries(),

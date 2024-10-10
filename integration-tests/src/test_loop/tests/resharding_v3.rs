@@ -5,9 +5,12 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_store::ShardUId;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -69,9 +72,9 @@ fn test_resharding_v3() {
     let new_shards = vec![max_shard_id, max_shard_id + 1];
     shard_ids.extend(new_shards.clone());
     shards_split_map.insert(last_shard_id, new_shards);
-    boundary_accounts.push(AccountId::try_from("xyz.near".to_string()).unwrap());
+    boundary_accounts.push(AccountId::try_from("account6".to_string()).unwrap());
     epoch_config.shard_layout =
-        ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map));
+        ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map));
     let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),
@@ -98,10 +101,58 @@ fn test_resharding_v3() {
         .build();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
+    let latest_block_height = AtomicU64::new(0);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
         let tip = client.chain.head().unwrap();
 
+        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+        if latest_block_height.load(Ordering::SeqCst) < block.header().height() {
+            latest_block_height.store(block.header().height(), Ordering::SeqCst);
+            println!(
+                "height: {}, hash: {:?}, chunks: {:?}",
+                block.header().height(),
+                block.hash(),
+                block
+                    .chunks()
+                    .iter()
+                    .map(|chunk| (chunk.shard_id(), chunk.prev_state_root()))
+                    .collect_vec()
+            );
+
+            for shard_id in shard_ids.clone() {
+                let shard_uid = ShardUId { version: 3, shard_id: shard_id as u32 };
+                let Ok(chunk_extra) =
+                    client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid)
+                else {
+                    println!("no chunk extra for shard {}", shard_id);
+                    continue;
+                };
+                let trie = client
+                    .runtime_adapter
+                    .get_trie_for_shard(
+                        shard_id,
+                        &tip.prev_block_hash,
+                        *chunk_extra.state_root(),
+                        false,
+                    )
+                    .unwrap();
+                println!("{}", shard_id);
+                let lock = trie.lock_for_iter();
+                for x in lock.iter().unwrap() {
+                    let (key, value) = x.unwrap();
+                    let record = StateRecord::from_raw_key_value(key, value).unwrap();
+                    if let StateRecord::Account { account_id, account } = record {
+                        println!(
+                            "{} amount: {} locked: {}",
+                            account_id,
+                            account.amount(),
+                            account.locked()
+                        );
+                    }
+                }
+            }
+        }
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
         assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));

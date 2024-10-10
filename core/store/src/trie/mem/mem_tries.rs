@@ -14,6 +14,7 @@ use crate::Trie;
 use super::arena::hybrid::{HybridArena, HybridArenaMemory};
 use super::arena::single_thread::STArena;
 use super::arena::Arena;
+use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
 use super::lookup::memtrie_lookup;
@@ -48,6 +49,20 @@ impl MemTries {
             arena: STArena::new(shard_uid.to_string()).into(),
             roots: HashMap::new(),
             heights: Default::default(),
+            shard_uid,
+        }
+    }
+
+    pub fn from_frozen(
+        shard_uid: ShardUId,
+        arena: FrozenArena,
+        roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+        heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+    ) -> Self {
+        Self {
+            arena: HybridArena::from_frozen(shard_uid.to_string(), arena),
+            roots,
+            heights,
             shard_uid,
         }
     }
@@ -190,6 +205,13 @@ impl MemTries {
     ) -> Result<Option<ValueView>, StorageError> {
         let root = self.get_root(state_root)?;
         Ok(memtrie_lookup(root, key, nodes_accessed))
+    }
+
+    pub fn freeze(
+        self,
+    ) -> (FrozenArena, HashMap<StateRoot, Vec<MemTrieNodeId>>, BTreeMap<BlockHeight, Vec<StateRoot>>)
+    {
+        (self.arena.freeze(), self.roots, self.heights)
     }
 
     #[cfg(test)]

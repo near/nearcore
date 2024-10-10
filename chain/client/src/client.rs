@@ -878,6 +878,12 @@ impl Client {
             .chain
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
+        println!(
+            "chunk extra state root on production: bhash {:?} shard {:?} {:?}",
+            prev_block_hash,
+            shard_uid,
+            chunk_extra.state_root()
+        );
 
         let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
         let last_chunk_header =
