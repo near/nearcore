@@ -1358,17 +1358,6 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
         };
         let state_response = match header {
             Some(header) => {
-                let num_parts = header.num_state_parts();
-                let cached_parts = match self
-                    .chain
-                    .get_cached_state_parts(sync_hash, shard_id, num_parts)
-                {
-                    Ok(cached_parts) => Some(cached_parts),
-                    Err(err) => {
-                        tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
-                        None
-                    }
-                };
                 let header = match header {
                     ShardStateSyncResponseHeader::V2(inner) => inner,
                     _ => {
@@ -1381,7 +1370,7 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
                 ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
                     header: Some(header),
                     part: None,
-                    cached_parts,
+                    cached_parts: None,
                     can_generate,
                 })
             }
@@ -1444,26 +1433,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
                 None
             }
         };
-        let num_parts = part.as_ref().and_then(|_| match self.chain.get_state_response_header(shard_id, sync_hash) {
-            Ok(header) => Some(header.num_state_parts()),
-            Err(err) => {
-                tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get num state parts");
-                None
-            }
-        });
-        let cached_parts = num_parts.and_then(|num_parts|
-            match self.chain.get_cached_state_parts(sync_hash, shard_id, num_parts) {
-                Ok(cached_parts) => Some(cached_parts),
-                Err(err) => {
-                    tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
-                    None
-                }
-            });
         let can_generate = part.is_some();
         let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
             header: None,
             part,
-            cached_parts,
+            cached_parts: None,
             can_generate,
         });
         let info =

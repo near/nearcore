@@ -390,7 +390,7 @@ impl ExtCosts {
             ExtCosts::yield_create_base => Parameter::WasmYieldCreateBase,
             ExtCosts::yield_create_byte => Parameter::WasmYieldCreateByte,
             ExtCosts::yield_resume_base => Parameter::WasmYieldResumeBase,
-            ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeBase,
+            ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeByte,
             ExtCosts::bls12381_p1_sum_base => Parameter::WasmBls12381P1SumBase,
             ExtCosts::bls12381_p1_sum_element => Parameter::WasmBls12381P1SumElement,
             ExtCosts::bls12381_p2_sum_base => Parameter::WasmBls12381P2SumBase,
