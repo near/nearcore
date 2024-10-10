@@ -122,6 +122,41 @@ def find_epoch_for_timestamp(future_epochs, voting_datetime):
     return len(future_epochs)
 
 
+def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
+    # Parse the voting date
+    try:
+        voting_datetime = datetime.strptime(voting_date,
+                                            '%Y-%m-%d %H:%M:%S')
+        voting_datetime = target_timezone.localize(voting_datetime)
+    except ValueError:
+        print(
+            f"Error: Invalid voting date format. Please use 'YYYY-MM-DD HH:MM:SS'."
+        )
+        return
+
+    # Find the epoch T in which the voting date falls
+    epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime)
+    if epoch_T <= 0:
+        print("Error: Voting date is before the first predicted epoch.")
+        return
+
+    # Calculate when the protocol upgrade will happen (start of epoch T+2)
+    protocol_upgrade_epoch_number = epoch_T + 2
+    if protocol_upgrade_epoch_number > len(future_epochs):
+        print(
+            "Not enough future epochs predicted to determine the protocol upgrade time."
+        )
+        return
+    protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number
+                                              - 1]
+    protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
+        '%Y-%m-%d %H:%M:%S %Z%z %A')
+    print(f"\nVoting date falls into epoch {epoch_T}.")
+    print(
+        f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
+    )
+
+
 # Main function to run the process
 def main(args):
     if not is_valid_timezone(args.timezone):
@@ -147,38 +182,7 @@ def main(args):
         args.num_future_epochs, target_timezone)
 
     if args.voting_date:
-        # Parse the voting date
-        try:
-            voting_datetime = datetime.strptime(args.voting_date,
-                                                '%Y-%m-%d %H:%M:%S')
-            voting_datetime = target_timezone.localize(voting_datetime)
-        except ValueError:
-            print(
-                f"Error: Invalid voting date format. Please use 'YYYY-MM-DD HH:MM:SS'."
-            )
-            return
-
-        # Find the epoch T in which the voting date falls
-        epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime)
-        if epoch_T <= 0:
-            print("Error: Voting date is before the first predicted epoch.")
-            return
-
-        # Calculate when the protocol upgrade will happen (start of epoch T+2)
-        protocol_upgrade_epoch_number = epoch_T + 2
-        if protocol_upgrade_epoch_number > len(future_epochs):
-            print(
-                "Not enough future epochs predicted to determine the protocol upgrade time."
-            )
-            return
-        protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number
-                                                  - 1]
-        protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
-            '%Y-%m-%d %H:%M:%S %Z%z %A')
-        print(f"\nVoting date falls into epoch {epoch_T}.")
-        print(
-            f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
-        )
+        find_protocol_upgrade_time(args.voting_date, future_epochs, target_timezone)
 
 
 # Custom action to set the URL based on chain_id
