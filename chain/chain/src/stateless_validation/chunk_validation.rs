@@ -150,7 +150,7 @@ pub fn pre_validate_chunk_state_witness(
                 epoch_manager.get_prev_shard_id(&block_hash, current_shard_id)?;
 
             let chunks = block.chunks();
-            let Some(chunk) = chunks.get(current_shard_index as usize) else {
+            let Some(chunk) = chunks.get(current_shard_index) else {
                 return Err(Error::InvalidChunkStateWitness(format!(
                     "Shard {} does not exist in block {:?}",
                     current_shard_id, block_hash
