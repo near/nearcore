@@ -101,17 +101,25 @@ fn test_resharding_v3() {
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
         let tip = client.chain.head().unwrap();
+
+        // Check that all chunks are included.
+        let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+        assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
+
+        // Return true if we passed an epoch with increased number of shards.
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
-        assert!(epoch_height < 5);
-        let epoch_config = client.epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
-        return epoch_config.shard_layout.shard_ids().count() == expected_num_shards;
+        assert!(epoch_height < 6);
+        let prev_epoch_id =
+            client.epoch_manager.get_prev_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
+        let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
+        epoch_config.shard_layout.shard_ids().count() == expected_num_shards
     };
 
     test_loop.run_until(
         success_condition,
-        // Give enough time to produce ~6 epochs.
-        Duration::seconds((6 * epoch_length) as i64),
+        // Give enough time to produce ~7 epochs.
+        Duration::seconds((7 * epoch_length) as i64),
     );
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }

@@ -101,6 +101,19 @@ impl ChunkValidator {
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
         let epoch_manager = self.epoch_manager.clone();
+        if matches!(
+            pre_validation_result.main_transition_params,
+            chunk_validation::MainTransition::ShardLayoutChange
+        ) {
+            send_chunk_endorsement_to_block_producers(
+                &chunk_header,
+                epoch_manager.as_ref(),
+                signer,
+                &network_sender,
+            );
+            return Ok(());
+        }
+
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
         // This usually happens because we are a chunk producer and
         // therefore have the chunk extra for the previous block saved on disk.
