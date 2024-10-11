@@ -2,7 +2,9 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::types::{ShardId, ShardIndex};
+use near_primitives_core::types::{
+    new_shard_id_tmp, shard_id_as_u32, shard_id_as_u64, shard_id_as_usize, ShardId, ShardIndex,
+};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 use std::{fmt, str};
@@ -213,11 +215,11 @@ impl ShardLayout {
             let mut to_parent_shard_map = BTreeMap::new();
             let num_shards = (boundary_accounts.len() + 1) as NumShards;
             for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
-                let parent_shard_id = parent_shard_id as u64;
+                let parent_shard_id = new_shard_id_tmp(parent_shard_id as u64);
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
-                    assert!(shard_id < num_shards, "shard id should be valid");
+                    assert!(shard_id_as_u64(shard_id) < num_shards, "shard id should be valid");
                 }
             }
             Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id.into()]).collect())
@@ -420,7 +422,7 @@ impl ShardLayout {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
                 Some(shards_split_map) => {
-                    let parent_shard_index = parent_shard_id as usize;
+                    let parent_shard_index = shard_id_as_usize(parent_shard_id);
                     shards_split_map.get(parent_shard_index).cloned()
                 }
                 None => None,
@@ -502,18 +504,18 @@ impl ShardLayout {
     /// used when indexing into an array of chunk data.
     pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
         match self {
-            Self::V0(_) => shard_id as ShardIndex,
-            Self::V1(_) => shard_id as ShardIndex,
+            Self::V0(_) => shard_id_as_usize(shard_id),
+            Self::V1(_) => shard_id_as_usize(shard_id),
             Self::V2(v2) => v2.id_to_index_map[&shard_id],
         }
     }
 
     /// Get the shard id for a given shard index. The shard id should be used to
     /// identify the shard and starting from the ShardLayoutV2 it is unique.
-    pub fn get_shard_id(&self, shard_index: usize) -> ShardId {
+    pub fn get_shard_id(&self, shard_index: ShardIndex) -> ShardId {
         match self {
-            Self::V0(_) => shard_index as ShardId,
-            Self::V1(_) => shard_index as ShardId,
+            Self::V0(_) => new_shard_id_tmp(shard_index as u64),
+            Self::V1(_) => new_shard_id_tmp(shard_index as u64),
             Self::V2(v2) => v2.index_to_id_map[&shard_index],
         }
     }
@@ -597,7 +599,7 @@ impl ShardUId {
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_layout.shard_ids().any(|i| i == shard_id));
-        Self { shard_id: shard_id as u32, version: shard_layout.version() }
+        Self { shard_id: shard_id_as_u32(shard_id), version: shard_layout.version() }
     }
 
     /// Returns shard id
