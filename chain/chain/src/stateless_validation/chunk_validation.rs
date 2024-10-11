@@ -10,7 +10,7 @@ use crate::types::{
     RuntimeStorageConfig, StorageDataSource,
 };
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use crate::{Chain, ChainStoreAccess};
+use crate::{Chain, ChainStore, ChainStoreAccess};
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
@@ -28,7 +28,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ProtocolVersion, ShardId};
+use near_primitives::types::{ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_store::PartialStorage;
 use std::collections::HashMap;
@@ -42,8 +42,9 @@ pub enum MainTransition {
     NewChunk(NewChunkData),
     // TODO(#11881): this is temporary indicator that resharding happened in the
     // state transition covered by state witness. Won't happen in production
-    // until resharding release. Must be removed and replaced with proper
-    // resharding state transition validation.
+    // until resharding release.
+    // Instead, we can store a separate field `resharding_transition` in
+    // `ChunkStateWitness` and use it for proper validation of this case.
     ShardLayoutChange,
 }
 
@@ -111,6 +112,74 @@ pub fn validate_prepared_transactions(
     )
 }
 
+struct StateWitnessBlockRange {
+    /// Blocks from the last new chunk (exclusive) to the parent block
+    /// (inclusive).
+    blocks_after_last_chunk: Vec<Block>,
+    /// Blocks from the last last new chunk (exclusive) to the last new chunk
+    /// (inclusive).
+    blocks_after_last_last_chunk: Vec<Block>,
+    last_chunk_shard_id: ShardId,
+    last_chunk_shard_index: ShardIndex,
+}
+
+fn get_state_witness_block_range(
+    state_witness: &ChunkStateWitness,
+    store: &ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<StateWitnessBlockRange, Error> {
+    let mut blocks_after_last_chunk = Vec::new();
+    let mut blocks_after_last_last_chunk = Vec::new();
+
+    let mut block_hash = *state_witness.chunk_header.prev_block_hash();
+    let mut prev_chunks_seen = 0;
+
+    // It is ok to use the shard id from the header because it is a new
+    // chunk. An old chunk may have the shard id from the parent shard.
+    let (mut current_shard_id, mut current_shard_index) =
+        epoch_manager.get_prev_shard_id(&block_hash, state_witness.chunk_header.shard_id())?;
+
+    let mut last_chunk_shard_id = current_shard_id;
+    let mut last_chunk_shard_index = current_shard_index;
+    loop {
+        let block = store.get_block(&block_hash)?;
+        let prev_hash = *block.header().prev_hash();
+        let chunks = block.chunks();
+        let Some(chunk) = chunks.get(current_shard_index) else {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Shard {} does not exist in block {:?}",
+                current_shard_id, block_hash
+            )));
+        };
+        let is_new_chunk = chunk.is_new_chunk(block.header().height());
+        let is_genesis = block.header().is_genesis();
+        if is_new_chunk {
+            prev_chunks_seen += 1;
+        }
+        if prev_chunks_seen == 0 {
+            last_chunk_shard_id = current_shard_id;
+            last_chunk_shard_index = current_shard_index;
+            blocks_after_last_chunk.push(block);
+        } else if prev_chunks_seen == 1 {
+            blocks_after_last_last_chunk.push(block);
+        }
+        if prev_chunks_seen == 2 || is_genesis {
+            break;
+        }
+
+        block_hash = prev_hash;
+        (current_shard_id, current_shard_index) =
+            epoch_manager.get_prev_shard_id(&prev_hash, current_shard_id)?;
+    }
+
+    Ok(StateWitnessBlockRange {
+        blocks_after_last_chunk,
+        blocks_after_last_last_chunk,
+        last_chunk_shard_id,
+        last_chunk_shard_index,
+    })
+}
+
 /// Pre-validates the chunk's receipts and transactions against the chain.
 /// We do this before handing off the computationally intensive part to a
 /// validation thread.
@@ -124,57 +193,12 @@ pub fn pre_validate_chunk_state_witness(
 
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
-
-    // Blocks from the last new chunk (exclusive) to the parent block (inclusive).
-    let mut blocks_after_last_chunk = Vec::new();
-    // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
-    let mut blocks_after_last_last_chunk = Vec::new();
-
-    let (last_chunk_shard_id, last_chunk_shard_index) = {
-        let mut block_hash = *state_witness.chunk_header.prev_block_hash();
-        let mut prev_chunks_seen = 0;
-
-        let epoch_id = state_witness.epoch_id;
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-
-        // It is ok to use the shard id from the header because it is a new
-        // chunk. An old chunk may have the shard id from the parent shard.
-        let mut current_shard_id = state_witness.chunk_header.shard_id();
-        let mut current_shard_index = shard_layout.get_shard_index(current_shard_id);
-
-        let mut last_chunk_shard_id = current_shard_id;
-        let mut last_chunk_shard_index = current_shard_index;
-        loop {
-            let block = store.get_block(&block_hash)?;
-            (current_shard_id, current_shard_index) =
-                epoch_manager.get_prev_shard_id(&block_hash, current_shard_id)?;
-
-            let chunks = block.chunks();
-            let Some(chunk) = chunks.get(current_shard_index) else {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "Shard {} does not exist in block {:?}",
-                    current_shard_id, block_hash
-                )));
-            };
-            let is_new_chunk = chunk.is_new_chunk(block.header().height());
-            let is_genesis = block.header().is_genesis();
-            block_hash = *block.header().prev_hash();
-            if is_new_chunk {
-                prev_chunks_seen += 1;
-            }
-            if prev_chunks_seen == 0 {
-                last_chunk_shard_id = current_shard_id;
-                last_chunk_shard_index = current_shard_index;
-                blocks_after_last_chunk.push(block);
-            } else if prev_chunks_seen == 1 {
-                blocks_after_last_last_chunk.push(block);
-            }
-            if prev_chunks_seen == 2 || is_genesis {
-                break;
-            }
-        }
-        (last_chunk_shard_id, last_chunk_shard_index)
-    };
+    let StateWitnessBlockRange {
+        blocks_after_last_chunk,
+        blocks_after_last_last_chunk,
+        last_chunk_shard_id,
+        last_chunk_shard_index,
+    } = get_state_witness_block_range(state_witness, store, epoch_manager)?;
 
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
