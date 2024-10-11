@@ -36,14 +36,16 @@ impl TrieStoreAdapter {
     pub(crate) fn read_shard_uid_mapping_from_db(
         &self,
         shard_uid: ShardUId,
-    ) -> io::Result<ShardUId> {
+    ) -> Result<ShardUId, StorageError> {
         let mapped_shard_uid =
-            self.get_ser::<ShardUId>(DBCol::ShardUIdMapping, &shard_uid.to_bytes())?;
+            self.store.get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes());
+        let mapped_shard_uid = mapped_shard_uid
+            .map_err(|err| StorageError::StorageInconsistentState(err.to_string()))?;
         Ok(mapped_shard_uid.unwrap_or(shard_uid))
     }
 
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
-    /// For this, it does extra read from `DBCol::ShardUIdMapping`.
+    /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
