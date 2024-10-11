@@ -76,6 +76,14 @@ pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
     vec.iter().copied().map(new_shard_id_tmp).collect()
 }
 
+pub fn shard_id_max() -> ShardId {
+    #[cfg(not(feature = "new_shard_id"))]
+    return ShardId::MAX;
+
+    #[cfg(feature = "new_shard_id")]
+    return ShardId::max();
+}
+
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.

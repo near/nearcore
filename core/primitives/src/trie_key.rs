@@ -853,7 +853,7 @@ mod tests {
         let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
         let max_id = shard_layout.shard_ids().max().unwrap();
         assert!(
-            max_id <= u16::MAX as u64,
+            shard_id_as_u64(max_id) <= u16::MAX as u64,
             "buffered receipt trie key optimization broken, must fit in a u16"
         );
     }
