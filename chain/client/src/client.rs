@@ -2547,6 +2547,29 @@ impl Client {
         Ok(false)
     }
 
+    /// Select the block hash we are using to sync state. It will sync with the state before applying the
+    /// content of such block.
+    ///
+    /// The selected block will always be the first block on a new epoch:
+    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
+    /// TODO(current_epoch_state_sync): allow the new way of computing the sync hash for syncing to the current epoch
+    pub fn find_sync_hash(&self) -> Result<CryptoHash, near_chain::Error> {
+        let header_head = self.chain.header_head()?;
+        let sync_hash = header_head.last_block_hash;
+        let epoch_start_sync_hash = self.chain.get_epoch_start_sync_hash(&sync_hash)?;
+
+        let genesis_hash = self.chain.genesis().hash();
+        tracing::debug!(
+            target: "sync",
+            ?header_head,
+            ?sync_hash,
+            ?epoch_start_sync_hash,
+            ?genesis_hash,
+            "find_sync_hash");
+        assert_ne!(&epoch_start_sync_hash, genesis_hash);
+        Ok(epoch_start_sync_hash)
+    }
+
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,

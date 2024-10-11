@@ -1579,29 +1579,6 @@ impl ClientActorInner {
         // Sync loop will be started by check_triggers.
     }
 
-    /// Select the block hash we are using to sync state. It will sync with the state before applying the
-    /// content of such block.
-    ///
-    /// The selected block will always be the first block on a new epoch:
-    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    /// TODO(current_epoch_state_sync): allow the new way of computing the sync hash for syncing to the current epoch
-    fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
-        let header_head = self.client.chain.header_head()?;
-        let sync_hash = header_head.last_block_hash;
-        let epoch_start_sync_hash = self.client.chain.get_epoch_start_sync_hash(&sync_hash)?;
-
-        let genesis_hash = self.client.chain.genesis().hash();
-        tracing::debug!(
-            target: "sync",
-            ?header_head,
-            ?sync_hash,
-            ?epoch_start_sync_hash,
-            ?genesis_hash,
-            "find_sync_hash");
-        assert_ne!(&epoch_start_sync_hash, genesis_hash);
-        Ok(epoch_start_sync_hash)
-    }
-
     /// Runs catchup on repeat, if this client is a validator.
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
@@ -1938,7 +1915,7 @@ impl ClientActorInner {
             return Ok(false);
         }
 
-        let sync_hash = self.find_sync_hash()?;
+        let sync_hash = self.client.find_sync_hash()?;
         if !self.client.config.archive {
             self.client.chain.mut_chain_store().reset_data_pre_state_sync(
                 sync_hash,
