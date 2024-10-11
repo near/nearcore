@@ -811,41 +811,41 @@ mod tests {
         let store = opener.open().unwrap().get_hot_store();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.commit().unwrap();
         }
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
             Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
             Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.commit().unwrap();
         }
         // Refcount goes to 0 -> get() returns None
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(), Some(&[][..]));
+        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[][..]));
 
         // single_thread_rocksdb makes compact hang forever
         if !cfg!(feature = "single_thread_rocksdb") {
@@ -858,14 +858,14 @@ mod tests {
             // empty values.
             rocksdb.db.compact_range_cf(cf, none, none);
             assert_eq!(
-                rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+                rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
                 Some(&[][..])
             );
-            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+            assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
 
             rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), None);
-            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap(), None);
+            assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         }
     }
 

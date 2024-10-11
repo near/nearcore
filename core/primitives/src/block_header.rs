@@ -533,6 +533,14 @@ impl BlockHeaderV5 {
     }
 }
 
+/// Used in the BlockHeader::new_impl to specify the source of the block header signature.
+enum SignatureSource<'a> {
+    /// Use the given signer to sign a new block header.
+    Signer(&'a ValidatorSigner),
+    /// Use a previously-computed signature (for reconstructing an already-produced block header).
+    Signature(Signature),
+}
+
 /// Versioned BlockHeader data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(
@@ -559,6 +567,7 @@ impl BlockHeader {
         combine_hash(&hash_inner, &prev_hash)
     }
 
+    /// Creates BlockHeader for a newly produced block.
     #[cfg(feature = "clock")]
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
@@ -591,6 +600,152 @@ impl BlockHeader {
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
         clock: near_time::Clock,
+        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
+    ) -> Self {
+        let latest_protocol_version =
+            crate::version::get_protocol_version(next_epoch_protocol_version, clock);
+        Self::new_impl(
+            this_epoch_protocol_version,
+            next_epoch_protocol_version,
+            latest_protocol_version,
+            height,
+            prev_hash,
+            block_body_hash,
+            prev_state_root,
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root,
+            chunk_tx_root,
+            outcome_root,
+            timestamp,
+            challenges_root,
+            random_value,
+            prev_validator_proposals,
+            chunk_mask,
+            block_ordinal,
+            epoch_id,
+            next_epoch_id,
+            next_gas_price,
+            total_supply,
+            challenges_result,
+            SignatureSource::Signer(signer),
+            last_final_block,
+            last_ds_final_block,
+            epoch_sync_data_hash,
+            approvals,
+            next_bp_hash,
+            block_merkle_root,
+            prev_height,
+            chunk_endorsements,
+        )
+    }
+
+    /// Creates a new BlockHeader from information in the view of an existing block.  
+    pub fn from_view(
+        expected_hash: &CryptoHash,
+        epoch_protocol_version: ProtocolVersion,
+        height: BlockHeight,
+        prev_hash: CryptoHash,
+        block_body_hash: CryptoHash,
+        prev_state_root: MerkleHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
+        chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
+        timestamp: u64,
+        challenges_root: MerkleHash,
+        random_value: CryptoHash,
+        prev_validator_proposals: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
+        block_ordinal: NumBlocks,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_gas_price: Balance,
+        total_supply: Balance,
+        challenges_result: ChallengesResult,
+        signature: Signature,
+        last_final_block: CryptoHash,
+        last_ds_final_block: CryptoHash,
+        epoch_sync_data_hash: Option<CryptoHash>,
+        approvals: Vec<Option<Box<Signature>>>,
+        next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
+        prev_height: BlockHeight,
+        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
+    ) -> Self {
+        let header = Self::new_impl(
+            epoch_protocol_version,
+            epoch_protocol_version,
+            epoch_protocol_version,
+            height,
+            prev_hash,
+            block_body_hash,
+            prev_state_root,
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root,
+            chunk_tx_root,
+            outcome_root,
+            timestamp,
+            challenges_root,
+            random_value,
+            prev_validator_proposals,
+            chunk_mask,
+            block_ordinal,
+            epoch_id,
+            next_epoch_id,
+            next_gas_price,
+            total_supply,
+            challenges_result,
+            SignatureSource::Signature(signature),
+            last_final_block,
+            last_ds_final_block,
+            epoch_sync_data_hash,
+            approvals,
+            next_bp_hash,
+            block_merkle_root,
+            prev_height,
+            chunk_endorsements,
+        );
+        // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
+        // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
+        // of the header changes.
+        if header.hash() != expected_hash {
+            tracing::debug!(height, header_hash=?header.hash(), ?expected_hash, "Hash of the created header does not match expected hash");
+        }
+        header
+    }
+
+    /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
+    fn new_impl(
+        this_epoch_protocol_version: ProtocolVersion,
+        next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
+        height: BlockHeight,
+        prev_hash: CryptoHash,
+        block_body_hash: CryptoHash,
+        prev_state_root: MerkleHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
+        chunk_tx_root: MerkleHash,
+        outcome_root: MerkleHash,
+        timestamp: u64,
+        challenges_root: MerkleHash,
+        random_value: CryptoHash,
+        prev_validator_proposals: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
+        block_ordinal: NumBlocks,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        next_gas_price: Balance,
+        total_supply: Balance,
+        challenges_result: ChallengesResult,
+        signature_source: SignatureSource,
+        last_final_block: CryptoHash,
+        last_ds_final_block: CryptoHash,
+        epoch_sync_data_hash: Option<CryptoHash>,
+        approvals: Vec<Option<Box<Signature>>>,
+        next_bp_hash: CryptoHash,
+        block_merkle_root: CryptoHash,
+        prev_height: BlockHeight,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
@@ -626,17 +781,11 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
+                latest_protocol_version,
                 chunk_endorsements,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
                 prev_hash,
                 inner_lite,
@@ -663,16 +812,10 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
+                latest_protocol_version,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash,
                 inner_lite,
@@ -686,6 +829,7 @@ impl BlockHeader {
                 inner_lite,
                 this_epoch_protocol_version,
                 next_epoch_protocol_version,
+                latest_protocol_version,
                 prev_hash,
                 prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
@@ -698,13 +842,12 @@ impl BlockHeader {
                 next_gas_price,
                 total_supply,
                 challenges_result,
-                signer,
+                signature_source,
                 last_final_block,
                 last_ds_final_block,
                 epoch_sync_data_hash,
                 approvals,
                 prev_height,
-                clock,
             )
         }
     }
@@ -713,11 +856,11 @@ impl BlockHeader {
     /// This function still preserves code for old block header versions. These code are no longer
     /// used in production, but we still have features tests in the code that uses them.
     /// So we still keep the old code here.
-    #[cfg(feature = "clock")]
     fn old_impl(
         inner_lite: BlockHeaderInnerLite,
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         prev_hash: CryptoHash,
         prev_chunk_outgoing_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -730,13 +873,12 @@ impl BlockHeader {
         next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: &ValidatorSigner,
+        signature_source: SignatureSource,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
         epoch_sync_data_hash: Option<CryptoHash>,
         approvals: Vec<Option<Box<Signature>>>,
         prev_height: BlockHeight,
-        clock: near_time::Clock,
     ) -> Self {
         let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
@@ -761,13 +903,10 @@ impl BlockHeader {
                 last_final_block,
                 last_ds_final_block,
                 approvals,
-                latest_protocol_version: crate::version::PROTOCOL_VERSION,
+                latest_protocol_version,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash,
                 inner_lite,
@@ -793,13 +932,10 @@ impl BlockHeader {
                 last_final_block,
                 last_ds_final_block,
                 approvals,
-                latest_protocol_version: crate::version::PROTOCOL_VERSION,
+                latest_protocol_version,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash,
                 inner_lite,
@@ -825,16 +961,10 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: crate::version::get_protocol_version(
-                    next_epoch_protocol_version,
-                    clock,
-                ),
+                latest_protocol_version,
             };
-            let (hash, signature) = signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
                 inner_lite,
@@ -842,6 +972,36 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
+        }
+    }
+
+    /// Helper function for `new_impl` and `old_impl` to compute the hash and signature of the hash from the block header parts.
+    /// Exactly one of the `signer` and `signature` must be provided.
+    /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
+    /// If `signature` is given, uses the signature as is and only computes the hash.  
+    fn compute_hash_and_sign<T>(
+        signature_source: SignatureSource,
+        prev_hash: CryptoHash,
+        inner_lite: &BlockHeaderInnerLite,
+        inner_rest: &T,
+    ) -> (CryptoHash, Signature)
+    where
+        T: BorshSerialize + ?Sized,
+    {
+        match signature_source {
+            SignatureSource::Signer(signer) => signer.sign_block_header_parts(
+                prev_hash,
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+            ),
+            SignatureSource::Signature(signature) => {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (hash, signature)
+            }
         }
     }
 
@@ -860,179 +1020,40 @@ impl BlockHeader {
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
-        // TODO(#11900): Use BlockHeader::new to build the header.
         let chunks_included = if height == 0 { num_shards } else { 0 };
-        let inner_lite = BlockHeaderInnerLite {
+        Self::new_impl(
+            genesis_protocol_version,
+            genesis_protocol_version,
+            genesis_protocol_version,
             height,
-            epoch_id: EpochId::default(),
-            next_epoch_id: EpochId::default(),
-            prev_state_root: state_root,
-            prev_outcome_root: CryptoHash::default(),
-            timestamp: timestamp.unix_timestamp_nanos() as u64,
+            CryptoHash::default(), // prev_hash
+            block_body_hash,
+            state_root,
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root,
+            chunk_tx_root,
+            CryptoHash::default(), // prev_outcome_root
+            timestamp.unix_timestamp_nanos() as u64,
+            challenges_root,
+            CryptoHash::default(),                // random_value
+            vec![],                               // prev_validator_proposals
+            vec![true; chunks_included as usize], // chunk_mask
+            1, // block_ordinal. It is guaranteed that Chain has the only Block which is Genesis
+            EpochId::default(), // epoch_id
+            EpochId::default(), // next_epoch_id
+            initial_gas_price,
+            initial_total_supply,
+            vec![], // challenges_result
+            SignatureSource::Signature(Signature::empty(KeyType::ED25519)),
+            CryptoHash::default(), // last_final_block
+            CryptoHash::default(), // last_ds_final_block
+            None,   // epoch_sync_data_hash. Epoch Sync cannot be executed up to Genesis
+            vec![], // approvals
             next_bp_hash,
-            block_merkle_root: CryptoHash::default(),
-        };
-        let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
-        if genesis_protocol_version <= 29 {
-            let inner_rest = BlockHeaderInnerRest {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                chunks_included,
-                challenges_root,
-                random_value: CryptoHash::default(),
-                prev_validator_proposals: vec![],
-                chunk_mask: vec![],
-                next_gas_price: initial_gas_price,
-                total_supply: initial_total_supply,
-                challenges_result: vec![],
-                last_final_block: CryptoHash::default(),
-                last_ds_final_block: CryptoHash::default(),
-                approvals: vec![],
-                latest_protocol_version: genesis_protocol_version,
-            };
-            let hash = BlockHeader::compute_hash(
-                CryptoHash::default(),
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
-                prev_hash: CryptoHash::default(),
-                inner_lite,
-                inner_rest,
-                signature: Signature::empty(KeyType::ED25519),
-                hash,
-            }))
-        } else if genesis_protocol_version <= last_header_v2_version {
-            let inner_rest = BlockHeaderInnerRestV2 {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value: CryptoHash::default(),
-                prev_validator_proposals: vec![],
-                chunk_mask: vec![true; chunks_included as usize],
-                next_gas_price: initial_gas_price,
-                total_supply: initial_total_supply,
-                challenges_result: vec![],
-                last_final_block: CryptoHash::default(),
-                last_ds_final_block: CryptoHash::default(),
-                approvals: vec![],
-                latest_protocol_version: genesis_protocol_version,
-            };
-            let hash = BlockHeader::compute_hash(
-                CryptoHash::default(),
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
-                prev_hash: CryptoHash::default(),
-                inner_lite,
-                inner_rest,
-                signature: Signature::empty(KeyType::ED25519),
-                hash,
-            }))
-        } else if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(genesis_protocol_version)
-        {
-            let inner_rest = BlockHeaderInnerRestV5 {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                block_body_hash,
-                random_value: CryptoHash::default(),
-                prev_validator_proposals: vec![],
-                chunk_mask: vec![true; chunks_included as usize],
-                block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                next_gas_price: initial_gas_price,
-                total_supply: initial_total_supply,
-                challenges_result: vec![],
-                last_final_block: CryptoHash::default(),
-                last_ds_final_block: CryptoHash::default(),
-                prev_height: 0,
-                epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
-                approvals: vec![],
-                latest_protocol_version: genesis_protocol_version,
-                chunk_endorsements: ChunkEndorsementsBitmap::genesis(),
-            };
-            let hash = BlockHeader::compute_hash(
-                CryptoHash::default(),
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
-                prev_hash: CryptoHash::default(),
-                inner_lite,
-                inner_rest,
-                signature: Signature::empty(KeyType::ED25519),
-                hash,
-            }))
-        } else if !ProtocolFeature::BlockHeaderV4.enabled(genesis_protocol_version) {
-            let inner_rest = BlockHeaderInnerRestV3 {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value: CryptoHash::default(),
-                prev_validator_proposals: vec![],
-                chunk_mask: vec![true; chunks_included as usize],
-                block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                next_gas_price: initial_gas_price,
-                total_supply: initial_total_supply,
-                challenges_result: vec![],
-                last_final_block: CryptoHash::default(),
-                last_ds_final_block: CryptoHash::default(),
-                prev_height: 0,
-                epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
-                approvals: vec![],
-                latest_protocol_version: genesis_protocol_version,
-            };
-            let hash = BlockHeader::compute_hash(
-                CryptoHash::default(),
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
-                prev_hash: CryptoHash::default(),
-                inner_lite,
-                inner_rest,
-                signature: Signature::empty(KeyType::ED25519),
-                hash,
-            }))
-        } else {
-            let inner_rest = BlockHeaderInnerRestV4 {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                block_body_hash,
-                random_value: CryptoHash::default(),
-                prev_validator_proposals: vec![],
-                chunk_mask: vec![true; chunks_included as usize],
-                block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                next_gas_price: initial_gas_price,
-                total_supply: initial_total_supply,
-                challenges_result: vec![],
-                last_final_block: CryptoHash::default(),
-                last_ds_final_block: CryptoHash::default(),
-                prev_height: 0,
-                epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
-                approvals: vec![],
-                latest_protocol_version: genesis_protocol_version,
-            };
-            let hash = BlockHeader::compute_hash(
-                CryptoHash::default(),
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
-                prev_hash: CryptoHash::default(),
-                inner_lite,
-                inner_rest,
-                signature: Signature::empty(KeyType::ED25519),
-                hash,
-            }))
-        }
+            CryptoHash::default(), // block_merkle_root,
+            0,                     // prev_height
+            Some(ChunkEndorsementsBitmap::genesis()),
+        )
     }
 
     #[inline]
