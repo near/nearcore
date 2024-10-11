@@ -620,6 +620,8 @@ impl Handler<StateResponse> for ClientActorInner {
                         shard_id,
                         state_response,
                         &mut self.client.chain,
+                        self.state_parts_future_spawner.as_ref(),
+                        self.client.runtime_adapter.clone(),
                     );
                     return;
                 }
@@ -637,6 +639,8 @@ impl Handler<StateResponse> for ClientActorInner {
                     shard_id,
                     state_response,
                     &mut self.client.chain,
+                    self.state_parts_future_spawner.as_ref(),
+                    self.client.runtime_adapter.clone(),
                 );
                 return;
             }
