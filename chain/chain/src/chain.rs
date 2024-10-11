@@ -1679,7 +1679,13 @@ impl Chain {
 
         tracing::debug!(target: "sync", ?min_height_included, ?new_tail, "adjusting tail for missing chunks");
         new_tail = std::cmp::min(new_tail, min_height_included.saturating_sub(1));
-        let new_chunk_tail = prev_block.chunks().iter().map(|x| x.height_created()).min().unwrap();
+
+        // In order to find the right new_chunk_tail we need to find the minimum
+        // of chunk height_created for chunks in the new tail block.
+        let new_tail_block = self.get_block_by_height(new_tail)?;
+        let new_chunk_tail =
+            new_tail_block.chunks().iter().map(|chunk| chunk.height_created()).min().unwrap();
+
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
