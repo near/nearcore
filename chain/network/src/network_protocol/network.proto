@@ -11,7 +11,7 @@ import "google/protobuf/timestamp.proto";
 message OwnedAccount {
   PublicKey account_key = 1; // required
   // PeerId of the node owning the account_key.
-  PublicKey peer_id = 2; // required 
+  PublicKey peer_id = 2; // required
   // Timestamp indicates the date of signing - we do not assume the
   // nodes' clocks to be synchronized, but for security if the timestamp
   // deviation is too large, the handshake will be rejected.
@@ -158,7 +158,7 @@ message Handshake {
   uint32 sender_listen_port = 5;
   // Basic info about the NEAR chain that the sender belongs to.
   // Sender expects receiver to belong to the same chain.
-  // In case of mismatch, receiver sends back HandshakeFailure with 
+  // In case of mismatch, receiver sends back HandshakeFailure with
   // reason GenesisMismatch.
   PeerChainInfo sender_chain_info = 6;
   // Edge (sender,receiver) signed by sender, which once signed by
@@ -227,7 +227,7 @@ message AccountData {
   // to a specific peer_id. Then this field won't be necessary.
   // Unless we use it instead of AnnounceAccount.
   PublicKey peer_id = 5; // required.
- 
+
   PublicKey account_key = 6; // required.
 
   // List of nodes which
@@ -244,7 +244,7 @@ message AccountData {
   uint64 version = 7;
   // Time of creation of this AccountData.
   // TODO(gprusak): consider expiring the AccountData based on this field.
-  google.protobuf.Timestamp timestamp = 4; 
+  google.protobuf.Timestamp timestamp = 4;
 }
 
 // Message sent whenever the sender learns about new connections
@@ -261,7 +261,7 @@ message AccountData {
 message RoutingTableUpdate {
   reserved 3,4;
   repeated Edge edges = 1;
-  // list of known NEAR validator accounts 
+  // list of known NEAR validator accounts
   repeated AnnounceAccount accounts = 2;
 }
 
@@ -377,7 +377,7 @@ message RoutedMessage {
   // Timestamp of creating the Routed message by its original author.
   google.protobuf.Timestamp created_at = 2;
   // Number of peers this routed message travelled through. Doesn't include the peer that created the message.
-  optional int32 num_hops = 3;
+  uint32 num_hops = 3;
 }
 
 // Disconnect is send by a node before closing a TCP connection.
@@ -430,7 +430,7 @@ message StateResponse {
 }
 
 message SnapshotHostInfo {
-  PublicKey peer_id = 1; 
+  PublicKey peer_id = 1;
   CryptoHash sync_hash = 2;
   uint64 epoch_height = 3;
   repeated uint64 shards = 4;
@@ -472,7 +472,7 @@ message PeerMessage {
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;
     DistanceVector distance_vector = 28;
-    
+
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;
 
@@ -480,13 +480,13 @@ message PeerMessage {
 
     PeersRequest peers_request = 10;
     PeersResponse peers_response = 11;
-    
+
     BlockHeadersRequest block_headers_request = 12;
     BlockHeadersResponse block_headers_response = 13;
-    
+
     BlockRequest block_request = 14;
     BlockResponse block_response = 15;
-    
+
     SignedTransaction transaction = 16;
     RoutedMessage routed = 17;
     Disconnect disconnect = 18;

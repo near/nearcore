@@ -434,17 +434,13 @@ fn record_routed_msg_latency(
 // The routed message reached its destination. If the number of hops is known, then update the
 // corresponding metric.
 fn record_routed_msg_hops(msg: &RoutedMessageV2) {
-    const MAX_NUM_HOPS: i32 = 20;
+    const MAX_NUM_HOPS: u32 = 20;
     // We assume that the number of hops is small.
     // As long as the number of hops is below 10, this metric will not consume too much memory.
-    if let Some(num_hops) = msg.num_hops {
-        if num_hops >= 0 {
-            let num_hops = if num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { num_hops };
-            NETWORK_ROUTED_MSG_NUM_HOPS
-                .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
-                .inc();
-        }
-    }
+    let num_hops = if msg.num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { msg.num_hops };
+    NETWORK_ROUTED_MSG_NUM_HOPS
+        .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
+        .inc();
 }
 
 #[derive(Clone, Copy, strum::AsRefStr)]
