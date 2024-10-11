@@ -533,6 +533,14 @@ impl BlockHeaderV5 {
     }
 }
 
+/// Used in the BlockHeader::new_impl to specify the source of the block header signature.
+enum SignatureSource<'a> {
+    /// Use the given signer to sign a new block header.
+    Signer(&'a ValidatorSigner),
+    /// Use the given signature (which was previously computed for an existing block header).
+    Signature(Signature),
+}
+
 /// Versioned BlockHeader data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(
@@ -619,8 +627,7 @@ impl BlockHeader {
             next_gas_price,
             total_supply,
             challenges_result,
-            Some(signer),
-            None, // signature
+            SignatureSource::Signer(signer),
             last_final_block,
             last_ds_final_block,
             epoch_sync_data_hash,
@@ -688,8 +695,7 @@ impl BlockHeader {
             next_gas_price,
             total_supply,
             challenges_result,
-            None, // signer
-            Some(signature),
+            SignatureSource::Signature(signature),
             last_final_block,
             last_ds_final_block,
             epoch_sync_data_hash,
@@ -732,8 +738,7 @@ impl BlockHeader {
         next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: Option<&ValidatorSigner>,
-        signature: Option<Signature>,
+        signature_source: SignatureSource,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
         epoch_sync_data_hash: Option<CryptoHash>,
@@ -780,7 +785,7 @@ impl BlockHeader {
                 chunk_endorsements,
             };
             let (hash, signature) =
-                Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
                 prev_hash,
                 inner_lite,
@@ -810,7 +815,7 @@ impl BlockHeader {
                 latest_protocol_version,
             };
             let (hash, signature) =
-                Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash,
                 inner_lite,
@@ -837,8 +842,7 @@ impl BlockHeader {
                 next_gas_price,
                 total_supply,
                 challenges_result,
-                signer,
-                signature,
+                signature_source,
                 last_final_block,
                 last_ds_final_block,
                 epoch_sync_data_hash,
@@ -869,8 +873,7 @@ impl BlockHeader {
         next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: Option<&ValidatorSigner>,
-        signature: Option<Signature>,
+        signature_source: SignatureSource,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
         epoch_sync_data_hash: Option<CryptoHash>,
@@ -903,7 +906,7 @@ impl BlockHeader {
                 latest_protocol_version,
             };
             let (hash, signature) =
-                Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash,
                 inner_lite,
@@ -932,7 +935,7 @@ impl BlockHeader {
                 latest_protocol_version,
             };
             let (hash, signature) =
-                Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash,
                 inner_lite,
@@ -961,7 +964,7 @@ impl BlockHeader {
                 latest_protocol_version,
             };
             let (hash, signature) =
-                Self::compute_hash_and_sign(signer, signature, prev_hash, &inner_lite, &inner_rest);
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
                 inner_lite,
@@ -977,8 +980,7 @@ impl BlockHeader {
     /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
     /// If `signature` is given, uses the signature as is and only computes the hash.  
     fn compute_hash_and_sign<T>(
-        signer: Option<&ValidatorSigner>,
-        signature: Option<Signature>,
+        signature_source: SignatureSource,
         prev_hash: CryptoHash,
         inner_lite: &BlockHeaderInnerLite,
         inner_rest: &T,
@@ -986,24 +988,20 @@ impl BlockHeader {
     where
         T: BorshSerialize + ?Sized,
     {
-        assert_ne!(
-            signer.is_some(),
-            signature.is_some(),
-            "Exactly one of signer and signature must be provided"
-        );
-        if let Some(signer) = signer {
-            signer.sign_block_header_parts(
+        match signature_source {
+            SignatureSource::Signer(signer) => signer.sign_block_header_parts(
                 prev_hash,
                 &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
                 &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            )
-        } else {
-            let hash = BlockHeader::compute_hash(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            );
-            (hash, signature.unwrap())
+            ),
+            SignatureSource::Signature(signature) => {
+                let hash = BlockHeader::compute_hash(
+                    prev_hash,
+                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+                );
+                (hash, signature)
+            }
         }
     }
 
@@ -1045,11 +1043,10 @@ impl BlockHeader {
             EpochId::default(), // next_epoch_id
             initial_gas_price,
             initial_total_supply,
-            vec![],                                   // challenges_result
-            None,                                     // signer
-            Some(Signature::empty(KeyType::ED25519)), // signature
-            CryptoHash::default(),                    // last_final_block
-            CryptoHash::default(),                    // last_ds_final_block
+            vec![], // challenges_result
+            SignatureSource::Signature(Signature::empty(KeyType::ED25519)),
+            CryptoHash::default(), // last_final_block
+            CryptoHash::default(), // last_ds_final_block
             None,   // epoch_sync_data_hash. Epoch Sync cannot be executed up to Genesis
             vec![], // approvals
             next_bp_hash,
