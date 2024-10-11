@@ -537,7 +537,7 @@ impl BlockHeaderV5 {
 enum SignatureSource<'a> {
     /// Use the given signer to sign a new block header.
     Signer(&'a ValidatorSigner),
-    /// Use the given signature (which was previously computed for an existing block header).
+    /// Use a previously-computed signature (for reconstructing an already-produced block header).
     Signature(Signature),
 }
 
