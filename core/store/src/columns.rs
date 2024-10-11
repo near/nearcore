@@ -300,6 +300,12 @@ pub enum DBCol {
     /// - *Rows*: only one key with 0 bytes.
     /// - *Column type*: `EpochSyncProof`
     EpochSyncProof,
+    /// Mapping of ShardUId to the ShardUId that should be used as the database key prefix for the State column.
+    /// The mapped ShardUId value can be the parent shard after resharding, an ancestor shard after many resharding
+    /// or just map shard to itself if there was no resharding or the mapping was removed after node stopped tracking the shard.
+    /// - *Rows*: `ShardUId`
+    /// - *Column type*: `ShardUId`
+    StateShardUIdMapping,
 }
 
 /// Defines different logical parts of a db key.
@@ -444,7 +450,9 @@ impl DBCol {
             | DBCol::StateChangesForSplitStates
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
-            | DBCol::Transactions => true,
+            | DBCol::Transactions
+            // TODO(reshardingV3) How the mapping will work with split storage?
+            | DBCol::StateShardUIdMapping => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -575,6 +583,7 @@ impl DBCol {
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
+            DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
         }
     }
 }

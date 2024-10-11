@@ -997,6 +997,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::EpochSyncProof
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
+            | DBCol::StateShardUIdMapping
             => unreachable!(),
         }
         self.merge(store_update);
