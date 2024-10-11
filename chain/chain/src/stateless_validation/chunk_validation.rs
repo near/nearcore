@@ -10,7 +10,7 @@ use crate::types::{
     RuntimeStorageConfig, StorageDataSource,
 };
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use crate::{Chain, ChainStoreAccess};
+use crate::{Chain, ChainStore, ChainStoreAccess};
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
@@ -28,7 +28,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ProtocolVersion, ShardId};
+use near_primitives::types::{ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_store::PartialStorage;
 use std::collections::HashMap;
@@ -40,6 +40,12 @@ use std::time::Instant;
 pub enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
     NewChunk(NewChunkData),
+    // TODO(#11881): this is temporary indicator that resharding happened in the
+    // state transition covered by state witness. Won't happen in production
+    // until resharding release.
+    // Instead, we can store a separate field `resharding_transition` in
+    // `ChunkStateWitness` and use it for proper validation of this case.
+    ShardLayoutChange,
 }
 
 impl MainTransition {
@@ -47,6 +53,7 @@ impl MainTransition {
         match self {
             Self::Genesis { block_hash, .. } => *block_hash,
             Self::NewChunk(data) => data.block.block_hash,
+            Self::ShardLayoutChange => panic!("block_hash called on ShardLayoutChange"),
         }
     }
 
@@ -56,6 +63,7 @@ impl MainTransition {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             Self::NewChunk(data) => data.chunk_header.shard_id(),
+            Self::ShardLayoutChange => panic!("shard_id called on ShardLayoutChange"),
         }
     }
 }
@@ -104,6 +112,74 @@ pub fn validate_prepared_transactions(
     )
 }
 
+struct StateWitnessBlockRange {
+    /// Blocks from the last new chunk (exclusive) to the parent block
+    /// (inclusive).
+    blocks_after_last_chunk: Vec<Block>,
+    /// Blocks from the last last new chunk (exclusive) to the last new chunk
+    /// (inclusive).
+    blocks_after_last_last_chunk: Vec<Block>,
+    last_chunk_shard_id: ShardId,
+    last_chunk_shard_index: ShardIndex,
+}
+
+fn get_state_witness_block_range(
+    store: &ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+    state_witness: &ChunkStateWitness,
+) -> Result<StateWitnessBlockRange, Error> {
+    let mut blocks_after_last_chunk = Vec::new();
+    let mut blocks_after_last_last_chunk = Vec::new();
+
+    let mut block_hash = *state_witness.chunk_header.prev_block_hash();
+    let mut prev_chunks_seen = 0;
+
+    // It is ok to use the shard id from the header because it is a new
+    // chunk. An old chunk may have the shard id from the parent shard.
+    let (mut current_shard_id, mut current_shard_index) =
+        epoch_manager.get_prev_shard_id(&block_hash, state_witness.chunk_header.shard_id())?;
+
+    let mut last_chunk_shard_id = current_shard_id;
+    let mut last_chunk_shard_index = current_shard_index;
+    loop {
+        let block = store.get_block(&block_hash)?;
+        let prev_hash = *block.header().prev_hash();
+        let chunks = block.chunks();
+        let Some(chunk) = chunks.get(current_shard_index) else {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Shard {} does not exist in block {:?}",
+                current_shard_id, block_hash
+            )));
+        };
+        let is_new_chunk = chunk.is_new_chunk(block.header().height());
+        let is_genesis = block.header().is_genesis();
+        if is_new_chunk {
+            prev_chunks_seen += 1;
+        }
+        if prev_chunks_seen == 0 {
+            last_chunk_shard_id = current_shard_id;
+            last_chunk_shard_index = current_shard_index;
+            blocks_after_last_chunk.push(block);
+        } else if prev_chunks_seen == 1 {
+            blocks_after_last_last_chunk.push(block);
+        }
+        if prev_chunks_seen == 2 || is_genesis {
+            break;
+        }
+
+        block_hash = prev_hash;
+        (current_shard_id, current_shard_index) =
+            epoch_manager.get_prev_shard_id(&prev_hash, current_shard_id)?;
+    }
+
+    Ok(StateWitnessBlockRange {
+        blocks_after_last_chunk,
+        blocks_after_last_last_chunk,
+        last_chunk_shard_id,
+        last_chunk_shard_index,
+    })
+}
+
 /// Pre-validates the chunk's receipts and transactions against the chain.
 /// We do this before handing off the computationally intensive part to a
 /// validation thread.
@@ -114,55 +190,34 @@ pub fn pre_validate_chunk_state_witness(
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<PreValidationOutput, Error> {
     let store = chain.chain_store();
-    let epoch_id = state_witness.epoch_id;
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-
-    // It is ok to use the shard id from the header because it is a new
-    // chunk. An old chunk may have the shard id from the parent shard.
-    let shard_id = state_witness.chunk_header.shard_id();
-    let shard_index = shard_layout.get_shard_index(shard_id);
 
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
+    let StateWitnessBlockRange {
+        blocks_after_last_chunk,
+        blocks_after_last_last_chunk,
+        last_chunk_shard_id,
+        last_chunk_shard_index,
+    } = get_state_witness_block_range(store, epoch_manager, state_witness)?;
 
-    // Blocks from the last new chunk (exclusive) to the parent block (inclusive).
-    let mut blocks_after_last_chunk = Vec::new();
-    // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
-    let mut blocks_after_last_last_chunk = Vec::new();
-
-    {
-        let mut block_hash = *state_witness.chunk_header.prev_block_hash();
-        let mut prev_chunks_seen = 0;
-        loop {
-            let block = store.get_block(&block_hash)?;
-            let chunks = block.chunks();
-            let Some(chunk) = chunks.get(shard_index) else {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "Shard {} does not exist in block {:?}",
-                    shard_id, block_hash
-                )));
-            };
-            let is_new_chunk = chunk.is_new_chunk(block.header().height());
-            let is_genesis = block.header().is_genesis();
-            block_hash = *block.header().prev_hash();
-            if is_new_chunk {
-                prev_chunks_seen += 1;
-            }
-            if prev_chunks_seen == 0 {
-                blocks_after_last_chunk.push(block);
-            } else if prev_chunks_seen == 1 {
-                blocks_after_last_last_chunk.push(block);
-            }
-            if prev_chunks_seen == 2 || is_genesis {
-                break;
-            }
-        }
+    let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
+        Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
+    })?;
+    let last_chunk_shard_layout =
+        epoch_manager.get_shard_layout(&last_chunk_block.header().epoch_id())?;
+    let chunk_shard_layout = epoch_manager
+        .get_shard_layout_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
+    if last_chunk_shard_layout != chunk_shard_layout {
+        return Ok(PreValidationOutput {
+            main_transition_params: MainTransition::ShardLayoutChange,
+            implicit_transition_params: Vec::new(),
+        });
     }
 
     let receipts_to_apply = validate_source_receipt_proofs(
         &state_witness.source_receipt_proofs,
         &blocks_after_last_last_chunk,
-        shard_id,
+        last_chunk_shard_id,
     )?;
     let applied_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
     if applied_receipts_hash != state_witness.applied_receipts_hash {
@@ -175,7 +230,8 @@ pub fn pre_validate_chunk_state_witness(
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
     })?;
-    let last_new_chunk_tx_root = last_chunk_block.chunks().get(shard_index).unwrap().tx_root();
+    let last_new_chunk_tx_root =
+        last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().tx_root();
     if last_new_chunk_tx_root != tx_root_from_state_witness {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Transaction root {:?} does not match expected transaction root {:?}",
@@ -226,19 +282,23 @@ pub fn pre_validate_chunk_state_witness(
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let congestion_info = last_chunk_block
             .block_congestion_info()
-            .get(&shard_id)
+            .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
         let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let chunk_extra = chain.genesis_chunk_extra(
             &shard_layout,
-            shard_id,
+            last_chunk_shard_id,
             genesis_protocol_version,
             congestion_info,
         )?;
-        MainTransition::Genesis { chunk_extra, block_hash: *last_chunk_block.hash(), shard_id }
+        MainTransition::Genesis {
+            chunk_extra,
+            block_hash: *last_chunk_block.hash(),
+            shard_id: last_chunk_shard_id,
+        }
     } else {
         MainTransition::NewChunk(NewChunkData {
-            chunk_header: last_chunk_block.chunks().get(shard_index).unwrap().clone(),
+            chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
@@ -422,6 +482,9 @@ pub fn validate_chunk_state_witness(
                     apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
 
                 (chunk_extra, outgoing_receipts)
+            }
+            (MainTransition::ShardLayoutChange, _) => {
+                panic!("shard layout change should not be validated")
             }
             (_, Some(result)) => (result.chunk_extra, result.outgoing_receipts),
         };
