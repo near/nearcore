@@ -124,9 +124,9 @@ struct StateWitnessBlockRange {
 }
 
 fn get_state_witness_block_range(
-    state_witness: &ChunkStateWitness,
     store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
+    state_witness: &ChunkStateWitness,
 ) -> Result<StateWitnessBlockRange, Error> {
     let mut blocks_after_last_chunk = Vec::new();
     let mut blocks_after_last_last_chunk = Vec::new();
@@ -198,7 +198,7 @@ pub fn pre_validate_chunk_state_witness(
         blocks_after_last_last_chunk,
         last_chunk_shard_id,
         last_chunk_shard_index,
-    } = get_state_witness_block_range(state_witness, store, epoch_manager)?;
+    } = get_state_witness_block_range(store, epoch_manager, state_witness)?;
 
     let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
         Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
