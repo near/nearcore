@@ -1,3 +1,4 @@
+#[cfg(feature = "new_shard_id")]
 use std::fmt::Display;
 
 use crate::hash::CryptoHash;
@@ -46,9 +47,10 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
 
-// /// The shard identifier. The ShardId is currently being migrated to a newtype -
-// /// please see the new ShardId definition below.
-// pub type ShardId = u64;
+/// The shard identifier. The ShardId is currently being migrated to a newtype -
+/// please see the new ShardId definition below.
+#[cfg(not(feature = "new_shard_id"))]
+pub type ShardId = u64;
 
 /// The ShardIndex is the index of the shard in an array of shard data.
 /// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
@@ -60,16 +62,11 @@ pub type ShardIndex = usize;
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn new_shard_id_tmp(id: u64) -> ShardId {
-    // id
-    ShardId::new(id)
-}
+    #[cfg(not(feature = "new_shard_id"))]
+    return id;
 
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
-pub const fn shard_id_as_usize(id: ShardId) -> usize {
-    id.get() as usize
-    // id
+    #[cfg(feature = "new_shard_id")]
+    return ShardId::new(id);
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
@@ -82,25 +79,45 @@ pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
+pub const fn shard_id_as_usize(id: ShardId) -> usize {
+    #[cfg(not(feature = "new_shard_id"))]
+    return id as usize;
+
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as usize;
+}
+
+// TODO(wacban) This is a temporary solution to aid the transition to having
+// ShardId as a newtype. It should be replaced / removed / inlined once the
+// transition is complete.
 pub const fn shard_id_as_u16(id: ShardId) -> u16 {
-    id.get() as u16
-    // id as u16
+    #[cfg(not(feature = "new_shard_id"))]
+    return id as u16;
+
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as u16;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u32(id: ShardId) -> u32 {
-    id.get() as u32
-    // id as u32
+    #[cfg(not(feature = "new_shard_id"))]
+    return id as u32;
+
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as u32;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u64(id: ShardId) -> u64 {
-    id.get()
-    // id
+    #[cfg(not(feature = "new_shard_id"))]
+    return id as u64;
+
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as u64;
 }
 
 // TODO(wacban) Complete the transition to ShardId as a newtype.
@@ -111,6 +128,7 @@ pub const fn shard_id_as_u64(id: ShardId) -> u64 {
 /// The shard id is wrapped in a newtype to prevent the old pattern of using
 /// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
 /// if fully complete it potentially may be simplified to a regular type alias.
+#[cfg(feature = "new_shard_id")]
 #[derive(
     arbitrary::Arbitrary,
     borsh::BorshSerialize,
@@ -128,6 +146,7 @@ pub const fn shard_id_as_u64(id: ShardId) -> u64 {
 )]
 pub struct ShardId(u64);
 
+#[cfg(feature = "new_shard_id")]
 impl ShardId {
     /// Create a new shard id. Please note that this function should not be used
     /// to convert a shard index (a number in 0..num_shards range) to ShardId.
@@ -174,54 +193,63 @@ impl ShardId {
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl Display for ShardId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl From<u64> for ShardId {
     fn from(id: u64) -> Self {
         Self(id)
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl Into<u64> for ShardId {
     fn into(self) -> u64 {
         self.0
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl From<u32> for ShardId {
     fn from(id: u32) -> Self {
         Self(id as u64)
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl Into<u32> for ShardId {
     fn into(self) -> u32 {
         self.0 as u32
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl From<i32> for ShardId {
     fn from(id: i32) -> Self {
         Self(id as u64)
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl From<usize> for ShardId {
     fn from(id: usize) -> Self {
         Self(id as u64)
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl From<u16> for ShardId {
     fn from(id: u16) -> Self {
         Self(id as u64)
     }
 }
 
+#[cfg(feature = "new_shard_id")]
 impl Into<u16> for ShardId {
     fn into(self) -> u16 {
         self.0 as u16
