@@ -65,7 +65,7 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1912,7 +1912,7 @@ impl ClientActorInner {
         &mut self,
         epoch_id: EpochId,
         sync_hash: CryptoHash,
-        shards_to_sync: &Vec<u64>,
+        shards_to_sync: &Vec<ShardId>,
     ) {
         let shard_layout =
             self.client.epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout");

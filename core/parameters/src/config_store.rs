@@ -49,6 +49,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (70, include_config!("70.yaml")),
     // Increase main_storage_proof_size_soft_limit and introduces StateStoredReceipt
     (72, include_config!("72.yaml")),
+    (73, include_config!("73.yaml")),
     (129, include_config!("129.yaml")),
 ];
 

@@ -179,7 +179,7 @@ impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
             peer_id: MF::some((&x.peer_id).into()),
             sync_hash: MF::some((&x.sync_hash).into()),
             epoch_height: x.epoch_height,
-            shards: x.shards.clone(),
+            shards: x.shards.clone().into_iter().map(Into::into).collect(),
             signature: MF::some((&x.signature).into()),
             ..Default::default()
         }
@@ -193,7 +193,7 @@ impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
             epoch_height: x.epoch_height,
-            shards: x.shards.clone(),
+            shards: x.shards.clone().into_iter().map(Into::into).collect(),
             signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
         })
     }
@@ -313,14 +313,14 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::SyncSnapshotHosts(ssh) => ProtoMT::SyncSnapshotHosts(ssh.into()),
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
                     ProtoMT::StateRequestHeader(proto::StateRequestHeader {
-                        shard_id: *shard_id,
+                        shard_id: (*shard_id).into(),
                         sync_hash: MF::some(sync_hash.into()),
                         ..Default::default()
                     })
                 }
                 PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
                     ProtoMT::StateRequestPart(proto::StateRequestPart {
-                        shard_id: *shard_id,
+                        shard_id: (*shard_id).into(),
                         sync_hash: MF::some(sync_hash.into()),
                         part_id: *part_id,
                         ..Default::default()
@@ -477,11 +477,11 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),
             ProtoMT::StateRequestHeader(srh) => PeerMessage::StateRequestHeader(
-                srh.shard_id,
+                srh.shard_id.into(),
                 try_from_required(&srh.sync_hash).map_err(Self::Error::BlockRequest)?,
             ),
             ProtoMT::StateRequestPart(srp) => PeerMessage::StateRequestPart(
-                srp.shard_id,
+                srp.shard_id.into(),
                 try_from_required(&srp.sync_hash).map_err(Self::Error::BlockRequest)?,
                 srp.part_id,
             ),

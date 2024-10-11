@@ -67,7 +67,3 @@ data_receipt_creation_per_byte: {
     execution: 17_212_011,
   }
 }
-wasm_yield_resume_byte: {
-  old: 17_212_011,
-  new: 47_683_715
-}
