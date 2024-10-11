@@ -1,14 +1,16 @@
 name: CI Nayduck tests
 on:
+  pull_request:
   merge_group:
-
   workflow_dispatch:
 
 jobs:
   nayduck_tests:
-    runs-on: "ubuntu-latest"
+    name: "Run Nayduck CI tests"
+    runs-on: ubuntu-latest
     environment: development
     timeout-minutes: 60
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Install JQ json processor
@@ -26,10 +28,12 @@ jobs:
           echo ${{ secrets.NAYDUCK_CODE }} > ~/.config/nayduck-code
 
       - name: Run Nayduck tests and wait for results
+        id: nayduck_run
         run: |
           NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
           RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
-          URL="https://nayduck.nearone.org/api/run/$RUN_ID"
+          echo "nayduck_run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
           sleep 10
 
           # wait all the tests to finish
@@ -48,4 +52,10 @@ jobs:
           else
             echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
             echo "Fix them before merging"
+            exit 1
           fi
+          
+      - name: Cleanup Nayduck tests on cancel
+        if: cancelled()
+        run: |
+          python3 ./scripts/nayduck.py -c ${{ steps.nayduck_run.outputs.nayduck_run_id }}

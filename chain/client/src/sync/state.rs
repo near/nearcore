@@ -49,7 +49,9 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, StatePartKey,
 };
-use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::types::{
+    shard_id_as_u32, AccountId, EpochHeight, EpochId, ShardId, StateRoot,
+};
 use near_store::DBCol;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -204,7 +206,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
-        sync_status: &mut HashMap<u64, ShardSyncDownload>,
+        sync_status: &mut HashMap<ShardId, ShardSyncDownload>,
         chain: &mut Chain,
         epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -232,7 +234,7 @@ impl StateSync {
 
         for shard_id in tracking_shards {
             let version = prev_shard_layout.version();
-            let shard_uid = ShardUId { version, shard_id: shard_id as u32 };
+            let shard_uid = ShardUId { version, shard_id: shard_id_as_u32(shard_id) };
             let mut download_timeout = false;
             let mut run_shard_state_download = false;
             let shard_sync_download = sync_status.entry(shard_id).or_insert_with(|| {
@@ -291,7 +293,7 @@ impl StateSync {
                     panic!("Resharding V2 scheduling is no longer supported")
                 }
                 ShardSyncStatus::ReshardingApplying => {
-                    panic!("Resharding V2 scheduling is no longer supported")
+                    panic!("Resharding V2 applying is no longer supported")
                 }
                 ShardSyncStatus::StateSyncDone => {
                     shard_sync_done = true;
@@ -344,7 +346,7 @@ impl StateSync {
         &mut self,
         chain: &mut Chain,
         sync_hash: CryptoHash,
-        shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+        shard_sync: &mut HashMap<ShardId, ShardSyncDownload>,
     ) {
         for StateSyncGetFileResult { sync_hash: msg_sync_hash, shard_id, part_id, result } in
             self.state_parts_mpsc_rx.try_iter()
@@ -539,7 +541,7 @@ impl StateSync {
             // Currently it is assumed that one of the direct peers of the node is able to generate
             // the shard header.
             let peer_id = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
-            tracing::debug!(target: "sync", ?peer_id, shard_id, ?sync_hash, ?possible_targets, "request_shard_header");
+            tracing::debug!(target: "sync", ?peer_id, ?shard_id, ?sync_hash, ?possible_targets, "request_shard_header");
             assert!(header_download.run_me.load(Ordering::SeqCst));
             header_download.run_me.store(false, Ordering::SeqCst);
             header_download.state_requests_count += 1;
@@ -668,7 +670,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
-        sync_status: &mut HashMap<u64, ShardSyncDownload>,
+        sync_status: &mut HashMap<ShardId, ShardSyncDownload>,
         chain: &mut Chain,
         epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -722,7 +724,7 @@ impl StateSync {
         &mut self,
         shard_sync_download: &mut ShardSyncDownload,
         hash: CryptoHash,
-        shard_id: u64,
+        shard_id: ShardId,
         state_response: ShardStateSyncResponse,
         chain: &mut Chain,
     ) {
@@ -1013,7 +1015,7 @@ impl StateSync {
         shard_uid: ShardUId,
         chain: &mut Chain,
         sync_hash: CryptoHash,
-        need_to_reshard: bool,
+        #[allow(unused)] need_to_reshard: bool,
         shard_sync_download: &mut ShardSyncDownload,
     ) -> Result<bool, near_chain::Error> {
         // Keep waiting until our shard is on the list of results
@@ -1026,16 +1028,18 @@ impl StateSync {
         result?;
 
         chain.set_state_finalize(shard_uid.shard_id(), sync_hash)?;
-        if need_to_reshard {
-            // If the shard layout is changing in this epoch - we have to apply it right now.
-            let status = ShardSyncStatus::ReshardingScheduling;
-            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
-        } else {
-            // If there is no layout change - we're done.
-            let status = ShardSyncStatus::StateSyncDone;
-            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
-            shard_sync_done = true;
-        }
+        // I *think* this is not relevant anymore, since we download
+        // already the next epoch's state.
+        // if need_to_reshard {
+        //     // If the shard layout is changing in this epoch - we have to apply it right now.
+        //     let status = ShardSyncStatus::ReshardingScheduling;
+        //     *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+        // }
+
+        // If there is no layout change - we're done.
+        let status = ShardSyncStatus::StateSyncDone;
+        *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+        shard_sync_done = true;
 
         Ok(shard_sync_done)
     }
@@ -1312,6 +1316,7 @@ mod test {
     use near_primitives::state_sync::{
         CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
     };
+    use near_primitives::types::new_shard_id_tmp;
     use near_primitives::{test_utils::TestBlockBuilder, types::EpochId};
 
     #[test]
@@ -1354,7 +1359,8 @@ mod test {
         }
 
         let request_hash = &chain.head().unwrap().last_block_hash;
-        let state_sync_header = chain.get_state_response_header(0, *request_hash).unwrap();
+        let state_sync_header =
+            chain.get_state_response_header(new_shard_id_tmp(0), *request_hash).unwrap();
         let state_sync_header = match state_sync_header {
             ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
             ShardStateSyncResponseHeader::V2(internal) => internal,
@@ -1368,7 +1374,7 @@ mod test {
             genesis_id: Default::default(),
             highest_block_height: chain.epoch_length + 10,
             highest_block_hash: Default::default(),
-            tracked_shards: vec![0],
+            tracked_shards: vec![new_shard_id_tmp(0)],
             archival: false,
         };
 
@@ -1381,7 +1387,7 @@ mod test {
                     &mut chain,
                     kv.as_ref(),
                     &[highest_height_peer_info],
-                    vec![0],
+                    vec![new_shard_id_tmp(0)],
                     &noop().into_sender(),
                     &noop().into_sender(),
                     &ActixArbiterHandleFutureSpawner(Arbiter::new().handle()),
@@ -1396,7 +1402,7 @@ mod test {
 
             assert_eq!(
                 NetworkRequests::StateRequestHeader {
-                    shard_id: 0,
+                    shard_id: new_shard_id_tmp(0),
                     sync_hash: *request_hash,
                     peer_id: peer_id.clone(),
                 },
@@ -1404,7 +1410,7 @@ mod test {
             );
 
             assert_eq!(1, new_shard_sync.len());
-            let download = new_shard_sync.get(&0).unwrap();
+            let download = new_shard_sync.get(&new_shard_id_tmp(0)).unwrap();
 
             assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
 
@@ -1428,14 +1434,14 @@ mod test {
             });
 
             state_sync.update_download_on_state_response_message(
-                &mut new_shard_sync.get_mut(&0).unwrap(),
+                &mut new_shard_sync.get_mut(&new_shard_id_tmp(0)).unwrap(),
                 *request_hash,
-                0,
+                new_shard_id_tmp(0),
                 state_response,
                 &mut chain,
             );
 
-            let download = new_shard_sync.get(&0).unwrap();
+            let download = new_shard_sync.get(&new_shard_id_tmp(0)).unwrap();
             assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
             // Download should be marked as done.
             assert_eq!(download.downloads[0].done, true);

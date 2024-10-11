@@ -130,7 +130,7 @@ impl Trie {
     ) -> Result<(PartialState, Vec<u8>, Vec<u8>), StorageError> {
         let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
             ShardId::MAX, // Fake value for metrics.
-            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+            |chunk_view| chunk_view.shard_uid().shard_id(),
         );
         let _span = tracing::debug_span!(
             target: "state-parts",
@@ -184,7 +184,7 @@ impl Trie {
     ) -> Result<PartialState, StorageError> {
         let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
             ShardId::MAX, // Fake value for metrics.
-            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+            |chunk_view| chunk_view.shard_uid().shard_id(),
         );
         let _span = tracing::debug_span!(
             target: "state-parts",

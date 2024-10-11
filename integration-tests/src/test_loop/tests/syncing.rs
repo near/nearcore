@@ -44,10 +44,13 @@ fn test_sync_from_genesis() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis.clone()).clients(clients).build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis(genesis.clone())
+        .epoch_config_store(epoch_config_store.clone())
+        .clients(clients)
+        .build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -98,6 +101,7 @@ fn test_sync_from_genesis() {
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
         .genesis(genesis.clone())
+        .epoch_config_store(epoch_config_store)
         .clients(clients)
         .stores_override(stores)
         .test_loop_data_dir(tempdir)

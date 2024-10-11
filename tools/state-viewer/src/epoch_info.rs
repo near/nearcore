@@ -90,13 +90,16 @@ fn display_block_and_chunk_producers(
     let block_height_range: Range<BlockHeight> =
         get_block_height_range(epoch_id, chain_store, epoch_manager)?;
     let shard_ids = epoch_manager.shard_ids(epoch_id).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
     for block_height in block_height_range {
         let bp = epoch_info.sample_block_producer(block_height);
         let bp = epoch_info.get_validator(bp).account_id().clone();
         let cps: Vec<String> = shard_ids
             .iter()
             .map(|&shard_id| {
-                let cp = epoch_info.sample_chunk_producer(block_height, shard_id).unwrap();
+                let cp = epoch_info
+                    .sample_chunk_producer(&shard_layout, shard_id, block_height)
+                    .unwrap();
                 let cp = epoch_info.get_validator(cp).account_id().clone();
                 cp.as_str().to_string()
             })
@@ -274,13 +277,14 @@ fn display_validator_info(
         println!("Block producer for {} blocks: {bp_for_blocks:?}", bp_for_blocks.len());
 
         let shard_ids = epoch_manager.shard_ids(epoch_id).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
         let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
             .flat_map(|block_height| {
                 shard_ids
                     .iter()
                     .map(|&shard_id| (block_height, shard_id))
                     .filter(|&(block_height, shard_id)| {
-                        epoch_info.sample_chunk_producer(block_height, shard_id)
+                        epoch_info.sample_chunk_producer(&shard_layout, shard_id, block_height)
                             == Some(*validator_id)
                     })
                     .collect::<Vec<(BlockHeight, ShardId)>>()

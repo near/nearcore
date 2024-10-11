@@ -199,7 +199,7 @@ pub enum Error {
     InvalidBlockMerkleRoot,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
-    InvalidSplitShardsIds(u64, u64),
+    InvalidSplitShardsIds(ShardId, ShardId),
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator: {0}")]
     NotAValidator(String),

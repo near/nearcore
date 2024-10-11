@@ -2,8 +2,8 @@ use crate::adapter::trie_store::TrieStoreUpdateAdapter;
 use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, Trie,
-    TrieAccess as _, TrieUpdate,
+    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, TrieAccess,
+    TrieUpdate,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
@@ -11,22 +11,10 @@ use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
-
-use super::iterator::TrieItem;
-
-impl Trie {
-    // TODO(#9446) remove function when shifting to flat storage iteration for resharding
-    pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
-        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
-        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
-        self.disk_iter()?.get_trie_items(&path_begin, &path_end)
-    }
-}
 
 impl ShardTries {
     /// add `values` (key-value pairs of items stored in states) to build states for new shards

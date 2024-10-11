@@ -7,8 +7,8 @@ use near_chain_configs::Genesis;
 use near_parameters::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
-use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
+use near_primitives::types::{new_shard_id_tmp, AccountId};
 use near_primitives_core::types::NumShards;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
@@ -51,7 +51,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let genesis_root = GenesisStateApplier::apply(
         &writers,
         tries.clone(),
-        ShardUId::from_shard_id_and_layout(0, shard_layout),
+        ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), shard_layout),
         &genesis
             .config
             .validators
