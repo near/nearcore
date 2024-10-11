@@ -686,7 +686,7 @@ pub struct RoutedMessageV2 {
     pub created_at: Option<time::Utc>,
     /// Number of peers this routed message travelled through.
     /// Doesn't include the peers that are the source and the destination of the message.
-    pub num_hops: u32,
+    pub num_hops: i32,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
