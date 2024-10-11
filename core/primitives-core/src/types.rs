@@ -128,6 +128,8 @@ pub const fn shard_id_as_u64(id: ShardId) -> u64 {
     return id.get() as u64;
 }
 
+/*
+
 // TODO(wacban) Complete the transition to ShardId as a newtype.
 /// The shard identifier. It may be a arbitrary number - it does not need to be
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
@@ -263,3 +265,5 @@ impl Into<u16> for ShardId {
         self.0 as u16
     }
 }
+
+*/
