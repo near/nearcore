@@ -844,7 +844,7 @@ mod tests {
 
         // Full congestion - only the allowed shard should be able to send something.
         for shard in all_shards {
-            if shard == control.info.allowed_shard() as u64 {
+            if shard_id_as_u16(shard) == control.info.allowed_shard() {
                 assert_eq!(control.outgoing_gas_limit(shard), config.allowed_shard_outgoing_gas);
             } else {
                 assert_eq!(control.outgoing_gas_limit(shard), 0);

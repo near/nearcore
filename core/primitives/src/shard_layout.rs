@@ -752,7 +752,7 @@ mod tests {
         ShardLayoutV1, ShardUId,
     };
     use itertools::Itertools;
-    use near_primitives_core::types::{new_shard_id_tmp, ProtocolVersion};
+    use near_primitives_core::types::{new_shard_id_tmp, shard_id_as_u64, ProtocolVersion};
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
@@ -829,16 +829,25 @@ mod tests {
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
-            assert!(shard_id < num_shards);
-            *shard_id_distribution.get_mut(&shard_id.into()).unwrap() += 1;
+            assert!(shard_id_as_u64(shard_id) < num_shards);
+            *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
-        let expected_distribution: HashMap<_, _> =
-            [(0, 247), (1, 268), (2, 233), (3, 252)].into_iter().collect();
+        let expected_distribution: HashMap<ShardId, _> = [
+            (new_shard_id_tmp(0), 247),
+            (new_shard_id_tmp(1), 268),
+            (new_shard_id_tmp(2), 233),
+            (new_shard_id_tmp(3), 252),
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(shard_id_distribution, expected_distribution);
     }
 
     #[test]
     fn test_shard_layout_v1() {
+        let aid = |s: &str| s.parse().unwrap();
+        let sid = |s: u64| new_shard_id_tmp(s);
+
         let shard_layout = ShardLayout::v1(
             parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
             Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),
@@ -853,27 +862,26 @@ mod tests {
             (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..3 {
-            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x)).unwrap(), 0);
-            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x + 3)).unwrap(), 1);
+            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x)).unwrap(), sid(0));
+            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x + 3)).unwrap(), sid(1));
         }
 
-        let aid = |s: &str| s.parse().unwrap();
-        assert_eq!(account_id_to_shard_id(&aid("aurora"), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&aid("foo.aurora"), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&aid("bar.foo.aurora"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("bar"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("bar.bar"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("foo"), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&aid("baz.foo"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("foo.baz"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&aid("a.foo.baz"), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&aid("aurora"), &shard_layout), sid(1));
+        assert_eq!(account_id_to_shard_id(&aid("foo.aurora"), &shard_layout), sid(3));
+        assert_eq!(account_id_to_shard_id(&aid("bar.foo.aurora"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("bar"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("bar.bar"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("foo"), &shard_layout), sid(3));
+        assert_eq!(account_id_to_shard_id(&aid("baz.foo"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("foo.baz"), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&aid("a.foo.baz"), &shard_layout), sid(0));
 
-        assert_eq!(account_id_to_shard_id(&aid("aaa"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&aid("abc"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&aid("bbb"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("foo.goo"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&aid("goo"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&aid("zoo"), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&aid("aaa"), &shard_layout), sid(0));
+        assert_eq!(account_id_to_shard_id(&aid("abc"), &shard_layout), sid(0));
+        assert_eq!(account_id_to_shard_id(&aid("bbb"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("foo.goo"), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&aid("goo"), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&aid("zoo"), &shard_layout), sid(5));
     }
 
     // check that after removing the fixed shards from the shard layout v1
@@ -905,18 +913,19 @@ mod tests {
 
     #[test]
     fn test_shard_layout_v2() {
+        let sid = |s: u64| new_shard_id_tmp(s);
         let shard_layout = get_test_shard_layout_v2();
 
         // check accounts mapping in the middle of each range
-        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&"ddd".parse().unwrap(), &shard_layout), 8);
-        assert_eq!(account_id_to_shard_id(&"mmm".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&"rrr".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), sid(3));
+        assert_eq!(account_id_to_shard_id(&"ddd".parse().unwrap(), &shard_layout), sid(8));
+        assert_eq!(account_id_to_shard_id(&"mmm".parse().unwrap(), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&"rrr".parse().unwrap(), &shard_layout), sid(7));
 
         // check accounts mapping for the boundary accounts
-        assert_eq!(account_id_to_shard_id(&"ccc".parse().unwrap(), &shard_layout), 8);
-        assert_eq!(account_id_to_shard_id(&"kkk".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&"ppp".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"ccc".parse().unwrap(), &shard_layout), sid(8));
+        assert_eq!(account_id_to_shard_id(&"kkk".parse().unwrap(), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&"ppp".parse().unwrap(), &shard_layout), sid(7));
 
         // check shard ids
         assert_eq!(shard_layout.shard_ids().collect_vec(), new_shard_ids_vec(vec![3, 8, 4, 7]));
@@ -927,10 +936,10 @@ mod tests {
         assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(3), u(8), u(4), u(7)]);
 
         // check parent
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(3)).unwrap(), 3);
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(8)).unwrap(), 1);
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(4)).unwrap(), 4);
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(7)).unwrap(), 1);
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(3)).unwrap(), sid(3));
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(8)).unwrap(), sid(1));
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(4)).unwrap(), sid(4));
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(7)).unwrap(), sid(1));
 
         // check child
         assert_eq!(

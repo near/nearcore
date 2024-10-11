@@ -33,8 +33,8 @@ insta.workspace = true
 expect-test.workspace = true
 
 [features]
-# default = ["new_shard_id"] # DO NOT COMMIT THIS
-default = []
+default = ["new_shard_id"] # DO NOT COMMIT THIS
+# default = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
