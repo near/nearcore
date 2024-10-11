@@ -435,8 +435,9 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if cares_about_shard_this_or_next_epoch(
@@ -465,8 +466,10 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
             if block.header().height() == chunk_header.height_included() {
@@ -733,7 +736,7 @@ impl Client {
             BlockProductionTracker::construct_chunk_collection_info(
                 height,
                 &epoch_id,
-                chunk_headers.len() as ShardId,
+                chunk_headers.len(),
                 &new_chunks,
                 self.epoch_manager.as_ref(),
                 &self.chunk_inclusion_tracker,
@@ -741,16 +744,18 @@ impl Client {
         );
 
         // Collect new chunk headers and endorsements.
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_id, chunk_hash) in new_chunks {
+            let shard_index = shard_layout.get_shard_index(shard_id);
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
             *chunk_headers
-                .get_mut(shard_id as usize)
+                .get_mut(shard_index)
                 .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
                 chunk_header;
             *chunk_endorsements
-                .get_mut(shard_id as usize)
+                .get_mut(shard_index)
                 .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
                 chunk_endorsement;
         }
@@ -838,7 +843,7 @@ impl Client {
                 me = ?signer.as_ref().validator_id(),
                 ?chunk_proposer,
                 next_height,
-                shard_id,
+                ?shard_id,
                 "Not producing chunk. Not chunk producer for next chunk.");
             return Ok(None);
         }
@@ -870,7 +875,7 @@ impl Client {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
                 // See comment in similar snipped in `produce_block`
-                debug!(target: "client", shard_id, next_height, "Produce chunk: prev block is not caught up");
+                debug!(target: "client", ?shard_id, next_height, "Produce chunk: prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -878,7 +883,7 @@ impl Client {
             }
         }
 
-        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, shard_id, "Producing chunk");
+        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, ?shard_id, "Producing chunk");
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         let chunk_extra = self
@@ -886,9 +891,10 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let (prev_shard_id, prev_shard_index) =
+            self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
         let last_chunk_header =
-            prev_block.chunks().get(prev_shard_id as usize).cloned().ok_or_else(|| {
+            prev_block.chunks().get(prev_shard_index).cloned().ok_or_else(|| {
                 Error::ChunkProducer(format!(
                     "No last chunk in prev_block_hash {:?}, prev_shard_id: {}",
                     prev_block_hash, prev_shard_id
@@ -1029,7 +1035,7 @@ impl Client {
         chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
-        let shard_id = shard_uid.shard_id as ShardId;
+        let shard_id = shard_uid.shard_id();
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
@@ -1460,8 +1466,18 @@ impl Client {
     ) {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
+
+        // TODO(#10569) We would like a proper error handling here instead of `expect`.
+        let parent_hash = *chunk_header.prev_block_hash();
+        let shard_layout = self
+            .epoch_manager
+            .get_shard_layout_from_prev_block(&parent_hash)
+            .expect("Could not obtain shard layout");
+
+        let shard_id = partial_chunk.shard_id();
+        let shard_index = shard_layout.get_shard_index(shard_id);
         self.block_production_info
-            .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
+            .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
@@ -2217,7 +2233,7 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, shard_id, "Routing a transaction");
+            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, ?shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -2399,7 +2415,7 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if self.active_validator(shard_id, signer)? {
-                    trace!(target: "client", account = ?me, shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
+                    trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                     if !is_forwarded {
@@ -2407,12 +2423,12 @@ impl Client {
                     }
                     Ok(ProcessTxResponse::ValidTx)
                 } else if !is_forwarded {
-                    trace!(target: "client", shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
+                    trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx, signer)?;
                     Ok(ProcessTxResponse::RequestRouted)
                 } else {
-                    trace!(target: "client", shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
+                    trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
                     Ok(ProcessTxResponse::NoResponse)
                 }
@@ -2421,7 +2437,7 @@ impl Client {
             Ok(ProcessTxResponse::DoesNotTrackShard)
         } else if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            debug!(target: "client", ?me, shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
+            debug!(target: "client", ?me, ?shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
             Ok(ProcessTxResponse::NoResponse)
         } else {
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
@@ -2508,7 +2524,7 @@ impl Client {
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
             debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?shards_to_split, "Catchup");
 
-            let tracking_shards: Vec<u64> =
+            let tracking_shards: Vec<ShardId> =
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
             // Notify each shard to sync.
             if notify_state_sync {
@@ -2580,7 +2596,7 @@ impl Client {
         sync_hash: CryptoHash,
         state_sync_info: &StateSyncInfo,
         me: &Option<AccountId>,
-    ) -> Result<HashMap<u64, ShardSyncStatus>, Error> {
+    ) -> Result<HashMap<ShardId, ShardSyncStatus>, Error> {
         let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
         let need_to_reshard = self.epoch_manager.will_shard_layout_change(&prev_hash)?;
 
@@ -2593,7 +2609,7 @@ impl Client {
         let shards_to_split = state_sync_info
             .shards
             .iter()
-            .filter_map(|ShardInfo(shard_id, _)| self.should_split_shard(shard_id, me, prev_hash))
+            .filter_map(|ShardInfo(shard_id, _)| self.should_split_shard(*shard_id, me, prev_hash))
             .collect();
         Ok(shards_to_split)
     }
@@ -2602,11 +2618,10 @@ impl Client {
     /// track it.
     fn should_split_shard(
         &mut self,
-        shard_id: &u64,
+        shard_id: ShardId,
         me: &Option<AccountId>,
         prev_hash: CryptoHash,
-    ) -> Option<(u64, ShardSyncStatus)> {
-        let shard_id = *shard_id;
+    ) -> Option<(ShardId, ShardSyncStatus)> {
         if self.shard_tracker.care_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
             Some((shard_id, ShardSyncStatus::ReshardingScheduling))
         } else {

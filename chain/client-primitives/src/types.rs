@@ -479,7 +479,7 @@ pub enum GetChunkError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
     UnknownBlock { error_message: String },
     #[error("Shard ID {shard_id} is invalid")]
-    InvalidShardId { shard_id: u64 },
+    InvalidShardId { shard_id: ShardId },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: ChunkHash },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle

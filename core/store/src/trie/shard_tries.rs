@@ -286,7 +286,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
-        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_insertions(
@@ -309,7 +309,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
-        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_deletions(
@@ -553,7 +553,7 @@ impl WrappedTrieChanges {
         level = "debug",
         target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
-        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        fields(num_state_changes = self.state_changes.len(), shard_id = ?self.shard_uid.shard_id()),
         skip_all,
     )]
     pub fn state_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {
