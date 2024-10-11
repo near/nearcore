@@ -373,11 +373,14 @@ message SignedTransaction {
 // Wrapper of borsh-encoded RoutedMessage
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/mod.rs#L295
 message RoutedMessage {
+  // Deprecated
+  reserved 3;
+
   bytes borsh = 1;
   // Timestamp of creating the Routed message by its original author.
   google.protobuf.Timestamp created_at = 2;
   // Number of peers this routed message travelled through. Doesn't include the peer that created the message.
-  int32 num_hops = 3;
+  uint32 num_hops = 4;
 }
 
 // Disconnect is send by a node before closing a TCP connection.

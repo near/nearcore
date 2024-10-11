@@ -434,7 +434,7 @@ fn record_routed_msg_latency(
 // The routed message reached its destination. If the number of hops is known, then update the
 // corresponding metric.
 fn record_routed_msg_hops(msg: &RoutedMessageV2) {
-    const MAX_NUM_HOPS: i32 = 20;
+    const MAX_NUM_HOPS: u32 = 20;
     // We assume that the number of hops is small.
     // As long as the number of hops is below 10, this metric will not consume too much memory.
     let num_hops = if msg.num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { msg.num_hops };
