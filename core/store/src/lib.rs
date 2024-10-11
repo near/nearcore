@@ -320,15 +320,24 @@ impl Store {
         Ok(value)
     }
 
+    /// Reads shard_uid mapping for given shard.
+    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
+    pub(crate) fn read_shard_uid_mapping_from_db(
+        &self,
+        shard_uid: ShardUId,
+    ) -> io::Result<ShardUId> {
+        let mapped_shard_uid =
+            self.get_ser::<ShardUId>(DBCol::ShardUIdMapping, &shard_uid.to_bytes())?;
+        Ok(mapped_shard_uid.unwrap_or(shard_uid))
+    }
+
     /// Specialized `get` implementation for State column that replaces shard_uid prefix
     /// with a mapped value according to mapping strategy in Resharding V3.
     ///
     /// It does extra read from `DBCol::ShardUIdMapping` to map the shard_uid key prefix.
     fn get_impl_state(&self, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let shard_uid = retrieve_shard_uid_from_db_key(key)?;
-        let mapped_shard_uid = self
-            .get_ser::<ShardUId>(DBCol::ShardUIdMapping, &shard_uid.to_bytes())?
-            .unwrap_or(shard_uid);
+        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
         let mapped_key = if shard_uid != mapped_shard_uid {
             &replace_shard_uid_key_prefix(key, mapped_shard_uid)
         } else {
