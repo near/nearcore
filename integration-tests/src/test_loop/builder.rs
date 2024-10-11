@@ -383,6 +383,7 @@ impl TestLoopBuilder {
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
             partial_witness_adapter.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
+            client_adapter.as_multi_sender(),
         )
         .unwrap();
 

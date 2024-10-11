@@ -1,10 +1,11 @@
 use super::downloader::StateSyncDownloader;
 use super::task_tracker::TaskTracker;
-use super::ChainFinalizationRequest;
 use crate::metrics;
+use crate::sync::state::chain_requests::ChainFinalizationRequest;
 use crate::sync::state::util::query_epoch_id_and_height_for_block;
 use futures::{StreamExt, TryStreamExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::messaging::AsyncSender;
 use near_chain::types::RuntimeAdapter;
 use near_chain::BlockHeader;
 use near_client_primitives::types::ShardSyncStatus;
@@ -18,7 +19,6 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -61,7 +61,7 @@ pub(super) async fn run_state_sync_for_shard(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     computation_task_tracker: TaskTracker,
     status: Arc<Mutex<ShardSyncStatus>>,
-    chain_finalization_queue: UnboundedSender<ChainFinalizationRequest>,
+    chain_finalization_sender: AsyncSender<ChainFinalizationRequest, Result<(), near_chain::Error>>,
     cancel: CancellationToken,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> Result<(), near_chain::Error> {
@@ -160,12 +160,11 @@ pub(super) async fn run_state_sync_for_shard(
 
     // Finalize; this needs to be done by the Chain.
     *status.lock().unwrap() = ShardSyncStatus::StateApplyFinalizing;
-    let (response_sender, response_receiver) = oneshot::channel();
-    chain_finalization_queue
-        .send(ChainFinalizationRequest { shard_id, sync_hash, response_sender })
-        .map_err(|_| near_chain::Error::Other("Chain finalization queue closed".to_owned()))?;
-    response_receiver.await.map_err(|_| {
-        near_chain::Error::Other("Chain finalization response dropped".to_owned())
+    chain_finalization_sender
+        .send_async(ChainFinalizationRequest { shard_id, sync_hash })
+        .await
+        .map_err(|_| {
+        near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
     })??;
 
     *status.lock().unwrap() = ShardSyncStatus::StateSyncDone;

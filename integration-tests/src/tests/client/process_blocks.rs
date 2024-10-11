@@ -2416,7 +2416,10 @@ fn test_catchup_gas_price_change() {
         assert!(env.clients[1]
             .runtime_adapter
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(ShardUId::single_shard(), &mut store_update.flat_store_update())
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
             .unwrap());
         store_update.commit().unwrap();
         for part_id in 0..num_parts {

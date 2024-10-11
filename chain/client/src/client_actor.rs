@@ -13,6 +13,9 @@ use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
+use crate::sync::state::chain_requests::{
+    ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
+};
 use crate::sync::state::{get_epoch_start_sync_hash, StateSyncResult};
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{metrics, StatusResponse, SyncAdapter};
@@ -144,6 +147,8 @@ pub fn start_client(
     let client_arbiter_handle = client_arbiter.handle();
 
     wait_until_genesis(&chain_genesis.time);
+
+    let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -161,6 +166,7 @@ pub fn start_client(
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
         state_sync_future_spawner,
+        chain_sender_for_state_sync.as_multi_sender(),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
@@ -191,6 +197,8 @@ pub fn start_client(
     client_sender_for_sync_jobs
         .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
     client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
+    chain_sender_for_state_sync
+        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
 
     StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
 }
@@ -1759,7 +1767,6 @@ impl ClientActorInner {
         let state_sync_result = self.client.state_sync.run(
             sync_hash,
             state_sync_status,
-            &mut self.client.chain,
             &self.network_info.highest_height_peers,
             shards_to_sync,
         );
@@ -2166,5 +2173,19 @@ impl Handler<ChunkEndorsementMessage> for ClientActorInner {
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
+    }
+}
+
+impl Handler<StateHeaderValidationRequest> for ClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: StateHeaderValidationRequest) -> Result<(), near_chain::Error> {
+        self.client.chain.set_state_header(msg.shard_id, msg.sync_hash, msg.header)
+    }
+}
+
+impl Handler<ChainFinalizationRequest> for ClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: ChainFinalizationRequest) -> Result<(), near_chain::Error> {
+        self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
     }
 }

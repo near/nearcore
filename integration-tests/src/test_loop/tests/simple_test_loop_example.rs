@@ -106,6 +106,7 @@ fn test_client_with_simple_test_loop() {
         Arc::new(test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner()),
+        noop().into_multi_sender(),
     )
     .unwrap();
 

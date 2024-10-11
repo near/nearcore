@@ -1046,6 +1046,7 @@ pub fn setup_client_with_runtime(
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
         Arc::new(ActixFutureSpawner),
+        noop().into_multi_sender(), // state sync ignored for these tests
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

@@ -1,8 +1,10 @@
+use super::chain_requests::StateHeaderValidationRequest;
 use super::task_tracker::TaskTracker;
 use super::util::get_state_header_if_exists_in_storage;
-use super::{StateHeaderValidationRequest, StateSyncDownloadSource};
+use super::StateSyncDownloadSource;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
 use near_primitives::hash::CryptoHash;
@@ -12,8 +14,6 @@ use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
@@ -30,7 +30,8 @@ pub(super) struct StateSyncDownloader {
     pub preferred_source: Arc<dyn StateSyncDownloadSource>,
     pub fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
     pub num_attempts_before_fallback: usize,
-    pub header_validation_queue: UnboundedSender<StateHeaderValidationRequest>,
+    pub header_validation_sender:
+        AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
     pub retry_timeout: Duration,
     pub task_tracker: TaskTracker,
@@ -49,7 +50,7 @@ impl StateSyncDownloader {
         cancel: CancellationToken,
     ) -> BoxFuture<Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let store = self.store.clone();
-        let validation_queue = self.header_validation_queue.clone();
+        let validation_sender = self.header_validation_sender.clone();
         let preferred_source = self.preferred_source.clone();
         let fallback_source = self.fallback_source.clone();
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
@@ -80,21 +81,19 @@ impl StateSyncDownloader {
                         .await?;
                     // We cannot validate the header with just a Store. We need the Chain, so we queue it up
                     // so the chain can pick it up later, and we await until the chain gives us a response.
-                    let (validation_sender, validation_receiver) = oneshot::channel();
-                    validation_queue
-                        .send(StateHeaderValidationRequest {
+                    handle.set_status("Waiting for validation");
+                    validation_sender
+                        .send_async(StateHeaderValidationRequest {
                             shard_id,
                             sync_hash,
                             header: header.clone(),
-                            response_sender: validation_sender,
                         })
+                        .await
                         .map_err(|_| {
-                            near_chain::Error::Other("Validation queue closed".to_owned())
-                        })?;
-                    handle.set_status("Waiting for validation");
-                    validation_receiver.await.map_err(|_| {
-                        near_chain::Error::Other("Validation response dropped".to_owned())
-                    })??;
+                            near_chain::Error::Other(
+                                "Validation request could not be handled".to_owned(),
+                            )
+                        })??;
                     Ok::<ShardStateSyncResponseHeader, near_chain::Error>(header)
                 }
             };

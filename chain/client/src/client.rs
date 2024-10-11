@@ -89,6 +89,7 @@ use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
 use crate::sync::epoch::EpochSync;
+use crate::sync::state::chain_requests::ChainSenderForStateSync;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -155,6 +156,7 @@ pub struct Client {
     /// Keeps track of syncing state.
     pub state_sync: StateSync,
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
+    chain_sender_for_state_sync: ChainSenderForStateSync,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
@@ -243,6 +245,7 @@ impl Client {
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_adapter: PartialWitnessSenderForClient,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
+        chain_sender_for_state_sync: ChainSenderForStateSync,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -323,6 +326,7 @@ impl Client {
             config.state_sync_timeout,
             &config.chain_id,
             &config.state_sync.sync,
+            chain_sender_for_state_sync.clone(),
             state_sync_future_spawner.clone(),
             false,
         );
@@ -388,6 +392,7 @@ impl Client {
             block_sync,
             state_sync,
             state_sync_future_spawner,
+            chain_sender_for_state_sync,
             challenges: Default::default(),
             rs_for_chunk_production: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             rebroadcasted_blocks: lru::LruCache::new(
@@ -2486,6 +2491,7 @@ impl Client {
                             state_sync_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
+                            self.chain_sender_for_state_sync.clone(),
                             self.state_sync_future_spawner.clone(),
                             true,
                         ),
@@ -2528,13 +2534,7 @@ impl Client {
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
             // for other shards later.
-            match state_sync.run(
-                sync_hash,
-                status,
-                &mut self.chain,
-                highest_height_peers,
-                tracking_shards,
-            )? {
+            match state_sync.run(sync_hash, status, highest_height_peers, tracking_shards)? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");

@@ -1,3 +1,4 @@
+pub mod chain_requests;
 mod downloader;
 mod external;
 mod network;
@@ -7,11 +8,12 @@ mod util;
 
 use crate::metrics;
 use crate::sync::external::{create_bucket_readonly, ExternalConnection};
+use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
 use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::AsyncSender;
+use near_async::messaging::{AsyncSender, IntoSender};
 use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
 use near_chain::Chain;
@@ -32,7 +34,6 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use task_tracker::{TaskHandle, TaskTracker};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio_util::sync::CancellationToken;
@@ -59,12 +60,8 @@ pub struct StateSync {
     downloading_task_tracker: TaskTracker,
     computation_task_tracker: TaskTracker,
 
-    /// These are used to submit tasks that must be performed synchronously on the
-    /// Chain. To achieve that, state sync posts a request to one of these queues
-    /// and then in `run` we process them.
-    header_validation_queue: UnboundedReceiver<StateHeaderValidationRequest>,
-    chain_finalization_queue: UnboundedReceiver<ChainFinalizationRequest>,
-    chain_finalization_sender: UnboundedSender<ChainFinalizationRequest>,
+    /// Multi-sender to handle requests that must be performed on the thread that owns the Chain.
+    chain_requests_sender: ChainSenderForStateSync,
 
     /// There is one entry in this map for each shard that is being synced.
     shard_syncs: HashMap<(CryptoHash, ShardId), StateSyncShardHandle>,
@@ -95,6 +92,7 @@ impl StateSync {
         timeout: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
+        chain_requests_sender: ChainSenderForStateSync,
         future_spawner: Arc<dyn FutureSpawner>,
         catchup: bool,
     ) -> Self {
@@ -157,11 +155,6 @@ impl StateSync {
                 (None, 0, NUM_CONCURRENT_REQUESTS_FOR_PEERS)
             };
 
-        let (header_validation_sender, header_validation_queue) =
-            tokio::sync::mpsc::unbounded_channel();
-        let (chain_finalization_sender, chain_finalization_queue) =
-            tokio::sync::mpsc::unbounded_channel();
-
         let downloading_task_tracker = TaskTracker::new(num_concurrent_requests);
         let downloader = Arc::new(StateSyncDownloader {
             clock,
@@ -169,7 +162,7 @@ impl StateSync {
             preferred_source: peer_source,
             fallback_source,
             num_attempts_before_fallback,
-            header_validation_queue: header_validation_sender,
+            header_validation_sender: chain_requests_sender.clone().into_sender(),
             runtime: runtime.clone(),
             retry_timeout: timeout, // TODO: This is not what timeout meant. Introduce a new parameter.
             task_tracker: downloading_task_tracker.clone(),
@@ -191,9 +184,7 @@ impl StateSync {
             future_spawner,
             epoch_manager,
             runtime,
-            header_validation_queue,
-            chain_finalization_queue,
-            chain_finalization_sender,
+            chain_requests_sender,
             shard_syncs: HashMap::new(),
         }
     }
@@ -213,25 +204,11 @@ impl StateSync {
         Ok(())
     }
 
-    /// Processes the requests that the state sync module needed the Chain for.
-    fn process_chain_requests(&mut self, chain: &mut Chain) {
-        while let Ok(request) = self.header_validation_queue.try_recv() {
-            let result =
-                chain.set_state_header(request.shard_id, request.sync_hash, request.header);
-            request.response_sender.send(result).ok();
-        }
-        while let Ok(request) = self.chain_finalization_queue.try_recv() {
-            let result = chain.set_state_finalize(request.shard_id, request.sync_hash);
-            request.response_sender.send(result).ok();
-        }
-    }
-
     /// Main loop that should be called periodically.
     pub fn run(
         &mut self,
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
-        chain: &mut Chain,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
@@ -242,7 +219,6 @@ impl StateSync {
         self.peer_source_state.lock().unwrap().set_highest_peers(
             highest_height_peers.iter().map(|info| info.peer_info.id.clone()).collect(),
         );
-        self.process_chain_requests(chain);
 
         let mut all_done = true;
         for shard_id in &tracking_shards {
@@ -283,7 +259,7 @@ impl StateSync {
                         self.epoch_manager.clone(),
                         self.computation_task_tracker.clone(),
                         status.clone(),
-                        self.chain_finalization_sender.clone(),
+                        self.chain_requests_sender.clone().into_sender(),
                         cancel.clone(),
                         self.future_spawner.clone(),
                     );
@@ -324,23 +300,6 @@ pub enum StateSyncResult {
     InProgress,
     /// The state for all shards was downloaded.
     Completed,
-}
-
-/// Request to the chain to validate a state sync header.
-pub struct StateHeaderValidationRequest {
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    header: ShardStateSyncResponseHeader,
-    /// The validation response shall be sent via this sender.
-    response_sender: oneshot::Sender<Result<(), near_chain::Error>>,
-}
-
-/// Request to the chain to finalize a state sync.
-pub struct ChainFinalizationRequest {
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    /// The finalization response shall be sent via this sender.
-    response_sender: oneshot::Sender<Result<(), near_chain::Error>>,
 }
 
 /// Abstracts away the source of state sync headers and parts. Only one instance is kept per
