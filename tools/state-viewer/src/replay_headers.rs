@@ -282,7 +282,6 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
         near_config.config.cold_store.as_ref(),
     );
     let storage = store_opener.open_in_mode(Mode::ReadOnly).unwrap();
-    let shard_uid_mapping = storage.get_shard_uid_mapping();
 
     let read_db = if storage.has_cold() {
         storage.get_split_db().unwrap()
@@ -290,5 +289,5 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
         storage.into_inner(Temperature::Hot)
     };
     let write_db = TestDB::new();
-    Store::new(MixedDB::new(read_db, write_db, ReadOrder::WriteDBFirst), shard_uid_mapping)
+    Store::new(MixedDB::new(read_db, write_db, ReadOrder::WriteDBFirst))
 }

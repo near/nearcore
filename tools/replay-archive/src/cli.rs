@@ -28,7 +28,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
-use near_store::{get_genesis_state_roots, ShardUId, ShardUIdMapping, Store};
+use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::HashMap;
 use std::path::Path;
@@ -111,7 +111,7 @@ impl ReplayController {
         end_height: Option<BlockHeight>,
     ) -> Result<Self> {
         let storage = open_storage_for_replay(home_dir, &near_config)?;
-        let store = Store::new(storage.clone(), ShardUIdMapping::new());
+        let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
