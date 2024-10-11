@@ -85,6 +85,12 @@ pub enum StateSyncFileDownloadResult {
     StatePart { part_length: u64 },
 }
 
+#[derive(PartialEq, Eq)]
+enum PartProvenance {
+    Peers,
+    External,
+}
+
 /// Signals that a state part was downloaded and saved to RocksDB.
 /// Or failed to do so.
 pub struct StateSyncGetFileResult {
@@ -92,6 +98,7 @@ pub struct StateSyncGetFileResult {
     shard_id: ShardId,
     part_id: Option<PartId>,
     result: Result<StateSyncFileDownloadResult, String>,
+    provenance: PartProvenance,
 }
 
 struct StateSyncExternal {
@@ -348,8 +355,13 @@ impl StateSync {
         sync_hash: CryptoHash,
         shard_sync: &mut HashMap<ShardId, ShardSyncDownload>,
     ) {
-        for StateSyncGetFileResult { sync_hash: msg_sync_hash, shard_id, part_id, result } in
-            self.state_parts_mpsc_rx.try_iter()
+        for StateSyncGetFileResult {
+            sync_hash: msg_sync_hash,
+            shard_id,
+            part_id,
+            result,
+            provenance,
+        } in self.state_parts_mpsc_rx.try_iter()
         {
             if msg_sync_hash != sync_hash {
                 tracing::debug!(target: "sync",
@@ -401,6 +413,7 @@ impl StateSync {
                     download,
                     file_type,
                     download_result,
+                    provenance,
                 );
             }
         }
@@ -787,6 +800,7 @@ impl StateSync {
                                     shard_id,
                                     part_id: Some(part_id),
                                     result,
+                                    provenance: PartProvenance::Peers,
                                 }) {
                                     Ok(_) => tracing::debug!(target: "sync", %shard_id, ?part_id, "Download response sent to processing thread."),
                                     Err(err) => {
@@ -1131,6 +1145,7 @@ fn request_header_from_external_storage(
                 shard_id,
                 part_id: None,
                 result,
+                provenance: PartProvenance::External,
             }) {
                 Ok(_) => tracing::debug!(target: "sync", %shard_id, "Download header response sent to processing thread."),
                 Err(err) => {
@@ -1220,6 +1235,7 @@ fn request_part_from_external_storage(
                         shard_id,
                         part_id: Some(part_id),
                         result,
+                        provenance: PartProvenance::External,
                     }) {
                         Ok(_) => tracing::debug!(target: "sync", %shard_id, ?part_id, "Download response sent to processing thread."),
                         Err(err) => {
@@ -1312,23 +1328,28 @@ fn process_download_response(
     download: Option<&mut DownloadStatus>,
     file_type: String,
     download_result: Result<u64, String>,
+    provenance: PartProvenance,
 ) {
     match download_result {
         Ok(data_len) => {
             // No error, aka Success.
-            metrics::STATE_SYNC_EXTERNAL_PARTS_DONE
-                .with_label_values(&[&shard_id.to_string(), &file_type])
-                .inc();
-            metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
-                .with_label_values(&[&shard_id.to_string(), &file_type])
-                .inc_by(data_len);
+            if provenance == PartProvenance::External {
+                metrics::STATE_SYNC_EXTERNAL_PARTS_DONE
+                    .with_label_values(&[&shard_id.to_string(), &file_type])
+                    .inc();
+                metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
+                    .with_label_values(&[&shard_id.to_string(), &file_type])
+                    .inc_by(data_len);
+            }
             download.map(|download| download.done = true);
         }
         // The request failed without reaching the external storage.
         Err(err) => {
-            metrics::STATE_SYNC_EXTERNAL_PARTS_FAILED
-                .with_label_values(&[&shard_id.to_string(), &file_type])
-                .inc();
+            if provenance == PartProvenance::External {
+                metrics::STATE_SYNC_EXTERNAL_PARTS_FAILED
+                    .with_label_values(&[&shard_id.to_string(), &file_type])
+                    .inc();
+            }
             tracing::debug!(target: "sync", ?err, %shard_id, %sync_hash, ?file_type, "Failed to get a file from external storage, will retry");
             download.map(|download| download.done = false);
         }
