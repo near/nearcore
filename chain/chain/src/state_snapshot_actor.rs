@@ -5,7 +5,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::EpochHeight;
+use near_primitives::types::{EpochHeight, ShardIndex};
 use near_store::flat::FlatStorageManager;
 use near_store::ShardTries;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ pub struct CreateSnapshotRequest {
     /// epoch height associated with prev_block_hash
     epoch_height: EpochHeight,
     /// Shards that need to be present in the snapshot.
-    shard_uids: Vec<ShardUId>,
+    shard_uids: Vec<(ShardIndex, ShardUId)>,
     /// Last block of the prev epoch.
     block: Block,
 }
@@ -125,8 +125,12 @@ pub struct StateSnapshotSenderForStateSnapshot {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateSnapshotSenderForClient(Sender<DeleteAndMaybeCreateSnapshotRequest>);
 
-type MakeSnapshotCallback =
-    Arc<dyn Fn(CryptoHash, EpochHeight, Vec<ShardUId>, Block) -> () + Send + Sync + 'static>;
+type MakeSnapshotCallback = Arc<
+    dyn Fn(CryptoHash, EpochHeight, Vec<(ShardIndex, ShardUId)>, Block) -> ()
+        + Send
+        + Sync
+        + 'static,
+>;
 
 type DeleteSnapshotCallback = Arc<dyn Fn() -> () + Send + Sync + 'static>;
 

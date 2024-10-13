@@ -33,14 +33,14 @@ insta.workspace = true
 expect-test.workspace = true
 
 [features]
-# default = []
+default = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
 protocol_feature_nonrefundable_transfer_nep491 = []
 
 # TODO(wacban) remove after the transition is done
-default = ["new_shard_id"] # DO NOT COMMIT THIS
+# default = ["new_shard_id"] # DO NOT COMMIT THIS
 new_shard_id = []
 
 nightly = [
