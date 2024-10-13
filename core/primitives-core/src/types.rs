@@ -1,5 +1,6 @@
 #[cfg(feature = "new_shard_id")]
 use std::fmt::Display;
+#[cfg(feature = "new_shard_id")]
 use std::ops::Add;
 
 use crate::hash::CryptoHash;
