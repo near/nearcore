@@ -245,9 +245,13 @@ impl Client {
         // Fetch all incoming receipts for `prev_chunk`.
         // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)
         // and `prev_chunk_original_block`
+        let shard_layout = self
+            .epoch_manager
+            .get_shard_layout_from_prev_block(prev_chunk_original_block.prev_hash())?;
         let incoming_receipt_proofs = self.chain.chain_store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             prev_chunk_header.shard_id(),
+            &shard_layout,
             *prev_chunk_original_block.hash(),
             prev_prev_chunk_header.height_included(),
         )?;

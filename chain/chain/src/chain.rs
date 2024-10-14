@@ -2481,15 +2481,16 @@ impl Chain {
             return Err(sync_hash_not_first_hash(sync_hash));
         }
 
-        let epoch_id = sync_prev_block.header().epoch_id();
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_layout = self.epoch_manager.get_shard_layout(&sync_block_epoch_id)?;
+        let prev_epoch_id = sync_prev_block.header().epoch_id();
+        let prev_shard_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        let prev_shard_index = prev_shard_layout.get_shard_index(shard_id);
 
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = sync_prev_block.hash();
         let chunks = sync_prev_block.chunks();
         let chunk_header =
-            chunks.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
+            chunks.get(prev_shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
@@ -2502,8 +2503,10 @@ impl Chain {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         let chunk = self.get_chunk_clone_from_header(chunk_header)?;
-        let chunk_proof =
-            chunk_proofs.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?.clone();
+        let chunk_proof = chunk_proofs
+            .get(prev_shard_index)
+            .ok_or_else(|| Error::InvalidShardId(shard_id))?
+            .clone();
         let block_header =
             self.get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
 
@@ -2514,7 +2517,7 @@ impl Chain {
             Ok(prev_block) => {
                 let prev_chunk_header = prev_block
                     .chunks()
-                    .get(shard_index)
+                    .get(prev_shard_index)
                     .ok_or_else(|| Error::InvalidShardId(shard_id))?
                     .clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
@@ -2529,7 +2532,7 @@ impl Chain {
                 assert_eq!(&prev_chunk_headers_root, prev_block.header().chunk_headers_root());
 
                 let prev_chunk_proof = prev_chunk_proofs
-                    .get(shard_index)
+                    .get(prev_shard_index)
                     .ok_or_else(|| Error::InvalidShardId(shard_id))?
                     .clone();
                 let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -2553,6 +2556,7 @@ impl Chain {
         let incoming_receipts_proofs = self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
+            &shard_layout,
             sync_hash,
             prev_chunk_height_included,
         )?;
@@ -2581,7 +2585,7 @@ impl Chain {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
-                let from_shard_index = shard_layout.get_shard_index(*from_shard_id);
+                let from_shard_index = prev_shard_layout.get_shard_index(*from_shard_id);
 
                 let root_proof = block.chunks()[from_shard_index].prev_outgoing_receipts_root();
                 root_proofs_cur
@@ -3781,9 +3785,12 @@ impl Chain {
                 // we can't use hash from the current block here yet because the incoming receipts
                 // for this block is not stored yet
                 let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+                let shard_layout =
+                    self.epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
                 let old_receipts = &self.chain_store().get_incoming_receipts_for_shard(
                     self.epoch_manager.as_ref(),
                     shard_id,
+                    &shard_layout,
                     *prev_hash,
                     prev_chunk_height_included,
                 )?;
