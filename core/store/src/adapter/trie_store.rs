@@ -106,12 +106,14 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         hash: &CryptoHash,
         decrement: NonZero<u32>,
     ) {
-        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
     }
 
     pub fn decrement_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash) {
-        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount(DBCol::State, key.as_ref());
     }
 
@@ -122,7 +124,8 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         data: &[u8],
         decrement: NonZero<u32>,
     ) {
-        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, decrement);
     }
 
