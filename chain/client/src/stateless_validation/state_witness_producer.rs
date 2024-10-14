@@ -57,7 +57,6 @@ impl Client {
         }
 
         let height = chunk_header.height_created();
-        println!("get_chunk_validator_assignments");
         if self
             .epoch_manager
             .get_chunk_validator_assignments(epoch_id, shard_id, height)?
@@ -89,7 +88,6 @@ impl Client {
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
     ) -> Result<ChunkStateWitness, Error> {
-        println!("create_state_witness");
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
@@ -255,7 +253,6 @@ impl Client {
         )?;
 
         // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])
-        println!("incoming_receipt_proofs");
         let mut source_receipt_proofs = HashMap::new();
         for receipt_proof_response in incoming_receipt_proofs {
             let from_block = self.chain.chain_store().get_block(&receipt_proof_response.0)?;
@@ -264,7 +261,6 @@ impl Client {
             for proof in receipt_proof_response.1.iter() {
                 let from_shard_id = proof.1.from_shard_id;
                 let from_shard_index = shard_layout.get_shard_index(from_shard_id);
-                println!("from: id: {}, index: {}", from_shard_id, from_shard_index);
                 let from_chunk_hash = from_block
                     .chunks()
                     .get(from_shard_index)

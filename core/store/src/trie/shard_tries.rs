@@ -484,7 +484,11 @@ impl ShardTries {
         }
     }
 
-    pub fn freeze(
+    /// Freezes in-memory trie for source shard and copies reference to it to
+    /// target shards.
+    /// Needed to serve queries for these shards just after resharding, before
+    /// proper memtries are loaded.
+    pub fn freeze_mem_tries(
         &self,
         source_shard_uid: ShardUId,
         target_shard_uids: Vec<ShardUId>,
@@ -500,7 +504,7 @@ impl ShardTries {
         for shard_uid in [vec![source_shard_uid], target_shard_uids].concat() {
             outer_guard.insert(
                 shard_uid,
-                Arc::new(RwLock::new(MemTries::from_frozen(
+                Arc::new(RwLock::new(MemTries::from_frozen_arena(
                     shard_uid,
                     arena.clone(),
                     roots.clone(),

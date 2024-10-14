@@ -7,7 +7,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::get_block_shard_uid;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::trie::mem::resharding::RetainMode;
@@ -59,15 +59,21 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        if !matches!(next_shard_layout, ShardLayout::V2(_)) {
+            return Ok(());
+        }
         let resharding_event_type =
             ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
         let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
             return Ok(());
         };
+        if split_shard_event.parent_shard != shard_uid {
+            return Ok(());
+        }
 
         // TODO(#12019): what if node doesn't have memtrie? just pause
         // processing?
-        tries.freeze(
+        tries.freeze_mem_tries(
             shard_uid,
             vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
         )?;
@@ -105,11 +111,6 @@ impl ReshardingManager {
             let mut child_chunk_extra = ChunkExtra::clone(&chunk_extra);
             *child_chunk_extra.state_root_mut() = new_state_root;
 
-            // TODO(store): Use proper store interface
-            println!(
-                "save chunk extra: block hash: {:?}, shard uid: {:?}, state root: {:?}",
-                block_hash, new_shard_uid, new_state_root
-            );
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
                 *block_hash,

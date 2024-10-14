@@ -3781,11 +3781,9 @@ impl Chain {
                 // we can't use hash from the current block here yet because the incoming receipts
                 // for this block is not stored yet
                 let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-                // let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_hash, shard_id)?.0;
                 let old_receipts = &self.chain_store().get_incoming_receipts_for_shard(
                     self.epoch_manager.as_ref(),
                     shard_id,
-                    // prev_shard_id,
                     *prev_hash,
                     prev_chunk_height_included,
                 )?;

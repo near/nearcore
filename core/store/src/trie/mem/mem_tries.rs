@@ -53,7 +53,7 @@ impl MemTries {
         }
     }
 
-    pub fn from_frozen(
+    pub fn from_frozen_arena(
         shard_uid: ShardUId,
         arena: FrozenArena,
         roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
@@ -207,6 +207,9 @@ impl MemTries {
         Ok(memtrie_lookup(root, key, nodes_accessed))
     }
 
+    /// Freezes arena and returns a tuple of frozen arena, roots and heights.
+    /// Used to construct new memtries from shared frozen memtrie based on this
+    /// one.
     pub fn freeze(
         self,
     ) -> (FrozenArena, HashMap<StateRoot, Vec<MemTrieNodeId>>, BTreeMap<BlockHeight, Vec<StateRoot>>)
