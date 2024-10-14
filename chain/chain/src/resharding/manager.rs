@@ -57,15 +57,15 @@ impl ReshardingManager {
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
-        let resharding_event_type =
-            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash);
         // Hack to ensure this logic is not applied before ReshardingV3.
         // TODO(#12019): proper logic.
         if next_shard_layout.version() < 3 {
             return Ok(());
         }
-        let Ok(Some(ReshardingEventType::SplitShard(split_shard_event))) = resharding_event_type
-        else {
+
+        let resharding_event_type =
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
+        let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
             return Ok(());
         };
 
