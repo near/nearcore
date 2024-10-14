@@ -437,7 +437,7 @@ fn record_routed_msg_hops(msg: &RoutedMessageV2) {
     const MAX_NUM_HOPS: u32 = 20;
     // We assume that the number of hops is small.
     // As long as the number of hops is below 10, this metric will not consume too much memory.
-    let num_hops = if msg.num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { msg.num_hops };
+    let num_hops = std::cmp::min(MAX_NUM_HOPS, msg.num_hops);
     NETWORK_ROUTED_MSG_NUM_HOPS
         .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
         .inc();
