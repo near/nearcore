@@ -214,10 +214,12 @@ fn run_state_sync_with_dumped_parts(
         // check that the new account exists
         let head = env.clients[0].chain.head().unwrap();
         let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let shard_id = shard_uid.shard_id();
         let response = env.clients[0]
             .runtime_adapter
             .query(
-                ShardUId::single_shard(),
+                shard_uid,
                 &head_block.chunks()[0].prev_state_root(),
                 head.height,
                 0,
@@ -260,7 +262,7 @@ fn run_state_sync_with_dumped_parts(
         );
         assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
         let state_sync_header =
-            env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+            env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
         let state_root = state_sync_header.chunk_prev_state_root();
         let num_parts = state_sync_header.num_state_parts();
 
@@ -298,7 +300,7 @@ fn run_state_sync_with_dumped_parts(
 
         // Simulate state sync
         tracing::info!("syncing node: simulating state sync..");
-        env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+        env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header).unwrap();
         let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
         let runtime_client_0 = Arc::clone(&env.clients[0].runtime_adapter);
         let client_0_store = runtime_client_0.store();
@@ -313,14 +315,15 @@ fn run_state_sync_with_dumped_parts(
         store_update.commit().unwrap();
 
         for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             let part = client_0_store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
+            let part_id = PartId::new(part_id, num_parts);
             runtime_client_1
-                .apply_state_part(0, &state_root, PartId::new(part_id, num_parts), &part, &epoch_id)
+                .apply_state_part(shard_id, &state_root, part_id, &part, &epoch_id)
                 .unwrap();
         }
-        env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
+        env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
         tracing::info!("syncing node: state sync finished.");
 
         let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();
