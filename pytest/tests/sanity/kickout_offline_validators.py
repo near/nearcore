@@ -6,7 +6,7 @@
 # more than the last 4 validators to ensure that the former 4 befome block+chunk producers
 # and the latter 4 become chunk validator only.
 
-import sys, time
+import sys
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -15,10 +15,14 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-EPOCH_LENGTH = 10
+EPOCH_LENGTH = 15
 
 # Use very low threshold to target offline validators only.
 KICKOUT_THRESHOLD = 10
+
+# Make block producer account's balance larger than chunk validators to establish the intended distribution of roles.
+BLOCK_PRODUCER_BALANCE = str(10**30)
+CHUNK_VALIDATOR_BALANCE = str(10**28)
 
 node_config = {
     "tracked_shards": [0],  # Track all shards.
@@ -78,24 +82,21 @@ def get_epoch_info(node, block_hash):
 
 
 nodes = start_cluster(
-    8, 0, 4, None,
-    [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 8],
-     ["num_chunk_producer_seats", 8], ["num_chunk_validator_seats", 16],
-     ["block_producer_kickout_threshold", KICKOUT_THRESHOLD],
-     ["chunk_producer_kickout_threshold", KICKOUT_THRESHOLD],
-     ["chunk_validator_only_kickout_threshold", KICKOUT_THRESHOLD],
-     ["minimum_validators_per_shard", 1],
-     ["total_supply", "8644440000000000000000000000000000"]] +
-    [["validators", i, "amount", "11000000000000000000000000000000"]
-     for i in range(4)] +
-    [["validators", i, "amount", "110000000000000000000000000000"]
-     for i in range(4, 8)] + [[
-         "records", 2 * i, "Account", "account", "locked",
-         "11000000000000000000000000000000"
-     ] for i in range(4)] + [[
-         "records", 2 * i, "Account", "account", "locked",
-         "110000000000000000000000000000"
-     ] for i in range(4, 8)], {i: node_config for i in range(8)})
+    8, 0, 1,
+    None, [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 4],
+           ["num_block_producer_seats_per_shard", [4]],
+           ["num_chunk_producer_seats", 4], ["num_chunk_validator_seats", 8],
+           ["block_producer_kickout_threshold", KICKOUT_THRESHOLD],
+           ["chunk_producer_kickout_threshold", KICKOUT_THRESHOLD],
+           ["chunk_validator_only_kickout_threshold", KICKOUT_THRESHOLD],
+           ["minimum_validators_per_shard", 1],
+           ["total_supply", "8604040000000000000000000000000000"]] + [[
+               "validators", i, "amount",
+               BLOCK_PRODUCER_BALANCE if i < 4 else CHUNK_VALIDATOR_BALANCE
+           ] for i in range(8)] + [[
+               "records", 2 * i, "Account", "account", "locked",
+               BLOCK_PRODUCER_BALANCE if i < 4 else CHUNK_VALIDATOR_BALANCE
+           ] for i in range(8)], {i: node_config for i in range(8)})
 
 rpc_node = nodes[0]
 
