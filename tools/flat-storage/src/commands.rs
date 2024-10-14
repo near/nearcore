@@ -192,7 +192,7 @@ impl FlatStorageCommand {
             let shard_uid = ShardUId::try_from(bytes_shard_uid.as_ref()).unwrap();
             let status = FlatStorageStatus::try_from_slice(&status)?;
             if let Some(shard_id) = cmd.shard_id {
-                if shard_id != shard_uid.shard_id as ShardId {
+                if shard_id != shard_uid.shard_id() {
                     continue;
                 }
             }

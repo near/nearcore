@@ -119,7 +119,7 @@ impl StateSyncDumper {
                 (self.dump_future_runner)(
                     state_sync_dump(
                         self.clock.clone(),
-                        shard_id as ShardId,
+                        shard_id,
                         chain,
                         self.epoch_manager.clone(),
                         self.shard_tracker.clone(),
