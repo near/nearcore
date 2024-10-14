@@ -29,24 +29,25 @@ use near_store::flat::{
 };
 use near_store::{ShardUId, StorageError};
 
-/// `FlatStorageResharder` takes care of updating flat storage when a resharding event
-/// happens.
+/// `FlatStorageResharder` takes care of updating flat storage when a resharding event happens.
 ///
 /// On an high level, the events supported are:
 /// - #### Shard splitting
 ///     Parent shard must be split into two children. The entire operation freezes the flat storage
-///     for the involved shards.
-///     Children shards are created empty and the key-values of the parent will be copied into one of them,
-///     in the background.
+///     for the involved shards. Children shards are created empty and the key-values of the parent
+///     will be copied into one of them, in the background.
 ///
-///     After the copy is finished the children shard will have the correct state at some past block height.
-///     It'll be necessary to perform catchup before the flat storage can be put again in Ready state.
-///     The parent shard storage is not needed anymore and can be removed.
+///     After the copy is finished the children shard will have the correct state at some past block
+///     height. It'll be necessary to perform catchup before the flat storage can be put again in
+///     Ready state. The parent shard storage is not needed anymore and can be removed.
 ///
 /// The resharder has also the following properties:
-/// - Background processing: the bulk of resharding is done in a separate task, see [FlatStorageResharderScheduler]
-/// - Interruptible: a reshard operation can be interrupted through a [FlatStorageResharderController].
-///     - In the case of event `Split` the state of flat storage will go back to what it was previously.
+/// - Background processing: the bulk of resharding is done in a separate task, see
+///   [FlatStorageResharderScheduler]
+/// - Interruptible: a reshard operation can be interrupted through a
+///   [FlatStorageResharderController].
+///     - In the case of event `Split` the state of flat storage will go back to what it was
+///       previously.
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
@@ -60,7 +61,30 @@ impl FlatStorageResharder {
         Self { runtime, resharding_event }
     }
 
-    /// Resumes a resharding event that was in progress.
+    /// Starts a resharding event.
+    ///
+    /// For now, only splitting a shard is supported.
+    ///
+    /// # Args:
+    /// * `event_type`: the type of resharding event
+    /// * `shard_layout`: the new shard layout
+    /// * `scheduler`: component used to schedule the background tasks
+    /// * `controller`: manages the execution of the background tasks
+    pub fn start_resharding(
+        &self,
+        event_type: ReshardingEventType,
+        shard_layout: &ShardLayout,
+        scheduler: &dyn FlatStorageResharderScheduler,
+        controller: FlatStorageResharderController,
+    ) -> Result<(), Error> {
+        match event_type {
+            ReshardingEventType::SplitShard(params) => {
+                self.split_shard(params, shard_layout, scheduler, controller)
+            }
+        }
+    }
+
+    /// Resumes a resharding event that was interrupted.
     ///
     /// # Args:
     /// * `shard_uid`: UId of the shard
@@ -95,29 +119,6 @@ impl FlatStorageResharder {
             }
         }
         Ok(())
-    }
-
-    /// Starts a resharding event.
-    ///
-    /// For now, only splitting a shard is supported.
-    ///
-    /// # Args:
-    /// * `event_type`: the type of resharding event
-    /// * `shard_layout`: the new shard layout
-    /// * `scheduler`: component used to schedule the background tasks
-    /// * `controller`: manages the execution of the background tasks
-    pub fn start_resharding(
-        &self,
-        event_type: ReshardingEventType,
-        shard_layout: &ShardLayout,
-        scheduler: &dyn FlatStorageResharderScheduler,
-        controller: FlatStorageResharderController,
-    ) -> Result<(), Error> {
-        match event_type {
-            ReshardingEventType::SplitShard(params) => {
-                self.split_shard(params, shard_layout, scheduler, controller)
-            }
-        }
     }
 
     /// Starts the event of splitting a parent shard flat storage into two children.
@@ -280,8 +281,9 @@ fn split_shard_task_impl(
     let (parent_shard, status) = get_parent_shard_and_status(&resharder);
     info!(target: "resharding", ?parent_shard, ?status, "flat storage shard split task: starting key-values copy");
 
-    // Parent shard flat storage head must be on block height just before the new shard layout kicks in.
-    // This guarantees that all deltas have been applied and thus the state of all key-values is up to date.
+    // Parent shard flat storage head must be on block height just before the new shard layout kicks
+    // in. This guarantees that all deltas have been applied and thus the state of all key-values is
+    // up to date.
     // TODO(trisfald): do this check, maybe call update_flat_storage_for_shard
     let _parent_flat_head = status.flat_head;
 
@@ -401,8 +403,8 @@ fn shard_split_handle_key_value(
     Ok(())
 }
 
-/// Performs post-processing of shard splitting after all key-values have been moved from parent to children.
-/// `success` indicates whether or not the previous phase was successful.
+/// Performs post-processing of shard splitting after all key-values have been moved from parent to
+/// children. `success` indicates whether or not the previous phase was successful.
 fn split_shard_task_postprocessing(
     resharder: FlatStorageResharder,
     task_status: FlatStorageReshardingTaskStatus,

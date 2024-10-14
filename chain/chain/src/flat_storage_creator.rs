@@ -389,9 +389,10 @@ impl FlatStorageShardCreator {
             FlatStorageStatus::Disabled => {
                 panic!("initiated flat storage creation for shard {shard_id} while it is disabled");
             }
-            // If the flat storage is undergoing resharding it means it was previously created successfully,
-            // but resharding itself hasn't been finished.
-            // This case is a no-op because the flat storage resharder has already been created in `create_flat_storage_for_current_epoch`.
+            // If the flat storage is undergoing resharding it means it was previously created
+            // successfully, but resharding itself hasn't been finished. This case is a no-op
+            // because the flat storage resharder has already been created in
+            // `create_flat_storage_for_current_epoch`.
             FlatStorageStatus::Resharding(_) => {
                 return Ok(true);
             }
