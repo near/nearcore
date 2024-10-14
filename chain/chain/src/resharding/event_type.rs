@@ -26,34 +26,35 @@ pub struct ReshardingSplitShardParams {
     pub right_child_shard: ShardUId,
     /// The account at the boundary between the two children.
     pub boundary_account: AccountId,
-    /// Hash of the first block having the new shard layout.
+    /// Hash of the last block having the old shard layout.
     pub block_hash: CryptoHash,
     /// The block before `block_hash`.
     pub prev_block_hash: CryptoHash,
 }
 
 impl ReshardingEventType {
-    /// Takes as input a [ShardLayout] definition and deduces which kind of resharding operation must be
-    /// performed.
+    /// Takes as input a [ShardLayout] definition and deduces which kind of resharding operation
+    /// must be performed.
     ///
     /// # Args:
-    /// * `shard_layout`: the new shard layout
-    /// * `block_hash`: hash of the first block with `shard_layout`
+    /// * `next_shard_layout`: the new shard layout
+    /// * `block_hash`: hash of the last block with the shard layout before `next_shard_layout`
     /// * `prev_block_hash`: hash of the block preceding `block_hash`
     ///
-    /// Returns a [ReshardingEventType] if exactly one resharding change is contained in `shard_layout`, otherwise returns `None`.
+    /// Returns a [ReshardingEventType] if exactly one resharding change is contained in
+    /// `next_shard_layout`, otherwise returns `None`.
     pub fn from_shard_layout(
-        shard_layout: &ShardLayout,
+        next_shard_layout: &ShardLayout,
         block_hash: CryptoHash,
         prev_block_hash: CryptoHash,
     ) -> Result<Option<ReshardingEventType>, Error> {
         let log_and_error = |err_msg: &str| {
-            error!(target: "resharding", ?shard_layout, err_msg);
+            error!(target: "resharding", ?next_shard_layout, err_msg);
             Err(Error::ReshardingError(err_msg.to_owned()))
         };
 
         // Resharding V3 supports shard layout V2 onwards.
-        let (shards_split_map, boundary_accounts) = match shard_layout {
+        let (shards_split_map, boundary_accounts) = match next_shard_layout {
             ShardLayout::V0(_) | ShardLayout::V1(_) => {
                 return log_and_error("unsupported shard layout!");
             }
@@ -76,15 +77,18 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
-                    let parent_shard =
-                        ShardUId { version: shard_layout.version(), shard_id: *parent_id as u32 };
+                    let parent_shard = ShardUId {
+                        version: next_shard_layout.version(),
+                        shard_id: *parent_id as u32,
+                    };
                     let left_child_shard =
-                        ShardUId::from_shard_id_and_layout(children_ids[0], shard_layout);
+                        ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);
                     let right_child_shard =
-                        ShardUId::from_shard_id_and_layout(children_ids[1], shard_layout);
+                        ShardUId::from_shard_id_and_layout(children_ids[1], next_shard_layout);
                     // Find the boundary account between the two children.
-                    let Some(boundary_account_index) =
-                        shard_layout.shard_ids().position(|id| id == left_child_shard.shard_id())
+                    let Some(boundary_account_index) = next_shard_layout
+                        .shard_ids()
+                        .position(|id| id == left_child_shard.shard_id())
                     else {
                         return log_and_error(&format!(
                             "shard {left_child_shard} not found in shard layout"
