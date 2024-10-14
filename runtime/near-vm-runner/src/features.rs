@@ -126,6 +126,7 @@ impl From<WasmFeatures> for near_vm_types::Features {
 #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 impl From<WasmFeatures> for wasmer_types::Features {
     fn from(f: crate::features::WasmFeatures) -> Self {
+        assert!(!f.multi_value, "wasmer2_vm does not and will not support multi_value");
         // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
         //
         // There are features that this version of wasmparser enables by default, but pwasm

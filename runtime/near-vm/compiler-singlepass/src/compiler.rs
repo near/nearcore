@@ -50,19 +50,11 @@ impl Compiler for SinglepassCompiler {
         tunables: &dyn near_vm_vm::Tunables,
         instrumentation: &finite_wasm::AnalysisOutcome,
     ) -> Result<Compilation, CompileError> {
-        /*if target.triple().operating_system == OperatingSystem::Windows {
-            return Err(CompileError::UnsupportedTarget(
-                OperatingSystem::Windows.to_string(),
-            ));
-        }*/
         if target.triple().architecture != Architecture::X86_64 {
             return Err(CompileError::UnsupportedTarget(target.triple().architecture.to_string()));
         }
         if !target.cpu_features().contains(CpuFeature::AVX) {
             return Err(CompileError::UnsupportedTarget("x86_64 without AVX".to_string()));
-        }
-        if compile_info.features.multi_value {
-            return Err(CompileError::UnsupportedFeature("multivalue".to_string()));
         }
         let calling_convention = match target.triple().default_calling_convention() {
             Ok(CallingConvention::WindowsFastcall) => CallingConvention::WindowsFastcall,
