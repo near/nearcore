@@ -1,6 +1,6 @@
-use std::str::FromStr;
 use std::sync::Arc;
 
+use super::event_type::ReshardingEventType;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -10,7 +10,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::AccountId;
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::trie::mem::resharding::RetainMode;
@@ -57,15 +56,18 @@ impl ReshardingManager {
 
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-        let children_shard_uids =
-            next_shard_layout.get_children_shards_uids(shard_uid.shard_id()).unwrap();
 
         // Hack to ensure this logic is not applied before ReshardingV3.
         // TODO(#12019): proper logic.
-        if next_shard_layout.version() < 3 || children_shard_uids.len() == 1 {
+        if next_shard_layout.version() < 3 {
             return Ok(());
         }
-        assert_eq!(children_shard_uids.len(), 2);
+
+        let resharding_event_type =
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
+        let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
+            return Ok(());
+        };
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
         let Some(mem_tries) = tries.get_mem_tries(shard_uid) else {
@@ -80,13 +82,12 @@ impl ReshardingManager {
             return Err(Error::Other("Memtrie not loaded".to_string()));
         };
 
-        // TODO(#12019): take proper boundary account.
-        let boundary_account = AccountId::from_str("boundary.near").unwrap();
+        let boundary_account = split_shard_event.boundary_account;
 
         // TODO(#12019): leave only tracked shards.
         for (new_shard_uid, retain_mode) in [
-            (children_shard_uids[0], RetainMode::Left),
-            (children_shard_uids[1], RetainMode::Right),
+            (split_shard_event.left_child_shard, RetainMode::Left),
+            (split_shard_event.right_child_shard, RetainMode::Right),
         ] {
             let mut mem_tries = mem_tries.write().unwrap();
             let mem_trie_update = mem_tries.update(*chunk_extra.state_root(), true)?;

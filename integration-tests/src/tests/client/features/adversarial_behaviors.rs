@@ -236,6 +236,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             )
             .unwrap();
         let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
         let block = test.env.client(&block_producer).produce_block(height).unwrap().unwrap();
         assert_eq!(block.header().height(), height);
@@ -248,7 +249,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             } else {
                 assert_eq!(block.header().prev_height().unwrap(), height - 1);
             }
-            for shard_id in 0..4 {
+            for shard_id in shard_layout.shard_ids() {
                 let chunk_producer = epoch_manager
                     .get_chunk_producer(
                         &epoch_id,
@@ -286,20 +287,25 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
         if height > 1 {
             let prev_block =
                 test.env.clients[0].chain.get_block(&block.header().prev_hash()).unwrap();
-            for i in 0..4 {
-                if invalid_chunks_in_this_block.contains(&(i as ShardId))
-                    && !this_block_should_be_skipped
+            for shard_id in shard_layout.shard_ids() {
+                let shard_index = shard_layout.get_shard_index(shard_id);
+                if invalid_chunks_in_this_block.contains(&shard_id) && !this_block_should_be_skipped
                 {
-                    assert_eq!(block.chunks()[i].chunk_hash(), prev_block.chunks()[i].chunk_hash());
+                    assert_eq!(
+                        block.chunks()[shard_index].chunk_hash(),
+                        prev_block.chunks()[shard_index].chunk_hash()
+                    );
                 } else {
                     // TODO: mysteriously we might miss a chunk around epoch boundaries.
                     // Figure out why...
-                    assert!(
-                        block.chunks()[i].height_created() == prev_block.header().height() + 1
-                            || (height % EPOCH_LENGTH == 1
-                                && block.chunks()[i].chunk_hash()
-                                    == prev_block.chunks()[i].chunk_hash())
-                    );
+                    let is_epoch_boundary = height % EPOCH_LENGTH == 1;
+                    let chunk_header = &block.chunks()[shard_index];
+                    let prev_chunk_header = &prev_block.chunks()[shard_index];
+                    let is_new_chunk =
+                        chunk_header.height_created() == prev_block.header().height() + 1;
+                    let is_old_chunk_same_as_prev =
+                        chunk_header.chunk_hash() == prev_chunk_header.chunk_hash();
+                    assert!(is_new_chunk || (is_epoch_boundary && is_old_chunk_same_as_prev));
                 }
             }
         }
