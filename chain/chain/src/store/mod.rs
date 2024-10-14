@@ -214,6 +214,10 @@ pub trait ChainStoreAccess {
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
+        println!(
+            "get_incoming_receipts_for_shard {} {:?} {}",
+            shard_id, block_hash, last_chunk_height_included
+        );
         let _span =
             tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?shard_id, ?block_hash, last_chunk_height_included).entered();
 
@@ -233,22 +237,21 @@ pub trait ChainStoreAccess {
                 break;
             }
 
-            let prev_hash = header.prev_hash();
-            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
-            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+            // let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
+            // let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
 
-            if shard_layout != prev_shard_layout {
-                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
-                tracing::debug!(
-                    target: "chain",
-                    version = shard_layout.version(),
-                    prev_version = prev_shard_layout.version(),
-                    ?shard_id,
-                    ?parent_shard_id,
-                    "crossing epoch boundary with shard layout change, updating shard id"
-                );
-                shard_id = parent_shard_id;
-            }
+            // if shard_layout != prev_shard_layout {
+            //     let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+            //     tracing::debug!(
+            //         target: "chain",
+            //         version = shard_layout.version(),
+            //         prev_version = prev_shard_layout.version(),
+            //         ?shard_id,
+            //         ?parent_shard_id,
+            //         "crossing epoch boundary with shard layout change, updating shard id"
+            //     );
+            //     shard_id = parent_shard_id;
+            // }
 
             let receipts_proofs = self.get_incoming_receipts(&block_hash, shard_id);
             match receipts_proofs {
@@ -285,6 +288,8 @@ pub trait ChainStoreAccess {
                 }
             }
 
+            let prev_hash = header.prev_hash();
+            shard_id = epoch_manager.get_prev_shard_id(&block_hash, shard_id)?.0;
             block_hash = *prev_hash;
         }
 

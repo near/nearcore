@@ -45,8 +45,6 @@ pub fn validate_chunk_endorsements_in_block(
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
-        let shard_id = chunk_header.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id);
         // For old chunks, we optimize the block by not including the chunk endorsements.
         if chunk_header.height_included() != block.header().height() {
             if !signatures.is_empty() {
@@ -60,8 +58,12 @@ pub fn validate_chunk_endorsements_in_block(
             }
             continue;
         }
+
         // Validation for chunks in each shard
         // The signatures from chunk validators for each shard must match the ordered_chunk_validators
+        let shard_id = chunk_header.shard_id();
+        let shard_index = shard_layout.get_shard_index(shard_id);
+
         let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
             shard_id,

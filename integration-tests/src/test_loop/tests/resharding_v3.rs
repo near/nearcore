@@ -68,8 +68,8 @@ fn test_resharding_v3() {
     let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
         shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
     // TODO(#11881): keep this way until non-contiguous shard ids are supported.
-    // let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
-    let new_shards = vec![max_shard_id, max_shard_id + 1];
+    let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
+    // let new_shards = vec![max_shard_id, max_shard_id + 1];
     shard_ids.extend(new_shards.clone());
     shards_split_map.insert(last_shard_id, new_shards);
     boundary_accounts.push(AccountId::try_from("account6".to_string()).unwrap());
@@ -120,7 +120,7 @@ fn test_resharding_v3() {
                     .collect_vec()
             );
 
-            for shard_id in shard_ids.clone() {
+            for shard_id in 0..4 {
                 let shard_uid = ShardUId { version: 3, shard_id: shard_id as u32 };
                 let Ok(chunk_extra) =
                     client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid)
@@ -155,7 +155,10 @@ fn test_resharding_v3() {
         }
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
+        if !block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit) {
+            println!("chunk mask: {:?}", block_header.chunk_mask());
+            assert!(false);
+        }
 
         // Return true if we passed an epoch with increased number of shards.
         let epoch_height =
