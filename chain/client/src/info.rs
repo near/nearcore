@@ -210,6 +210,7 @@ impl InfoHelper {
         let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
         let blocks_in_epoch = client.config.epoch_length;
         let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap_or_default();
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
         if let Ok(epoch_info) = epoch_info {
             metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
             metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
@@ -250,10 +251,11 @@ impl InfoHelper {
             });
 
             for shard_id in shard_ids {
+                let shard_index = shard_layout.get_shard_index(shard_id);
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
-                let chunk_producers = chunk_producers_settlement.get(shard_id as usize);
+                let chunk_producers = chunk_producers_settlement.get(shard_index);
                 let Some(chunk_producers) = chunk_producers else {
                     tracing::warn!(target: "stats", ?shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
                     continue;

@@ -26,9 +26,10 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
 use near_parameters::RuntimeConfigStore;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::AccountId;
+use near_primitives::types::{new_shard_id_tmp, AccountId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
@@ -45,6 +46,7 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
+    epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     /// Overrides the stores; rather than constructing fresh new stores, use
     /// the provided ones (to test with existing data).
@@ -71,6 +73,8 @@ pub(crate) struct TestLoopBuilder {
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
     /// Whether to do the warmup or not. See `skip_warmup` for more details.
     warmup: bool,
+    /// Whether all nodes must track all shards.
+    track_all_shards: bool,
 }
 
 impl TestLoopBuilder {
@@ -78,6 +82,7 @@ impl TestLoopBuilder {
         Self {
             test_loop: TestLoopV2::new(),
             genesis: None,
+            epoch_config_store: None,
             clients: vec![],
             stores_override: None,
             test_loop_data_dir: None,
@@ -89,6 +94,7 @@ impl TestLoopBuilder {
             runtime_config_store: None,
             config_modifier: None,
             warmup: true,
+            track_all_shards: false,
         }
     }
 
@@ -100,6 +106,11 @@ impl TestLoopBuilder {
     /// Set the genesis configuration for the test loop.
     pub(crate) fn genesis(mut self, genesis: Genesis) -> Self {
         self.genesis = Some(genesis);
+        self
+    }
+
+    pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
+        self.epoch_config_store = Some(epoch_config_store);
         self
     }
 
@@ -160,6 +171,11 @@ impl TestLoopBuilder {
     /// warmup if you are interested in the behavior of starting from genesis.
     pub fn skip_warmup(mut self) -> Self {
         self.warmup = false;
+        self
+    }
+
+    pub fn track_all_shards(mut self) -> Self {
+        self.track_all_shards = true;
         self
     }
 
@@ -231,7 +247,8 @@ impl TestLoopBuilder {
         let sync_jobs_adapter = LateBoundSender::new();
         let resharding_sender = LateBoundSender::new();
 
-        let genesis = self.genesis.clone().unwrap();
+        let genesis = self.genesis.as_ref().unwrap();
+        let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
@@ -263,15 +280,14 @@ impl TestLoopBuilder {
         // Configure tracked shards.
         // * single shard tracking for validators
         // * all shard tracking for non-validators (RPCs and archival)
-        let num_block_producer = genesis.config.num_block_producer_seats;
-        let num_chunk_producer = genesis.config.num_chunk_producer_seats;
-        let num_chunk_validator = genesis.config.num_chunk_validator_seats;
-        let validator_num =
-            num_block_producer.max(num_chunk_producer).max(num_chunk_validator) as usize;
-        if idx < validator_num {
+        let is_validator = {
+            let epoch_config = epoch_config_store.get_config(genesis.config.protocol_version);
+            idx < epoch_config.num_validators() as usize
+        };
+        if is_validator && !self.track_all_shards {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![666];
+            client_config.tracked_shards = vec![new_shard_id_tmp(666)];
         }
 
         if let Some(config_modifier) = &self.config_modifier {
@@ -301,7 +317,11 @@ impl TestLoopBuilder {
 
         let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
         let chain_genesis = ChainGenesis::new(&genesis.config);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+            store.clone(),
+            &genesis.config,
+            epoch_config_store.clone(),
+        );
         let shard_tracker =
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
@@ -379,8 +399,11 @@ impl TestLoopBuilder {
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
         let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
             if let Some(split_store) = &split_store {
-                let view_epoch_manager =
-                    EpochManager::new_arc_handle(split_store.clone(), &genesis.config);
+                let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+                    split_store.clone(),
+                    &genesis.config,
+                    epoch_config_store.clone(),
+                );
                 let view_shard_tracker = ShardTracker::new(
                     TrackedConfig::from_config(&client_config),
                     epoch_manager.clone(),

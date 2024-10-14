@@ -42,7 +42,7 @@ impl From<&PeerChainInfoV2> for proto::PeerChainInfo {
         Self {
             genesis_id: MF::some((&x.genesis_id).into()),
             height: x.height,
-            tracked_shards: x.tracked_shards.clone(),
+            tracked_shards: x.tracked_shards.clone().into_iter().map(Into::into).collect(),
             archival: x.archival,
             ..Self::default()
         }
@@ -55,7 +55,7 @@ impl TryFrom<&proto::PeerChainInfo> for PeerChainInfoV2 {
         Ok(Self {
             genesis_id: try_from_required(&p.genesis_id).map_err(Self::Error::GenesisId)?,
             height: p.height,
-            tracked_shards: p.tracked_shards.clone(),
+            tracked_shards: p.tracked_shards.clone().into_iter().map(Into::into).collect(),
             archival: p.archival,
         })
     }

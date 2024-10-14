@@ -58,7 +58,9 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
+use near_primitives::types::{
+    new_shard_id_tmp, AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats,
+};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
@@ -455,7 +457,10 @@ fn process_peer_manager_message_default(
                             height: last_height[i],
                             hash: CryptoHash::default(),
                         }),
-                        tracked_shards: vec![0, 1, 2, 3],
+                        tracked_shards: vec![0, 1, 2, 3]
+                            .into_iter()
+                            .map(new_shard_id_tmp)
+                            .collect(),
                         archival: true,
                     },
                 },
