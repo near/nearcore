@@ -117,7 +117,7 @@ impl NightshadeRuntime {
             let epoch_manager = epoch_manager.read();
             let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            Ok(shard_layout.shard_uids().collect())
+            Ok(shard_layout.shard_uids().enumerate().collect())
         }) {
             tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
         }
