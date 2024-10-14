@@ -233,7 +233,9 @@ impl FlatStorageResharder {
 impl Debug for FlatStorageResharder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FlatStorageResharder")
+            .field("runtime", "<...>")
             .field("event", &self.resharding_event())
+            .field("scheduler", &self.scheduler)
             .field("controller", &self.controller)
             .finish()
     }
@@ -567,17 +569,26 @@ mod tests {
         };
     }
 
+<<<<<<< HEAD
     #[derive(Default)]
     struct TestScheduler {}
 
     impl CanSend<FlatStorageSplitShardRequest> for TestScheduler {
         fn send(&self, msg: FlatStorageSplitShardRequest) {
             split_shard_task(msg.resharder);
+=======
+    struct TestScheduler {}
+
+    impl FlatStorageResharderScheduler for TestScheduler {
+        fn schedule(&self, f: Box<dyn FnOnce()>) {
+            f();
+>>>>>>> origin/master
         }
     }
 
     #[derive(Default)]
     struct DelayedScheduler {
+<<<<<<< HEAD
         test_scheduler: TestScheduler,
         split_shard_request: Mutex<Option<FlatStorageSplitShardRequest>>,
     }
@@ -592,6 +603,20 @@ mod tests {
     impl CanSend<FlatStorageSplitShardRequest> for DelayedScheduler {
         fn send(&self, msg: FlatStorageSplitShardRequest) {
             *self.split_shard_request.lock().unwrap() = Some(msg);
+=======
+        callable: RefCell<Option<Box<dyn FnOnce()>>>,
+    }
+
+    impl DelayedScheduler {
+        fn call(&self) {
+            self.callable.take().unwrap()();
+        }
+    }
+
+    impl FlatStorageResharderScheduler for DelayedScheduler {
+        fn schedule(&self, f: Box<dyn FnOnce()>) {
+            *self.callable.borrow_mut() = Some(f);
+>>>>>>> origin/master
         }
     }
 
@@ -608,10 +633,14 @@ mod tests {
     }
 
     /// Generic test setup.
+<<<<<<< HEAD
     fn create_fs_resharder(
         shard_layout: ShardLayout,
         resharding_sender: ReshardingSender,
     ) -> (Chain, FlatStorageResharder) {
+=======
+    fn create_fs_resharder(shard_layout: ShardLayout) -> (Chain, FlatStorageResharder) {
+>>>>>>> origin/master
         let num_shards = shard_layout.shard_ids().count();
         let genesis = Genesis::test_with_seeds(
             Clock::real(),
@@ -632,28 +661,45 @@ mod tests {
             Clock::real(),
             epoch_manager,
             shard_tracker,
+<<<<<<< HEAD
             runtime,
+=======
+            runtime.clone(),
+>>>>>>> origin/master
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
+<<<<<<< HEAD
             Some(resharding_sender),
         )
         .unwrap();
         let resharder = chain.resharding_manager.flat_storage_resharder.as_ref().unwrap().clone();
         (chain, resharder)
+=======
+        )
+        .unwrap();
+        (chain, FlatStorageResharder::new(runtime))
+>>>>>>> origin/master
     }
 
     /// Verify that another resharding can't be triggered if one is ongoing.
     #[test]
     fn concurrent_reshardings_are_disallowed() {
         init_test_logger();
+<<<<<<< HEAD
         let sender = DelayedScheduler::default().into_multi_sender();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let controller = &resharder.controller;
+=======
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = DelayedScheduler::default();
+        let controller = FlatStorageResharderController::new();
+>>>>>>> origin/master
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
@@ -663,23 +709,45 @@ mod tests {
         .unwrap();
 
         assert!(resharder
+<<<<<<< HEAD
             .start_resharding(resharding_event_type.clone(), &new_shard_layout)
+=======
+            .start_resharding(
+                resharding_event_type.clone(),
+                &new_shard_layout,
+                &scheduler,
+                controller.clone()
+            )
+>>>>>>> origin/master
             .is_ok());
 
         // Immediately interrupt the resharding.
         controller.handle().stop();
 
         assert!(resharder.resharding_event().is_some());
+<<<<<<< HEAD
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());
+=======
+        assert!(resharder
+            .start_resharding(resharding_event_type, &new_shard_layout, &scheduler, controller)
+            .is_err());
+>>>>>>> origin/master
     }
 
     /// Flat storage shard status should be set correctly upon starting a shard split.
     #[test]
     fn flat_storage_split_status_set() {
         init_test_logger();
+<<<<<<< HEAD
         let sender = DelayedScheduler::default().into_multi_sender();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
+=======
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = DelayedScheduler::default();
+        let controller = FlatStorageResharderController::new();
+>>>>>>> origin/master
         let flat_store = resharder.runtime.store().flat_store();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
@@ -689,7 +757,13 @@ mod tests {
         .unwrap()
         .unwrap();
 
+<<<<<<< HEAD
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+=======
+        assert!(resharder
+            .start_resharding(resharding_event_type, &new_shard_layout, &scheduler, controller)
+            .is_ok());
+>>>>>>> origin/master
 
         let resharding_event = resharder.resharding_event();
         match resharding_event.unwrap() {
@@ -717,8 +791,12 @@ mod tests {
     #[test]
     fn resume_split_starts_from_clean_state() {
         init_test_logger();
+<<<<<<< HEAD
         let sender = TestScheduler::default().into_multi_sender();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+=======
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+>>>>>>> origin/master
         let flat_store = resharder.runtime.store().flat_store();
         let new_shard_layout = shard_layout_after_split();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
@@ -766,7 +844,13 @@ mod tests {
         store_update.commit().unwrap();
 
         // Resume resharding.
+<<<<<<< HEAD
         resharder.resume(parent_shard, &resharding_status).unwrap();
+=======
+        let scheduler = TestScheduler {};
+        let controller = FlatStorageResharderController::new();
+        resharder.resume(parent_shard, &resharding_status, &scheduler, controller).unwrap();
+>>>>>>> origin/master
 
         // Children should not contain the random keys written before.
         for child_shard in [left_child_shard, right_child_shard] {
@@ -790,10 +874,17 @@ mod tests {
     fn simple_split_shard() {
         init_test_logger();
         // Perform resharding.
+<<<<<<< HEAD
         let sender = TestScheduler::default().into_multi_sender();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let controller = &resharder.controller;
+=======
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = TestScheduler {};
+        let controller = FlatStorageResharderController::new();
+>>>>>>> origin/master
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
@@ -802,7 +893,18 @@ mod tests {
         .unwrap()
         .unwrap();
 
+<<<<<<< HEAD
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout,).is_ok());
+=======
+        assert!(resharder
+            .start_resharding(
+                resharding_event_type,
+                &new_shard_layout,
+                &scheduler,
+                controller.clone()
+            )
+            .is_ok());
+>>>>>>> origin/master
 
         // Check flat storages of children contain the correct accounts.
         let left_child = ShardUId { version: 3, shard_id: 2 };
@@ -849,11 +951,18 @@ mod tests {
     fn interrupt_split_shard() {
         init_test_logger();
         // Perform resharding.
+<<<<<<< HEAD
         let scheduler = Arc::new(DelayedScheduler::default());
         let sender = scheduler.as_multi_sender();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let controller = &resharder.controller;
+=======
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = DelayedScheduler::default();
+        let controller = FlatStorageResharderController::new();
+>>>>>>> origin/master
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
@@ -862,6 +971,7 @@ mod tests {
         .unwrap()
         .unwrap();
 
+<<<<<<< HEAD
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout,).is_ok());
         let (parent_shard, status) = resharder.get_parent_shard_and_status().unwrap();
         let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
@@ -871,6 +981,24 @@ mod tests {
 
         // Run the task.
         scheduler.call_split_shard_task();
+=======
+        assert!(resharder
+            .start_resharding(
+                resharding_event_type,
+                &new_shard_layout,
+                &scheduler,
+                controller.clone()
+            )
+            .is_ok());
+        let (parent_shard, status) = resharder.get_parent_shard_and_status().unwrap();
+        let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
+
+        // Interrupt the task before it starts.
+        controller.handle().stop();
+
+        // Run the task.
+        scheduler.call();
+>>>>>>> origin/master
 
         // Check that resharding was effectively cancelled.
         let flat_store = resharder.runtime.store().flat_store();
@@ -894,9 +1022,16 @@ mod tests {
     /// A shard can't be split if it isn't in ready state.
     #[test]
     fn reject_split_shard_if_parent_is_not_ready() {
+<<<<<<< HEAD
         let sender = TestScheduler::default().into_multi_sender();
         let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
+=======
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let scheduler = TestScheduler {};
+        let controller = FlatStorageResharderController::new();
+>>>>>>> origin/master
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
@@ -913,7 +1048,13 @@ mod tests {
         store_update.commit().unwrap();
 
         // Trigger resharding and it should fail.
+<<<<<<< HEAD
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());
+=======
+        assert!(resharder
+            .start_resharding(resharding_event_type, &new_shard_layout, &scheduler, controller)
+            .is_err());
+>>>>>>> origin/master
     }
 
     /// Verify that a shard can be split correctly even if its flat head is lagging behind the expected
