@@ -84,12 +84,12 @@ impl StateSnapshot {
         store: TrieStoreAdapter,
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
-        requested_shard_uids: &[(ShardIndex, ShardUId)],
+        shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
         block: Option<&Block>,
     ) -> Self {
-        tracing::debug!(target: "state_snapshot", ?requested_shard_uids, ?prev_block_hash, "new StateSnapshot");
+        tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new StateSnapshot");
         let mut included_shard_uids = vec![];
-        for &(shard_index, shard_uid) in requested_shard_uids {
+        for &(shard_index, shard_uid) in shard_indexes_and_uids {
             if let Err(err) = flat_storage_manager.create_flat_storage_for_shard(shard_uid) {
                 tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "Failed to create a flat storage for snapshot shard");
                 continue;
@@ -156,6 +156,8 @@ pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
     DBCol::FlatStorageStatus,
 ];
 
+type ShardIndexesAndUIds = Vec<(ShardIndex, ShardUId)>;
+
 impl ShardTries {
     pub fn get_state_snapshot(
         &self,
@@ -178,7 +180,7 @@ impl ShardTries {
     pub fn create_state_snapshot(
         &self,
         prev_block_hash: CryptoHash,
-        shard_uids: &[(ShardIndex, ShardUId)],
+        shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
         block: &Block,
     ) -> Result<Option<Vec<ShardUId>>, anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
@@ -225,7 +227,7 @@ impl ShardTries {
             store,
             prev_block_hash,
             flat_storage_manager,
-            shard_uids,
+            shard_indexes_and_uids,
             Some(block),
         ));
 
@@ -318,7 +320,9 @@ impl ShardTries {
     /// we don't deal with multiple snapshots here because we will deal with it whenever a new snapshot is created and saved to file system
     pub fn maybe_open_state_snapshot(
         &self,
-        get_shard_uids_fn: impl FnOnce(CryptoHash) -> Result<Vec<(ShardIndex, ShardUId)>, EpochError>,
+        get_shard_indexes_and_uids_fn: impl FnOnce(
+            CryptoHash,
+        ) -> Result<ShardIndexesAndUIds, EpochError>,
     ) -> Result<(), anyhow::Error> {
         let _span =
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
@@ -347,10 +351,15 @@ impl ShardTries {
         let store = storage.get_hot_store().trie_store();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
-        let shard_uids = get_shard_uids_fn(snapshot_hash)?;
+        let shard_indexes_and_uids = get_shard_indexes_and_uids_fn(snapshot_hash)?;
         let mut guard = self.state_snapshot().write().unwrap();
-        *guard =
-            Some(StateSnapshot::new(store, snapshot_hash, flat_storage_manager, &shard_uids, None));
+        *guard = Some(StateSnapshot::new(
+            store,
+            snapshot_hash,
+            flat_storage_manager,
+            &shard_indexes_and_uids,
+            None,
+        ));
         metrics::HAS_STATE_SNAPSHOT.set(1);
         tracing::info!(target: "runtime", ?snapshot_hash, ?snapshot_path, "Detected and opened a state snapshot.");
         Ok(())

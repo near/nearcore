@@ -49,7 +49,7 @@ pub struct CreateSnapshotRequest {
     /// epoch height associated with prev_block_hash
     epoch_height: EpochHeight,
     /// Shards that need to be present in the snapshot.
-    shard_uids: Vec<(ShardIndex, ShardUId)>,
+    shard_indexes_and_uids: Vec<(ShardIndex, ShardUId)>,
     /// Last block of the prev epoch.
     block: Block,
 }
@@ -74,13 +74,15 @@ impl StateSnapshotActor {
     pub fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
         tracing::debug!(target: "state_snapshot", ?msg);
 
-        let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_uids, block } = msg;
-        let res = self.tries.create_state_snapshot(prev_block_hash, &shard_uids, &block);
+        let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block } =
+            msg;
+        let res =
+            self.tries.create_state_snapshot(prev_block_hash, &shard_indexes_and_uids, &block);
 
         // Unlocking flat state head can be done asynchronously in state_snapshot_actor.
         // The next flat storage update will bring flat storage to latest head.
         if !self.flat_storage_manager.set_flat_state_updates_mode(true) {
-            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to unlock flat state updates");
+            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_indexes_and_uids, "Failed to unlock flat state updates");
         }
         match res {
             Ok(res_shard_uids) => {
@@ -144,20 +146,20 @@ pub fn get_make_snapshot_callback(
     sender: StateSnapshotSenderForClient,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
-    Arc::new(move |prev_block_hash, epoch_height, shard_uids, block| {
+    Arc::new(move |prev_block_hash, epoch_height, shard_indexes_and_uids, block| {
         tracing::info!(
             target: "state_snapshot",
             ?prev_block_hash,
-            ?shard_uids,
+            ?shard_indexes_and_uids,
             "make_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
         // We need to stop flat head updates synchronously in the client thread.
         // Async update in state_snapshot_actor and potentially lead to flat head progressing beyond prev_block_hash
         if !flat_storage_manager.set_flat_state_updates_mode(false) {
-            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to lock flat state updates");
+            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_indexes_and_uids, "Failed to lock flat state updates");
             return;
         }
         let create_snapshot_request =
-            CreateSnapshotRequest { prev_block_hash, epoch_height, shard_uids, block };
+            CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block };
         sender.send(DeleteAndMaybeCreateSnapshotRequest {
             create_snapshot_request: Some(create_snapshot_request),
         });
