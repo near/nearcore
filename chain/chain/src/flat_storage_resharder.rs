@@ -44,7 +44,7 @@ use near_store::{ShardUId, StorageError};
 /// The resharder has also the following properties:
 /// - Background processing: the bulk of resharding is done in a separate task, see
 ///   [FlatStorageResharderScheduler]
-/// - Interruptible: a reshard operation can be interrupted through a
+/// - Interruptible: a reshard operation can be cancelled through a
 ///   [FlatStorageResharderController].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
 ///       previously.
@@ -85,6 +85,8 @@ impl FlatStorageResharder {
     }
 
     /// Resumes a resharding event that was interrupted.
+    ///
+    /// Flat-storage resharding will resume upon a node crash.
     ///
     /// # Args:
     /// * `shard_uid`: UId of the shard
@@ -271,7 +273,7 @@ fn split_shard_task_impl(
     controller: FlatStorageResharderController,
 ) -> FlatStorageReshardingTaskStatus {
     if controller.is_interrupted() {
-        return FlatStorageReshardingTaskStatus::Interrupted;
+        return FlatStorageReshardingTaskStatus::Cancelled;
     }
 
     /// Determines after how many key-values the process stops to
@@ -329,7 +331,7 @@ fn split_shard_task_impl(
             break;
         }
         if controller.is_interrupted() {
-            return FlatStorageReshardingTaskStatus::Interrupted;
+            return FlatStorageReshardingTaskStatus::Cancelled;
         }
     }
     FlatStorageReshardingTaskStatus::Successful
@@ -436,7 +438,7 @@ fn split_shard_task_postprocessing(
             }
             // TODO(trisfald): trigger catchup
         }
-        FlatStorageReshardingTaskStatus::Failed | FlatStorageReshardingTaskStatus::Interrupted => {
+        FlatStorageReshardingTaskStatus::Failed | FlatStorageReshardingTaskStatus::Cancelled => {
             // We got an error or an interrupt request.
             // Reset parent.
             store_update.set_flat_storage_status(
@@ -492,7 +494,7 @@ pub enum FlatStorageReshardingEventStatus {
 pub enum FlatStorageReshardingTaskStatus {
     Successful,
     Failed,
-    Interrupted,
+    Cancelled,
 }
 
 /// Helps control the flat storage resharder operation. More specifically,
@@ -745,7 +747,7 @@ mod tests {
             store_update.set(child_shard, dirty_key.clone(), dirty_value.clone());
         }
 
-        // Set parent state to ShardSplitting, manually, to simulate a forcibly interrupted resharding attempt.
+        // Set parent state to ShardSplitting, manually, to simulate a forcibly cancelled resharding attempt.
         let resharding_status =
             FlatStorageReshardingStatus::SplittingParent(SplittingParentStatus {
                 // Values don't matter.
@@ -889,11 +891,11 @@ mod tests {
         // Run the task.
         scheduler.call();
 
-        // Check that resharding was effectively interrupted.
+        // Check that resharding was effectively cancelled.
         let flat_store = resharder.runtime.store().flat_store();
         assert_eq!(
             controller.completion_receiver.recv_timeout(Duration::from_secs(1)),
-            Ok(FlatStorageReshardingTaskStatus::Interrupted)
+            Ok(FlatStorageReshardingTaskStatus::Cancelled)
         );
         assert_eq!(
             flat_store.get_flat_storage_status(parent_shard),

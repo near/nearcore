@@ -82,6 +82,7 @@ pub enum ShardLayout {
     Debug,
     PartialEq,
     Eq,
+    ProtocolSchema,
 )]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
@@ -130,6 +131,7 @@ fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsS
     Debug,
     PartialEq,
     Eq,
+    ProtocolSchema,
 )]
 pub struct ShardLayoutV1 {
     /// The boundary accounts are the accounts on boundaries between shards.
@@ -173,6 +175,7 @@ impl ShardLayoutV1 {
     Debug,
     PartialEq,
     Eq,
+    ProtocolSchema,
 )]
 pub struct ShardLayoutV2 {
     /// The boundary accounts are the accounts on boundaries between shards.
