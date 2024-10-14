@@ -25,7 +25,6 @@ use near_chain::chain::{
     BlocksCatchUpState, LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
-use near_chain::flat_storage_resharder::FlatStorageResharder;
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -275,7 +274,6 @@ impl Client {
             validator_signer.clone(),
             Some(resharding_sender.clone()),
         )?;
-        let flat_storage_resharder = FlatStorageResharder::new(runtime_adapter.clone());
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
             epoch_manager.clone(),
