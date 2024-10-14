@@ -2,7 +2,9 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::types::{ShardId, ShardIndex};
+use near_primitives_core::types::{
+    new_shard_id_tmp, shard_id_as_u32, shard_id_as_u64, shard_id_as_usize, ShardId, ShardIndex,
+};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 use std::{fmt, str};
@@ -49,7 +51,17 @@ use std::{fmt, str};
 
 pub type ShardVersion = u32;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
@@ -61,7 +73,17 @@ pub enum ShardLayout {
 /// to keep backward compatibility for some existing tests.
 /// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
 /// a chain uses.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -100,7 +122,17 @@ fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsS
     shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ShardLayoutV1 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
@@ -134,7 +166,17 @@ impl ShardLayoutV1 {
 }
 
 /// Making the shard ids non-contiguous.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ShardLayoutV2 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
@@ -185,6 +227,14 @@ impl ShardLayoutV2 {
         }
         self.shard_ids[shard_id_index]
     }
+
+    pub fn shards_split_map(&self) -> &Option<ShardsSplitMapV2> {
+        &self.shards_split_map
+    }
+
+    pub fn boundary_accounts(&self) -> &Vec<AccountId> {
+        &self.boundary_accounts
+    }
 }
 
 #[derive(Debug)]
@@ -213,11 +263,11 @@ impl ShardLayout {
             let mut to_parent_shard_map = BTreeMap::new();
             let num_shards = (boundary_accounts.len() + 1) as NumShards;
             for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
-                let parent_shard_id = parent_shard_id as u64;
+                let parent_shard_id = new_shard_id_tmp(parent_shard_id as u64);
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
-                    assert!(shard_id < num_shards, "shard id should be valid");
+                    assert!(shard_id_as_u64(shard_id) < num_shards, "shard id should be valid");
                 }
             }
             Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id.into()]).collect())
@@ -420,7 +470,7 @@ impl ShardLayout {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
                 Some(shards_split_map) => {
-                    let parent_shard_index = parent_shard_id as usize;
+                    let parent_shard_index = shard_id_as_usize(parent_shard_id);
                     shards_split_map.get(parent_shard_index).cloned()
                 }
                 None => None,
@@ -502,18 +552,18 @@ impl ShardLayout {
     /// used when indexing into an array of chunk data.
     pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
         match self {
-            Self::V0(_) => shard_id as ShardIndex,
-            Self::V1(_) => shard_id as ShardIndex,
+            Self::V0(_) => shard_id_as_usize(shard_id),
+            Self::V1(_) => shard_id_as_usize(shard_id),
             Self::V2(v2) => v2.id_to_index_map[&shard_id],
         }
     }
 
     /// Get the shard id for a given shard index. The shard id should be used to
     /// identify the shard and starting from the ShardLayoutV2 it is unique.
-    pub fn get_shard_id(&self, shard_index: usize) -> ShardId {
+    pub fn get_shard_id(&self, shard_index: ShardIndex) -> ShardId {
         match self {
-            Self::V0(_) => shard_index as ShardId,
-            Self::V1(_) => shard_index as ShardId,
+            Self::V0(_) => new_shard_id_tmp(shard_index as u64),
+            Self::V1(_) => new_shard_id_tmp(shard_index as u64),
             Self::V2(v2) => v2.index_to_id_map[&shard_index],
         }
     }
@@ -597,7 +647,7 @@ impl ShardUId {
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_layout.shard_ids().any(|i| i == shard_id));
-        Self { shard_id: shard_id as u32, version: shard_layout.version() }
+        Self { shard_id: shard_id_as_u32(shard_id), version: shard_layout.version() }
     }
 
     /// Returns shard id
@@ -750,7 +800,7 @@ mod tests {
         ShardLayoutV1, ShardUId,
     };
     use itertools::Itertools;
-    use near_primitives_core::types::{new_shard_id_tmp, ProtocolVersion};
+    use near_primitives_core::types::{new_shard_id_tmp, shard_id_as_u64, ProtocolVersion};
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
@@ -827,16 +877,25 @@ mod tests {
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
-            assert!(shard_id < num_shards);
-            *shard_id_distribution.get_mut(&shard_id.into()).unwrap() += 1;
+            assert!(shard_id_as_u64(shard_id) < num_shards);
+            *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
-        let expected_distribution: HashMap<_, _> =
-            [(0, 247), (1, 268), (2, 233), (3, 252)].into_iter().collect();
+        let expected_distribution: HashMap<ShardId, _> = [
+            (new_shard_id_tmp(0), 247),
+            (new_shard_id_tmp(1), 268),
+            (new_shard_id_tmp(2), 233),
+            (new_shard_id_tmp(3), 252),
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(shard_id_distribution, expected_distribution);
     }
 
     #[test]
     fn test_shard_layout_v1() {
+        let aid = |s: &str| s.parse().unwrap();
+        let sid = |s: u64| new_shard_id_tmp(s);
+
         let shard_layout = ShardLayout::v1(
             parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
             Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),
@@ -851,27 +910,26 @@ mod tests {
             (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..3 {
-            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x)).unwrap(), 0);
-            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x + 3)).unwrap(), 1);
+            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x)).unwrap(), sid(0));
+            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x + 3)).unwrap(), sid(1));
         }
 
-        let aid = |s: &str| s.parse().unwrap();
-        assert_eq!(account_id_to_shard_id(&aid("aurora"), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&aid("foo.aurora"), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&aid("bar.foo.aurora"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("bar"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("bar.bar"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("foo"), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&aid("baz.foo"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("foo.baz"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&aid("a.foo.baz"), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&aid("aurora"), &shard_layout), sid(1));
+        assert_eq!(account_id_to_shard_id(&aid("foo.aurora"), &shard_layout), sid(3));
+        assert_eq!(account_id_to_shard_id(&aid("bar.foo.aurora"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("bar"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("bar.bar"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("foo"), &shard_layout), sid(3));
+        assert_eq!(account_id_to_shard_id(&aid("baz.foo"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("foo.baz"), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&aid("a.foo.baz"), &shard_layout), sid(0));
 
-        assert_eq!(account_id_to_shard_id(&aid("aaa"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&aid("abc"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&aid("bbb"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&aid("foo.goo"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&aid("goo"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&aid("zoo"), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&aid("aaa"), &shard_layout), sid(0));
+        assert_eq!(account_id_to_shard_id(&aid("abc"), &shard_layout), sid(0));
+        assert_eq!(account_id_to_shard_id(&aid("bbb"), &shard_layout), sid(2));
+        assert_eq!(account_id_to_shard_id(&aid("foo.goo"), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&aid("goo"), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&aid("zoo"), &shard_layout), sid(5));
     }
 
     // check that after removing the fixed shards from the shard layout v1
@@ -903,18 +961,19 @@ mod tests {
 
     #[test]
     fn test_shard_layout_v2() {
+        let sid = |s: u64| new_shard_id_tmp(s);
         let shard_layout = get_test_shard_layout_v2();
 
         // check accounts mapping in the middle of each range
-        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&"ddd".parse().unwrap(), &shard_layout), 8);
-        assert_eq!(account_id_to_shard_id(&"mmm".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&"rrr".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), sid(3));
+        assert_eq!(account_id_to_shard_id(&"ddd".parse().unwrap(), &shard_layout), sid(8));
+        assert_eq!(account_id_to_shard_id(&"mmm".parse().unwrap(), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&"rrr".parse().unwrap(), &shard_layout), sid(7));
 
         // check accounts mapping for the boundary accounts
-        assert_eq!(account_id_to_shard_id(&"ccc".parse().unwrap(), &shard_layout), 8);
-        assert_eq!(account_id_to_shard_id(&"kkk".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&"ppp".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"ccc".parse().unwrap(), &shard_layout), sid(8));
+        assert_eq!(account_id_to_shard_id(&"kkk".parse().unwrap(), &shard_layout), sid(4));
+        assert_eq!(account_id_to_shard_id(&"ppp".parse().unwrap(), &shard_layout), sid(7));
 
         // check shard ids
         assert_eq!(shard_layout.shard_ids().collect_vec(), new_shard_ids_vec(vec![3, 8, 4, 7]));
@@ -925,10 +984,10 @@ mod tests {
         assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(3), u(8), u(4), u(7)]);
 
         // check parent
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(3)).unwrap(), 3);
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(8)).unwrap(), 1);
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(4)).unwrap(), 4);
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(7)).unwrap(), 1);
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(3)).unwrap(), sid(3));
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(8)).unwrap(), sid(1));
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(4)).unwrap(), sid(4));
+        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(7)).unwrap(), sid(1));
 
         // check child
         assert_eq!(

@@ -478,7 +478,7 @@ impl FlatStorage {
     ) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_uid = guard.shard_uid;
-        store_update.remove_all(shard_uid);
+        store_update.remove_all_values(shard_uid);
         store_update.remove_all_deltas(shard_uid);
         store_update.set_flat_storage_status(shard_uid, FlatStorageStatus::Empty);
         guard.update_delta_metrics();

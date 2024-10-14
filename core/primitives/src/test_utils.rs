@@ -20,7 +20,9 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
-use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion, ShardId};
+use near_primitives_core::types::{
+    new_shard_id_tmp, BlockHeight, MerkleHash, ProtocolVersion, ShardId,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1011,7 +1013,7 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         _account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
-        Ok(0)
+        Ok(new_shard_id_tmp(0))
     }
 }
 

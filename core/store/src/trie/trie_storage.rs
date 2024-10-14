@@ -10,7 +10,7 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::ShardId;
+use near_primitives::types::{shard_id_as_u64, ShardId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -103,7 +103,7 @@ impl TrieCacheInner {
         assert!(total_size_limit > 0);
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
-        let shard_id_str = buffer.format(shard_id);
+        let shard_id_str = buffer.format(shard_id_as_u64(shard_id));
 
         let metrics_labels: [&str; 2] = [&shard_id_str, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {

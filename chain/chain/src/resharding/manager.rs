@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::event_type::ReshardingEventType;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -52,47 +53,32 @@ impl ReshardingManager {
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
         let next_block_has_new_shard_layout =
-            self.epoch_manager.is_next_block_epoch_start(block.hash())?
+            self.epoch_manager.is_next_block_epoch_start(block_hash)?
                 && shard_layout != next_shard_layout;
         if !next_block_has_new_shard_layout {
             return Ok(());
         }
 
-        let children_shard_uids =
-            next_shard_layout.get_children_shards_uids(shard_uid.shard_id()).unwrap();
-
-        // Hack to ensure this logic is not applied before ReshardingV3.
-        // TODO(#12019): proper logic.
-        if next_shard_layout.version() < 3 || children_shard_uids.len() == 1 {
+        let resharding_event_type =
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
+        let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
             return Ok(());
-        }
-        assert_eq!(children_shard_uids.len(), 2);
-        let old_shard_index = shard_layout
-            .shard_uids()
-            .enumerate()
-            .find_map(
-                |(index, old_shard_uid)| {
-                    if old_shard_uid == shard_uid {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                },
-            )
-            .unwrap();
-        let boundary_accounts = next_shard_layout.boundary_accounts();
-        let boundary_account = &boundary_accounts[old_shard_index];
+        };
 
         // TODO(#12019): what if node doesn't have memtrie? just pause
         // processing?
-        tries.freeze(shard_uid, children_shard_uids.clone())?;
+        tries.freeze(
+            shard_uid,
+            vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
+        )?;
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
+        let boundary_account = split_shard_event.boundary_account;
 
         // TODO(#12019): leave only tracked shards.
         for (new_shard_uid, retain_mode) in [
-            (children_shard_uids[0], RetainMode::Left),
-            (children_shard_uids[1], RetainMode::Right),
+            (split_shard_event.left_child_shard, RetainMode::Left),
+            (split_shard_event.right_child_shard, RetainMode::Right),
         ] {
             let Some(mem_tries) = tries.get_mem_tries(new_shard_uid) else {
                 tracing::error!(
