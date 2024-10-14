@@ -735,7 +735,6 @@ impl StoreUpdate {
                 }
             }
         }
-        // TODO(reshardingV3) Map shard_uid for ops referencing State column.
         self.storage.write(self.transaction)
     }
 }
