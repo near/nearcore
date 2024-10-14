@@ -73,6 +73,8 @@ impl ReshardingManager {
 
         // TODO(#12019): what if node doesn't have memtrie? just pause
         // processing?
+        // TODO(#12019): fork handling. if epoch is finalized on different
+        // blocks, the second finalization will crash.
         tries.freeze_mem_tries(
             shard_uid,
             vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
