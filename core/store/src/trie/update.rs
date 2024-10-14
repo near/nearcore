@@ -4,11 +4,10 @@ use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
-use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
-    StateRoot, TrieCacheMode,
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    TrieCacheMode,
 };
 use std::collections::BTreeMap;
 
@@ -100,33 +99,6 @@ impl TrieUpdate {
             }
         }
         self.trie.contains_key(&key)
-    }
-
-    /// Gets code from trie updates or directly from contract storage,
-    /// bypassing the trie.
-    pub fn get_code(
-        &self,
-        account_id: AccountId,
-        code_hash: CryptoHash,
-    ) -> Option<near_vm_runner::ContractCode> {
-        let key = TrieKey::ContractCode { account_id }.to_vec();
-        let raw_code_update = if let Some(key_value) = self.prospective.get(&key) {
-            Some(key_value.value.as_ref().map(<Vec<u8>>::clone))
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                Some(data.as_ref().map(<Vec<u8>>::clone))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        match raw_code_update {
-            Some(raw_code) => {
-                raw_code.map(|code| near_vm_runner::ContractCode::new(code, Some(code_hash)))
-            }
-            None => self.contract_storage.get(code_hash),
-        }
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
