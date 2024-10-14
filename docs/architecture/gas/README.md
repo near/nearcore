@@ -37,7 +37,7 @@ good places to dig deeper.
 
 For timing to make sense at all, we must first define hardware constraints. The
 official hardware requirements for a validator are published on
-[near-nodes.io/validator/hardware](https://near-nodes.io/validator/hardware). They
+[near-nodes.io/validator/hardware-validator](https://near-nodes.io/validator/hardware-validator). They
 may change over time but the main principle is that a moderately configured,
 cloud-hosted virtual machine suffices.
 

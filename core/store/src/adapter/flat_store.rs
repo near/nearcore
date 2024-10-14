@@ -162,12 +162,12 @@ impl FlatStoreAdapter {
             Some(from) => encode_flat_state_db_key(shard_uid, from),
             None => shard_uid.to_bytes().to_vec(),
         };
-        // If right direction is unbounded, `ShardUId::next_shard_prefix` serves as
+        // If right direction is unbounded, `ShardUId::get_upper_bound_db_key` serves as
         // the key which is strictly bigger than all keys in DB for this shard and
         // still doesn't include keys from other shards.
         let db_key_to = match to {
             Some(to) => encode_flat_state_db_key(shard_uid, to),
-            None => ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec(),
+            None => ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()).to_vec(),
         };
         let iter = self
             .store
@@ -234,7 +234,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         }
     }
 
-    pub fn remove_all(&mut self, shard_uid: ShardUId) {
+    pub fn remove_all_values(&mut self, shard_uid: ShardUId) {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatState);
     }
 
@@ -242,6 +242,10 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         self.store_update
             .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status)
             .expect("Borsh should not have failed here")
+    }
+
+    pub fn remove_status(&mut self, shard_uid: ShardUId) {
+        self.store_update.delete(DBCol::FlatStorageStatus, &shard_uid.to_bytes());
     }
 
     pub fn set_delta(&mut self, shard_uid: ShardUId, delta: &FlatStateDelta) {
@@ -266,10 +270,17 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatStateDeltaMetadata);
     }
 
+    /// Removes flat storage in its entirety for a shard: deltas, values and status.
+    pub fn remove_flat_storage(&mut self, shard_uid: ShardUId) {
+        self.remove_all_deltas(shard_uid);
+        self.remove_all_values(shard_uid);
+        self.remove_status(shard_uid);
+    }
+
     // helper
     fn remove_range_by_shard_uid(&mut self, shard_uid: ShardUId, col: DBCol) {
         let key_from = shard_uid.to_bytes();
-        let key_to = ShardUId::next_shard_prefix(&key_from);
+        let key_to = ShardUId::get_upper_bound_db_key(&key_from);
         self.store_update.delete_range(col, &key_from, &key_to);
     }
 }

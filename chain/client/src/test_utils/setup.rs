@@ -56,9 +56,12 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
+use near_primitives::types::{
+    new_shard_id_tmp, AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats,
+};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
@@ -447,7 +450,10 @@ fn process_peer_manager_message_default(
                             height: last_height[i],
                             hash: CryptoHash::default(),
                         }),
-                        tracked_shards: vec![0, 1, 2, 3],
+                        tracked_shards: vec![0, 1, 2, 3]
+                            .into_iter()
+                            .map(new_shard_id_tmp)
+                            .collect(),
                         archival: true,
                     },
                 },
@@ -1049,6 +1055,7 @@ pub fn setup_synchronous_shards_manager(
     // ShardsManager. This way we don't have to wait to construct the Client first.
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
+    let chunk_store = runtime.store().chunk_store();
     let chain = Chain::new(
         clock.clone(),
         epoch_manager.clone(),
@@ -1080,7 +1087,7 @@ pub fn setup_synchronous_shards_manager(
         shard_tracker,
         network_adapter.request_sender,
         client_adapter,
-        chain.chain_store().new_read_only_chunks_store(),
+        chunk_store,
         chain_head,
         chain_header_head,
         Duration::hours(1),

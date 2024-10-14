@@ -4,6 +4,7 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store};
 use tempfile::TempDir;
@@ -27,6 +28,7 @@ use std::rc::Rc;
 struct TestNetworkSetup {
     tempdir: TempDir,
     genesis: Genesis,
+    epoch_config_store: EpochConfigStore,
     accounts: Vec<AccountId>,
     stores: Vec<Store>,
 }
@@ -54,10 +56,13 @@ fn setup_initial_blockchain(num_clients: usize) -> TestNetworkSetup {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis.clone()).clients(clients).build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis(genesis.clone())
+        .epoch_config_store(epoch_config_store.clone())
+        .clients(clients)
+        .build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -104,18 +109,19 @@ fn setup_initial_blockchain(num_clients: usize) -> TestNetworkSetup {
     let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
 
-    TestNetworkSetup { tempdir, genesis, accounts, stores }
+    TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
 }
 
 fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) -> TestNetworkSetup {
     tracing::info!("Starting new TestLoopEnv with new node");
-    let TestNetworkSetup { genesis, accounts, mut stores, tempdir } = setup;
+    let TestNetworkSetup { genesis, epoch_config_store, accounts, mut stores, tempdir } = setup;
     let num_existing_clients = stores.len();
     let clients = accounts.iter().take(num_existing_clients + 1).cloned().collect_vec();
     stores.push(create_test_store()); // new node starts empty.
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
         .genesis(genesis.clone())
+        .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
         .stores_override_hot_only(stores)
         .test_loop_data_dir(tempdir)
@@ -250,7 +256,7 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
     let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
 
-    TestNetworkSetup { tempdir, genesis, accounts, stores }
+    TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
 }
 
 // Test that a new node that only has genesis can use Epoch Sync to bring itself

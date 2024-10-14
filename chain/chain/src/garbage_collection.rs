@@ -11,7 +11,7 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
-use near_store::adapter::StoreUpdateAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
@@ -382,12 +382,11 @@ impl ChainStore {
         chain_store_update.commit()?;
 
         // clear all trie data
-
         let tries = runtime_adapter.get_tries();
         let mut chain_store_update = self.store_update();
         let mut store_update = tries.store_update();
-        store_update.delete_all(DBCol::State);
-        chain_store_update.merge(store_update);
+        store_update.delete_all_state();
+        chain_store_update.merge(store_update.into());
 
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
@@ -529,7 +528,7 @@ impl<'a> ChainStoreUpdate<'a> {
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
-        let mut store_update = self.store().store_update();
+        let mut store_update = self.store().trie_store().store_update();
 
         tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
@@ -586,9 +585,11 @@ impl<'a> ChainStoreUpdate<'a> {
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
         let height = block.header().height();
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+        for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
@@ -661,7 +662,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Chunks deleted separately
             }
         };
-        self.merge(store_update);
+        self.merge(store_update.into());
         Ok(())
     }
 
@@ -679,11 +680,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
 
         let epoch_id = block.header().epoch_id();
-
         let head_height = block.header().height();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+        for shard_id in shard_layout.shard_ids() {
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
@@ -834,6 +835,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for chunk_header in
             block.chunks().iter().filter(|h| h.height_included() == block.header().height())
         {
+            // It is ok to use the shard id from the header because it is a new
+            // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
             let outcome_ids =
                 self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
@@ -994,6 +997,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::EpochSyncProof
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
+            | DBCol::StateShardUIdMapping
             => unreachable!(),
         }
         self.merge(store_update);

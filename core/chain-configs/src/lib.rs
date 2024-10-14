@@ -91,3 +91,5 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
+
+pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;

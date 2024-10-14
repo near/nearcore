@@ -1,7 +1,8 @@
+use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, DBCol, MissingTrieValueContext, PrefetchApi, StorageError, Store};
+use crate::{metrics, MissingTrieValueContext, PrefetchApi, StorageError};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -9,7 +10,7 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::ShardId;
+use near_primitives::types::{shard_id_as_u64, ShardId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -102,7 +103,7 @@ impl TrieCacheInner {
         assert!(total_size_limit > 0);
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
-        let shard_id_str = buffer.format(shard_id);
+        let shard_id_str = buffer.format(shard_id_as_u64(shard_id));
 
         let metrics_labels: [&str; 2] = [&shard_id_str, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {
@@ -358,7 +359,7 @@ impl TrieMemoryPartialStorage {
 /// optimization to speed up execution, whereas the latter is a deterministic
 /// cache used for gas accounting during contract execution.
 pub struct TrieCachingStorage {
-    pub(crate) store: Store,
+    pub(crate) store: TrieStoreAdapter,
     pub(crate) shard_uid: ShardUId,
     pub(crate) is_view: bool,
 
@@ -390,7 +391,7 @@ struct TrieCacheInnerMetrics {
 
 impl TrieCachingStorage {
     pub fn new(
-        store: Store,
+        store: TrieStoreAdapter,
         shard_cache: TrieCache,
         shard_uid: ShardUId,
         is_view: bool,
@@ -419,13 +420,6 @@ impl TrieCachingStorage {
             prefetch_conflict: metrics::PREFETCH_CONFLICT.with_label_values(&metrics_labels[..1]),
         };
         TrieCachingStorage { store, shard_uid, is_view, shard_cache, prefetch_api, metrics }
-    }
-
-    pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
-        let mut key = [0; 40];
-        key[0..8].copy_from_slice(&shard_uid.to_bytes());
-        key[8..].copy_from_slice(hash.as_ref());
-        key
     }
 
     /// Reads value if it is not in shard cache. Handles dropping the cache
@@ -548,22 +542,9 @@ impl TrieStorage for TrieCachingStorage {
     }
 }
 
-fn read_node_from_db(
-    store: &Store,
-    shard_uid: ShardUId,
-    hash: &CryptoHash,
-) -> Result<Arc<[u8]>, StorageError> {
-    let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, hash);
-    let val = store
-        .get(DBCol::State, key.as_ref())
-        .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
-    Ok(val.into())
-}
-
 impl TrieCachingStorage {
     fn read_from_db(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        read_node_from_db(&self.store, self.shard_uid, hash)
+        self.store.get(self.shard_uid, hash)
     }
 
     pub fn prefetch_api(&self) -> &Option<PrefetchApi> {
@@ -576,19 +557,19 @@ impl TrieCachingStorage {
 /// This `TrieStorage` implementation has no caches, it just goes to DB.
 /// It is useful for background tasks that should not affect chunk processing and block each other.
 pub struct TrieDBStorage {
-    pub(crate) store: Store,
+    pub(crate) store: TrieStoreAdapter,
     pub(crate) shard_uid: ShardUId,
 }
 
 impl TrieDBStorage {
-    pub fn new(store: Store, shard_uid: ShardUId) -> Self {
+    pub fn new(store: TrieStoreAdapter, shard_uid: ShardUId) -> Self {
         Self { store, shard_uid }
     }
 }
 
 impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        read_node_from_db(&self.store, self.shard_uid, hash)
+        self.store.get(self.shard_uid, hash)
     }
 }
 
@@ -631,7 +612,7 @@ mod trie_cache_tests {
     use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::ShardId;
+    use near_primitives::types::{new_shard_id_tmp, shard_id_as_u32, ShardId};
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());
@@ -641,7 +622,8 @@ mod trie_cache_tests {
     fn test_size_limit() {
         let value_size_sum = 5;
         let memory_overhead = 2 * TrieCacheInner::PER_ENTRY_OVERHEAD;
-        let mut cache = TrieCacheInner::new(100, value_size_sum + memory_overhead, 0, false);
+        let mut cache =
+            TrieCacheInner::new(100, value_size_sum + memory_overhead, new_shard_id_tmp(0), false);
         // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.current_total_size(), 2 + TrieCacheInner::PER_ENTRY_OVERHEAD);
@@ -659,7 +641,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_deletions_queue() {
-        let mut cache = TrieCacheInner::new(2, 1000, 0, false);
+        let mut cache = TrieCacheInner::new(2, 1000, new_shard_id_tmp(0), false);
         // Add two values to the cache.
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
@@ -678,7 +660,7 @@ mod trie_cache_tests {
     fn test_cache_capacity() {
         let capacity = 2;
         let total_size_limit = TrieCacheInner::PER_ENTRY_OVERHEAD * capacity;
-        let mut cache = TrieCacheInner::new(100, total_size_limit, 0, false);
+        let mut cache = TrieCacheInner::new(100, total_size_limit, new_shard_id_tmp(0), false);
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[2]);
         put_value(&mut cache, &[3]);
@@ -691,7 +673,7 @@ mod trie_cache_tests {
     #[test]
     fn test_small_memory_limit() {
         let total_size_limit = 1;
-        let mut cache = TrieCacheInner::new(100, total_size_limit, 0, false);
+        let mut cache = TrieCacheInner::new(100, total_size_limit, new_shard_id_tmp(0), false);
         put_value(&mut cache, &[1, 2, 3]);
         put_value(&mut cache, &[2, 3, 4]);
         put_value(&mut cache, &[3, 4, 5]);
@@ -718,10 +700,10 @@ mod trie_cache_tests {
         store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
         let trie_config = TrieConfig::from_store_config(&store_config);
 
-        check_cache_size(&trie_config, 1, false, DEFAULT_SIZE);
-        check_cache_size(&trie_config, 0, false, S0_SIZE);
-        check_cache_size(&trie_config, 1, true, DEFAULT_VIEW_SIZE);
-        check_cache_size(&trie_config, 0, true, S0_VIEW_SIZE);
+        check_cache_size(&trie_config, new_shard_id_tmp(1), false, DEFAULT_SIZE);
+        check_cache_size(&trie_config, new_shard_id_tmp(0), false, S0_SIZE);
+        check_cache_size(&trie_config, new_shard_id_tmp(1), true, DEFAULT_VIEW_SIZE);
+        check_cache_size(&trie_config, new_shard_id_tmp(0), true, S0_VIEW_SIZE);
     }
 
     #[track_caller]
@@ -731,7 +713,7 @@ mod trie_cache_tests {
         is_view: bool,
         expected_size: bytesize::ByteSize,
     ) {
-        let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+        let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
         assert_eq!(expected_size.as_u64(), trie_cache.lock().total_size_limit);
         assert_eq!(is_view, trie_cache.lock().is_view);

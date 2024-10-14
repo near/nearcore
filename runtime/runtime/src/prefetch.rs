@@ -477,7 +477,7 @@ mod tests {
         let store = create_test_store();
         let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
-            store,
+            store.trie_store(),
             trie_config,
             &shard_uids,
             flat_storage_manager,

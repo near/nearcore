@@ -1,6 +1,6 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::{EpochError, StorageError};
+use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -199,7 +199,7 @@ pub enum Error {
     InvalidBlockMerkleRoot,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
-    InvalidSplitShardsIds(u64, u64),
+    InvalidSplitShardsIds(ShardId, ShardId),
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator: {0}")]
     NotAValidator(String),
@@ -232,6 +232,9 @@ pub enum Error {
     /// GC error.
     #[error("GC Error: {0}")]
     GCError(String),
+    /// Resharding error.
+    #[error("Resharding Error: {0}")]
+    ReshardingError(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -269,6 +272,7 @@ impl Error {
             | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
+            | Error::ReshardingError(_)
             | Error::DBNotFoundErr(_) => false,
             Error::InvalidBlockPastTime(_, _)
             | Error::InvalidBlockFutureTime(_)
@@ -392,6 +396,7 @@ impl Error {
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
+            Error::ReshardingError(_) => "resharding_error",
         }
     }
 }
@@ -436,6 +441,14 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
             BlockValidityError::InvalidChallengeRoot => Error::InvalidChallengeRoot,
+        }
+    }
+}
+
+impl From<ChunkAccessError> for Error {
+    fn from(error: ChunkAccessError) -> Self {
+        match error {
+            ChunkAccessError::ChunkMissing(chunk_hash) => Error::ChunkMissing(chunk_hash),
         }
     }
 }

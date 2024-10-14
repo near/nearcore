@@ -95,7 +95,6 @@ use near_async::messaging::{self, Handler, Sender};
 use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
-use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::types::EpochManagerAdapter;
 use near_chain_configs::MutableValidatorSigner;
@@ -129,6 +128,8 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -248,7 +249,7 @@ pub struct ShardsManagerActor {
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     validator_signer: MutableValidatorSigner,
-    store: ReadOnlyChunksStore,
+    store: ChunkStoreAdapter,
 
     /// Epoch manager used to access information about recent epochs (from Hot storage).
     /// For building PartialChunks from Chunks of the garbage collected epochs, use `view_epoch_manager` instead.
@@ -318,7 +319,6 @@ pub fn start_shards_manager(
         .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)
         .unwrap()
         .expect("ShardsManager must be initialized after the chain is initialized");
-    let chunks_store = ReadOnlyChunksStore::new(store);
     let shards_manager = ShardsManagerActor::new(
         Clock::real(),
         validator_signer,
@@ -327,7 +327,7 @@ pub fn start_shards_manager(
         shard_tracker,
         network_adapter,
         client_adapter_for_shards_manager,
-        chunks_store,
+        store.chunk_store(),
         chain_head,
         chain_header_head,
         chunk_request_retry_period,
@@ -349,7 +349,7 @@ impl ShardsManagerActor {
         shard_tracker: ShardTracker,
         network_adapter: Sender<PeerManagerMessageRequest>,
         client_adapter: Sender<ShardsManagerResponse>,
-        store: ReadOnlyChunksStore,
+        store: ChunkStoreAdapter,
         initial_chain_head: Tip,
         initial_chain_header_head: Tip,
         chunk_request_retry_period: Duration,
@@ -524,7 +524,7 @@ impl ShardsManagerActor {
                 debug!(
                     target: "chunks",
                     ?part_ords,
-                    shard_id,
+                    ?shard_id,
                     ?target_account,
                     prefer_peer,
                     "Requesting parts",
@@ -684,18 +684,18 @@ impl ShardsManagerActor {
             target: "chunks",
             "request_chunk_single",
             ?chunk_hash,
-            shard_id,
+            ?shard_id,
             height_created = height)
         .entered();
 
         if self.requested_partial_encoded_chunks.contains_key(&chunk_hash) {
-            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Not requesting chunk, already being requested.");
+            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Not requesting chunk, already being requested.");
             return;
         }
 
         if let Some(entry) = self.encoded_chunks.get(&chunk_header.chunk_hash()) {
             if entry.complete {
-                debug!(target: "chunks", height, shard_id, ?chunk_hash, "Not requesting chunk, already complete.");
+                debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Not requesting chunk, already complete.");
                 return;
             }
         } else {
@@ -703,7 +703,7 @@ impl ShardsManagerActor {
             // However, if the chunk had just been processed and marked as complete, it might have
             // been removed from the cache if it is out of horizon. So in this case, the chunk is
             // already complete and we don't need to request anything.
-            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Not requesting chunk, already complete and GC-ed.");
+            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Not requesting chunk, already complete and GC-ed.");
             return;
         }
 
@@ -721,7 +721,7 @@ impl ShardsManagerActor {
         );
 
         if mark_only {
-            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
+            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
             return;
         }
 
@@ -749,7 +749,7 @@ impl ShardsManagerActor {
         // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
         // before we send requests.
         if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
-            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Requesting.");
+            debug!(target: "chunks", height, ?shard_id, ?chunk_hash, "Requesting.");
             let request_result = self.request_partial_encoded_chunk(
                 height,
                 &ancestor_hash,
@@ -1108,7 +1108,7 @@ impl ShardsManagerActor {
             target: "chunks",
             "check_chunk_complete",
             height_included = chunk.cloned_header().height_included(),
-            shard_id = chunk.cloned_header().shard_id(),
+            shard_id = ?chunk.cloned_header().shard_id(),
             chunk_hash = ?chunk.chunk_hash())
         .entered();
 
@@ -1471,7 +1471,7 @@ impl ShardsManagerActor {
             target: "chunks",
             "process_partial_encoded_chunk",
             ?chunk_hash,
-            shard_id = header.shard_id(),
+            shard_id = ?header.shard_id(),
             height_created = header.height_created(),
             height_included = header.height_included())
         .entered();
@@ -2263,7 +2263,7 @@ mod test {
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{new_shard_id_tmp, EpochId};
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -2310,7 +2310,7 @@ mod test {
             shard_tracker,
             network_adapter.as_sender(),
             client_adapter.as_sender(),
-            ReadOnlyChunksStore::new(store),
+            store.chunk_store(),
             mock_tip.clone(),
             mock_tip,
             Duration::hours(1),
@@ -2322,7 +2322,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: 0,
+                shard_id: new_shard_id_tmp(0),
                 added,
                 last_requested: added,
             },
@@ -2355,7 +2355,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2436,7 +2436,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2468,7 +2468,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2551,7 +2551,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2642,7 +2642,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2719,7 +2719,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2788,7 +2788,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2825,7 +2825,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2859,7 +2859,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2893,7 +2893,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2928,7 +2928,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -2972,7 +2972,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -3020,7 +3020,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -3066,7 +3066,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -3092,7 +3092,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -3118,7 +3118,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -3154,7 +3154,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
@@ -3188,7 +3188,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
-            fixture.chain_store.new_read_only_chunks_store(),
+            fixture.store.clone(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),

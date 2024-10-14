@@ -31,14 +31,15 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
 use near_store::adapter::flat_store::encode_flat_state_db_key;
+use near_store::adapter::trie_store::get_key_from_shard_uid_and_hash;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
-    DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, TrieCachingStorage,
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
+    DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, CHUNK_TAIL_KEY,
+    COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
+    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY,
+    STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -248,10 +249,7 @@ impl EntityDebugHandlerImpl {
                 let node = store
                     .get_ser::<RawTrieNodeWithSize>(
                         DBCol::State,
-                        &TrieCachingStorage::get_key_from_shard_uid_and_hash(
-                            shard_uid,
-                            &trie_node_hash,
-                        ),
+                        &get_key_from_shard_uid_and_hash(shard_uid, &trie_node_hash),
                     )?
                     .ok_or_else(|| anyhow!("Trie node not found"))?;
                 Ok(serialize_raw_trie_node(node))
@@ -263,17 +261,16 @@ impl EntityDebugHandlerImpl {
                 let shard_layout = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_id = chunk.shard_id();
+                let shard_index = shard_layout.get_shard_index(shard_id);
                 let shard_uid = shard_layout
                     .shard_uids()
-                    .nth(chunk.shard_id() as usize)
+                    .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
                 let node = store
                     .get_ser::<RawTrieNodeWithSize>(
                         DBCol::State,
-                        &TrieCachingStorage::get_key_from_shard_uid_and_hash(
-                            shard_uid,
-                            &chunk.prev_state_root(),
-                        ),
+                        &get_key_from_shard_uid_and_hash(shard_uid, &chunk.prev_state_root()),
                     )?
                     .ok_or_else(|| anyhow!("State root not found"))?;
                 Ok(serialize_raw_trie_node(node))
@@ -282,10 +279,7 @@ impl EntityDebugHandlerImpl {
                 let value = store
                     .get(
                         DBCol::State,
-                        &TrieCachingStorage::get_key_from_shard_uid_and_hash(
-                            shard_uid,
-                            &trie_value_hash,
-                        ),
+                        &get_key_from_shard_uid_and_hash(shard_uid, &trie_value_hash),
                     )?
                     .ok_or_else(|| anyhow!("Trie value not found"))?;
                 Ok(serialize_entity(&hex::encode(value.as_slice())))
@@ -307,9 +301,11 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_index = shard_layout.get_shard_index(shard_id);
+
                 let shard_uid = shard_layout
                     .shard_uids()
-                    .nth(shard_id as usize)
+                    .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
                 Ok(serialize_entity(&shard_uid))
             }
@@ -388,9 +384,11 @@ impl EntityDebugHandlerImpl {
                 let shard_layout = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_id = chunk.shard_id();
+                let shard_index = shard_layout.get_shard_index(shard_id);
                 let shard_uid = shard_layout
                     .shard_uids()
-                    .nth(chunk.shard_id() as usize)
+                    .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
                 let path =
                     TriePath { path: vec![], shard_uid, state_root: chunk.prev_state_root() };
@@ -454,10 +452,7 @@ impl EntityDebugHandlerImpl {
     ) -> anyhow::Result<Vec<u8>> {
         Ok(match state {
             FlatStateValue::Ref(value) => store
-                .get(
-                    DBCol::State,
-                    &TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &value.hash),
-                )?
+                .get(DBCol::State, &get_key_from_shard_uid_and_hash(shard_uid, &value.hash))?
                 .ok_or_else(|| anyhow!("ValueRef could not be dereferenced"))?
                 .to_vec(),
             FlatStateValue::Inlined(data) => data,

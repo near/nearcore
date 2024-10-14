@@ -147,7 +147,7 @@ wasm_alt_bn128_g1_sum_element                  5_000_000_000
 wasm_yield_create_base                       153_411_779_276
 wasm_yield_create_byte                            15_643_988
 wasm_yield_resume_base                     1_195_627_285_210
-wasm_yield_resume_byte                            47_683_715
+wasm_yield_resume_byte                     1_195_627_285_210
 wasm_bls12381_p1_sum_base                     16_500_000_000
 wasm_bls12381_p1_sum_element                   6_000_000_000
 wasm_bls12381_p2_sum_base                     18_600_000_000
