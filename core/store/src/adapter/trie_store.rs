@@ -31,8 +31,24 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
+    /// Reads shard_uid mapping for given shard.
+    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
+    pub(crate) fn read_shard_uid_mapping_from_db(
+        &self,
+        shard_uid: ShardUId,
+    ) -> Result<ShardUId, StorageError> {
+        let mapped_shard_uid =
+            self.store.get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes());
+        let mapped_shard_uid = mapped_shard_uid
+            .map_err(|err| StorageError::StorageInconsistentState(err.to_string()))?;
+        Ok(mapped_shard_uid.unwrap_or(shard_uid))
+    }
+
+    /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
+    /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         let val = self
             .store
             .get(DBCol::State, key.as_ref())

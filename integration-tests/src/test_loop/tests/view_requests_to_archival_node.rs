@@ -15,8 +15,8 @@ use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    SyncCheckpoint,
+    new_shard_id_tmp, AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference,
+    Finality, SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -74,10 +74,11 @@ fn test_view_requests_to_archival_node() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
@@ -222,10 +223,10 @@ impl<'a> ViewClientTester<'a> {
             chunk
         };
 
-        let chunk_by_height = GetChunk::Height(5, 0);
+        let chunk_by_height = GetChunk::Height(5, new_shard_id_tmp(0));
         get_and_check_chunk(chunk_by_height);
 
-        let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, 0);
+        let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, new_shard_id_tmp(0));
         get_and_check_chunk(chunk_by_block_hash);
 
         let chunk_by_chunk_hash = GetChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
@@ -241,10 +242,10 @@ impl<'a> ViewClientTester<'a> {
             assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
         };
 
-        let chunk_by_height = GetShardChunk::Height(5, 0);
+        let chunk_by_height = GetShardChunk::Height(5, new_shard_id_tmp(0));
         get_and_check_shard_chunk(chunk_by_height);
 
-        let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, 0);
+        let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, new_shard_id_tmp(0));
         get_and_check_shard_chunk(chunk_by_block_hash);
 
         let chunk_by_chunk_hash = GetShardChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
@@ -375,9 +376,9 @@ impl<'a> ViewClientTester<'a> {
         let request = GetExecutionOutcomesForBlock { block_hash: block.header.hash };
         let outcomes = self.send(request, ARCHIVAL_CLIENT).unwrap();
         assert_eq!(outcomes.len(), NUM_SHARDS);
-        assert_eq!(outcomes[&0].len(), 1);
+        assert_eq!(outcomes[&new_shard_id_tmp(0)].len(), 1);
         assert!(matches!(
-            outcomes[&0][0],
+            outcomes[&new_shard_id_tmp(0)][0],
             ExecutionOutcomeWithIdView {
                 outcome: ExecutionOutcomeView {
                     status: ExecutionStatusView::SuccessReceiptId(_),
@@ -386,9 +387,9 @@ impl<'a> ViewClientTester<'a> {
                 ..
             }
         ));
-        assert_eq!(outcomes[&1].len(), 1);
+        assert_eq!(outcomes[&new_shard_id_tmp(1)].len(), 1);
         assert!(matches!(
-            outcomes[&1][0],
+            outcomes[&new_shard_id_tmp(1)][0],
             ExecutionOutcomeWithIdView {
                 outcome: ExecutionOutcomeView {
                     status: ExecutionStatusView::SuccessReceiptId(_),
@@ -397,8 +398,8 @@ impl<'a> ViewClientTester<'a> {
                 ..
             }
         ));
-        assert_eq!(outcomes[&2].len(), 0);
-        assert_eq!(outcomes[&3].len(), 0);
+        assert_eq!(outcomes[&new_shard_id_tmp(2)].len(), 0);
+        assert_eq!(outcomes[&new_shard_id_tmp(3)].len(), 0);
     }
 
     /// Generates variations of the [`GetStateChanges`] request and issues them to the view client of the archival node.

@@ -6,6 +6,7 @@ use itertools::Itertools;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::types::shard_id_as_u16;
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -74,6 +75,7 @@ impl ShardedTransactionPool {
     /// For better security we want the seed to different in each shard.
     /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
+        let shard_id = shard_id_as_u16(shard_id);
         let mut res = *base_seed;
         res[0] = shard_id as u8;
         res[1] = (shard_id / 256) as u8;
@@ -129,7 +131,6 @@ impl ShardedTransactionPool {
             "resharding the transaction pool"
         );
         debug_assert!(old_shard_layout != new_shard_layout);
-        debug_assert!(old_shard_layout.version() + 1 == new_shard_layout.version());
 
         let mut transactions = vec![];
 
@@ -162,7 +163,7 @@ mod tests {
         hash::CryptoHash,
         shard_layout::{account_id_to_shard_uid, ShardLayout},
         transaction::SignedTransaction,
-        types::AccountId,
+        types::{new_shard_id_tmp, shard_id_as_u32, AccountId, ShardId},
     };
     use near_store::ShardUId;
     use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -172,11 +173,12 @@ mod tests {
 
     #[test]
     fn test_random_seed_with_shard_id() {
-        let seed0 = ShardedTransactionPool::random_seed(&TEST_SEED, 0);
-        let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, 10);
-        let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, 256);
-        let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, 1000);
-        let seed1000000 = ShardedTransactionPool::random_seed(&TEST_SEED, 1_000_000);
+        let seed0 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(0));
+        let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(10));
+        let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(256));
+        let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1000));
+        let seed1000000 =
+            ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1_000_000));
         assert_ne!(seed0, seed10);
         assert_ne!(seed0, seed256);
         assert_ne!(seed0, seed1000);
@@ -197,12 +199,13 @@ mod tests {
 
         let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
 
-        let mut shard_id_to_accounts = HashMap::new();
-        shard_id_to_accounts.insert(0, vec!["aaa", "abcd", "a-a-a-a-a"]);
-        shard_id_to_accounts.insert(1, vec!["aurora"]);
-        shard_id_to_accounts.insert(2, vec!["aurora-0", "bob", "kkk"]);
+        let mut shard_id_to_accounts: HashMap<ShardId, _> = HashMap::new();
+        shard_id_to_accounts.insert(new_shard_id_tmp(0), vec!["aaa", "abcd", "a-a-a-a-a"]);
+        shard_id_to_accounts.insert(new_shard_id_tmp(1), vec!["aurora"]);
+        shard_id_to_accounts.insert(new_shard_id_tmp(2), vec!["aurora-0", "bob", "kkk"]);
         // this shard is split, make sure there are accounts for both shards 3' and 4'
-        shard_id_to_accounts.insert(3, vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
+        shard_id_to_accounts
+            .insert(new_shard_id_tmp(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
         let deposit = 222;
 
@@ -235,8 +238,10 @@ mod tests {
                 CryptoHash::default(),
             );
 
-            let shard_uid =
-                ShardUId { shard_id: signer_shard_id as u32, version: old_shard_layout.version() };
+            let shard_uid = ShardUId {
+                shard_id: shard_id_as_u32(signer_shard_id),
+                version: old_shard_layout.version(),
+            };
             pool.insert_transaction(shard_uid, tx);
         }
 
@@ -251,7 +256,7 @@ mod tests {
         {
             let shard_ids: Vec<_> = new_shard_layout.shard_ids().collect();
             for &shard_id in shard_ids.iter() {
-                let shard_id = shard_id as u32;
+                let shard_id = shard_id_as_u32(shard_id);
                 let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();
@@ -261,7 +266,7 @@ mod tests {
 
             let mut total = 0;
             for shard_id in shard_ids {
-                let shard_id = shard_id as u32;
+                let shard_id = shard_id_as_u32(shard_id);
                 let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
                 let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();
                 while let Some(group) = pool_iter.next() {

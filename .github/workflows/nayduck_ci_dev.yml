@@ -1,16 +1,14 @@
-name: CI Nayduck tests
+name: CI Nayduck DEV tests
 on:
-  pull_request:
   merge_group:
   workflow_dispatch:
 
 jobs:
-  nayduck_tests:
-    name: "Run Nayduck CI tests"
+  nayduck_dev_tests:
+    name: "Run Nayduck CI DEV tests"
     runs-on: ubuntu-latest
     environment: development
-    timeout-minutes: 60
-    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 120
 
     steps:
       - name: Install JQ json processor
@@ -30,7 +28,10 @@ jobs:
       - name: Run Nayduck tests and wait for results
         id: nayduck_run
         run: |
-          NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
+          # Wait 1 min to ensure Nayduck workers pool is not
+          # blocked while running merge-blocking tests from ci.txt
+          sleep 60
+          NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci_dev.txt)
           RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
           echo "nayduck_run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
@@ -54,7 +55,7 @@ jobs:
             echo "Fix them before merging"
             exit 1
           fi
-          
+
       - name: Cleanup Nayduck tests on cancel
         if: cancelled()
         run: |

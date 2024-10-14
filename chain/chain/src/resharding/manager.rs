@@ -47,7 +47,10 @@ impl ReshardingManager {
         let block_hash = block.hash();
         let block_height = block.header().height();
         let prev_hash = block.header().prev_hash();
-        if !self.epoch_manager.will_shard_layout_change(prev_hash)? {
+        let next_block_has_new_shard_layout =
+            self.epoch_manager.will_shard_layout_change(prev_hash)?
+                && self.epoch_manager.is_next_block_epoch_start(block.hash())?;
+        if !next_block_has_new_shard_layout {
             return Ok(());
         }
 

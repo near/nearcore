@@ -23,7 +23,7 @@ on:
 jobs:
   build_fuzzers:
     name: Build Fuzzers
-    runs-on: "ubuntu-20.04-32core"
+    runs-on: "ubuntu-22.04-16core"
 
     permissions:
       contents: "read"

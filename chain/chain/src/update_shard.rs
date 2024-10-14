@@ -133,7 +133,7 @@ pub fn apply_new_chunk(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
-        shard_id,
+        ?shard_id,
         ?apply_reason)
     .entered();
     let gas_limit = chunk_header.gas_limit();
@@ -182,7 +182,7 @@ pub fn apply_old_chunk(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
-        shard_id,
+        ?shard_id,
         ?apply_reason)
     .entered();
 
