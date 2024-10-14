@@ -223,6 +223,18 @@ impl FlatStorageResharder {
         store_update.commit()?;
         Ok(())
     }
+
+    /// Retrieves parent shard UIds and current resharding event status, only if a resharding event
+    /// is in progress and of type `Split`.
+    fn get_parent_shard_and_status(&self) -> Option<(ShardUId, SplittingParentStatus)> {
+        let event = self.resharding_event.lock().unwrap();
+        match event.as_ref() {
+            Some(FlatStorageReshardingEventStatus::SplitShard(parent_shard, status)) => {
+                Some((*parent_shard, status.clone()))
+            }
+            None => None,
+        }
+    }
 }
 
 /// Retrieves the flat head of the given `shard`.
@@ -251,20 +263,6 @@ fn split_shard_task(resharder: FlatStorageResharder, controller: FlatStorageResh
     };
 }
 
-/// Retrieve parent shard UIds and current resharding event status.
-/// Resharding event must be of type "Split".
-fn get_parent_shard_and_status(
-    resharder: &FlatStorageResharder,
-) -> (ShardUId, SplittingParentStatus) {
-    let event = resharder.resharding_event.lock().unwrap();
-    match event.as_ref() {
-        Some(FlatStorageReshardingEventStatus::SplitShard(parent_shard, status)) => {
-            (*parent_shard, status.clone())
-        }
-        None => panic!("a resharding event must exist!"),
-    }
-}
-
 /// Performs the bulk of [split_shard_task].
 ///
 /// Returns `true` if the routine completed successfully.
@@ -280,7 +278,9 @@ fn split_shard_task_impl(
     /// commit changes and to check interruptions.
     const BATCH_SIZE: usize = 10_000;
 
-    let (parent_shard, status) = get_parent_shard_and_status(&resharder);
+    let (parent_shard, status) = resharder
+        .get_parent_shard_and_status()
+        .expect("flat storage resharding event must be Split!");
     info!(target: "resharding", ?parent_shard, ?status, "flat storage shard split task: starting key-values copy");
 
     // Parent shard flat storage head must be on block height just before the new shard layout kicks
@@ -411,7 +411,9 @@ fn split_shard_task_postprocessing(
     resharder: FlatStorageResharder,
     task_status: FlatStorageReshardingTaskStatus,
 ) {
-    let (parent_shard, split_status) = get_parent_shard_and_status(&resharder);
+    let (parent_shard, split_status) = resharder
+        .get_parent_shard_and_status()
+        .expect("flat storage resharding event must be Split!");
     let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = split_status;
     let flat_store = resharder.runtime.store().flat_store();
     info!(target: "resharding", ?parent_shard, ?task_status, ?split_status, "flat storage shard split task: post-processing");
@@ -504,7 +506,6 @@ pub struct FlatStorageResharderController {
     /// Resharding handle to control interruption.
     handle: ReshardingHandle,
     /// This object will be used to signal when the background task is completed.
-    /// A value of `true` means that the operation completed successfully.
     completion_sender: Sender<FlatStorageReshardingTaskStatus>,
     /// Corresponding receiver for `completion_sender`.
     pub completion_receiver: Receiver<FlatStorageReshardingTaskStatus>,
@@ -882,7 +883,7 @@ mod tests {
                 controller.clone()
             )
             .is_ok());
-        let (parent_shard, status) = get_parent_shard_and_status(&resharder);
+        let (parent_shard, status) = resharder.get_parent_shard_and_status().unwrap();
         let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
 
         // Interrupt the task before it starts.
