@@ -105,10 +105,7 @@ fn test_resharding_v3() {
 
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        if !block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit) {
-            println!("chunk mask: {:?}", block_header.chunk_mask());
-            assert!(false);
-        }
+        assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
 
         // Return true if we passed an epoch with increased number of shards.
         let epoch_height =
