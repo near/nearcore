@@ -83,6 +83,8 @@ impl ReshardingManager {
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
         let boundary_account = split_shard_event.boundary_account;
 
+        let mut trie_store_update = self.store.store_update();
+
         // TODO(#12019): leave only tracked shards.
         for (new_shard_uid, retain_mode) in [
             (split_shard_event.left_child_shard, RetainMode::Left),
@@ -124,15 +126,14 @@ impl ReshardingManager {
             // Commit `TrieChanges` directly. They are needed to serve reads of
             // new nodes from `DBCol::State` while memtrie is properly created
             // from flat storage.
-            let mut store_update = self.store.store_update();
             tries.apply_insertions(
                 &trie_changes,
                 new_shard_uid,
-                &mut store_update.trie_store_update(),
+                &mut trie_store_update.trie_store_update(),
             );
-            store_update.commit()?;
         }
 
+        chain_store_update.merge(trie_store_update);
         chain_store_update.commit()?;
 
         Ok(())

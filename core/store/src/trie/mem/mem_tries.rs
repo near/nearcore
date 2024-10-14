@@ -43,6 +43,15 @@ pub struct MemTries {
     shard_uid: ShardUId,
 }
 
+/// Frozen arena together with supported roots and heights.
+/// Used to construct new memtries which share nodes from the same arena.
+#[derive(Clone)]
+pub struct FrozenMemTries {
+    arena: FrozenArena,
+    roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+    heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+}
+
 impl MemTries {
     pub fn new(shard_uid: ShardUId) -> Self {
         Self {
@@ -53,16 +62,11 @@ impl MemTries {
         }
     }
 
-    pub fn from_frozen_arena(
-        shard_uid: ShardUId,
-        arena: FrozenArena,
-        roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
-        heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
-    ) -> Self {
+    pub fn from_frozen_memtries(shard_uid: ShardUId, frozen_memtries: FrozenMemTries) -> Self {
         Self {
-            arena: HybridArena::from_frozen(shard_uid.to_string(), arena),
-            roots,
-            heights,
+            arena: HybridArena::from_frozen(shard_uid.to_string(), frozen_memtries.arena),
+            roots: frozen_memtries.roots,
+            heights: frozen_memtries.heights,
             shard_uid,
         }
     }
@@ -207,14 +211,10 @@ impl MemTries {
         Ok(memtrie_lookup(root, key, nodes_accessed))
     }
 
-    /// Freezes arena and returns a tuple of frozen arena, roots and heights.
-    /// Used to construct new memtries from shared frozen memtrie based on this
-    /// one.
-    pub fn freeze(
-        self,
-    ) -> (FrozenArena, HashMap<StateRoot, Vec<MemTrieNodeId>>, BTreeMap<BlockHeight, Vec<StateRoot>>)
-    {
-        (self.arena.freeze(), self.roots, self.heights)
+    /// Freezes memtrie. The result is used as a shared data to construct new
+    /// memtries.
+    pub fn freeze(self) -> FrozenMemTries {
+        FrozenMemTries { arena: self.arena.freeze(), roots: self.roots, heights: self.heights }
     }
 
     #[cfg(test)]

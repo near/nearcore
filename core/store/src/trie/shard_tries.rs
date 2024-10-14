@@ -499,16 +499,14 @@ impl ShardTries {
         };
         let mut guard = memtries.write().unwrap();
         let memtries = std::mem::replace(&mut *guard, MemTries::new(source_shard_uid));
-        let (arena, roots, heights) = memtries.freeze();
+        let frozen_memtries = memtries.freeze();
 
         for shard_uid in [vec![source_shard_uid], target_shard_uids].concat() {
             outer_guard.insert(
                 shard_uid,
-                Arc::new(RwLock::new(MemTries::from_frozen_arena(
+                Arc::new(RwLock::new(MemTries::from_frozen_memtries(
                     shard_uid,
-                    arena.clone(),
-                    roots.clone(),
-                    heights.clone(),
+                    frozen_memtries.clone(),
                 ))),
             );
         }
