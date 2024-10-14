@@ -1,7 +1,7 @@
-// #[cfg(feature = "new_shard_id")]
-// use std::fmt::Display;
-// #[cfg(feature = "new_shard_id")]
-// use std::ops::Add;
+#[cfg(feature = "new_shard_id")]
+use std::fmt::Display;
+#[cfg(feature = "new_shard_id")]
+use std::ops::Add;
 
 use crate::hash::CryptoHash;
 
@@ -51,7 +51,7 @@ pub type ProtocolVersion = u32;
 
 /// The shard identifier. The ShardId is currently being migrated to a newtype -
 /// please see the new ShardId definition below.
-// #[cfg(not(feature = "new_shard_id"))]
+#[cfg(not(feature = "new_shard_id"))]
 pub type ShardId = u64;
 
 /// The ShardIndex is the index of the shard in an array of shard data.
@@ -64,11 +64,11 @@ pub type ShardIndex = usize;
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn new_shard_id_tmp(id: u64) -> ShardId {
-    // #[cfg(not(feature = "new_shard_id"))]
+    #[cfg(not(feature = "new_shard_id"))]
     return id;
 
-    // #[cfg(feature = "new_shard_id")]
-    // return ShardId::new(id);
+    #[cfg(feature = "new_shard_id")]
+    return ShardId::new(id);
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
@@ -79,58 +79,56 @@ pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
 }
 
 pub fn shard_id_max() -> ShardId {
-    // #[cfg(not(feature = "new_shard_id"))]
+    #[cfg(not(feature = "new_shard_id"))]
     return ShardId::MAX;
 
-    // #[cfg(feature = "new_shard_id")]
-    // return ShardId::max();
+    #[cfg(feature = "new_shard_id")]
+    return ShardId::max();
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_usize(id: ShardId) -> usize {
-    // #[cfg(not(feature = "new_shard_id"))]
+    #[cfg(not(feature = "new_shard_id"))]
     return id as usize;
 
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as usize;
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as usize;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u16(id: ShardId) -> u16 {
-    // #[cfg(not(feature = "new_shard_id"))]
+    #[cfg(not(feature = "new_shard_id"))]
     return id as u16;
 
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as u16;
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as u16;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u32(id: ShardId) -> u32 {
-    // #[cfg(not(feature = "new_shard_id"))]
+    #[cfg(not(feature = "new_shard_id"))]
     return id as u32;
 
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as u32;
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as u32;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u64(id: ShardId) -> u64 {
-    // #[cfg(not(feature = "new_shard_id"))]
+    #[cfg(not(feature = "new_shard_id"))]
     return id as u64;
 
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as u64;
+    #[cfg(feature = "new_shard_id")]
+    return id.get() as u64;
 }
-
-/*
 
 // TODO(wacban) Complete the transition to ShardId as a newtype.
 /// The shard identifier. It may be a arbitrary number - it does not need to be
@@ -279,5 +277,3 @@ where
         Self(T::add(rhs, self.0))
     }
 }
-
-*/
