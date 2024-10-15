@@ -58,7 +58,7 @@ impl Client {
 
         let my_signer =
             validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
-        let (state_witness, contract_accesses) = self.create_state_witness(
+        let (state_witness, _contract_accesses) = self.create_state_witness(
             my_signer.validator_id().clone(),
             prev_block_header,
             prev_chunk_header,
@@ -87,12 +87,14 @@ impl Client {
         }
 
         #[cfg(feature = "contract_distribution")]
-        self.send_contract_accesses_to_chunk_validators(
-            epoch_id,
-            &chunk_header,
-            contract_accesses,
-            my_signer.as_ref(),
-        );
+        if !_contract_accesses.is_empty() {
+            self.send_contract_accesses_to_chunk_validators(
+                epoch_id,
+                &chunk_header,
+                _contract_accesses,
+                my_signer.as_ref(),
+            );
+        }
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             epoch_id: *epoch_id,
@@ -318,13 +320,13 @@ impl Client {
     }
 
     /// Sends the contract access to the same chunk validators that will receive the state witness for the chunk.
+    #[allow(unused)]
     fn send_contract_accesses_to_chunk_validators(
         &self,
         epoch_id: &EpochId,
         chunk_header: &ShardChunkHeader,
         contract_accesses: Vec<CodeHash>,
-        // TODO(#11099): Sign the message using this signer.
-        _signer: &ValidatorSigner,
+        my_signer: &ValidatorSigner,
     ) {
         let chunk_validators = self
             .epoch_manager
@@ -345,7 +347,7 @@ impl Client {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 chunk_validators,
-                ChunkContractAccesses::new(chunk_production_key, contract_accesses),
+                ChunkContractAccesses::new(chunk_production_key, contract_accesses, my_signer),
             ),
         ));
     }

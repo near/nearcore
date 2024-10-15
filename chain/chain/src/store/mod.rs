@@ -23,6 +23,7 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -2013,6 +2014,7 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
+        _contract_accesses: Vec<CodeHash>,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
@@ -2020,9 +2022,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 StoredChunkStateTransitionData {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
-                    // TODO(#11099): Revisit this.
                     #[cfg(feature = "contract_distribution")]
-                    contract_accesses: vec![],
+                    contract_accesses: _contract_accesses,
                 },
             );
         }

@@ -7,18 +7,27 @@ use near_primitives_core::{
 };
 use near_schema_checker_lib::ProtocolSchema;
 
-use crate::{types::EpochId, utils::compression::CompressedData};
+use crate::{
+    types::EpochId, utils::compression::CompressedData, validator_signer::ValidatorSigner,
+};
 
 use super::{ChunkProductionKey, SignatureDifferentiator};
 
+/// Contains contracts (as code-hashes) accessed during the application of a chunk.
+/// This is used by the chunk producer to let the chunk validators know about which contracts
+/// are needed for validating a witness, so that the chunk validators can request missing code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1),
 }
 
 impl ChunkContractAccesses {
-    pub fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
-        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts))
+    pub fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: Vec<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, signer))
     }
 
     pub fn contracts(&self) -> &Vec<CodeHash> {
@@ -30,24 +39,26 @@ impl ChunkContractAccesses {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkContractAccessesV1 {
-    pub inner: ChunkContractAccessesInner,
+    inner: ChunkContractAccessesInner,
     /// Signature of the inner, signed by the chunk producer of the next chunk.
-    pub signature: Signature,
+    signature: Signature,
 }
 
 impl ChunkContractAccessesV1 {
-    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
-        Self {
-            inner: ChunkContractAccessesInner::new(next_chunk, contracts),
-            // TODO(#11099): Sign the inner message.
-            signature: Signature::default(),
-        }
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: Vec<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ChunkContractAccessesInner::new(next_chunk, contracts);
+        let signature = signer.sign_chunk_contract_accesses(&inner);
+        Self { inner, signature }
     }
 }
 
 /// Identifies a chunk by the epoch, block, and shard in which it was produced.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkMetadata {
+struct ChunkMetadata {
     epoch_id: EpochId,
     height_created: BlockHeight,
     shard_id: ShardId,
@@ -102,6 +113,14 @@ pub enum ContractCodeRequest {
 }
 
 impl ContractCodeRequest {
+    pub fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: Vec<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, signer))
+    }
+
     pub fn contracts(&self) -> &Vec<CodeHash> {
         match self {
             Self::V1(request) => &request.inner.contracts,
@@ -111,9 +130,21 @@ impl ContractCodeRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeRequestV1 {
-    pub inner: ContractCodeRequestInner,
+    inner: ContractCodeRequestInner,
     /// Signature of the inner.
-    pub signature: Signature,
+    signature: Signature,
+}
+
+impl ContractCodeRequestV1 {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: Vec<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ContractCodeRequestInner::new(next_chunk, contracts);
+        let signature = signer.sign_contract_code_request(&inner);
+        Self { inner, signature }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -129,6 +160,16 @@ pub struct ContractCodeRequestInner {
     signature_differentiator: SignatureDifferentiator,
 }
 
+impl ContractCodeRequestInner {
+    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+        Self {
+            next_chunk: next_chunk.into(),
+            contracts,
+            signature_differentiator: "ContractCodeRequestInner".to_owned(),
+        }
+    }
+}
+
 // Data structures for chunk producers to send contract code to chunk validators as response to ContractCodeRequest.
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -137,25 +178,23 @@ pub enum ContractCodeResponse {
 }
 
 impl ContractCodeResponse {
-    pub fn new(contracts: &Vec<CodeBytes>) -> Self {
-        Self::V1(ContractCodeResponseV1::new(contracts))
+    pub fn new(contracts: &Vec<CodeBytes>, signer: &ValidatorSigner) -> Self {
+        Self::V1(ContractCodeResponseV1::new(contracts, signer))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeResponseV1 {
-    pub inner: ContractCodeResponseInner,
+    inner: ContractCodeResponseInner,
     /// Signature of the inner.
-    pub signature: Signature,
+    signature: Signature,
 }
 
 impl ContractCodeResponseV1 {
-    fn new(contracts: &Vec<CodeBytes>) -> Self {
-        Self {
-            inner: ContractCodeResponseInner::new(contracts),
-            // TODO(#11099): Sign the inner message.
-            signature: Signature::default(),
-        }
+    fn new(contracts: &Vec<CodeBytes>, signer: &ValidatorSigner) -> Self {
+        let inner = ContractCodeResponseInner::new(contracts);
+        let signature = signer.sign_contract_code_response(&inner);
+        Self { inner, signature }
     }
 }
 
@@ -183,9 +222,9 @@ impl ContractCodeResponseInner {
 
 /// Represents max allowed size of the raw (not compressed) contract code response,
 /// corresponds to the size of borsh-serialized ContractCodeResponse.
-pub const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
+const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
-pub const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
+const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
 
 /// This is the compressed version of a list of borsh-serialized contract code.
 #[derive(
@@ -199,7 +238,7 @@ pub const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
     derive_more::From,
     derive_more::AsRef,
 )]
-pub struct CompressedContractCode(Box<[u8]>);
+struct CompressedContractCode(Box<[u8]>);
 
 impl
     CompressedData<

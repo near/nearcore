@@ -5,6 +5,7 @@ use near_schema_checker_lib::ProtocolSchema;
 
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
+// TODO(#11099): Make this a versioned structure.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StoredChunkStateTransitionData {
     /// The partial state that is needed to apply the state transition,

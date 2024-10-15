@@ -18,15 +18,20 @@ pub struct PartialEncodedStateWitnessMessage(pub PartialEncodedStateWitness);
 #[rtype(result = "()")]
 pub struct PartialEncodedStateWitnessForwardMessage(pub PartialEncodedStateWitness);
 
+/// Message to partial witness actor (on a chunk validator) that contains code-hashes of
+/// the contracts that are accessed when applying the previous chunk.
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct ChunkContractAccessesMessage(pub ChunkContractAccesses);
 
+/// Message to partial witness actor (on a chunk producer) that requests contract code
+/// by their code hashes.
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct ContractCodeRequestMessage(pub ContractCodeRequest);
 
-// TODO(#11099): Use the compressed form of the message.
+/// Message to partial witness actor (on a chunk validator) that provides contract code
+/// requested beforehand.
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct ContractCodeResponseMessage(pub ContractCodeResponse);
