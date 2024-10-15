@@ -2381,7 +2381,9 @@ fn test_catchup_gas_price_change() {
 
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    for i in 3..=6 {
+    // We go up to height 8 because height 6 is the first block of the new epoch, and we want at least
+    // two more blocks if syncing to the current epoch's state
+    for i in 3..=8 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -2397,8 +2399,17 @@ fn test_catchup_gas_price_change() {
         .is_err());
 
     // Simulate state sync
-    let sync_hash = *blocks[5].hash();
-    assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
+
+    let sync_hash = env.clients[0].find_sync_hash().unwrap().unwrap();
+    let sync_block_idx = blocks
+        .iter()
+        .position(|b| *b.hash() == sync_hash)
+        .expect("block with hash matching sync hash not found");
+    if sync_block_idx == 0 {
+        panic!("sync block should not be the first block produced");
+    }
+    let sync_prev_block = &blocks[sync_block_idx - 1];
+
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
     let num_parts = state_sync_header.num_state_parts();
@@ -2440,10 +2451,14 @@ fn test_catchup_gas_price_change() {
     });
     env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
     env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
-    let chunk_extra_after_sync =
-        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
-    let expected_chunk_extra =
-        env.clients[0].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
+    let chunk_extra_after_sync = env.clients[1]
+        .chain
+        .get_chunk_extra(sync_prev_block.hash(), &ShardUId::single_shard())
+        .unwrap();
+    let expected_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(sync_prev_block.hash(), &ShardUId::single_shard())
+        .unwrap();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
