@@ -1242,7 +1242,7 @@ pub(crate) fn maybe_save_trie_changes(
     genesis_height: u64,
     apply_result: ApplyChunkResult,
     block_height: u64,
-    shard_id: u64,
+    shard_id: ShardId,
 ) -> anyhow::Result<()> {
     if let Some(store) = store {
         let mut chain_store = ChainStore::new(store, genesis_height, false);
