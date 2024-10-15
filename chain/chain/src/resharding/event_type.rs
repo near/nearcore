@@ -3,7 +3,7 @@
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::AccountId;
+use near_primitives::types::{shard_id_as_u32, AccountId};
 use near_store::ShardUId;
 use tracing::error;
 
@@ -76,8 +76,10 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
-                    let parent_shard =
-                        ShardUId { version: shard_layout.version(), shard_id: *parent_id as u32 };
+                    let parent_shard = ShardUId {
+                        version: shard_layout.version(),
+                        shard_id: shard_id_as_u32(*parent_id),
+                    };
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], shard_layout);
                     let right_child_shard =
@@ -117,7 +119,7 @@ impl ReshardingEventType {
 mod tests {
     use super::*;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::AccountId;
+    use near_primitives::types::{new_shard_id_tmp, new_shard_id_vec_tmp, AccountId};
     use near_store::ShardUId;
     use std::collections::BTreeMap;
 
@@ -134,6 +136,13 @@ mod tests {
         let block = CryptoHash::hash_bytes(&[1]);
         let prev_block = CryptoHash::hash_bytes(&[2]);
 
+        let s0 = new_shard_id_tmp(0);
+        let s1 = new_shard_id_tmp(1);
+        let s2 = new_shard_id_tmp(2);
+        let s3 = new_shard_id_tmp(3);
+        let s4 = new_shard_id_tmp(4);
+        let s5 = new_shard_id_tmp(5);
+
         // Shard layouts V0 and V1 are rejected.
         assert!(ReshardingEventType::from_shard_layout(
             &ShardLayout::v0_single_shard(),
@@ -145,16 +154,16 @@ mod tests {
             .is_err());
 
         // No resharding is ok.
-        let shards_split_map = BTreeMap::from([(0, vec![0])]);
-        let layout = ShardLayout::v2(vec![], vec![0], Some(shards_split_map));
+        let shards_split_map = BTreeMap::from([(s0, vec![s0])]);
+        let layout = ShardLayout::v2(vec![], vec![s0], Some(shards_split_map));
         assert!(ReshardingEventType::from_shard_layout(&layout, block, prev_block)
             .is_ok_and(|event| event.is_none()));
 
         // Single split shard is ok.
-        let shards_split_map = BTreeMap::from([(0, vec![0]), (1, vec![2, 3])]);
+        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s2, s3])]);
         let layout = ShardLayout::v2(
             vec![account!("ff"), account!("pp")],
-            vec![0, 2, 3],
+            vec![s0, s2, s3],
             Some(shards_split_map),
         );
 
@@ -173,10 +182,10 @@ mod tests {
         );
 
         // Double split shard is not ok.
-        let shards_split_map = BTreeMap::from([(0, vec![2, 3]), (1, vec![4, 5])]);
+        let shards_split_map = BTreeMap::from([(s0, vec![s2, s3]), (s1, vec![s4, s5])]);
         let layout = ShardLayout::v2(
             vec![account!("ff"), account!("pp"), account!("ss")],
-            vec![2, 3, 4, 5],
+            new_shard_id_vec_tmp(&[2, 3, 4, 5]),
             Some(shards_split_map),
         );
         assert!(ReshardingEventType::from_shard_layout(&layout, block, prev_block).is_err());
