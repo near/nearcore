@@ -415,12 +415,6 @@ impl Chain {
         self.orphans.len()
     }
 
-    /// Returns number of evicted orphans.
-    #[inline]
-    pub fn orphans_evicted_len(&self) -> usize {
-        self.orphans.len_evicted()
-    }
-
     /// Check if hash is for a known orphan.
     #[inline]
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
