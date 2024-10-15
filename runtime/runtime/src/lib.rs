@@ -2224,6 +2224,15 @@ fn missing_chunk_apply_result(
         .get(&processing_state.apply_state.shard_id)
         .map(|extended_info| extended_info.congestion_info);
 
+    // The chunk is missing and doesn't send out any receipts.
+    // It still wants to send the same receipts to the same shards, the bandwidth requests are the same.
+    let previous_bandwidth_requests = processing_state
+        .apply_state
+        .bandwidth_requests
+        .shards_bandwidth_requests
+        .get(&processing_state.apply_state.shard_id)
+        .cloned();
+
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,
         trie_changes,
@@ -2238,9 +2247,7 @@ fn missing_chunk_apply_result(
         delayed_receipts_count: delayed_receipts.len(),
         metrics: None,
         congestion_info,
-        bandwidth_requests: BandwidthRequests::default_for_protocol_version(
-            processing_state.apply_state.current_protocol_version, // TODO(bandwidth_scheduler) - produce bandwidth requests
-        ),
+        bandwidth_requests: previous_bandwidth_requests,
     });
 }
 
