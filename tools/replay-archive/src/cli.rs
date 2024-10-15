@@ -379,9 +379,12 @@ impl ReplayController {
         shard_id: ShardId,
         prev_chunk_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>> {
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
         let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
+            &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
         )?;

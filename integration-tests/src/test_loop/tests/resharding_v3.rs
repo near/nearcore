@@ -64,14 +64,12 @@ fn test_resharding_v3() {
     let last_shard_id = shard_ids.pop().unwrap();
     let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
         shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
-    // TODO(#11881): keep this way until non-contiguous shard ids are supported.
-    // let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
-    let new_shards = vec![max_shard_id, max_shard_id + 1];
+    let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
     shard_ids.extend(new_shards.clone());
     shards_split_map.insert(last_shard_id, new_shards);
-    boundary_accounts.push(AccountId::try_from("xyz.near".to_string()).unwrap());
+    boundary_accounts.push(AccountId::try_from("account6".to_string()).unwrap());
     epoch_config.shard_layout =
-        ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map));
+        ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map));
     let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),
@@ -113,7 +111,28 @@ fn test_resharding_v3() {
         let prev_epoch_id =
             client.epoch_manager.get_prev_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
         let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
-        epoch_config.shard_layout.shard_ids().count() == expected_num_shards
+        if epoch_config.shard_layout.shard_ids().count() != expected_num_shards {
+            return false;
+        }
+
+        // If resharding happened, also check that each shard has non-empty state.
+        for shard_uid in epoch_config.shard_layout.shard_uids() {
+            let chunk_extra =
+                client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
+            let trie = client
+                .runtime_adapter
+                .get_trie_for_shard(
+                    shard_uid.shard_id(),
+                    &tip.prev_block_hash,
+                    *chunk_extra.state_root(),
+                    false,
+                )
+                .unwrap();
+            let items = trie.lock_for_iter().iter().unwrap().count();
+            assert!(items > 0);
+        }
+
+        return true;
     };
 
     test_loop.run_until(
