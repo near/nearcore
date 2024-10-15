@@ -76,10 +76,13 @@ pub(crate) fn apply_block(
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
         let chain_store_update = ChainStoreUpdate::new(chain_store);
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 epoch_manager,
                 shard_id,
+                &shard_layout,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
             )

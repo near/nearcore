@@ -229,9 +229,11 @@ impl TestReshardingEnv {
         // Mapping from the chunk producer account id to the list of chunks that
         // it should produce. When processing block at height `next_height` the
         // chunk producers will produce chunks at height `next_height + 1`.
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let mut chunk_producer_to_shard_id: HashMap<AccountId, Vec<ShardId>> = HashMap::new();
-        for shard_id in 0..block.chunks().len() {
-            let shard_id = shard_id as ShardId;
+        for shard_index in 0..block.chunks().len() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let validator_id = get_chunk_producer(env, &block, shard_id);
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }
@@ -353,27 +355,28 @@ impl TestReshardingEnv {
         let block = client.chain.get_block_by_height(height).unwrap();
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
-        for shard_id in 0..num_shards {
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        for shard_id in shard_layout.shard_ids() {
             // get hash of the last block that we need to check that it has empty chunks for the shard
             // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
             // on chain, otherwise, that would be the block before the `block_hash` that the function
             // call returns
-            let next_block_hash_with_new_chunk = client
-                .chain
-                .get_next_block_hash_with_new_chunk(block_hash, shard_id as ShardId)
-                .unwrap();
+            let next_block_hash_with_new_chunk =
+                client.chain.get_next_block_hash_with_new_chunk(block_hash, shard_id).unwrap();
 
             let mut last_block_hash_with_empty_chunk = match next_block_hash_with_new_chunk {
                 Some((new_block_hash, target_shard_id)) => {
                     let new_block = client.chain.get_block(&new_block_hash).unwrap().clone();
                     let chunks = new_block.chunks();
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id);
                     // check that the target chunk in the new block is new
                     assert_eq!(
-                        chunks.get(target_shard_id as usize).unwrap().height_included(),
+                        chunks.get(target_shard_index).unwrap().height_included(),
                         new_block.header().height(),
                     );
                     if chunks.len() == num_shards {
-                        assert_eq!(target_shard_id, shard_id as ShardId);
+                        assert_eq!(target_shard_id, shard_id);
                     }
                     *new_block.header().prev_hash()
                 }
@@ -390,7 +393,7 @@ impl TestReshardingEnv {
 
                 let target_shard_ids = if chunks.len() == num_shards {
                     // same shard layout between block and last_block
-                    vec![shard_id as ShardId]
+                    vec![shard_id]
                 } else {
                     // different shard layout between block and last_block
                     let shard_layout = client
@@ -398,11 +401,12 @@ impl TestReshardingEnv {
                         .get_shard_layout_from_prev_block(&last_block_hash)
                         .unwrap();
 
-                    shard_layout.get_children_shards_ids(shard_id as ShardId).unwrap()
+                    shard_layout.get_children_shards_ids(shard_id).unwrap()
                 };
 
                 for target_shard_id in target_shard_ids {
-                    let chunk = chunks.get(target_shard_id as usize).unwrap();
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id);
+                    let chunk = chunks.get(target_shard_index).unwrap();
                     assert_ne!(chunk.height_included(), last_block.header().height());
                 }
 

@@ -194,3 +194,7 @@ pytest sanity/memtrie_disktrie_switch.py --features nightly
 # Tests the replay of chain blocks on an archival node.
 pytest sanity/replay_chain_from_archive.py
 pytest sanity/replay_chain_from_archive.py --features nightly
+
+# Tests that offline block+chunk producers and chunk validators are kicked out.
+pytest --timeout=120 sanity/kickout_offline_validators.py
+pytest --timeout=120 sanity/kickout_offline_validators.py --features nightly

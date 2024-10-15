@@ -1,5 +1,7 @@
 // #[cfg(feature = "new_shard_id")]
 // use std::fmt::Display;
+// #[cfg(feature = "new_shard_id")]
+// use std::ops::Add;
 
 use crate::hash::CryptoHash;
 
@@ -263,6 +265,18 @@ impl From<u16> for ShardId {
 impl Into<u16> for ShardId {
     fn into(self) -> u16 {
         self.0 as u16
+    }
+}
+
+#[cfg(feature = "new_shard_id")]
+impl<T> Add<T> for ShardId
+where
+    T: Add<u64, Output = u64>,
+{
+    type Output = Self;
+
+    fn add(self, rhs: T) -> Self::Output {
+        Self(T::add(rhs, self.0))
     }
 }
 

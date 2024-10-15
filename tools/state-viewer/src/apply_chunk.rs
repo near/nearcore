@@ -71,9 +71,11 @@ fn get_incoming_receipts(
         receipt_proofs.shuffle(&mut rng);
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
         epoch_manager,
         shard_id,
+        &shard_layout,
         *prev_hash,
         prev_height_included,
     )?);

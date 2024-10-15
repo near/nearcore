@@ -1,7 +1,7 @@
 use crate::test_loop::env::TestData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
-use near_async::messaging::{CanSend, MessageWithCallback, SendAsync};
+use near_async::messaging::SendAsync;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::{ONE_NEAR, TGAS};
+use near_async::futures::FutureSpawnerExt;
 
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
@@ -240,11 +241,11 @@ pub fn execute_tx(
     let process_result = Arc::new(Mutex::new(None));
     let process_result_clone = process_result.clone();
 
-    node_datas[rpc_node_id].client_sender.send(MessageWithCallback {
-        message: ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false },
-        callback: Box::new(move |process_res| {
-            *process_result_clone.lock().unwrap() = Some(process_res);
-        }),
+    let initial_process_tx_future = node_datas[rpc_node_id]
+        .client_sender
+        .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false });
+    test_loop.future_spawner().spawn("initial process tx", async move {
+        *process_result_clone.lock().unwrap() = Some(initial_process_tx_future.await);
     });
 
     test_loop.run_until(

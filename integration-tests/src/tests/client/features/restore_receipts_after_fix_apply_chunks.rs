@@ -6,7 +6,7 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{new_shard_id_tmp, BlockHeight};
 use near_primitives::version::ProtocolFeature;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
@@ -37,7 +37,7 @@ fn run_test(
         HashSet::from_iter(
             migration_data
                 .restored_receipts
-                .get(&0u64)
+                .get(&new_shard_id_tmp(0))
                 .cloned()
                 .unwrap_or_default()
                 .iter()
