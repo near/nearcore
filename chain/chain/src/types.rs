@@ -9,6 +9,7 @@ pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
@@ -101,6 +102,9 @@ pub struct ApplyChunkResult {
     /// should be set to None for chunks before the CongestionControl protocol
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
+    /// Requests for bandwidth to send receipts to other shards.
+    /// Will be None for protocol versions that don't have the BandwidthScheduler feature enabled.
+    pub bandwidth_requests: Option<BandwidthRequests>,
 }
 
 impl ApplyChunkResult {
