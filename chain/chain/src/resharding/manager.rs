@@ -1,20 +1,19 @@
-use std::str::FromStr;
 use std::sync::Arc;
 
+use super::event_type::ReshardingEventType;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::get_block_shard_uid;
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::AccountId;
-use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::trie::mem::resharding::RetainMode;
 use near_store::{DBCol, PartialStorage, ShardTries, ShardUId, Store};
+
+use crate::ChainStoreUpdate;
 
 pub struct ReshardingManager {
     store: Store,
@@ -41,6 +40,7 @@ impl ReshardingManager {
     /// created later.
     pub fn process_memtrie_resharding_storage_update(
         &mut self,
+        mut chain_store_update: ChainStoreUpdate,
         block: &Block,
         shard_uid: ShardUId,
         tries: ShardTries,
@@ -48,48 +48,63 @@ impl ReshardingManager {
         let block_hash = block.hash();
         let block_height = block.header().height();
         let prev_hash = block.header().prev_hash();
-        if !self.epoch_manager.will_shard_layout_change(prev_hash)? {
-            return Ok(());
-        }
-
+        let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-        let children_shard_uids =
-            next_shard_layout.get_children_shards_uids(shard_uid.shard_id()).unwrap();
 
-        // Hack to ensure this logic is not applied before ReshardingV3.
-        // TODO(#12019): proper logic.
-        if next_shard_layout.version() < 3 || children_shard_uids.len() == 1 {
+        let next_block_has_new_shard_layout =
+            self.epoch_manager.is_next_block_epoch_start(block_hash)?
+                && shard_layout != next_shard_layout;
+        if !next_block_has_new_shard_layout {
             return Ok(());
         }
-        assert_eq!(children_shard_uids.len(), 2);
+
+        if !matches!(next_shard_layout, ShardLayout::V2(_)) {
+            return Ok(());
+        }
+        let resharding_event_type =
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
+        let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
+            return Ok(());
+        };
+        if split_shard_event.parent_shard != shard_uid {
+            return Ok(());
+        }
+
+        // TODO(#12019): what if node doesn't have memtrie? just pause
+        // processing?
+        // TODO(#12019): fork handling. if epoch is finalized on different
+        // blocks, the second finalization will crash.
+        tries.freeze_mem_tries(
+            shard_uid,
+            vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
+        )?;
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
-        let Some(mem_tries) = tries.get_mem_tries(shard_uid) else {
-            // TODO(#12019): what if node doesn't have memtrie? just pause
-            // processing?
-            tracing::error!(
-                "Memtrie not loaded. Cannot process memtrie resharding storage
-                 update for block {:?}, shard {:?}",
-                block_hash,
-                shard_uid
-            );
-            return Err(Error::Other("Memtrie not loaded".to_string()));
-        };
+        let boundary_account = split_shard_event.boundary_account;
 
-        // TODO(#12019): take proper boundary account.
-        let boundary_account = AccountId::from_str("boundary.near").unwrap();
+        let mut trie_store_update = self.store.store_update();
 
         // TODO(#12019): leave only tracked shards.
         for (new_shard_uid, retain_mode) in [
-            (children_shard_uids[0], RetainMode::Left),
-            (children_shard_uids[1], RetainMode::Right),
+            (split_shard_event.left_child_shard, RetainMode::Left),
+            (split_shard_event.right_child_shard, RetainMode::Right),
         ] {
+            let Some(mem_tries) = tries.get_mem_tries(new_shard_uid) else {
+                tracing::error!(
+                    "Memtrie not loaded. Cannot process memtrie resharding storage
+                     update for block {:?}, shard {:?}",
+                    block_hash,
+                    shard_uid
+                );
+                return Err(Error::Other("Memtrie not loaded".to_string()));
+            };
+
             let mut mem_tries = mem_tries.write().unwrap();
             let mem_trie_update = mem_tries.update(*chunk_extra.state_root(), true)?;
 
             let (trie_changes, _) =
-                mem_trie_update.retain_split_shard(boundary_account.clone(), retain_mode);
+                mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
             let partial_state = PartialState::default();
             let partial_storage = PartialStorage { nodes: partial_state };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
@@ -100,30 +115,26 @@ impl ReshardingManager {
             let mut child_chunk_extra = ChunkExtra::clone(&chunk_extra);
             *child_chunk_extra.state_root_mut() = new_state_root;
 
-            let state_transition_data = StoredChunkStateTransitionData {
-                base_state: partial_storage.nodes,
-                receipts_hash: CryptoHash::default(),
-            };
+            chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
+            chain_store_update.save_state_transition_data(
+                *block_hash,
+                new_shard_uid.shard_id(),
+                Some(partial_storage),
+                CryptoHash::default(),
+            );
 
-            // TODO(store): Use proper store interface
-            let mut store_update = self.store.store_update();
-            store_update.set_ser(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(block_hash, &new_shard_uid),
-                &child_chunk_extra,
-            )?;
-            store_update.set_ser(
-                DBCol::StateTransitionData,
-                &get_block_shard_id(block_hash, new_shard_uid.shard_id()),
-                &state_transition_data,
-            )?;
+            // Commit `TrieChanges` directly. They are needed to serve reads of
+            // new nodes from `DBCol::State` while memtrie is properly created
+            // from flat storage.
             tries.apply_insertions(
                 &trie_changes,
                 new_shard_uid,
-                &mut store_update.trie_store_update(),
+                &mut trie_store_update.trie_store_update(),
             );
-            store_update.commit()?;
         }
+
+        chain_store_update.merge(trie_store_update);
+        chain_store_update.commit()?;
 
         Ok(())
     }

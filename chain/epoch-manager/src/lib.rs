@@ -1087,15 +1087,17 @@ impl EpochManager {
         }
 
         let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
         let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
-        for (shard_id, chunk_validators) in chunk_validators_per_shard.into_iter().enumerate() {
+        for (shard_index, chunk_validators) in chunk_validators_per_shard.into_iter().enumerate() {
             let chunk_validators = chunk_validators
                 .into_iter()
                 .map(|(validator_id, assignment_weight)| {
                     (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
                 })
                 .collect();
-            let cache_key = (*epoch_id, shard_id as ShardId, height);
+            let shard_id = shard_layout.get_shard_id(shard_index);
+            let cache_key = (*epoch_id, shard_id, height);
             self.chunk_validators_cache
                 .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
         }
@@ -1180,7 +1182,9 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let validator_id =
+            Self::chunk_producer_from_info(&epoch_info, &shard_layout, shard_id, height)?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1239,9 +1243,13 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
+
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement
-            .get(shard_id as usize)
+            .get(shard_index)
             .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
         for validator_id in chunk_producers.iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
@@ -1458,16 +1466,18 @@ impl EpochManager {
             ValidatorInfoIdentifier::BlockHash(ref b) => self.get_epoch_id(b)?,
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?;
+        let cur_shard_layout = self.get_shard_layout(&epoch_id)?;
         let epoch_height = cur_epoch_info.epoch_height();
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in
+        for (shard_index, validators) in
             cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
         {
+            let shard_id = cur_shard_layout.get_shard_id(shard_index);
             for validator_id in validators {
-                validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
+                validator_to_shard[*validator_id as usize].insert(shard_id);
             }
         }
 
@@ -1630,14 +1640,16 @@ impl EpochManager {
         };
 
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         let mut next_validator_to_shard = (0..next_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_id, validators) in
+        for (shard_index, validators) in
             next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
+            let shard_id = next_shard_layout.get_shard_id(shard_index);
             for validator_id in validators {
-                next_validator_to_shard[*validator_id as usize].insert(shard_id as u64);
+                next_validator_to_shard[*validator_id as usize].insert(shard_id);
             }
         }
         let next_validators = next_epoch_info
@@ -1742,10 +1754,11 @@ impl EpochManager {
     #[inline]
     pub(crate) fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
-        height: BlockHeight,
+        shard_layout: &ShardLayout,
         shard_id: ShardId,
+        height: BlockHeight,
     ) -> Result<ValidatorId, EpochError> {
-        epoch_info.sample_chunk_producer(height, shard_id).ok_or_else(|| {
+        epoch_info.sample_chunk_producer(shard_layout, shard_id, height).ok_or_else(|| {
             EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {shard_id} for height {height}"
             ))
@@ -2034,6 +2047,7 @@ impl EpochManager {
 
         let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
@@ -2089,7 +2103,7 @@ impl EpochManager {
             };
 
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, prev_height);
+            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old

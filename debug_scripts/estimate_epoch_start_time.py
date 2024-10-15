@@ -273,7 +273,6 @@ if __name__ == "__main__":
         type=valid_timezone,
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
-
     # Voting date arguments
     voting_group = parser.add_mutually_exclusive_group()
     voting_group.add_argument(

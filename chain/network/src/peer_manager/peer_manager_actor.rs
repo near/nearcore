@@ -1373,7 +1373,7 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         peer_id: h.peer_id.clone(),
                         sync_hash: h.sync_hash,
                         epoch_height: h.epoch_height,
-                        shards: h.shards.clone(),
+                        shards: h.shards.clone().into_iter().map(Into::into).collect(),
                     })
                     .collect::<Vec<_>>(),
             }),

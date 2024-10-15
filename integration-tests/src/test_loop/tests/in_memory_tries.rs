@@ -3,7 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
+use near_primitives::types::{new_shard_id_tmp, AccountId};
 use near_store::ShardUId;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -77,7 +77,15 @@ fn test_load_memtrie_after_empty_chunks() {
         current_tracked_shards
             .iter()
             .enumerate()
-            .find_map(|(idx, shards)| if shards.contains(&0) { Some(idx) } else { None })
+            .find_map(
+                |(idx, shards)| {
+                    if shards.contains(&new_shard_id_tmp(0)) {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                },
+            )
             .expect("Not found any client tracking shard 0")
     };
 
@@ -87,11 +95,15 @@ fn test_load_memtrie_after_empty_chunks() {
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(0, &shard_layout));
+        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &shard_layout));
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .load_mem_trie(&ShardUId::from_shard_id_and_layout(0, &shard_layout), None, true)
+        .load_mem_trie(
+            &ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &shard_layout),
+            None,
+            true,
+        )
         .expect("Couldn't load memtrie");
 
     // Give the test a chance to finish off remaining events in the event loop, which can

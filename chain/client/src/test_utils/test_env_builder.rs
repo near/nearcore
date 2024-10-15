@@ -19,7 +19,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumShards};
+use near_primitives::types::{AccountId, NumShards, ShardIndex};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
@@ -588,7 +588,7 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _epoch_height, shard_uids: Vec<ShardUId>, block| {
+                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
                         tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
