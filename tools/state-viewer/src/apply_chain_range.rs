@@ -239,6 +239,7 @@ fn apply_block_from_range(
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.bandwidth_requests.clone(),
     );
 
     let state_update =

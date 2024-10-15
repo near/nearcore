@@ -587,6 +587,7 @@ pub fn apply_result_to_chunk_extra(
         chunk.gas_limit(),
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.bandwidth_requests,
     )
 }
 

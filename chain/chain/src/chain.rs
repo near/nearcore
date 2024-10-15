@@ -45,6 +45,7 @@ use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageEr
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
@@ -607,6 +608,7 @@ impl Chain {
             gas_limit,
             0,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         )
     }
 

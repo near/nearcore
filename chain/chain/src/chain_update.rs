@@ -123,6 +123,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_limit,
                         apply_result.total_balance_burnt,
                         apply_result.congestion_info,
+                        apply_result.bandwidth_requests,
                     ),
                 );
 
@@ -560,6 +561,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_balance_burnt,
             apply_result.congestion_info,
+            apply_result.bandwidth_requests,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
