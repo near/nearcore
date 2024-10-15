@@ -21,8 +21,8 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
-    ApplyChunksDoneMessage, ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks,
-    BlocksCatchUpState, LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
+    VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::flat_storage_resharder::FlatStorageResharder;
@@ -38,9 +38,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
     DoomslugThresholdMode, Provenance,
 };
-use near_chain_configs::{
-    ClientConfig, LogSummaryStyle, MutableValidatorSigner, UpdateableClientConfig,
-};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
@@ -48,9 +46,7 @@ use near_chunks::logic::{
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
-use near_client_primitives::types::{
-    format_shard_sync_phase_per_shard, Error, ShardSyncDownload, ShardSyncStatus,
-};
+use near_client_primitives::types::{Error, ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::ProcessTxResponse;
@@ -94,6 +90,7 @@ use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
 use crate::sync::epoch::EpochSync;
+use crate::sync::state::chain_requests::ChainSenderForStateSync;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -150,8 +147,7 @@ pub struct Client {
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
-    pub catchup_state_syncs:
-        HashMap<CryptoHash, (StateSync, HashMap<ShardId, ShardSyncDownload>, BlocksCatchUpState)>,
+    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, StateSyncStatus, BlocksCatchUpState)>,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
@@ -160,6 +156,8 @@ pub struct Client {
     pub block_sync: BlockSync,
     /// Keeps track of syncing state.
     pub state_sync: StateSync,
+    state_sync_future_spawner: Arc<dyn FutureSpawner>,
+    chain_sender_for_state_sync: ChainSenderForStateSync,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
@@ -249,6 +247,8 @@ impl Client {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_adapter: PartialWitnessSenderForClient,
+        state_sync_future_spawner: Arc<dyn FutureSpawner>,
+        chain_sender_for_state_sync: ChainSenderForStateSync,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -324,10 +324,15 @@ impl Client {
 
         let state_sync = StateSync::new(
             clock.clone(),
-            network_adapter.clone(),
+            runtime_adapter.store().clone(),
+            epoch_manager.clone(),
+            runtime_adapter.clone(),
+            network_adapter.clone().into_sender(),
             config.state_sync_timeout,
             &config.chain_id,
             &config.state_sync.sync,
+            chain_sender_for_state_sync.clone(),
+            state_sync_future_spawner.clone(),
             false,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
@@ -391,6 +396,8 @@ impl Client {
             header_sync,
             block_sync,
             state_sync,
+            state_sync_future_spawner,
+            chain_sender_for_state_sync,
             challenges: Default::default(),
             rs_for_chunk_production: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             rebroadcasted_blocks: lru::LruCache::new(
@@ -2474,11 +2481,8 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
-        state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
-        load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
-        state_parts_future_spawner: &dyn FutureSpawner,
         signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
@@ -2487,8 +2491,6 @@ impl Client {
 
         for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-            let network_adapter = self.network_adapter.clone();
-
             // I *think* this is not relevant anymore, since we download
             // already the next epoch's state.
             // let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, &me)?;
@@ -2497,27 +2499,36 @@ impl Client {
             let block_header = self.chain.get_block(&sync_hash)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let (state_sync, shards_to_split, blocks_catch_up_state) =
+            let (state_sync, status, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     tracing::debug!(target: "client", ?sync_hash, "inserting new state sync");
                     notify_state_sync = true;
                     (
                         StateSync::new(
                             self.clock.clone(),
-                            network_adapter,
+                            self.runtime_adapter.store().clone(),
+                            self.epoch_manager.clone(),
+                            self.runtime_adapter.clone(),
+                            self.network_adapter.clone().into_sender(),
                             state_sync_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
+                            self.chain_sender_for_state_sync.clone(),
+                            self.state_sync_future_spawner.clone(),
                             true,
                         ),
-                        shards_to_split,
+                        StateSyncStatus {
+                            sync_hash,
+                            sync_status: shards_to_split.clone(),
+                            download_tasks: Vec::new(),
+                            computation_tasks: Vec::new(),
+                        },
                         BlocksCatchUpState::new(sync_hash, *epoch_id),
                     )
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Catchup");
-            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?shards_to_split, "Catchup");
 
             let tracking_shards: Vec<ShardId> =
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
@@ -2545,21 +2556,7 @@ impl Client {
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
             // for other shards later.
-            let new_shard_sync = shards_to_split;
-            match state_sync.run(
-                &me,
-                sync_hash,
-                new_shard_sync,
-                &mut self.chain,
-                self.epoch_manager.as_ref(),
-                highest_height_peers,
-                tracking_shards,
-                state_parts_task_scheduler,
-                load_memtrie_scheduler,
-                state_parts_future_spawner,
-                use_colour,
-                self.runtime_adapter.clone(),
-            )? {
+            match state_sync.run(sync_hash, status, highest_height_peers, tracking_shards)? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
@@ -2605,7 +2602,7 @@ impl Client {
         sync_hash: CryptoHash,
         state_sync_info: &StateSyncInfo,
         me: &Option<AccountId>,
-    ) -> Result<HashMap<ShardId, ShardSyncDownload>, Error> {
+    ) -> Result<HashMap<ShardId, ShardSyncStatus>, Error> {
         let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
         let need_to_reshard = self.epoch_manager.will_shard_layout_change(&prev_hash)?;
 
@@ -2630,13 +2627,9 @@ impl Client {
         shard_id: ShardId,
         me: &Option<AccountId>,
         prev_hash: CryptoHash,
-    ) -> Option<(ShardId, ShardSyncDownload)> {
+    ) -> Option<(ShardId, ShardSyncStatus)> {
         if self.shard_tracker.care_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
-            let shard_sync_download = ShardSyncDownload {
-                downloads: vec![],
-                status: ShardSyncStatus::ReshardingScheduling,
-            };
-            Some((shard_id, shard_sync_download))
+            Some((shard_id, ShardSyncStatus::ReshardingScheduling))
         } else {
             None
         }
@@ -2821,8 +2814,9 @@ impl Client {
         {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
             let shard_sync_status: HashMap<_, _> = shard_sync_state
+                .sync_status
                 .iter()
-                .map(|(shard_id, state)| (*shard_id, state.status.to_string()))
+                .map(|(shard_id, state)| (*shard_id, state.to_string()))
                 .collect();
             ret.push(CatchupStatusView {
                 sync_block_hash: *sync_hash,

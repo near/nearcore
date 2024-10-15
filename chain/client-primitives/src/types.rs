@@ -13,7 +13,8 @@ use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
     QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, StateSyncStatusView,
+    SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
@@ -88,7 +89,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -245,28 +246,21 @@ pub fn format_shard_sync_phase(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateSyncStatus {
     pub sync_hash: CryptoHash,
-    pub sync_status: HashMap<ShardId, ShardSyncDownload>,
+    pub sync_status: HashMap<ShardId, ShardSyncStatus>,
+    pub download_tasks: Vec<String>,
+    pub computation_tasks: Vec<String>,
 }
 
-/// If alternate flag was specified, write formatted sync_status per shard.
-impl std::fmt::Debug for StateSyncStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if f.alternate() {
-            write!(
-                f,
-                "StateSyncStatus {{ sync_hash: {:?}, shard_sync: {:?} }}",
-                self.sync_hash,
-                format_shard_sync_phase_per_shard(&self.sync_status, false)
-            )
-        } else {
-            write!(
-                f,
-                "StateSyncStatus {{ sync_hash: {:?}, sync_status: {:?} }}",
-                self.sync_hash, self.sync_status
-            )
+impl StateSyncStatus {
+    pub fn new(sync_hash: CryptoHash) -> Self {
+        Self {
+            sync_hash,
+            sync_status: HashMap::new(),
+            download_tasks: Vec::new(),
+            computation_tasks: Vec::new(),
         }
     }
 }
@@ -372,14 +366,20 @@ impl From<SyncStatus> for SyncStatusView {
             SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
-            SyncStatus::StateSync(state_sync_status) => SyncStatusView::StateSync(
-                state_sync_status.sync_hash,
-                state_sync_status
-                    .sync_status
-                    .into_iter()
-                    .map(|(shard_id, shard_sync)| (shard_id, shard_sync.into()))
-                    .collect(),
-            ),
+            SyncStatus::StateSync(state_sync_status) => {
+                SyncStatusView::StateSync(StateSyncStatusView {
+                    sync_hash: state_sync_status.sync_hash,
+                    shard_sync_status: state_sync_status
+                        .sync_status
+                        .iter()
+                        .map(|(shard_id, shard_sync_status)| {
+                            (*shard_id, shard_sync_status.to_string())
+                        })
+                        .collect(),
+                    download_tasks: state_sync_status.download_tasks,
+                    computation_tasks: state_sync_status.computation_tasks,
+                })
+            }
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
             SyncStatus::BlockSync { start_height, current_height, highest_height } => {
                 SyncStatusView::BlockSync { start_height, current_height, highest_height }
