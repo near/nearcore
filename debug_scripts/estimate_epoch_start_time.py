@@ -82,13 +82,11 @@ def get_exponential_weighted_epoch_lengths(url,
     return epoch_lengths, exponential_weighted_average_epoch_length
 
 
-# Function to check if timezone is valid
-def is_valid_timezone(timezone_str):
+def valid_timezone(timezone_str):
     try:
-        pytz.timezone(timezone_str)
-        return True
+        return pytz.timezone(timezone_str)
     except pytz.UnknownTimeZoneError:
-        return False
+        raise argparse.ArgumentTypeError(f"Invalid timezone '{timezone_str}'")
 
 
 # Function to approximate future epoch start dates
@@ -101,23 +99,22 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
     for i in range(1, num_future_epochs + 1):
         # Add the average epoch length for each future epoch
         future_timestamp = current_timestamp + (i * avg_epoch_length)
+        future_epochs.append(future_timestamp)
 
         # Convert timestamp to datetime in target timezone
         future_datetime = datetime.fromtimestamp(future_timestamp,
                                                  target_timezone)
 
-        future_epochs.append(future_datetime)
-
-        # Format and print predicted date
+        # Format date
         future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
         print(f"Predicted start of epoch {i}: {future_date}")
 
     return future_epochs
 
 
-def find_epoch_for_timestamp(future_epochs, voting_datetime):
-    for (epoch_number, epoch_datetime) in enumerate(future_epochs):
-        if voting_datetime < epoch_datetime:
+def find_epoch_for_timestamp(future_epochs, voting_timestamp):
+    for (epoch_number, epoch_timestamp) in enumerate(future_epochs):
+        if voting_timestamp < epoch_timestamp:
             return epoch_number
     return len(future_epochs)
 
@@ -133,9 +130,10 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
         voting_datetime = datetime.strptime(
             f"{voting_date_str} {hour:02d}:00:00", '%Y-%m-%d %H:%M:%S')
         voting_datetime = target_timezone.localize(voting_datetime)
+        voting_timestamp = voting_datetime.timestamp()
 
         # Find the epoch T in which the voting date falls
-        epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime)
+        epoch_T = find_epoch_for_timestamp(future_epochs, voting_timestamp)
         if epoch_T <= 0:
             continue  # Voting date is before the first predicted epoch
 
@@ -147,8 +145,10 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
             )
             break
 
-        protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number
-                                                  - 1]
+        protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number
+                                                   - 1]
+        protocol_upgrade_datetime = datetime.fromtimestamp(
+            protocol_upgrade_timestamp)
         upgrade_datetime_utc = protocol_upgrade_datetime.astimezone(pytz.utc)
         upgrade_hour_utc = upgrade_datetime_utc.hour
 
@@ -167,19 +167,22 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
         )
 
 
-def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
-    # Parse the voting date
+def valid_voting_datetime(s):
     try:
-        voting_datetime = datetime.strptime(voting_date, '%Y-%m-%d %H:%M:%S')
-        voting_datetime = target_timezone.localize(voting_datetime)
+        dt = datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+        return dt
     except ValueError:
-        print(
-            f"Error: Invalid voting date format. Please use 'YYYY-MM-DD HH:MM:SS'."
+        raise argparse.ArgumentTypeError(
+            f"Invalid voting date format: '{s}'. Please use 'YYYY-MM-DD HH:MM:SS'."
         )
-        return
+
+
+def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
+    voting_datetime = target_timezone.localize(voting_date)
 
     # Find the epoch T in which the voting date falls
-    epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime)
+    epoch_T = find_epoch_for_timestamp(future_epochs,
+                                       voting_datetime.timestamp())
     if epoch_T <= 0:
         print("Error: Voting date is before the first predicted epoch.")
         return
@@ -191,7 +194,10 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
             "Not enough future epochs predicted to determine the protocol upgrade time."
         )
         return
-    protocol_upgrade_datetime = future_epochs[protocol_upgrade_epoch_number - 1]
+    protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number -
+                                               1]
+    protocol_upgrade_datetime = datetime.fromtimestamp(
+        protocol_upgrade_timestamp)
     protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
         '%Y-%m-%d %H:%M:%S %Z%z %A')
     print(f"\nVoting date falls into epoch {epoch_T}.")
@@ -202,10 +208,6 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
 
 # Main function to run the process
 def main(args):
-    if not is_valid_timezone(args.timezone):
-        print(f"Error: Invalid timezone '{args.timezone}'")
-        return
-
     latest_block = get_block(args.url, None)
     next_epoch_id = latest_block['next_epoch_id']
     current_epoch_first_block = get_block(args.url, next_epoch_id)
@@ -216,20 +218,17 @@ def main(args):
     epoch_lengths, exponential_weighted_average_epoch_length = get_exponential_weighted_epoch_lengths(
         args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
 
-    # Set up the timezone
-    target_timezone = pytz.timezone(args.timezone)
-
     # Predict future epoch start dates
     future_epochs = predict_future_epochs(
         current_timestamp, exponential_weighted_average_epoch_length,
-        args.num_future_epochs, target_timezone)
+        args.num_future_epochs, args.timezone)
 
     if args.voting_date:
         find_protocol_upgrade_time(args.voting_date, future_epochs,
-                                   target_timezone)
+                                   args.timezone)
     elif args.voting_date_day:
         find_best_voting_hour(args.voting_date_day, future_epochs,
-                              target_timezone)
+                              args.timezone)
 
 
 # Custom action to set the URL based on chain_id
@@ -271,13 +270,16 @@ if __name__ == "__main__":
                         help="Number of future epochs to predict.")
     parser.add_argument(
         "--timezone",
+        type=valid_timezone,
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
 
     # Voting date arguments
     voting_group = parser.add_mutually_exclusive_group()
     voting_group.add_argument(
-        "--voting_date", help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
+        "--voting_date",
+        type=valid_voting_datetime,
+        help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
     voting_group.add_argument(
         "--voting_date_day",
         help=
