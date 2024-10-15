@@ -3786,7 +3786,7 @@ impl Chain {
                 // for this block is not stored yet
                 let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
                 let shard_layout =
-                    self.epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+                    self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
                 let old_receipts = &self.chain_store().get_incoming_receipts_for_shard(
                     self.epoch_manager.as_ref(),
                     shard_id,

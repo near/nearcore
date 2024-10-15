@@ -212,7 +212,7 @@ pub trait ChainStoreAccess {
         epoch_manager: &dyn EpochManagerAdapter,
         target_shard_id: ShardId,
         target_shard_layout: &ShardLayout,
-        mut block_hash: CryptoHash,
+        block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let _span =
@@ -221,10 +221,11 @@ pub trait ChainStoreAccess {
         let mut ret = vec![];
 
         let mut current_shard_id = target_shard_id;
+        let mut current_block_hash = block_hash;
         let mut current_shard_layout = target_shard_layout.clone();
 
         loop {
-            let header = self.get_block_header(&block_hash)?;
+            let header = self.get_block_header(&current_block_hash)?;
 
             if header.height() < last_chunk_height_included {
                 panic!("get_incoming_receipts_for_shard failed");
@@ -251,7 +252,7 @@ pub trait ChainStoreAccess {
                 current_shard_layout = prev_shard_layout;
             }
 
-            let receipts_proofs = self.get_incoming_receipts(&block_hash, current_shard_id);
+            let receipts_proofs = self.get_incoming_receipts(&current_block_hash, current_shard_id);
             match receipts_proofs {
                 Ok(receipt_proofs) => {
                     tracing::debug!(
@@ -268,7 +269,10 @@ pub trait ChainStoreAccess {
                         receipt_proofs,
                     );
 
-                    ret.push(ReceiptProofResponse(block_hash, filtered_receipt_proofs.into()));
+                    ret.push(ReceiptProofResponse(
+                        current_block_hash,
+                        filtered_receipt_proofs.into(),
+                    ));
                 }
                 Err(err) => {
                     tracing::debug!(
@@ -282,11 +286,11 @@ pub trait ChainStoreAccess {
                     // incoming receipts. It would be nicer to explicitly check
                     // that condition rather than relying on errors when reading
                     // from the db.
-                    ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                    ret.push(ReceiptProofResponse(current_block_hash, Arc::new(vec![])));
                 }
             }
 
-            block_hash = *prev_hash;
+            current_block_hash = *prev_hash;
         }
 
         Ok(ret)
