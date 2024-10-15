@@ -82,28 +82,24 @@ def get_exponential_weighted_epoch_lengths(url,
     return epoch_lengths, exponential_weighted_average_epoch_length
 
 
-# Function to check if timezone is valid
-def is_valid_timezone(timezone_str):
+def valid_timezone(timezone_str):
     try:
-        pytz.timezone(timezone_str)
-        return True
+        return pytz.timezone(timezone_str)
     except pytz.UnknownTimeZoneError:
-        return False
+        raise argparse.ArgumentTypeError(f"Invalid timezone '{timezone_str}'")
 
 
 # Function to approximate future epoch start dates
 def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
-                          num_future_epochs, timezone_str):
+                          num_future_epochs, target_timezone):
     future_epochs = []
     current_timestamp = ns_to_seconds(
         starting_epoch_timestamp)  # Convert from nanoseconds to seconds
 
-    # Set up the timezone
-    target_timezone = pytz.timezone(timezone_str)
-
     for i in range(1, num_future_epochs + 1):
         # Add the average epoch length for each future epoch
         future_timestamp = current_timestamp + (i * avg_epoch_length)
+        future_epochs.append(future_timestamp)
 
         # Convert timestamp to datetime in target timezone
         future_datetime = datetime.fromtimestamp(future_timestamp,
@@ -111,8 +107,6 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
 
         # Format date
         future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
-        future_epochs.append(future_date)
-
         print(f"Predicted start of epoch {i}: {future_date}")
 
     return future_epochs
@@ -120,10 +114,6 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
 
 # Main function to run the process
 def main(args):
-    if not is_valid_timezone(args.timezone):
-        print(f"Error: Invalid timezone '{args.timezone}'")
-        return
-
     latest_block = get_block(args.url, None)
     next_epoch_id = latest_block['next_epoch_id']
     current_epoch_first_block = get_block(args.url, next_epoch_id)
@@ -179,6 +169,7 @@ if __name__ == "__main__":
                         help="Number of future epochs to predict.")
     parser.add_argument(
         "--timezone",
+        type=valid_timezone,
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
 
