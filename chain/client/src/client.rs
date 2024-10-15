@@ -2553,7 +2553,7 @@ impl Client {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    pub(crate) fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
+    pub fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
         let header_head = self.chain.header_head()?;
         let header = self.chain.get_block_header(&header_head.last_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;

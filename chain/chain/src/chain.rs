@@ -4529,24 +4529,25 @@ impl Chain {
     }
 
     /// Check that sync_hash is the first block of an epoch.
-    /// TODO(current_epoch_state_sync): allow the new way of computing the sync hash for syncing to the current epoch
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header()`.
         let sync_block = self.get_block(sync_hash)?;
-        let prev_hash = *sync_block.header().prev_hash();
-        let is_first_block_of_epoch = self.epoch_manager.is_next_block_epoch_start(&prev_hash);
-        tracing::debug!(
-            target: "chain",
-            ?sync_hash,
-            ?prev_hash,
-            sync_hash_epoch_id = ?sync_block.header().epoch_id(),
-            sync_hash_next_epoch_id = ?sync_block.header().next_epoch_id(),
-            ?is_first_block_of_epoch,
-            "check_sync_hash_validity");
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(sync_block.header().epoch_id())?;
 
-        // If sync_hash is not on the Epoch boundary, it's malicious behavior
-        Ok(is_first_block_of_epoch?)
+        if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+            // TODO(current_epoch_state_sync): replace this with a more efficient lookup
+            match self.get_current_epoch_sync_hash(sync_block.header())? {
+                Some(h) => Ok(*sync_hash == h),
+                None => Ok(false),
+            }
+        } else {
+            let prev_hash = *sync_block.header().prev_hash();
+            let is_first_block_of_epoch = self.epoch_manager.is_next_block_epoch_start(&prev_hash);
+            // If sync_hash is not on the Epoch boundary, it's malicious behavior
+            Ok(is_first_block_of_epoch?)
+        }
     }
 
     /// Get transaction result for given hash of transaction or receipt id
