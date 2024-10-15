@@ -354,6 +354,7 @@ impl StateChanges {
                 TrieKey::PromiseYieldReceipt { .. } => {}
                 TrieKey::BufferedReceiptIndices => {}
                 TrieKey::BufferedReceipt { .. } => {}
+                TrieKey::BandwidthSchedulerState => {}
             }
         }
 

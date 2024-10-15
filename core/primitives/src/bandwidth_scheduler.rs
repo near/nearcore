@@ -85,3 +85,24 @@ impl BlockBandwidthRequests {
         BlockBandwidthRequests { shards_bandwidth_requests: BTreeMap::new() }
     }
 }
+
+/// Persistent state used by the bandwidth scheduler.
+/// It is kept in the shard trie.
+/// The state should be the same on all shards. All shards start with the same state
+/// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
+/// scheduler state stays the same.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
+pub struct BandwidthSchedulerState {
+    /// Random data for now
+    pub mock_data: [u8; 32],
+}
