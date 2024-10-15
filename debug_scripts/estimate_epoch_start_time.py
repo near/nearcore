@@ -105,6 +105,7 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
         future_datetime = datetime.fromtimestamp(future_timestamp,
                                                  target_timezone)
 
+        # Format date
         future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
         print(f"Predicted start of epoch {i}: {future_date}")
 
