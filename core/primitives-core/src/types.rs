@@ -1,8 +1,10 @@
 #[cfg(feature = "new_shard_id")]
 use std::fmt::Display;
+#[cfg(feature = "new_shard_id")]
 use std::num::ParseIntError;
 #[cfg(feature = "new_shard_id")]
 use std::ops::Add;
+#[cfg(feature = "new_shard_id")]
 use std::str::FromStr;
 
 use crate::hash::CryptoHash;

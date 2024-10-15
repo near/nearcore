@@ -27,6 +27,7 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+// TODO(wacban) rename to ShardInfo
 pub struct ShardUIdAndIndex {
     pub shard_uid: ShardUId,
     pub shard_index: ShardIndex,
