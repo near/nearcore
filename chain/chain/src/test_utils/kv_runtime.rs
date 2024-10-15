@@ -479,6 +479,15 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) })
     }
 
+    fn shard_id_to_index(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardIndex, EpochError> {
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        Ok(shard_layout.get_shard_index(shard_id))
+    }
+
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         Ok(Default::default())
     }

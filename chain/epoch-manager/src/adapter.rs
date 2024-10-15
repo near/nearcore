@@ -86,6 +86,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError>;
 
+    fn shard_id_to_index(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardIndex, EpochError>;
+
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError>;
@@ -554,6 +560,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
+    }
+
+    fn shard_id_to_index(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardIndex, EpochError> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        Ok(shard_layout.get_shard_index(shard_id))
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
