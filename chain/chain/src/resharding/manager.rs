@@ -91,7 +91,7 @@ impl ReshardingManager {
                 ReshardingEventType::SplitShard(split_shard_event.clone()),
                 &next_shard_layout,
             )?,
-            None => tracing::info!(target: "resharding", "flat storage resharder not initialized"),
+            None => tracing::error!(target: "resharding", "flat storage resharder not initialized"),
         };
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;

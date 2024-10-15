@@ -4,7 +4,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use crossbeam_channel::{Receiver, Sender};
 use near_chain_configs::ReshardingHandle;
 use near_chain_primitives::Error;
 
@@ -13,7 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use crate::resharding::types::FlatStorageSplitShardRequest;
 use crate::types::RuntimeAdapter;
-use near_async::messaging;
+use near_async::messaging::Sender;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self, ALL_COLUMNS_WITH_NAMES};
@@ -54,7 +53,7 @@ use std::fmt::{Debug, Formatter};
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
     resharding_event: Arc<Mutex<Option<FlatStorageReshardingEventStatus>>>,
-    scheduler: messaging::Sender<FlatStorageSplitShardRequest>,
+    scheduler: Sender<FlatStorageSplitShardRequest>,
     pub controller: FlatStorageResharderController,
 }
 
@@ -67,7 +66,7 @@ impl FlatStorageResharder {
     /// * `controller`: manages the execution of the background tasks
     pub fn new(
         runtime: Arc<dyn RuntimeAdapter>,
-        scheduler: messaging::Sender<FlatStorageSplitShardRequest>,
+        scheduler: Sender<FlatStorageSplitShardRequest>,
         controller: FlatStorageResharderController,
     ) -> Self {
         let resharding_event = Arc::new(Mutex::new(None));
@@ -257,9 +256,9 @@ fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result
 ///
 /// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
 pub fn split_shard_task(resharder: FlatStorageResharder) {
-    let task_status = split_shard_task_impl(resharder.clone());
+    let task_status = split_shard_task_impl(&resharder);
     let controller = resharder.controller.clone();
-    split_shard_task_postprocessing(resharder, task_status);
+    split_shard_task_postprocessing(&resharder, task_status);
     info!(target: "resharding", ?task_status, "flat storage shard split task finished");
     if let Err(err) = controller.completion_sender.send(task_status) {
         warn!(target: "resharding", ?err, "error notifying completion of flat storage shard split task")
@@ -269,7 +268,7 @@ pub fn split_shard_task(resharder: FlatStorageResharder) {
 /// Performs the bulk of [split_shard_task].
 ///
 /// Returns `true` if the routine completed successfully.
-fn split_shard_task_impl(resharder: FlatStorageResharder) -> FlatStorageReshardingTaskStatus {
+fn split_shard_task_impl(resharder: &FlatStorageResharder) -> FlatStorageReshardingTaskStatus {
     if resharder.controller.is_interrupted() {
         return FlatStorageReshardingTaskStatus::Cancelled;
     }
@@ -408,7 +407,7 @@ fn shard_split_handle_key_value(
 /// Performs post-processing of shard splitting after all key-values have been moved from parent to
 /// children. `success` indicates whether or not the previous phase was successful.
 fn split_shard_task_postprocessing(
-    resharder: FlatStorageResharder,
+    resharder: &FlatStorageResharder,
     task_status: FlatStorageReshardingTaskStatus,
 ) {
     let (parent_shard, split_status) = resharder
@@ -506,9 +505,9 @@ pub struct FlatStorageResharderController {
     /// Resharding handle to control interruption.
     handle: ReshardingHandle,
     /// This object will be used to signal when the background task is completed.
-    completion_sender: Sender<FlatStorageReshardingTaskStatus>,
+    completion_sender: crossbeam_channel::Sender<FlatStorageReshardingTaskStatus>,
     /// Corresponding receiver for `completion_sender`.
-    pub completion_receiver: Receiver<FlatStorageReshardingTaskStatus>,
+    pub completion_receiver: crossbeam_channel::Receiver<FlatStorageReshardingTaskStatus>,
 }
 
 impl FlatStorageResharderController {
@@ -558,7 +557,7 @@ mod tests {
     };
 
     use super::*;
-    use messaging::{CanSend, IntoMultiSender};
+    use near_async::messaging::{CanSend, IntoMultiSender};
 
     /// Shorthand to create account ID.
     macro_rules! account {
