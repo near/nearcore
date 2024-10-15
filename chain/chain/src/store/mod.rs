@@ -210,20 +210,22 @@ pub trait ChainStoreAccess {
     fn get_incoming_receipts_for_shard(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
-        mut shard_id: ShardId,
-        mut block_hash: CryptoHash,
+        target_shard_id: ShardId,
+        target_shard_layout: &ShardLayout,
+        block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let _span =
-            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?shard_id, ?block_hash, last_chunk_height_included).entered();
+            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
 
         let mut ret = vec![];
 
-        let target_shard_id = shard_id;
-        let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
+        let mut current_shard_id = target_shard_id;
+        let mut current_block_hash = block_hash;
+        let mut current_shard_layout = target_shard_layout.clone();
 
         loop {
-            let header = self.get_block_header(&block_hash)?;
+            let header = self.get_block_header(&current_block_hash)?;
 
             if header.height() < last_chunk_height_included {
                 panic!("get_incoming_receipts_for_shard failed");
@@ -234,23 +236,23 @@ pub trait ChainStoreAccess {
             }
 
             let prev_hash = header.prev_hash();
-            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
             let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
 
-            if shard_layout != prev_shard_layout {
-                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+            if prev_shard_layout != current_shard_layout {
+                let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
                 tracing::debug!(
                     target: "chain",
-                    version = shard_layout.version(),
+                    version = current_shard_layout.version(),
                     prev_version = prev_shard_layout.version(),
-                    ?shard_id,
+                    ?current_shard_id,
                     ?parent_shard_id,
                     "crossing epoch boundary with shard layout change, updating shard id"
                 );
-                shard_id = parent_shard_id;
+                current_shard_id = parent_shard_id;
+                current_shard_layout = prev_shard_layout;
             }
 
-            let receipts_proofs = self.get_incoming_receipts(&block_hash, shard_id);
+            let receipts_proofs = self.get_incoming_receipts(&current_block_hash, current_shard_id);
             match receipts_proofs {
                 Ok(receipt_proofs) => {
                     tracing::debug!(
@@ -262,12 +264,15 @@ pub trait ChainStoreAccess {
                     // make sure we only include receipts where receiver belongs
                     // to the target shard id in the target shard layout.
                     let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
-                        &target_shard_layout,
+                        target_shard_layout,
                         target_shard_id,
                         receipt_proofs,
                     );
 
-                    ret.push(ReceiptProofResponse(block_hash, filtered_receipt_proofs.into()));
+                    ret.push(ReceiptProofResponse(
+                        current_block_hash,
+                        filtered_receipt_proofs.into(),
+                    ));
                 }
                 Err(err) => {
                     tracing::debug!(
@@ -281,11 +286,11 @@ pub trait ChainStoreAccess {
                     // incoming receipts. It would be nicer to explicitly check
                     // that condition rather than relying on errors when reading
                     // from the db.
-                    ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                    ret.push(ReceiptProofResponse(current_block_hash, Arc::new(vec![])));
                 }
             }
 
-            block_hash = *prev_hash;
+            current_block_hash = *prev_hash;
         }
 
         Ok(ret)

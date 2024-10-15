@@ -3,6 +3,7 @@ use crate::{NibbleSlice, TrieChanges};
 use super::arena::ArenaMemory;
 use super::updating::{MemTrieUpdate, OldOrUpdatedNodeId, TrieAccesses, UpdatedMemTrieNode};
 use itertools::Itertools;
+use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::AccountId;
 use std::ops::Range;
 
@@ -32,12 +33,22 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// responsibility to apply the changes.
     pub fn retain_split_shard(
         self,
-        _boundary_account: AccountId,
-        _retain_mode: RetainMode,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
     ) -> (TrieChanges, TrieAccesses) {
-        // TODO(#12074): generate intervals in nibbles.
-
-        self.retain_multi_range(&[])
+        let mut intervals = vec![];
+        // TODO(#12074): generate correct intervals in nibbles.
+        for (col, _) in COLUMNS_WITH_ACCOUNT_ID_IN_KEY {
+            match retain_mode {
+                RetainMode::Left => {
+                    intervals.push(vec![col]..[&[col], boundary_account.as_bytes()].concat())
+                }
+                RetainMode::Right => {
+                    intervals.push([&[col], boundary_account.as_bytes()].concat()..vec![col + 1])
+                }
+            }
+        }
+        self.retain_multi_range(&intervals)
     }
 
     /// Retains keys belonging to any of the ranges given in `intervals` from

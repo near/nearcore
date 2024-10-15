@@ -12,6 +12,7 @@ mod frozen;
 pub mod hybrid;
 mod metrics;
 pub mod single_thread;
+pub use frozen::FrozenArena;
 
 /// An abstraction of an arena that also allows being implemented differently,
 /// specifically in the case of a multi-threaded arena where each arena instance
