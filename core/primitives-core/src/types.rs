@@ -1,7 +1,9 @@
 #[cfg(feature = "new_shard_id")]
 use std::fmt::Display;
+use std::num::ParseIntError;
 #[cfg(feature = "new_shard_id")]
 use std::ops::Add;
+use std::str::FromStr;
 
 use crate::hash::CryptoHash;
 
@@ -275,5 +277,15 @@ where
 
     fn add(self, rhs: T) -> Self::Output {
         Self(T::add(rhs, self.0))
+    }
+}
+
+#[cfg(feature = "new_shard_id")]
+impl FromStr for ShardId {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let shard_id = s.parse::<u64>()?;
+        Ok(ShardId(shard_id))
     }
 }
