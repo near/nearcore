@@ -188,6 +188,7 @@ mod tests {
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
+    use crate::trie::update::TrieUpdateResult;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
@@ -484,7 +485,7 @@ mod tests {
         }
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
+        let TrieUpdateResult { trie_changes, state_changes, .. } = trie_update.finalize().unwrap();
         let mut store_update = tries.store_update();
         tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
         store_update.store_update().merge(

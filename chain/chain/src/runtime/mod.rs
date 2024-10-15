@@ -466,6 +466,7 @@ impl NightshadeRuntime {
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
+            contract_accesses: apply_result.contract_accesses,
         };
 
         Ok(result)

@@ -23,7 +23,7 @@ impl ChunkContractAccesses {
         }
     }
 
-    pub fn contracts(&self) -> &Vec<CryptoHash> {
+    pub fn contracts(&self) -> &Vec<CodeHash> {
         match self {
             Self::V1(accesses) => &accesses.inner.contracts,
         }
@@ -60,7 +60,7 @@ impl ChunkMetadata {
 pub struct ChunkContractAccessesInner {
     metadata: ChunkMetadata,
     // TODO: Consider making this HashSet.
-    contracts: Vec<CryptoHash>,
+    contracts: Vec<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
 }
 
@@ -78,7 +78,7 @@ impl ContractCodeRequest {
         }
     }
 
-    pub fn contracts(&self) -> &Vec<CryptoHash> {
+    pub fn contracts(&self) -> &Vec<CodeHash> {
         match self {
             Self::V1(request) => &request.inner.contracts,
         }
@@ -96,7 +96,7 @@ pub struct ContractCodeRequestV1 {
 pub struct ContractCodeRequestInner {
     metadata: ChunkMetadata,
     // TODO: Consider making this HashSet.
-    contracts: Vec<CryptoHash>,
+    contracts: Vec<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
 }
 
@@ -154,3 +154,44 @@ impl
     > for CompressedContractCodeResponse
 {
 }
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+pub struct CodeHash(pub CryptoHash);
+
+// impl CodeHash {
+//     pub fn as_bytes(&self) -> &[u8; 32] {
+//         self.0.as_bytes()
+//     }
+// }
+
+// impl AsRef<[u8]> for CodeHash {
+//     fn as_ref(&self) -> &[u8] {
+//         self.0.as_ref()
+//     }
+// }
+
+// impl From<CodeHash> for Vec<u8> {
+//     fn from(chunk_hash: CodeHash) -> Self {
+//         chunk_hash.0.into()
+//     }
+// }
+
+// impl From<CryptoHash> for CodeHash {
+//     fn from(crypto_hash: CryptoHash) -> Self {
+//         Self(crypto_hash)
+//     }
+// }
