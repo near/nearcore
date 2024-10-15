@@ -10,6 +10,7 @@ use near_parameters::{ActionCosts, ExtCosts, ParameterCost, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::Action;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
@@ -103,6 +104,7 @@ fn setup_runtime_for_shard(
         migration_data: Arc::new(MigrationData::default()),
         migration_flags: MigrationFlags::default(),
         congestion_info,
+        bandwidth_requests: BlockBandwidthRequests::empty(),
     };
 
     (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

@@ -18,7 +18,7 @@ pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
@@ -136,6 +136,10 @@ pub struct ApplyState {
     /// the congestion info needs to be computed while applying receipts.
     /// TODO(congestion_info) - verify performance of initialization when congested
     pub congestion_info: BlockCongestionInfo,
+    /// Bandwidth requests from all shards, generated at the previous height.
+    /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
+    /// decides how much each shard is allowed to send.
+    pub bandwidth_requests: BlockBandwidthRequests,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.

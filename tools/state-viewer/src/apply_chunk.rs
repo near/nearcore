@@ -158,6 +158,7 @@ pub(crate) fn apply_chunk(
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: prev_block.block_congestion_info(),
+                bandwidth_requests: prev_block.block_bandwidth_requests(),
             },
             &receipts,
             transactions,

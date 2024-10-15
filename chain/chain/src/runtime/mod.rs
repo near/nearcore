@@ -269,6 +269,7 @@ impl NightshadeRuntime {
             challenges_result,
             random_seed,
             congestion_info,
+            bandwidth_requests,
         } = block;
         let ApplyChunkShardContext {
             shard_id,
@@ -390,6 +391,7 @@ impl NightshadeRuntime {
                 is_first_block_with_chunk_of_version,
             },
             congestion_info,
+            bandwidth_requests,
         };
 
         let instant = Instant::now();
