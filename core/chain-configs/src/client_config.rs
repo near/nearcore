@@ -32,6 +32,10 @@ pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
 
+/// Default number of concurrent requests to peers to fetch state parts.
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_P2P: u32 = 25;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_P2P: u32 = 5;
+
 /// The default number of attempts to obtain a state part from peers in the network
 /// before giving up and downloading it from external storage.
 pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 5;
@@ -73,12 +77,20 @@ impl GCConfig {
     }
 }
 
-fn default_num_concurrent_requests() -> u32 {
+fn default_num_concurrent_requests_external() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
 
-fn default_num_concurrent_requests_during_catchup() -> u32 {
+fn default_num_concurrent_requests_during_catchup_external() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
+}
+
+fn default_num_concurrent_requests_p2p() -> u32 {
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_P2P
+}
+
+fn default_num_concurrent_requests_during_catchup_p2p() -> u32 {
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_P2P
 }
 
 fn default_external_storage_fallback_threshold() -> u64 {
@@ -91,11 +103,11 @@ pub struct ExternalStorageConfig {
     pub location: ExternalStorageLocation,
     /// When fetching state parts from external storage, throttle fetch requests
     /// to this many concurrent requests.
-    #[serde(default = "default_num_concurrent_requests")]
+    #[serde(default = "default_num_concurrent_requests_external")]
     pub num_concurrent_requests: u32,
     /// During catchup, the node will use a different number of concurrent requests
     /// to reduce the performance impact of state sync.
-    #[serde(default = "default_num_concurrent_requests_during_catchup")]
+    #[serde(default = "default_num_concurrent_requests_during_catchup_external")]
     pub num_concurrent_requests_during_catchup: u32,
     /// The number of attempts the node will make to obtain a part from peers in
     /// the network before it fetches from external storage.
@@ -162,6 +174,13 @@ pub struct StateSyncConfig {
     pub dump: Option<DumpConfig>,
     #[serde(skip_serializing_if = "SyncConfig::is_default", default = "SyncConfig::default")]
     pub sync: SyncConfig,
+    /// Limit on the number of concurrent state sync requests made to peers in the network.
+    #[serde(default = "default_num_concurrent_requests_p2p")]
+    pub num_concurrent_p2p_requests: u32,
+    /// During catchup, the node will use a different number of concurrent requests
+    /// to reduce the performance impact of state sync.
+    #[serde(default = "default_num_concurrent_requests_during_catchup_p2p")]
+    pub num_concurrent_p2p_requests_during_catchup: u32,
 }
 
 impl StateSyncConfig {
@@ -175,6 +194,8 @@ impl StateSyncConfig {
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
                 external_storage_fallback_threshold: DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD,
             }),
+            num_concurrent_p2p_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_P2P,
+            num_concurrent_p2p_requests_during_catchup: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_P2P,
         }
     }
 }
