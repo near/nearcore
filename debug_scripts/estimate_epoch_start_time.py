@@ -149,7 +149,7 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
     protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number -
                                                1]
     protocol_upgrade_datetime = datetime.fromtimestamp(
-        protocol_upgrade_timestamp)
+        protocol_upgrade_timestamp, tz=target_timezone)
     protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
         '%Y-%m-%d %H:%M:%S %Z%z %A')
     print(f"\nVoting date falls into epoch {epoch_T}.")
