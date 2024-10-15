@@ -82,7 +82,7 @@ fn dump_state_changes(
         let block_header = chain_store.get_block_header_by_height(block_height).unwrap();
         let block_hash = block_header.hash();
         let epoch_id = block_header.epoch_id();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();   
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
         let key = KeyForStateChanges::for_block(block_header.hash());
         let mut state_changes_per_shard: Vec<_> =
             epoch_manager.shard_ids(epoch_id).unwrap().into_iter().map(|_| vec![]).collect();
@@ -90,7 +90,7 @@ fn dump_state_changes(
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
             let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
-            let shard_index = shard_layout.get_shard_index(shard_id);  
+            let shard_index = shard_layout.get_shard_index(shard_id);
             state_changes_per_shard[shard_index].push(value);
         }
 
