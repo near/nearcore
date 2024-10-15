@@ -1721,7 +1721,8 @@ impl ClientActorInner {
 
         let sync_hash = match &self.client.sync_status {
             SyncStatus::StateSync(s) => s.sync_hash,
-            _ => unreachable!("Sync status should have been StateSync!"),
+            // sync hash isn't known yet. Return and try again later.
+            _ => return,
         };
         let notify_start_sync = !was_state_syncing;
 
@@ -1915,7 +1916,11 @@ impl ClientActorInner {
             return Ok(());
         }
 
-        let sync_hash = self.client.find_sync_hash()?;
+        let sync_hash = if let Some(sync_hash) = self.client.find_sync_hash()? {
+            sync_hash
+        } else {
+            return Ok(());
+        };
         if !self.client.config.archive {
             self.client.chain.mut_chain_store().reset_data_pre_state_sync(
                 sync_hash,

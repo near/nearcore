@@ -62,6 +62,7 @@ use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
+use near_primitives::checked_feature;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -2552,22 +2553,28 @@ impl Client {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    /// TODO(current_epoch_state_sync): allow the new way of computing the sync hash for syncing to the current epoch
-    pub fn find_sync_hash(&self) -> Result<CryptoHash, near_chain::Error> {
+    pub(crate) fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
         let header_head = self.chain.header_head()?;
-        let sync_hash = header_head.last_block_hash;
-        let epoch_start_sync_hash = self.chain.get_epoch_start_sync_hash(&sync_hash)?;
+        let header = self.chain.get_block_header(&header_head.last_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        let sync_hash = if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+            match self.chain.get_current_epoch_sync_hash(&header)? {
+                Some(h) => h,
+                None => return Ok(None),
+            }
+        } else {
+            self.chain.get_epoch_start_sync_hash(&header_head.last_block_hash)?
+        };
 
         let genesis_hash = self.chain.genesis().hash();
         tracing::debug!(
             target: "sync",
             ?header_head,
             ?sync_hash,
-            ?epoch_start_sync_hash,
             ?genesis_hash,
             "find_sync_hash");
-        assert_ne!(&epoch_start_sync_hash, genesis_hash);
-        Ok(epoch_start_sync_hash)
+        assert_ne!(&sync_hash, genesis_hash);
+        Ok(Some(sync_hash))
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
