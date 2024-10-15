@@ -157,7 +157,7 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
 
     if valid_hours:
         print(
-            f"\nVoting hours on {voting_date_str} that result in upgrade during working hours (UTC {WORKING_HOURS_START}:00-{WORKING_HOURS_END}:00):"
+            f"\nVoting hours on {voting_date_str} {target_timezone} that result in upgrade during working hours (UTC {WORKING_HOURS_START}:00-{WORKING_HOURS_END}:00):"
         )
         for (hour, epoch) in valid_hours:
             print(f"- {hour:02d}:00, Upgrade Epoch: {epoch}")
