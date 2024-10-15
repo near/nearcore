@@ -7,7 +7,6 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::ShardUId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -65,9 +64,7 @@ fn test_resharding_v3() {
     let last_shard_id = shard_ids.pop().unwrap();
     let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
         shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
-    // TODO(#11881): keep this way until non-contiguous shard ids are supported.
-    // let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
-    let new_shards = vec![max_shard_id, max_shard_id + 1];
+    let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
     shard_ids.extend(new_shards.clone());
     shards_split_map.insert(last_shard_id, new_shards);
     boundary_accounts.push(AccountId::try_from("account6".to_string()).unwrap());
@@ -119,14 +116,13 @@ fn test_resharding_v3() {
         }
 
         // If resharding happened, also check that each shard has non-empty state.
-        for shard_id in 0..3 {
-            let shard_uid = ShardUId { version: 3, shard_id: shard_id as u32 };
+        for shard_uid in epoch_config.shard_layout.shard_uids() {
             let chunk_extra =
                 client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
             let trie = client
                 .runtime_adapter
                 .get_trie_for_shard(
-                    shard_id,
+                    shard_uid.shard_id(),
                     &tip.prev_block_hash,
                     *chunk_extra.state_root(),
                     false,
