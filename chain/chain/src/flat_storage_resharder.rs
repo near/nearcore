@@ -328,11 +328,15 @@ impl FlatStorageResharder {
             FlatStorageReshardingTaskStatus::Successful => {
                 // Split shard completed successfully.
                 // Parent flat storage can be deleted from the FlatStoreManager.
-                self.runtime
+                // If FlatStoreManager has no reference to the shard, delete it manually.
+                if !self
+                    .runtime
                     .get_flat_storage_manager()
                     .remove_flat_storage_for_shard(parent_shard, &mut store_update)
-                    .unwrap();
-                store_update.remove_flat_storage(parent_shard);
+                    .unwrap()
+                {
+                    store_update.remove_flat_storage(parent_shard);
+                }
                 // Children must perform catchup.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.set_flat_storage_status(
