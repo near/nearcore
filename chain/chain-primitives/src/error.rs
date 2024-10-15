@@ -232,6 +232,9 @@ pub enum Error {
     /// GC error.
     #[error("GC Error: {0}")]
     GCError(String),
+    /// Resharding error.
+    #[error("Resharding Error: {0}")]
+    ReshardingError(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -269,6 +272,7 @@ impl Error {
             | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
+            | Error::ReshardingError(_)
             | Error::DBNotFoundErr(_) => false,
             Error::InvalidBlockPastTime(_, _)
             | Error::InvalidBlockFutureTime(_)
@@ -392,6 +396,7 @@ impl Error {
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
+            Error::ReshardingError(_) => "resharding_error",
         }
     }
 }

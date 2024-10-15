@@ -51,7 +51,17 @@ use std::{fmt, str};
 
 pub type ShardVersion = u32;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
@@ -63,7 +73,17 @@ pub enum ShardLayout {
 /// to keep backward compatibility for some existing tests.
 /// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
 /// a chain uses.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -102,7 +122,17 @@ fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsS
     shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ShardLayoutV1 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
@@ -136,7 +166,17 @@ impl ShardLayoutV1 {
 }
 
 /// Making the shard ids non-contiguous.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
 pub struct ShardLayoutV2 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
@@ -186,6 +226,14 @@ impl ShardLayoutV2 {
             shard_id_index += 1;
         }
         self.shard_ids[shard_id_index]
+    }
+
+    pub fn shards_split_map(&self) -> &Option<ShardsSplitMapV2> {
+        &self.shards_split_map
+    }
+
+    pub fn boundary_accounts(&self) -> &Vec<AccountId> {
+        &self.boundary_accounts
     }
 }
 
