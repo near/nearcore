@@ -18,6 +18,7 @@ pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
@@ -189,6 +190,7 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
+    pub bandwidth_requests: Option<BandwidthRequests>,
 }
 
 #[derive(Debug)]
@@ -2106,6 +2108,9 @@ impl Runtime {
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
+            bandwidth_requests: BandwidthRequests::default_for_protocol_version(
+                apply_state.current_protocol_version, // TODO(bandwidth_scheduler) - produce bandwidth requests
+            ),
         })
     }
 }
@@ -2218,6 +2223,9 @@ fn missing_chunk_apply_result(
         delayed_receipts_count: delayed_receipts.len(),
         metrics: None,
         congestion_info,
+        bandwidth_requests: BandwidthRequests::default_for_protocol_version(
+            processing_state.apply_state.current_protocol_version, // TODO(bandwidth_scheduler) - produce bandwidth requests
+        ),
     });
 }
 
