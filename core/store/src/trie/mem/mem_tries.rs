@@ -14,6 +14,7 @@ use crate::Trie;
 use super::arena::hybrid::{HybridArena, HybridArenaMemory};
 use super::arena::single_thread::STArena;
 use super::arena::Arena;
+use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
 use super::lookup::memtrie_lookup;
@@ -42,12 +43,30 @@ pub struct MemTries {
     shard_uid: ShardUId,
 }
 
+/// Frozen arena together with supported roots and heights.
+/// Used to construct new memtries which share nodes from the same arena.
+#[derive(Clone)]
+pub struct FrozenMemTries {
+    arena: FrozenArena,
+    roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+    heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+}
+
 impl MemTries {
     pub fn new(shard_uid: ShardUId) -> Self {
         Self {
             arena: STArena::new(shard_uid.to_string()).into(),
             roots: HashMap::new(),
             heights: Default::default(),
+            shard_uid,
+        }
+    }
+
+    pub fn from_frozen_memtries(shard_uid: ShardUId, frozen_memtries: FrozenMemTries) -> Self {
+        Self {
+            arena: HybridArena::from_frozen(shard_uid.to_string(), frozen_memtries.arena),
+            roots: frozen_memtries.roots,
+            heights: frozen_memtries.heights,
             shard_uid,
         }
     }
@@ -190,6 +209,12 @@ impl MemTries {
     ) -> Result<Option<ValueView>, StorageError> {
         let root = self.get_root(state_root)?;
         Ok(memtrie_lookup(root, key, nodes_accessed))
+    }
+
+    /// Freezes memtrie. The result is used as a shared data to construct new
+    /// memtries.
+    pub fn freeze(self) -> FrozenMemTries {
+        FrozenMemTries { arena: self.arena.freeze(), roots: self.roots, heights: self.heights }
     }
 
     #[cfg(test)]

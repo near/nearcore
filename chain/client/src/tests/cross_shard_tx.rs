@@ -17,7 +17,7 @@ use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference};
+use near_primitives::types::{shard_id_as_usize, AccountId, BlockId, BlockReference};
 use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
 use std::collections::HashSet;
@@ -189,8 +189,11 @@ fn test_cross_shard_tx_callback(
             let balances1 = balances;
             let observed_balances1 = observed_balances;
             let presumable_epoch1 = presumable_epoch.clone();
-            let actor = &connectors_[account_id_to_shard_id(&account_id, 8) as usize
-                + (*presumable_epoch.read().unwrap() * 8) % 24]
+            // This test uses the V0 shard layout so it's ok to cast ShardId to
+            // ShardIndex.
+            let shard_id = account_id_to_shard_id(&account_id, 8);
+            let shard_index = shard_id_as_usize(shard_id);
+            let actor = &connectors_[shard_index + (*presumable_epoch.read().unwrap() * 8) % 24]
                 .view_client_actor;
             let actor = actor.send(
                 Query::new(
@@ -254,10 +257,15 @@ fn test_cross_shard_tx_callback(
                 let amount = (5 + iteration_local) as u128;
                 let next_nonce = nonce.fetch_add(1, Ordering::Relaxed);
 
+                // This test uses the V0 shard layout so it's ok to cast ShardId to
+                // ShardIndex.
+                let shard_id = account_id_to_shard_id(&validators[from], 8);
+                let shard_index = shard_id_as_usize(shard_id);
+
                 send_tx(
                     validators.len(),
                     connectors.clone(),
-                    account_id_to_shard_id(&validators[from], 8) as usize,
+                    shard_index,
                     validators[from].clone(),
                     validators[to].clone(),
                     amount,
@@ -287,8 +295,14 @@ fn test_cross_shard_tx_callback(
                     let presumable_epoch1 = presumable_epoch.clone();
                     let account_id1 = validators[i].clone();
                     let block_stats1 = block_stats.clone();
-                    let actor = &connectors_[account_id_to_shard_id(&validators[i], 8) as usize
-                        + (*presumable_epoch.read().unwrap() * 8) % 24]
+
+                    // This test uses the V0 shard layout so it's ok to cast ShardId to
+                    // ShardIndex.
+                    let shard_id = account_id_to_shard_id(&validators[i], 8);
+                    let shard_index = shard_id_as_usize(shard_id);
+
+                    let actor = &connectors_
+                        [shard_index + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .view_client_actor;
                     let actor = actor.send(
                         Query::new(
@@ -341,8 +355,13 @@ fn test_cross_shard_tx_callback(
             let connectors_ = connectors.write().unwrap();
             let connectors1 = connectors.clone();
             let presumable_epoch1 = presumable_epoch.clone();
-            let actor = &connectors_[account_id_to_shard_id(&account_id, 8) as usize
-                + (*presumable_epoch.read().unwrap() * 8) % 24]
+
+            // This test uses the V0 shard layout so it's ok to cast ShardId to
+            // ShardIndex.
+            let shard_id = account_id_to_shard_id(&account_id, 8);
+            let shard_index = shard_id_as_usize(shard_id);
+
+            let actor = &connectors_[shard_index + (*presumable_epoch.read().unwrap() * 8) % 24]
                 .view_client_actor;
             let actor = actor.send(
                 Query::new(
@@ -498,9 +517,14 @@ fn test_cross_shard_tx_common(
             let presumable_epoch1 = presumable_epoch.clone();
             let account_id1 = validators[i].clone();
             let block_stats1 = block_stats.clone();
-            let actor = &connectors_[account_id_to_shard_id(&validators[i], 8) as usize
-                + *presumable_epoch.read().unwrap() * 8]
-                .view_client_actor;
+
+            // This test uses the V0 shard layout so it's ok to cast ShardId to
+            // ShardIndex.
+            let shard_id = account_id_to_shard_id(&validators[i], 8);
+            let shard_index = shard_id_as_usize(shard_id);
+
+            let actor =
+                &connectors_[shard_index + *presumable_epoch.read().unwrap() * 8].view_client_actor;
             let actor = actor.send(
                 Query::new(
                     BlockReference::latest(),

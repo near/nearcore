@@ -243,7 +243,7 @@ impl Client {
         )?;
 
         // Fetch all incoming receipts for `prev_chunk`.
-        // They will be between `prev_prev_chunk.height_included`` (first block containing `prev_prev_chunk`)
+        // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)
         // and `prev_chunk_original_block`
         let incoming_receipt_proofs = self.chain.chain_store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
@@ -256,15 +256,14 @@ impl Client {
         let mut source_receipt_proofs = HashMap::new();
         for receipt_proof_response in incoming_receipt_proofs {
             let from_block = self.chain.chain_store().get_block(&receipt_proof_response.0)?;
+            let shard_layout =
+                self.epoch_manager.get_shard_layout(from_block.header().epoch_id())?;
             for proof in receipt_proof_response.1.iter() {
-                let from_shard_id: usize = proof
-                    .1
-                    .from_shard_id
-                    .try_into()
-                    .map_err(|_| Error::Other("Couldn't convert u64 to usize!".into()))?;
+                let from_shard_id = proof.1.from_shard_id;
+                let from_shard_index = shard_layout.get_shard_index(from_shard_id);
                 let from_chunk_hash = from_block
                     .chunks()
-                    .get(from_shard_id)
+                    .get(from_shard_index)
                     .ok_or_else(|| Error::InvalidShardId(proof.1.from_shard_id))?
                     .chunk_hash();
                 let insert_res =
