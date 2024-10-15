@@ -563,6 +563,7 @@ mod tests {
     };
 
     use super::*;
+    use near_crypto::{KeyType, PublicKey};
 
     /// Shorthand to create account ID.
     macro_rules! account {
@@ -642,6 +643,20 @@ mod tests {
         (chain, FlatStorageResharder::new(runtime))
     }
 
+    /// Utility function to derive the resharding event type from chain and shard layout.
+    fn event_type_from_chain_and_layout(
+        chain: &Chain,
+        new_shard_layout: &ShardLayout,
+    ) -> ReshardingEventType {
+        ReshardingEventType::from_shard_layout(
+            &new_shard_layout,
+            chain.head().unwrap().last_block_hash,
+            chain.head().unwrap().prev_block_hash,
+        )
+        .unwrap()
+        .unwrap()
+    }
+
     /// Verify that another resharding can't be triggered if one is ongoing.
     #[test]
     fn concurrent_reshardings_are_disallowed() {
@@ -650,13 +665,7 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let scheduler = DelayedScheduler::default();
         let controller = FlatStorageResharderController::new();
-        let resharding_event_type = ReshardingEventType::from_shard_layout(
-            &new_shard_layout,
-            chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
-        )
-        .unwrap()
-        .unwrap();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         assert!(resharder
             .start_resharding(
@@ -685,13 +694,7 @@ mod tests {
         let scheduler = DelayedScheduler::default();
         let controller = FlatStorageResharderController::new();
         let flat_store = resharder.runtime.store().flat_store();
-        let resharding_event_type = ReshardingEventType::from_shard_layout(
-            &new_shard_layout,
-            chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
-        )
-        .unwrap()
-        .unwrap();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         assert!(resharder
             .start_resharding(resharding_event_type, &new_shard_layout, &scheduler, controller)
@@ -726,13 +729,7 @@ mod tests {
         let (chain, resharder) = create_fs_resharder(simple_shard_layout());
         let flat_store = resharder.runtime.store().flat_store();
         let new_shard_layout = shard_layout_after_split();
-        let resharding_event_type = ReshardingEventType::from_shard_layout(
-            &new_shard_layout,
-            chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
-        )
-        .unwrap()
-        .unwrap();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type {
@@ -801,13 +798,7 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let scheduler = TestScheduler {};
         let controller = FlatStorageResharderController::new();
-        let resharding_event_type = ReshardingEventType::from_shard_layout(
-            &new_shard_layout,
-            chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
-        )
-        .unwrap()
-        .unwrap();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         assert!(resharder
             .start_resharding(
@@ -818,7 +809,7 @@ mod tests {
             )
             .is_ok());
 
-        // Check flat storages of children contain the correct accounts.
+        // Check flat storages of children contain the correct accounts and access keys.
         let left_child = ShardUId { version: 3, shard_id: 2 };
         let right_child = ShardUId { version: 3, shard_id: 3 };
         let flat_store = resharder.runtime.store().flat_store();
@@ -829,6 +820,20 @@ mod tests {
             .is_ok_and(|val| val.is_some()));
         assert!(flat_store
             .get(right_child, &account_vv_key.to_vec())
+            .is_ok_and(|val| val.is_some()));
+        let account_mm_access_key = TrieKey::AccessKey {
+            account_id: account!("mm"),
+            public_key: PublicKey::from_seed(KeyType::ED25519, account!("mm").as_str()),
+        };
+        let account_vv_access_key = TrieKey::AccessKey {
+            account_id: account!("vv"),
+            public_key: PublicKey::from_seed(KeyType::ED25519, account!("vv").as_str()),
+        };
+        assert!(flat_store
+            .get(left_child, &account_mm_access_key.to_vec())
+            .is_ok_and(|val| val.is_some()));
+        assert!(flat_store
+            .get(right_child, &account_vv_access_key.to_vec())
             .is_ok_and(|val| val.is_some()));
 
         // Controller should signal that resharding ended.
@@ -867,13 +872,7 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let scheduler = DelayedScheduler::default();
         let controller = FlatStorageResharderController::new();
-        let resharding_event_type = ReshardingEventType::from_shard_layout(
-            &new_shard_layout,
-            chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
-        )
-        .unwrap()
-        .unwrap();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         assert!(resharder
             .start_resharding(
@@ -918,13 +917,7 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let scheduler = TestScheduler {};
         let controller = FlatStorageResharderController::new();
-        let resharding_event_type = ReshardingEventType::from_shard_layout(
-            &new_shard_layout,
-            chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
-        )
-        .unwrap()
-        .unwrap();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         // Make flat storage of parent shard not ready.
         let parent_shard = ShardUId { version: 3, shard_id: 1 };
@@ -944,5 +937,292 @@ mod tests {
     #[test]
     fn split_shard_parent_flat_store_lagging_behind() {
         // TODO(Trisfald): implement
+    }
+
+    /// Tests the split of "account-id based" keys that are not covered in [simple_split_shard].
+    ///
+    /// Old layout:
+    /// shard 0 -> accounts [aa]
+    /// shard 1 -> accounts [mm, vv]
+    ///
+    /// New layout:
+    /// shard 0 -> accounts [aa]
+    /// shard 2 -> accounts [mm]
+    /// shard 3 -> accounts [vv]
+    #[test]
+    fn split_shard_handle_account_id_keys() {
+        init_test_logger();
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let flat_store = resharder.runtime.store().flat_store();
+
+        let mut store_update = flat_store.store_update();
+        let test_value = Some(FlatStateValue::Inlined(vec![0]));
+
+        // Helper closure to create all test keys for a given account. Returns the created keys.
+        let mut inject = |account: AccountId| -> Vec<Vec<u8>> {
+            let mut keys = vec![];
+
+            // Inject contract data.
+            let key = TrieKey::ContractData { account_id: account.clone(), key: vec![] }.to_vec();
+            store_update.set(parent_shard, key.clone(), test_value.clone());
+            keys.push(key);
+
+            // Inject contract code.
+            let key = TrieKey::ContractCode { account_id: account.clone() }.to_vec();
+            store_update.set(parent_shard, key.clone(), test_value.clone());
+            keys.push(key);
+
+            // Inject received_data.
+            let key = TrieKey::ReceivedData {
+                receiver_id: account.clone(),
+                data_id: CryptoHash::default(),
+            }
+            .to_vec();
+            store_update.set(parent_shard, key.clone(), test_value.clone());
+            keys.push(key);
+
+            // Inject postponed receipt.
+            let key = TrieKey::PostponedReceiptId {
+                receiver_id: account.clone(),
+                data_id: CryptoHash::default(),
+            }
+            .to_vec();
+            store_update.set(parent_shard, key.clone(), test_value.clone());
+            keys.push(key);
+            let key = TrieKey::PendingDataCount {
+                receiver_id: account.clone(),
+                receipt_id: CryptoHash::default(),
+            }
+            .to_vec();
+            store_update.set(parent_shard, key.clone(), test_value.clone());
+            keys.push(key);
+            let key = TrieKey::PostponedReceipt {
+                receiver_id: account,
+                receipt_id: CryptoHash::default(),
+            }
+            .to_vec();
+            store_update.set(parent_shard, key.clone(), test_value.clone());
+            keys.push(key);
+
+            keys
+        };
+
+        let account_mm_keys = inject(account!("mm"));
+        let account_vv_keys = inject(account!("vv"));
+        store_update.commit().unwrap();
+
+        // Do resharding.
+        assert!(resharder
+            .start_resharding(
+                resharding_event_type,
+                &new_shard_layout,
+                &TestScheduler {},
+                FlatStorageResharderController::new()
+            )
+            .is_ok());
+
+        // Check each child has the correct keys assigned to itself.
+        for key in &account_mm_keys {
+            assert_eq!(flat_store.get(left_child_shard, key), Ok(test_value.clone()));
+            assert_eq!(flat_store.get(right_child_shard, key), Ok(None));
+        }
+        for key in &account_vv_keys {
+            assert_eq!(flat_store.get(left_child_shard, key), Ok(None));
+            assert_eq!(flat_store.get(right_child_shard, key), Ok(test_value.clone()));
+        }
+    }
+
+    /// Tests the split of delayed receipts.
+    #[test]
+    fn split_shard_handle_delayed_receipts() {
+        init_test_logger();
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Inject a delayed receipt into the parent flat storage.
+        let mut store_update = flat_store.store_update();
+
+        let delayed_receipt_indices_key = TrieKey::DelayedReceiptIndices.to_vec();
+        let delayed_receipt_indices_value = Some(FlatStateValue::Inlined(vec![0]));
+        store_update.set(
+            parent_shard,
+            delayed_receipt_indices_key.clone(),
+            delayed_receipt_indices_value.clone(),
+        );
+
+        let delayed_receipt_key = TrieKey::DelayedReceipt { index: 0 }.to_vec();
+        let delayed_receipt_value = Some(FlatStateValue::Inlined(vec![1]));
+        store_update.set(parent_shard, delayed_receipt_key.clone(), delayed_receipt_value.clone());
+
+        store_update.commit().unwrap();
+
+        // Do resharding.
+        assert!(resharder
+            .start_resharding(
+                resharding_event_type,
+                &new_shard_layout,
+                &TestScheduler {},
+                FlatStorageResharderController::new()
+            )
+            .is_ok());
+
+        // Check that flat storages of both children contain the delayed receipt.
+        for child_shard in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                flat_store.get(child_shard, &delayed_receipt_indices_key),
+                Ok(delayed_receipt_indices_value.clone())
+            );
+            assert_eq!(
+                flat_store.get(child_shard, &delayed_receipt_key),
+                Ok(delayed_receipt_value.clone())
+            );
+        }
+    }
+
+    /// Tests the split of promise yield receipts.
+    #[test]
+    fn split_shard_handle_promise_yield() {
+        init_test_logger();
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Inject a promise yield receipt into the parent flat storage.
+        let mut store_update = flat_store.store_update();
+
+        let promise_yield_indices_key = TrieKey::PromiseYieldIndices.to_vec();
+        let promise_yield_indices_value = Some(FlatStateValue::Inlined(vec![0]));
+        store_update.set(
+            parent_shard,
+            promise_yield_indices_key.clone(),
+            promise_yield_indices_value.clone(),
+        );
+
+        let promise_yield_timeout_key = TrieKey::PromiseYieldTimeout { index: 0 }.to_vec();
+        let promise_yield_timeout_value = Some(FlatStateValue::Inlined(vec![1]));
+        store_update.set(
+            parent_shard,
+            promise_yield_timeout_key.clone(),
+            promise_yield_timeout_value.clone(),
+        );
+
+        let promise_yield_receipt_key = TrieKey::PromiseYieldReceipt {
+            receiver_id: account!("ff"),
+            data_id: CryptoHash::default(),
+        }
+        .to_vec();
+        let promise_yield_receipt_value = Some(FlatStateValue::Inlined(vec![2]));
+        store_update.set(
+            parent_shard,
+            promise_yield_receipt_key.clone(),
+            promise_yield_receipt_value.clone(),
+        );
+
+        store_update.commit().unwrap();
+
+        // Do resharding.
+        assert!(resharder
+            .start_resharding(
+                resharding_event_type,
+                &new_shard_layout,
+                &TestScheduler {},
+                FlatStorageResharderController::new()
+            )
+            .is_ok());
+
+        // Check that flat storages of both children contain the promise yield.
+        for child_shard in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                flat_store.get(child_shard, &promise_yield_indices_key),
+                Ok(promise_yield_indices_value.clone())
+            );
+            assert_eq!(
+                flat_store.get(child_shard, &promise_yield_timeout_key),
+                Ok(promise_yield_timeout_value.clone())
+            );
+            assert_eq!(
+                flat_store.get(child_shard, &promise_yield_receipt_key),
+                Ok(promise_yield_receipt_value.clone())
+            );
+        }
+    }
+
+    /// Tests the split of buffered receipts.
+    #[test]
+    fn split_shard_handle_buffered_receipts() {
+        init_test_logger();
+        let (chain, resharder) = create_fs_resharder(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Inject a buffered receipt into the parent flat storage.
+        let mut store_update = flat_store.store_update();
+
+        let buffered_receipt_indices_key = TrieKey::BufferedReceiptIndices.to_vec();
+        let buffered_receipt_indices_value = Some(FlatStateValue::Inlined(vec![0]));
+        store_update.set(
+            parent_shard,
+            buffered_receipt_indices_key.clone(),
+            buffered_receipt_indices_value.clone(),
+        );
+
+        let buffered_receipt_key =
+            TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 }.to_vec();
+        let buffered_receipt_value = Some(FlatStateValue::Inlined(vec![1]));
+        store_update.set(
+            parent_shard,
+            buffered_receipt_key.clone(),
+            buffered_receipt_value.clone(),
+        );
+
+        store_update.commit().unwrap();
+
+        // Do resharding.
+        assert!(resharder
+            .start_resharding(
+                resharding_event_type,
+                &new_shard_layout,
+                &TestScheduler {},
+                FlatStorageResharderController::new()
+            )
+            .is_ok());
+
+        // Check that only the first child contain the buffered receipt.
+        assert_eq!(
+            flat_store.get(left_child_shard, &buffered_receipt_indices_key),
+            Ok(buffered_receipt_indices_value)
+        );
+        assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_indices_key), Ok(None));
+        assert_eq!(
+            flat_store.get(left_child_shard, &buffered_receipt_key),
+            Ok(buffered_receipt_value)
+        );
+        assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_key), Ok(None));
     }
 }
