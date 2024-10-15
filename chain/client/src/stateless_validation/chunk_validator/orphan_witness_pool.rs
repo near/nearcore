@@ -195,9 +195,10 @@ mod tests {
         let mut witness = ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash);
         match &mut witness.chunk_header {
             ShardChunkHeader::V3(header) => match &mut header.inner {
+                ShardChunkHeaderInner::V1(_) => unimplemented!(),
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
                 ShardChunkHeaderInner::V3(inner) => inner.encoded_length = encoded_length,
-                _ => unimplemented!(),
+                ShardChunkHeaderInner::V4(inner) => inner.encoded_length = encoded_length,
             },
             _ => unimplemented!(),
         }

@@ -56,6 +56,7 @@ use near_network::types::{
 };
 
 use near_pool::InsertTransactionResult;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
@@ -945,6 +946,7 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(protocol_version), // TODO(bandwidth_scheduler) - pass bandwidth requests from chunk extra
             &*validator_signer,
             &mut self.rs_for_chunk_production,
             protocol_version,
