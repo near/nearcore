@@ -38,6 +38,7 @@ use validator_stats::{
 };
 
 pub use crate::adapter::EpochManagerAdapter;
+pub use crate::adapter::ShardUIdAndIndex;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;

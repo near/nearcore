@@ -220,6 +220,6 @@ pub fn get_state_change_shard_id(
                 .map_err(|err| {
                     near_chain::near_chain_primitives::error::Error::Other(err.to_string())
                 })?;
-        Ok(shard_uid.shard_id as ShardId)
+        Ok(shard_uid.shard_id())
     }
 }
