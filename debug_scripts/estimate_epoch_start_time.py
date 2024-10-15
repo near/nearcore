@@ -112,9 +112,9 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
     return future_epochs
 
 
-def find_epoch_for_timestamp(future_epochs, voting_datetime):
+def find_epoch_for_timestamp(future_epochs, voting_timestamp):
     for (epoch_number, epoch_timestamp) in enumerate(future_epochs):
-        if voting_datetime < epoch_timestamp:
+        if voting_timestamp < epoch_timestamp:
             return epoch_number
     return len(future_epochs)
 
@@ -125,15 +125,16 @@ def valid_voting_datetime(s):
         return dt
     except ValueError:
         raise argparse.ArgumentTypeError(
-            f"Invalid voting date format: '{s}'. Please use 'YYYY-MM-DD HH:MM:SS'.")
+            f"Invalid voting date format: '{s}'. Please use 'YYYY-MM-DD HH:MM:SS'."
+        )
 
 
 def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
     voting_datetime = target_timezone.localize(voting_date)
-    voting_timestamp = voting_datetime.timestamp()
 
     # Find the epoch T in which the voting date falls
-    epoch_T = find_epoch_for_timestamp(future_epochs, voting_timestamp)
+    epoch_T = find_epoch_for_timestamp(future_epochs,
+                                       voting_datetime.timestamp())
     if epoch_T <= 0:
         print("Error: Voting date is before the first predicted epoch.")
         return
@@ -145,8 +146,10 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
             "Not enough future epochs predicted to determine the protocol upgrade time."
         )
         return
-    protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number - 1]
-    protocol_upgrade_datetime = datetime.fromtimestamp(protocol_upgrade_timestamp)
+    protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number -
+                                               1]
+    protocol_upgrade_datetime = datetime.fromtimestamp(
+        protocol_upgrade_timestamp)
     protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
         '%Y-%m-%d %H:%M:%S %Z%z %A')
     print(f"\nVoting date falls into epoch {epoch_T}.")
