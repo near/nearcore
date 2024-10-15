@@ -45,7 +45,7 @@ impl ChunkContractAccessesV1 {
     }
 }
 
-/// Identifies a chunk by the epoch, block, and shard_id.
+/// Identifies a chunk by the epoch, block, and shard in which it was produced.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkMetadata {
     epoch_id: EpochId,
@@ -74,7 +74,8 @@ pub struct ChunkContractAccessesInner {
     /// Production metadata of the chunk created after the chunk the accesses belong to.
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
-    /// (by the chunk producer of the next chunk)
+    /// (by the chunk producer of the next chunk).
+    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
     next_chunk: ChunkMetadata,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
@@ -93,6 +94,8 @@ impl ChunkContractAccessesInner {
 
 // Data structures for chunk validators to request contract code from chunk producers.
 
+/// Message to request missing code for a set of contracts.
+/// The contracts are idenfied by the hash of their code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ContractCodeRequest {
     V1(ContractCodeRequestV1),
@@ -115,8 +118,13 @@ pub struct ContractCodeRequestV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeRequestInner {
-    metadata: ChunkMetadata,
-    // TODO: Consider making this HashSet.
+    /// Production metadata of the chunk created after the chunk the accesses belong to.
+    /// We associate this message with the next-chunk info because this message is generated
+    /// and distributed while generating the state-witness of the next chunk
+    /// (by the chunk producer of the next chunk).
+    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
+    next_chunk: ChunkMetadata,
+    /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
 }
@@ -128,6 +136,12 @@ pub enum ContractCodeResponse {
     V1(ContractCodeResponseV1),
 }
 
+impl ContractCodeResponse {
+    pub fn new(contracts: &Vec<CodeBytes>) -> Self {
+        Self::V1(ContractCodeResponseV1::new(contracts))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeResponseV1 {
     pub inner: ContractCodeResponseInner,
@@ -135,15 +149,36 @@ pub struct ContractCodeResponseV1 {
     pub signature: Signature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ContractCodeResponseInner {
-    contracts: Vec<ContractCode>,
-    signature_differentiator: SignatureDifferentiator,
+impl ContractCodeResponseV1 {
+    fn new(contracts: &Vec<CodeBytes>) -> Self {
+        Self {
+            inner: ContractCodeResponseInner::new(contracts),
+            // TODO(#11099): Sign the inner message.
+            signature: Signature::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ContractCode {
-    code: Vec<u8>,
+pub struct ContractCodeResponseInner {
+    /// Code for the contracts.
+    compressed_contracts: CompressedContractCode,
+    /// Total size (in number of bytes) of the "uncompressed" form of contracts.
+    /// Used to limit the output while uncompressing it.
+    total_size: usize,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ContractCodeResponseInner {
+    fn new(contracts: &Vec<CodeBytes>) -> Self {
+        let (compressed_contracts, total_size) =
+            CompressedContractCode::encode(&contracts).unwrap();
+        Self {
+            compressed_contracts,
+            total_size,
+            signature_differentiator: "ContractCodeResponseInner".to_owned(),
+        }
+    }
 }
 
 /// Represents max allowed size of the raw (not compressed) contract code response,
@@ -152,8 +187,7 @@ pub const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
 pub const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
 
-/// Represents bytes of compressed ContractCodeResponse.
-/// This is the compressed version of borsh-serialized contract code response.
+/// This is the compressed version of a list of borsh-serialized contract code.
 #[derive(
     Debug,
     Clone,
@@ -165,54 +199,21 @@ pub const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
     derive_more::From,
     derive_more::AsRef,
 )]
-pub struct CompressedContractCodeResponse(Box<[u8]>);
+pub struct CompressedContractCode(Box<[u8]>);
 
 impl
     CompressedData<
-        ContractCodeResponse,
+        Vec<CodeBytes>,
         MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE,
         CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL,
-    > for CompressedContractCodeResponse
+    > for CompressedContractCode
 {
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Hash,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
+/// Hash of some (uncompiled) contract code.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct CodeHash(pub CryptoHash);
 
-// impl CodeHash {
-//     pub fn as_bytes(&self) -> &[u8; 32] {
-//         self.0.as_bytes()
-//     }
-// }
-
-// impl AsRef<[u8]> for CodeHash {
-//     fn as_ref(&self) -> &[u8] {
-//         self.0.as_ref()
-//     }
-// }
-
-// impl From<CodeHash> for Vec<u8> {
-//     fn from(chunk_hash: CodeHash) -> Self {
-//         chunk_hash.0.into()
-//     }
-// }
-
-// impl From<CryptoHash> for CodeHash {
-//     fn from(crypto_hash: CryptoHash) -> Self {
-//         Self(crypto_hash)
-//     }
-// }
+/// Raw bytes of the (uncompiled) contract code.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct CodeBytes(Vec<u8>);

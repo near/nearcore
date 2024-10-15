@@ -294,11 +294,14 @@ pub enum NetworkRequests {
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
     EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
-    /// Message from chunk producer to let the chunk validators know the contracts (code-hash only) accessed by the current witness.
+    /// Message from chunk producer to chunk validators containing the code-hashes of contracts
+    /// accessed by applying the last chunk before creating the state-witness of the new chunk.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
     /// Message from chunk validator to chunk producer to request missing contract code.
+    /// This message is currently sent as a result of receiving the ChunkContractAccesses message
+    /// and failing to find the corresponding code for the hashes received.
     ContractCodeRequest(AccountId, ContractCodeRequest),
-    /// Message from chunk producer to chunk validators to send the contract code as reponse to ContractCodeRequest.
+    /// Message from chunk producer to chunk validators to send the contract code as response to ContractCodeRequest.
     ContractCodeResponse(AccountId, ContractCodeResponse),
 }
 
