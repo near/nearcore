@@ -10,6 +10,9 @@ use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError
 pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
+use bandwidth_scheduler::{
+    generate_mock_bandwidth_requests, run_bandwidth_scheduler, BandwidthSchedulerOutput,
+};
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
@@ -75,6 +78,7 @@ use tracing::{debug, instrument};
 mod actions;
 pub mod adapter;
 mod balance_checker;
+mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
 mod conversions;
@@ -1446,6 +1450,10 @@ impl Runtime {
         let delayed_receipts = DelayedReceiptQueue::load(&processing_state.state_update)?;
         let delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts);
 
+        // Bandwidth scheduler should be run for every chunk, including the missing ones.
+        let bandwidth_scheduler_output =
+            run_bandwidth_scheduler(apply_state, &mut processing_state.state_update)?;
+
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
             && processing_state.protocol_version
@@ -1503,6 +1511,7 @@ impl Runtime {
             validator_accounts_update,
             state_patch,
             outgoing_receipts,
+            &bandwidth_scheduler_output,
         )
     }
 
@@ -2002,6 +2011,7 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         state_patch: SandboxStatePatch,
         outgoing_receipts: Vec<Receipt>,
+        bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
@@ -2037,6 +2047,9 @@ impl Runtime {
                 congestion_seed,
             );
         }
+
+        let bandwidth_requests =
+            generate_mock_bandwidth_requests(apply_state, bandwidth_scheduler_output);
 
         check_balance(
             &apply_state.config,
@@ -2112,9 +2125,7 @@ impl Runtime {
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
-            bandwidth_requests: BandwidthRequests::default_for_protocol_version(
-                apply_state.current_protocol_version, // TODO(bandwidth_scheduler) - produce bandwidth requests
-            ),
+            bandwidth_requests,
         })
     }
 }
