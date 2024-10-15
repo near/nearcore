@@ -397,6 +397,7 @@ network_schema = [
                     PartialEncodedStateWitness
                 ],
                 ['VersionedChunkEndorsement', ChunkEndorsement],
+                # TODO(11099): Update the schema with the new messages for contract distribution.
             ]
         }
     ],

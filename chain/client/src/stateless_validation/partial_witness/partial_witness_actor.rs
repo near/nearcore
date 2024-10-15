@@ -8,12 +8,16 @@ use near_chain::Error;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
     PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
@@ -95,6 +99,30 @@ impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
+        }
+    }
+}
+
+impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: ChunkContractAccessesMessage) {
+        if let Err(err) = self.handle_chunk_contract_accesses(msg.0) {
+            tracing::error!(target: "client", ?err, "Failed to handle ChunkContractAccessesMessage");
+        }
+    }
+}
+
+impl Handler<ContractCodeRequestMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: ContractCodeRequestMessage) {
+        if let Err(err) = self.handle_contract_code_request(msg.0) {
+            tracing::error!(target: "client", ?err, "Failed to handle ContractCodeRequestMessage");
+        }
+    }
+}
+
+impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: ContractCodeResponseMessage) {
+        if let Err(err) = self.handle_contract_code_response(msg.0) {
+            tracing::error!(target: "client", ?err, "Failed to handle ContractCodeResponseMessage");
         }
     }
 }
@@ -318,6 +346,30 @@ impl PartialWitnessActor {
     /// as it is used only for tracking some networking metrics.
     pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
+    }
+
+    pub fn handle_chunk_contract_accesses(
+        &mut self,
+        _contract_accesses: ChunkContractAccesses,
+    ) -> Result<(), Error> {
+        // TODO(#11099): Implement this.
+        unimplemented!()
+    }
+
+    pub fn handle_contract_code_request(
+        &mut self,
+        _contract_code_request: ContractCodeRequest,
+    ) -> Result<(), Error> {
+        // TODO(#11099): Implement this.
+        unimplemented!()
+    }
+
+    pub fn handle_contract_code_response(
+        &mut self,
+        _contract_code_response: ContractCodeResponse,
+    ) -> Result<(), Error> {
+        // TODO(#11099): Implement this.
+        unimplemented!()
     }
 }
 

@@ -9,6 +9,9 @@ mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
+use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -554,6 +557,9 @@ pub enum RoutedMessageBody {
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
+    ChunkContractAccesses(ChunkContractAccesses),
+    ContractCodeRequest(ContractCodeRequest),
+    ContractCodeResponse(ContractCodeResponse),
 }
 
 impl RoutedMessageBody {
@@ -648,6 +654,19 @@ impl fmt::Debug for RoutedMessageBody {
                 write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
+            RoutedMessageBody::ChunkContractAccesses(msg) => write!(
+                f,
+                "ChunkContractAccesses(chunk={:?}, contracts={:?})",
+                msg.chunk_production_key(),
+                msg.contracts()
+            ),
+            RoutedMessageBody::ContractCodeRequest(msg) => write!(
+                f,
+                "ContractCodeRequest(chunk={:?}, contracts={:?})",
+                msg.chunk_production_key(),
+                msg.contracts()
+            ),
+            RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
         }
     }
 }

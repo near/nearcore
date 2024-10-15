@@ -41,6 +41,7 @@ use near_network::client::{
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
+    ChunkContractAccessesMessage, ContractCodeRequestMessage, ContractCodeResponseMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
     PartialWitnessSenderForNetwork,
 };
@@ -761,6 +762,35 @@ fn process_peer_manager_message_default(
                             PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
                         );
                     }
+                }
+            }
+        }
+        NetworkRequests::ChunkContractAccesses(accounts, accesses) => {
+            for account in accounts {
+                for (i, name) in validators.iter().enumerate() {
+                    if name == account {
+                        connectors[i]
+                            .partial_witness_sender
+                            .send(ChunkContractAccessesMessage(accesses.clone()));
+                    }
+                }
+            }
+        }
+        NetworkRequests::ContractCodeRequest(account, request) => {
+            for (i, name) in validators.iter().enumerate() {
+                if name == account {
+                    connectors[i]
+                        .partial_witness_sender
+                        .send(ContractCodeRequestMessage(request.clone()));
+                }
+            }
+        }
+        NetworkRequests::ContractCodeResponse(account, response) => {
+            for (i, name) in validators.iter().enumerate() {
+                if name == account {
+                    connectors[i]
+                        .partial_witness_sender
+                        .send(ContractCodeResponseMessage(response.clone()));
                 }
             }
         }

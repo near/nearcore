@@ -21,6 +21,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
@@ -291,6 +294,12 @@ pub enum NetworkRequests {
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
     EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
+    /// Message from chunk producer to let the chunk validators know the contracts (code-hash only) accessed by the current witness.
+    ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
+    /// Message from chunk validator to chunk producer to request missing contract code.
+    ContractCodeRequest(AccountId, ContractCodeRequest),
+    /// Message from chunk producer to chunk validators to send the contract code as reponse to ContractCodeRequest.
+    ContractCodeResponse(AccountId, ContractCodeResponse),
 }
 
 #[derive(Debug, actix::Message, strum::IntoStaticStr)]
