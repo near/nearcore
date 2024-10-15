@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
-use near_primitives_core::types::{Gas, ShardId};
+use near_primitives_core::types::{shard_id_as_u16, Gas, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use ordered_float::NotNan;
 
@@ -85,7 +85,7 @@ impl CongestionControl {
         // `clamped_f64_fraction` clamps to exactly 1.0.
         if congestion == 1.0 {
             // Red traffic light: reduce to minimum speed
-            if sender_shard == self.info.allowed_shard() as u64 {
+            if shard_id_as_u16(sender_shard) == self.info.allowed_shard() {
                 self.config.allowed_shard_outgoing_gas
             } else {
                 0
@@ -97,7 +97,7 @@ impl CongestionControl {
 
     /// How much data another shard can send to us in the next block.
     pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> Gas {
-        if sender_shard == self.info.allowed_shard() as u64 {
+        if shard_id_as_u16(sender_shard) == self.info.allowed_shard() {
             // The allowed shard is allowed to send more data to us.
             self.config.outgoing_receipts_big_size_limit
         } else {
@@ -347,7 +347,7 @@ impl CongestionInfo {
         congestion_seed: u64,
     ) {
         let allowed_shard = Self::get_new_allowed_shard(own_shard, all_shards, congestion_seed);
-        self.set_allowed_shard(allowed_shard as u16);
+        self.set_allowed_shard(shard_id_as_u16(allowed_shard));
     }
 
     fn get_new_allowed_shard(
@@ -844,7 +844,7 @@ mod tests {
 
         // Full congestion - only the allowed shard should be able to send something.
         for shard in all_shards {
-            if shard == control.info.allowed_shard() as u64 {
+            if shard_id_as_u16(shard) == control.info.allowed_shard() {
                 assert_eq!(control.outgoing_gas_limit(shard), config.allowed_shard_outgoing_gas);
             } else {
                 assert_eq!(control.outgoing_gas_limit(shard), 0);

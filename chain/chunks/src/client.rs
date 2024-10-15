@@ -6,6 +6,7 @@ use itertools::Itertools;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::types::shard_id_as_u16;
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -74,6 +75,7 @@ impl ShardedTransactionPool {
     /// For better security we want the seed to different in each shard.
     /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
+        let shard_id = shard_id_as_u16(shard_id);
         let mut res = *base_seed;
         res[0] = shard_id as u8;
         res[1] = (shard_id / 256) as u8;

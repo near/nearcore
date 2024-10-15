@@ -998,7 +998,8 @@ pub fn setup_no_network_with_validity_period(
                         let future = client.send_async(
                             ChunkEndorsementMessage(endorsement.clone()).with_span_context(),
                         );
-                        drop(future);
+                        // Don't ignore the future or else the message may not actually be handled.
+                        actix::spawn(future);
                     }
                 }
                 _ => {}

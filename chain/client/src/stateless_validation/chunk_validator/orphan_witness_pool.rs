@@ -180,7 +180,7 @@ mod tests {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-    use near_primitives::types::{new_shard_id_tmp, BlockHeight, ShardId};
+    use near_primitives::types::{new_shard_id_tmp, shard_id_max, BlockHeight, ShardId};
 
     use super::OrphanStateWitnessPool;
 
@@ -336,7 +336,7 @@ mod tests {
     fn large_shard_id() {
         let mut pool = OrphanStateWitnessPool::new(10);
 
-        let large_shard_id = ShardId::MAX;
+        let large_shard_id = shard_id_max();
         let witness = make_witness(101, large_shard_id.into(), block(99), 0);
         pool.add_orphan_state_witness(witness.clone(), 0);
 

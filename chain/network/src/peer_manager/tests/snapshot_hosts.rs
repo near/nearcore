@@ -18,6 +18,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::new_shard_id_tmp;
+use near_primitives::types::shard_id_as_u64;
+use near_primitives::types::shard_id_max;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
@@ -371,12 +373,16 @@ async fn large_shard_id_in_cache() {
     let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
 
     tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
-    let max_shard_id: ShardId = ShardId::MAX;
+    let max_shard_id = shard_id_max();
+    let max_shard_id_minus_one = shard_id_as_u64(max_shard_id) - 1;
+    let max_shard_id_minus_one = new_shard_id_tmp(max_shard_id_minus_one);
     let big_shard_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(1234_u64),
         1234,
-        vec![0, 1232232, max_shard_id - 1, max_shard_id].into_iter().map(Into::into).collect(),
+        vec![new_shard_id_tmp(0), new_shard_id_tmp(1232232), max_shard_id_minus_one, max_shard_id]
+            .into_iter()
+            .collect(),
         &peer1_config.node_key,
     ));
 
@@ -447,7 +453,7 @@ async fn too_many_shards_truncate() {
     assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
     for &shard_id in &info.shards {
         // Shard ids are taken from the original vector
-        assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
+        assert!(shard_id_as_u64(shard_id) < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
     assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));

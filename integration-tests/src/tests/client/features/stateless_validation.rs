@@ -24,7 +24,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, EpochId};
+use near_primitives::types::{new_shard_id_tmp, AccountInfo, EpochId};
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
@@ -376,7 +376,7 @@ fn test_chunk_state_witness_bad_shard_id() {
 
     // Create a dummy ChunkStateWitness with an invalid shard_id
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
-    let invalid_shard_id = 1000000000;
+    let invalid_shard_id = new_shard_id_tmp(1000000000);
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
     let witness_size = borsh::to_vec(&witness).unwrap().len();
 
@@ -454,7 +454,7 @@ fn test_invalid_transactions() {
     for tx in invalid_transactions {
         for height in start_height..start_height + 3 {
             let tip = env.clients[0].chain.head().unwrap();
-            let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, 0);
+            let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, new_shard_id_tmp(0));
             let block_producer = env.get_block_producer_at_offset(&tip, 1);
 
             let client = env.client(&chunk_producer);
