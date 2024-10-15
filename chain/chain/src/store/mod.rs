@@ -235,20 +235,20 @@ pub trait ChainStoreAccess {
             }
 
             let prev_hash = header.prev_hash();
-            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
 
-            if current_shard_layout != shard_layout {
+            if prev_shard_layout != current_shard_layout {
                 let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
                 tracing::debug!(
                     target: "chain",
                     version = current_shard_layout.version(),
-                    prev_version = shard_layout.version(),
+                    prev_version = prev_shard_layout.version(),
                     ?current_shard_id,
                     ?parent_shard_id,
                     "crossing epoch boundary with shard layout change, updating shard id"
                 );
                 current_shard_id = parent_shard_id;
-                current_shard_layout = shard_layout;
+                current_shard_layout = prev_shard_layout;
             }
 
             let receipts_proofs = self.get_incoming_receipts(&block_hash, current_shard_id);
