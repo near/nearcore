@@ -29,6 +29,7 @@ use crate::types::{
     ReasonForBan,
 };
 use crate::PeerManagerActor;
+use futures::FutureExt;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;
 use near_async::time;
@@ -601,18 +602,21 @@ pub(crate) async fn start(
                             let result = Some(StateResponse(Box::new(StateResponseInfo::V2(
                                 StateResponseInfoV2 { shard_id, sync_hash, state_response },
                             ))));
-                            (msg.callback)(Ok(result));
+                            (msg.callback)(std::future::ready(Ok(result)).boxed());
                             send.send(Event::Client(
                                 ClientSenderForNetworkInput::_state_request_part(msg.message),
                             ));
                         }
                         ClientSenderForNetworkMessage::_announce_account(msg) => {
-                            (msg.callback)(Ok(Ok(msg
-                                .message
-                                .0
-                                .iter()
-                                .map(|(account, _)| account.clone())
-                                .collect())));
+                            (msg.callback)(
+                                std::future::ready(Ok(Ok(msg
+                                    .message
+                                    .0
+                                    .iter()
+                                    .map(|(account, _)| account.clone())
+                                    .collect())))
+                                .boxed(),
+                            );
                             send.send(Event::Client(
                                 ClientSenderForNetworkInput::_announce_account(msg.message),
                             ));

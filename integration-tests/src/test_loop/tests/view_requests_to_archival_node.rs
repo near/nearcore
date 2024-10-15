@@ -130,6 +130,7 @@ impl<'a> ViewClientTester<'a> {
     /// Sends a message to the `[ViewClientActorInner]` for the client at position `idx`.
     fn send<M: actix::Message>(&mut self, request: M, idx: usize) -> M::Result
     where
+        M::Result: Send,
         ViewClientActorInner: Handler<M>,
     {
         let view_client = self.test_loop.data.get_mut(&self.handles[idx]);
