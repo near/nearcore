@@ -261,9 +261,11 @@ impl EntityDebugHandlerImpl {
                 let shard_layout = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_id = chunk.shard_id();
+                let shard_index = shard_layout.get_shard_index(shard_id);
                 let shard_uid = shard_layout
                     .shard_uids()
-                    .nth(chunk.shard_id() as usize)
+                    .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
                 let node = store
                     .get_ser::<RawTrieNodeWithSize>(
@@ -299,9 +301,11 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_index = shard_layout.get_shard_index(shard_id);
+
                 let shard_uid = shard_layout
                     .shard_uids()
-                    .nth(shard_id as usize)
+                    .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
                 Ok(serialize_entity(&shard_uid))
             }
@@ -380,9 +384,11 @@ impl EntityDebugHandlerImpl {
                 let shard_layout = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_id = chunk.shard_id();
+                let shard_index = shard_layout.get_shard_index(shard_id);
                 let shard_uid = shard_layout
                     .shard_uids()
-                    .nth(chunk.shard_id() as usize)
+                    .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
                 let path =
                     TriePath { path: vec![], shard_uid, state_root: chunk.prev_state_root() };

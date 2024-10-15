@@ -158,7 +158,7 @@ impl PartialEncodedStateWitnessTracker {
                     tracing::error!(
                         target: "client",
                         ?err,
-                        shard_id = key.shard_id,
+                        shard_id = ?key.shard_id,
                         height_created = key.height_created,
                         "Failed to reed solomon decode witness parts. Maybe malicious or corrupt data."
                     );

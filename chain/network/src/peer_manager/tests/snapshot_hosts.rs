@@ -10,12 +10,16 @@ use crate::types::NetworkRequests;
 use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
 use crate::{network_protocol::testonly as data, peer::testonly::PeerHandle};
+use itertools::Itertools;
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::new_shard_id_tmp;
+use near_primitives::types::shard_id_as_u64;
+use near_primitives::types::shard_id_max;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
@@ -32,10 +36,10 @@ fn make_snapshot_host_info(
     rng: &mut impl Rng,
 ) -> Arc<SnapshotHostInfo> {
     let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
-    let max_shard_id: ShardId = 32;
+    let max_shard_id = 32;
     let shards_num: usize = rng.gen_range(1..16);
-    let mut shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
-    shards.sort();
+    let shards = (0..max_shard_id).choose_multiple(rng, shards_num);
+    let shards = shards.into_iter().sorted().map(new_shard_id_tmp).collect();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -251,7 +255,7 @@ async fn too_many_shards_not_broadcast() {
 
     tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from peer1. One of the host infos has more shard ids than allowed.");
     let too_many_shards: Vec<ShardId> =
-        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).map(Into::into).collect();
     let invalid_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(rng.gen::<u64>()),
@@ -369,11 +373,16 @@ async fn large_shard_id_in_cache() {
     let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
 
     tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
+    let max_shard_id = shard_id_max();
+    let max_shard_id_minus_one = shard_id_as_u64(max_shard_id) - 1;
+    let max_shard_id_minus_one = new_shard_id_tmp(max_shard_id_minus_one);
     let big_shard_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(1234_u64),
         1234,
-        vec![0, 1232232, ShardId::MAX - 1, ShardId::MAX],
+        vec![new_shard_id_tmp(0), new_shard_id_tmp(1232232), max_shard_id_minus_one, max_shard_id]
+            .into_iter()
+            .collect(),
         &peer1_config.node_key,
     ));
 
@@ -419,7 +428,7 @@ async fn too_many_shards_truncate() {
     tracing::info!(target:"test", "Ask peer manager to send out an invalid SyncSnapshotHosts message. The info has more shard ids than allowed.");
     // Create a list of shards with twice as many shard ids as is allowed
     let too_many_shards: Vec<ShardId> =
-        (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).collect();
+        (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).map(Into::into).collect();
 
     let sync_hash = CryptoHash::hash_borsh(rng.gen::<u64>());
     let epoch_height: EpochHeight = rng.gen();
@@ -442,9 +451,9 @@ async fn too_many_shards_truncate() {
 
     // The list of shards should contain MAX_SHARDS_PER_SNAPSHOT_HOST_INFO randomly sampled, unique shard ids taken from too_many_shards
     assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
-    for shard_id in &info.shards {
+    for &shard_id in &info.shards {
         // Shard ids are taken from the original vector
-        assert!(*shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
+        assert!(shard_id_as_u64(shard_id) < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
     assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));

@@ -1,4 +1,5 @@
 use crate::messaging::{AsyncSendError, CanSend, MessageWithCallback};
+use futures::FutureExt;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 
 /// An actix Addr implements CanSend for any message type that the actor handles.
@@ -39,13 +40,15 @@ where
     fn send(&self, message: MessageWithCallback<M, M::Result>) {
         let MessageWithCallback { message, callback: responder } = message;
         let future = self.send(message);
-        actix::spawn(async move {
+
+        let transformed_future = async move {
             match future.await {
-                Ok(result) => responder(Ok(result)),
-                Err(actix::MailboxError::Closed) => responder(Err(AsyncSendError::Closed)),
-                Err(actix::MailboxError::Timeout) => responder(Err(AsyncSendError::Timeout)),
+                Ok(result) => Ok(result),
+                Err(actix::MailboxError::Closed) => Err(AsyncSendError::Closed),
+                Err(actix::MailboxError::Timeout) => Err(AsyncSendError::Timeout),
             }
-        });
+        };
+        responder(transformed_future.boxed());
     }
 }
 

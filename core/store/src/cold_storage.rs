@@ -186,6 +186,7 @@ fn copy_state_from_store(
 
         let Some(trie_changes) = trie_changes else { continue };
         for op in trie_changes.insertions() {
+            // TODO(reshardingV3) Handle shard_uid not mapped there
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 

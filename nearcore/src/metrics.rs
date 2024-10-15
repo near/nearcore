@@ -8,6 +8,7 @@ use near_o11y::metrics::{
     try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
     IntGaugeVec,
 };
+use near_primitives::types::ShardId;
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
 use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
@@ -148,7 +149,7 @@ fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> an
 }
 
 fn get_postponed_receipt_count_for_shard(
-    shard_id: u64,
+    shard_id: ShardId,
     shard_layout: &ShardLayout,
     chain_store: &ChainStore,
     block: &Block,

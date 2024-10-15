@@ -222,7 +222,6 @@ if __name__ == "__main__":
         type=valid_timezone,
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
-
     parser.add_argument("--voting_date",
                         type=valid_voting_datetime,
                         help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")

@@ -286,7 +286,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
-        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_insertions(
@@ -309,7 +309,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
-        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_deletions(
@@ -483,6 +483,36 @@ impl ShardTries {
             memtries.write().unwrap().delete_until_height(height);
         }
     }
+
+    /// Freezes in-memory trie for source shard and copies reference to it to
+    /// target shards.
+    /// Needed to serve queries for these shards just after resharding, before
+    /// proper memtries are loaded.
+    pub fn freeze_mem_tries(
+        &self,
+        source_shard_uid: ShardUId,
+        target_shard_uids: Vec<ShardUId>,
+    ) -> Result<(), StorageError> {
+        let mut outer_guard = self.0.mem_tries.write().unwrap();
+        let Some(memtries) = outer_guard.remove(&source_shard_uid) else {
+            return Err(StorageError::MemTrieLoadingError("Memtrie not loaded".to_string()));
+        };
+        let mut guard = memtries.write().unwrap();
+        let memtries = std::mem::replace(&mut *guard, MemTries::new(source_shard_uid));
+        let frozen_memtries = memtries.freeze();
+
+        for shard_uid in [vec![source_shard_uid], target_shard_uids].concat() {
+            outer_guard.insert(
+                shard_uid,
+                Arc::new(RwLock::new(MemTries::from_frozen_memtries(
+                    shard_uid,
+                    frozen_memtries.clone(),
+                ))),
+            );
+        }
+
+        Ok(())
+    }
 }
 
 pub struct WrappedTrieChanges {
@@ -553,7 +583,7 @@ impl WrappedTrieChanges {
         level = "debug",
         target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
-        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        fields(num_state_changes = self.state_changes.len(), shard_id = ?self.shard_uid.shard_id()),
         skip_all,
     )]
     pub fn state_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {

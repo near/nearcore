@@ -8,6 +8,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::new_shard_id_tmp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -61,16 +62,17 @@ fn change_shard_id_to_invalid() {
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
 
     // 1. Corrupt chunks
+    let bad_shard_id = new_shard_id_tmp(100);
     let mut new_chunks = vec![];
     for chunk in block.chunks().iter() {
         let mut new_chunk = chunk.clone();
         match &mut new_chunk {
-            ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = 100,
-            ShardChunkHeader::V2(new_chunk) => new_chunk.inner.shard_id = 100,
+            ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
+            ShardChunkHeader::V2(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
             ShardChunkHeader::V3(new_chunk) => match &mut new_chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.shard_id = 100,
-                ShardChunkHeaderInner::V2(inner) => inner.shard_id = 100,
-                ShardChunkHeaderInner::V3(inner) => inner.shard_id = 100,
+                ShardChunkHeaderInner::V1(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V2(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V3(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);
@@ -88,7 +90,8 @@ fn change_shard_id_to_invalid() {
     // Try to process corrupt block and expect code to notice invalid shard_id
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     match res {
-        Err(Error::InvalidShardId(100)) => {
+        Err(Error::InvalidShardId(shard_id)) => {
+            assert_eq!(shard_id, bad_shard_id);
             tracing::debug!("process failed successfully");
         }
         Err(e) => {

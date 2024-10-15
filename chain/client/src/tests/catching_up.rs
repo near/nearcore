@@ -23,7 +23,7 @@ use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference, ShardId};
 use near_primitives::views::QueryRequest;
 use near_primitives::views::QueryResponseKind::ViewAccount;
 
@@ -99,7 +99,7 @@ enum ReceiptsSyncPhases {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct StateRequestStruct {
-    pub shard_id: u64,
+    pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub sync_prev_prev_hash: Option<CryptoHash>,
     pub part_id: Option<u64>,
@@ -714,7 +714,8 @@ fn test_all_chunks_accepted_common(
 
         let verbose = false;
 
-        let seen_chunk_same_sender = Arc::new(RwLock::new(HashSet::<(AccountId, u64, u64)>::new()));
+        let seen_chunk_same_sender =
+            Arc::new(RwLock::new(HashSet::<(AccountId, u64, ShardId)>::new()));
         let requested = Arc::new(RwLock::new(HashSet::<(AccountId, Vec<u64>, ChunkHash)>::new()));
         let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
