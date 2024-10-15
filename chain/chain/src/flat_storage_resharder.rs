@@ -227,6 +227,141 @@ impl FlatStorageResharder {
             None => None,
         }
     }
+
+    /// Task to perform the actual split of a flat storage shard. This may be a long operation time-wise.
+    ///
+    /// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
+    pub fn split_shard_task(&self) {
+        let task_status = self.split_shard_task_impl();
+        let controller = self.controller.clone();
+        self.split_shard_task_postprocessing(task_status);
+        info!(target: "resharding", ?task_status, "flat storage shard split task finished");
+        if let Err(err) = controller.completion_sender.send(task_status) {
+            warn!(target: "resharding", ?err, "error notifying completion of flat storage shard split task")
+        };
+    }
+
+    /// Performs the bulk of [split_shard_task].
+    ///
+    /// Returns `true` if the routine completed successfully.
+    fn split_shard_task_impl(&self) -> FlatStorageReshardingTaskStatus {
+        if self.controller.is_interrupted() {
+            return FlatStorageReshardingTaskStatus::Cancelled;
+        }
+
+        /// Determines after how many key-values the process stops to
+        /// commit changes and to check interruptions.
+        const BATCH_SIZE: usize = 10_000;
+
+        let (parent_shard, status) = self
+            .get_parent_shard_and_status()
+            .expect("flat storage resharding event must be Split!");
+        info!(target: "resharding", ?parent_shard, ?status, "flat storage shard split task: starting key-values copy");
+
+        // Parent shard flat storage head must be on block height just before the new shard layout kicks
+        // in. This guarantees that all deltas have been applied and thus the state of all key-values is
+        // up to date.
+        // TODO(trisfald): do this check, maybe call update_flat_storage_for_shard
+        let _parent_flat_head = status.flat_head;
+
+        // Prepare the store object for commits and the iterator over parent's flat storage.
+        let flat_store = self.runtime.store().flat_store();
+        let mut iter = flat_store.iter(parent_shard);
+
+        loop {
+            let mut store_update = flat_store.store_update();
+
+            // Process a `BATCH_SIZE` worth of key value pairs.
+            let mut iter_exhausted = false;
+            for _ in 0..BATCH_SIZE {
+                match iter.next() {
+                    Some(Ok((key, value))) => {
+                        if let Err(err) =
+                            shard_split_handle_key_value(key, value, &mut store_update, &status)
+                        {
+                            error!(target: "resharding", ?err, "failed to handle flat storage key");
+                            return FlatStorageReshardingTaskStatus::Failed;
+                        }
+                    }
+                    Some(Err(err)) => {
+                        error!(target: "resharding", ?err, "failed to read flat storage value from parent shard");
+                        return FlatStorageReshardingTaskStatus::Failed;
+                    }
+                    None => {
+                        iter_exhausted = true;
+                    }
+                }
+            }
+
+            // Make a pause to commit and check if the routine should stop.
+            if let Err(err) = store_update.commit() {
+                error!(target: "resharding", ?err, "failed to commit store update");
+                return FlatStorageReshardingTaskStatus::Failed;
+            }
+
+            // TODO(Trisfald): metrics and logs
+
+            // If `iter`` is exhausted we can exit after the store commit.
+            if iter_exhausted {
+                break;
+            }
+            if self.controller.is_interrupted() {
+                return FlatStorageReshardingTaskStatus::Cancelled;
+            }
+        }
+        FlatStorageReshardingTaskStatus::Successful
+    }
+
+    /// Performs post-processing of shard splitting after all key-values have been moved from parent to
+    /// children. `success` indicates whether or not the previous phase was successful.
+    fn split_shard_task_postprocessing(&self, task_status: FlatStorageReshardingTaskStatus) {
+        let (parent_shard, split_status) = self
+            .get_parent_shard_and_status()
+            .expect("flat storage resharding event must be Split!");
+        let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } =
+            split_status;
+        let flat_store = self.runtime.store().flat_store();
+        info!(target: "resharding", ?parent_shard, ?task_status, ?split_status, "flat storage shard split task: post-processing");
+
+        let mut store_update = flat_store.store_update();
+        match task_status {
+            FlatStorageReshardingTaskStatus::Successful => {
+                // Split shard completed successfully.
+                // Parent flat storage can be deleted from the FlatStoreManager.
+                self.runtime
+                    .get_flat_storage_manager()
+                    .remove_flat_storage_for_shard(parent_shard, &mut store_update)
+                    .unwrap();
+                store_update.remove_flat_storage(parent_shard);
+                // Children must perform catchup.
+                for child_shard in [left_child_shard, right_child_shard] {
+                    store_update.set_flat_storage_status(
+                        child_shard,
+                        FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
+                            flat_head.hash,
+                        )),
+                    );
+                }
+                // TODO(trisfald): trigger catchup
+            }
+            FlatStorageReshardingTaskStatus::Failed
+            | FlatStorageReshardingTaskStatus::Cancelled => {
+                // We got an error or an interrupt request.
+                // Reset parent.
+                store_update.set_flat_storage_status(
+                    parent_shard,
+                    FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+                );
+                // Remove children shards leftovers.
+                for child_shard in [left_child_shard, right_child_shard] {
+                    store_update.remove_flat_storage(child_shard);
+                }
+            }
+        }
+        store_update.commit().unwrap();
+        // Terminate the resharding event.
+        *self.resharding_event.lock().unwrap() = None;
+    }
 }
 
 impl Debug for FlatStorageResharder {
@@ -250,90 +385,6 @@ fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result
         error!(target: "resharding", ?shard, ?status, err_msg);
         Err(Error::ReshardingError(err_msg.to_owned()))
     }
-}
-
-/// Task to perform the actual split of a flat storage shard. This may be a long operation time-wise.
-///
-/// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
-pub fn split_shard_task(resharder: FlatStorageResharder) {
-    let task_status = split_shard_task_impl(&resharder);
-    let controller = resharder.controller.clone();
-    split_shard_task_postprocessing(&resharder, task_status);
-    info!(target: "resharding", ?task_status, "flat storage shard split task finished");
-    if let Err(err) = controller.completion_sender.send(task_status) {
-        warn!(target: "resharding", ?err, "error notifying completion of flat storage shard split task")
-    };
-}
-
-/// Performs the bulk of [split_shard_task].
-///
-/// Returns `true` if the routine completed successfully.
-fn split_shard_task_impl(resharder: &FlatStorageResharder) -> FlatStorageReshardingTaskStatus {
-    if resharder.controller.is_interrupted() {
-        return FlatStorageReshardingTaskStatus::Cancelled;
-    }
-
-    /// Determines after how many key-values the process stops to
-    /// commit changes and to check interruptions.
-    const BATCH_SIZE: usize = 10_000;
-
-    let (parent_shard, status) = resharder
-        .get_parent_shard_and_status()
-        .expect("flat storage resharding event must be Split!");
-    info!(target: "resharding", ?parent_shard, ?status, "flat storage shard split task: starting key-values copy");
-
-    // Parent shard flat storage head must be on block height just before the new shard layout kicks
-    // in. This guarantees that all deltas have been applied and thus the state of all key-values is
-    // up to date.
-    // TODO(trisfald): do this check, maybe call update_flat_storage_for_shard
-    let _parent_flat_head = status.flat_head;
-
-    // Prepare the store object for commits and the iterator over parent's flat storage.
-    let flat_store = resharder.runtime.store().flat_store();
-    let mut iter = flat_store.iter(parent_shard);
-
-    loop {
-        let mut store_update = flat_store.store_update();
-
-        // Process a `BATCH_SIZE` worth of key value pairs.
-        let mut iter_exhausted = false;
-        for _ in 0..BATCH_SIZE {
-            match iter.next() {
-                Some(Ok((key, value))) => {
-                    if let Err(err) =
-                        shard_split_handle_key_value(key, value, &mut store_update, &status)
-                    {
-                        error!(target: "resharding", ?err, "failed to handle flat storage key");
-                        return FlatStorageReshardingTaskStatus::Failed;
-                    }
-                }
-                Some(Err(err)) => {
-                    error!(target: "resharding", ?err, "failed to read flat storage value from parent shard");
-                    return FlatStorageReshardingTaskStatus::Failed;
-                }
-                None => {
-                    iter_exhausted = true;
-                }
-            }
-        }
-
-        // Make a pause to commit and check if the routine should stop.
-        if let Err(err) = store_update.commit() {
-            error!(target: "resharding", ?err, "failed to commit store update");
-            return FlatStorageReshardingTaskStatus::Failed;
-        }
-
-        // TODO(Trisfald): metrics and logs
-
-        // If `iter`` is exhausted we can exit after the store commit.
-        if iter_exhausted {
-            break;
-        }
-        if resharder.controller.is_interrupted() {
-            return FlatStorageReshardingTaskStatus::Cancelled;
-        }
-    }
-    FlatStorageReshardingTaskStatus::Successful
 }
 
 /// Handles the inheritance of a key-value pair from parent shard to children shards.
@@ -402,59 +453,6 @@ fn shard_split_handle_key_value(
         _ => unreachable!(),
     }
     Ok(())
-}
-
-/// Performs post-processing of shard splitting after all key-values have been moved from parent to
-/// children. `success` indicates whether or not the previous phase was successful.
-fn split_shard_task_postprocessing(
-    resharder: &FlatStorageResharder,
-    task_status: FlatStorageReshardingTaskStatus,
-) {
-    let (parent_shard, split_status) = resharder
-        .get_parent_shard_and_status()
-        .expect("flat storage resharding event must be Split!");
-    let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = split_status;
-    let flat_store = resharder.runtime.store().flat_store();
-    info!(target: "resharding", ?parent_shard, ?task_status, ?split_status, "flat storage shard split task: post-processing");
-
-    let mut store_update = flat_store.store_update();
-    match task_status {
-        FlatStorageReshardingTaskStatus::Successful => {
-            // Split shard completed successfully.
-            // Parent flat storage can be deleted from the FlatStoreManager.
-            resharder
-                .runtime
-                .get_flat_storage_manager()
-                .remove_flat_storage_for_shard(parent_shard, &mut store_update)
-                .unwrap();
-            store_update.remove_flat_storage(parent_shard);
-            // Children must perform catchup.
-            for child_shard in [left_child_shard, right_child_shard] {
-                store_update.set_flat_storage_status(
-                    child_shard,
-                    FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
-                        flat_head.hash,
-                    )),
-                );
-            }
-            // TODO(trisfald): trigger catchup
-        }
-        FlatStorageReshardingTaskStatus::Failed | FlatStorageReshardingTaskStatus::Cancelled => {
-            // We got an error or an interrupt request.
-            // Reset parent.
-            store_update.set_flat_storage_status(
-                parent_shard,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
-            );
-            // Remove children shards leftovers.
-            for child_shard in [left_child_shard, right_child_shard] {
-                store_update.remove_flat_storage(child_shard);
-            }
-        }
-    }
-    store_update.commit().unwrap();
-    // Terminate the resharding event.
-    *resharder.resharding_event.lock().unwrap() = None;
 }
 
 /// Copies a key-value pair to the correct child shard by matching the account-id to the provided shard layout.
@@ -571,7 +569,7 @@ mod tests {
 
     impl CanSend<FlatStorageSplitShardRequest> for TestScheduler {
         fn send(&self, msg: FlatStorageSplitShardRequest) {
-            split_shard_task(msg.resharder);
+            msg.resharder.split_shard_task();
         }
     }
 

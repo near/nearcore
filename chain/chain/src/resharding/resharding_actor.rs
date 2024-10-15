@@ -1,5 +1,4 @@
 use super::types::FlatStorageSplitShardRequest;
-use crate::flat_storage_resharder::split_shard_task;
 use near_async::messaging::{self, Handler};
 
 /// Dedicated actor for resharding V3.
@@ -19,6 +18,6 @@ impl ReshardingActor {
     }
 
     pub fn handle_flat_storage_split_shard_request(&mut self, msg: FlatStorageSplitShardRequest) {
-        split_shard_task(msg.resharder);
+        msg.resharder.split_shard_task();
     }
 }
