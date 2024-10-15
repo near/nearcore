@@ -35,6 +35,12 @@ impl ChunkContractAccesses {
             Self::V1(accesses) => &accesses.inner.contracts,
         }
     }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        match self {
+            Self::V1(accesses) => accesses.inner.next_chunk.clone().into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -124,6 +130,12 @@ impl ContractCodeRequest {
     pub fn contracts(&self) -> &Vec<CodeHash> {
         match self {
             Self::V1(request) => &request.inner.contracts,
+        }
+    }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        match self {
+            Self::V1(request) => request.inner.next_chunk.clone().into(),
         }
     }
 }

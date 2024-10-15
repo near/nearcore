@@ -348,27 +348,37 @@ impl PartialWitnessActor {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 
+    /// Handles contract code accesses message from chunk producer.
+    /// This is sent in parallel to a chunk state witness and contains the code-hashes
+    /// of the contracts accessed when applying the previous chunk of the witness.
     pub fn handle_chunk_contract_accesses(
         &mut self,
-        _contract_accesses: ChunkContractAccesses,
+        _accesses: ChunkContractAccesses,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this.
+        // TODO(#11099): Implement this and remove debug message.
+        tracing::debug!(target: "client", next_chunk=?_accesses.chunk_production_key(), contracts=?_accesses.contracts(), "handle_chunk_contract_accesses");
         unimplemented!()
     }
 
+    /// Handles contract code requests message from chunk validators.
+    /// As response to this message, sends the contract code requested to
+    /// the requesting chunk validator for the given code hashes.
     pub fn handle_contract_code_request(
         &mut self,
-        _contract_code_request: ContractCodeRequest,
+        _request: ContractCodeRequest,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this.
+        // TODO(#11099): Implement this and remove debug message.
+        tracing::debug!(target: "client", next_chunk=?_request.chunk_production_key(), contracts=?_request.contracts(), "handle_contract_code_request");
         unimplemented!()
     }
 
+    /// Handles contract code responses message from chunk producer.
     pub fn handle_contract_code_response(
         &mut self,
-        _contract_code_response: ContractCodeResponse,
+        _response: ContractCodeResponse,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this.
+        // TODO(#11099): Implement this and remove debug message.
+        tracing::debug!(target: "client", "handle_contract_code_response");
         unimplemented!()
     }
 }
