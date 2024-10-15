@@ -4,17 +4,21 @@ use std::sync::Arc;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, CodeHash,
+};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness,
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 
@@ -81,6 +85,13 @@ impl Client {
                 &self.network_adapter.clone().into_sender(),
             );
         }
+
+        self.send_contract_accesses_to_chunk_validators(
+            epoch_id,
+            &chunk_header,
+            contract_accesses,
+            my_signer.as_ref(),
+        );
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             epoch_id: *epoch_id,
@@ -297,5 +308,38 @@ impl Client {
             }
         }
         Ok(source_receipt_proofs)
+    }
+
+    /// Sends the contract access to the same chunk validators that will receive the state witness for the chunk.
+    fn send_contract_accesses_to_chunk_validators(
+        &self,
+        epoch_id: &EpochId,
+        chunk_header: &ShardChunkHeader,
+        contract_accesses: Vec<CodeHash>,
+        // TODO(#11099): Sign the message using this signer.
+        _signer: &ValidatorSigner,
+    ) {
+        let chunk_validators = self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                &epoch_id,
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+            )
+            .expect("Chunk validators must be defined")
+            .ordered_chunk_validators();
+
+        let chunk_production_key = ChunkProductionKey {
+            epoch_id: *epoch_id,
+            shard_id: chunk_header.shard_id(),
+            height_created: chunk_header.height_created(),
+        };
+        // TODO(#11099): Optimize the set of receivers by excluding self and chunk producers etc.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkContractAccesses(
+                chunk_validators,
+                ChunkContractAccesses::new(chunk_production_key, contract_accesses),
+            ),
+        ));
     }
 }
