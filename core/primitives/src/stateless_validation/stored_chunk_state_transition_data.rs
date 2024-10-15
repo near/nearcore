@@ -3,8 +3,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
 
-use super::contract_distribution::CodeHash;
-
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -20,5 +18,6 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
     /// The hashes of contract code that are accessed during the state transition.
     // TODO(#11099): Implement DB migration to add this to the database.
-    pub contract_accesses: Vec<CodeHash>,
+    #[cfg(feature = "contract_distribution")]
+    pub contract_accesses: Vec<super::contract_distribution::CodeHash>,
 }

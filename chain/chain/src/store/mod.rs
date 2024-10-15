@@ -2016,6 +2016,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     // TODO(#11099): Revisit this.
+                    #[cfg(feature = "contract_distribution")]
                     contract_accesses: vec![],
                 },
             );

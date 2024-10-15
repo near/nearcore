@@ -108,6 +108,7 @@ impl ReshardingManager {
                 base_state: partial_storage.nodes,
                 receipts_hash: CryptoHash::default(),
                 // TODO(#11099): Revisit this.
+                #[cfg(feature = "contract_distribution")]
                 contract_accesses: vec![],
             };
 

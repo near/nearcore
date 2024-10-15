@@ -187,7 +187,7 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        // TODO(#11099): Return the correct list of code hashes.
+        // TODO(#11099): Compute and set this with the correct list of code hashes accessed while applying the chunk.
         let contract_accesses = vec![];
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses })
     }
