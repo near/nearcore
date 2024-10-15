@@ -393,12 +393,9 @@ fn shard_split_handle_key_value(
         col::DELAYED_RECEIPT_OR_INDICES
         | col::PROMISE_YIELD_INDICES
         | col::PROMISE_YIELD_TIMEOUT
-        | col::PROMISE_YIELD_RECEIPT
-        | col::BUFFERED_RECEIPT_INDICES
-        | col::BUFFERED_RECEIPT => {
-            // TODO(trisfald): implement logic and remove error log
-            let col_name = ALL_COLUMNS_WITH_NAMES[key_column_prefix as usize].1;
-            error!(target: "resharding", "flat storage resharding of {col_name} is not implemented yet!");
+        | col::PROMISE_YIELD_RECEIPT => copy_kv_to_all_children(&status, key, value, store_update),
+        col::BUFFERED_RECEIPT_INDICES | col::BUFFERED_RECEIPT => {
+            copy_kv_to_left_child(&status, key, value, store_update)
         }
         _ => unreachable!(),
     }
@@ -481,6 +478,27 @@ fn copy_kv_to_child(
     // Add the new flat store entry.
     store_update.set(new_shard_uid, key, Some(value));
     Ok(())
+}
+
+/// Copies a key-value pair to both children.
+fn copy_kv_to_all_children(
+    status: &SplittingParentStatus,
+    key: Vec<u8>,
+    value: FlatStateValue,
+    store_update: &mut FlatStoreUpdateAdapter,
+) {
+    store_update.set(status.left_child_shard, key.clone(), Some(value.clone()));
+    store_update.set(status.right_child_shard, key, Some(value));
+}
+
+/// Copies a key-value pair to the child on the left of the account boundary (also called 'first child').
+fn copy_kv_to_left_child(
+    status: &SplittingParentStatus,
+    key: Vec<u8>,
+    value: FlatStateValue,
+    store_update: &mut FlatStoreUpdateAdapter,
+) {
+    store_update.set(status.left_child_shard, key, Some(value));
 }
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
