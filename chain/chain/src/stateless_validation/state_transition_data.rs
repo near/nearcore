@@ -205,6 +205,8 @@ mod tests {
                 &StoredChunkStateTransitionData {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
+                    // TODO(#11099): Revisit this.
+                    contract_accesses: vec![],
                 },
             )
             .unwrap();

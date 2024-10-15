@@ -107,6 +107,8 @@ impl ReshardingManager {
             let state_transition_data = StoredChunkStateTransitionData {
                 base_state: partial_storage.nodes,
                 receipts_hash: CryptoHash::default(),
+                // TODO(#11099): Revisit this.
+                contract_accesses: vec![],
             };
 
             // TODO(store): Use proper store interface

@@ -17,10 +17,8 @@ pub enum ChunkContractAccesses {
 }
 
 impl ChunkContractAccesses {
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        match self {
-            Self::V1(accesses) => accesses.inner.metadata.chunk_production_key(),
-        }
+    pub fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts))
     }
 
     pub fn contracts(&self) -> &Vec<CodeHash> {
@@ -33,35 +31,64 @@ impl ChunkContractAccesses {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkContractAccessesV1 {
     pub inner: ChunkContractAccessesInner,
-    /// Signature of the inner.
+    /// Signature of the inner, signed by the chunk producer of the next chunk.
     pub signature: Signature,
 }
 
-/// Identifies the chunk applying which results in contract code accesses.
-/// This message is contained in messages that also contain the contract accesses and requests for code.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkMetadata {
-    shard_id: ShardId,
-    epoch_id: EpochId,
-    height_created: BlockHeight,
+impl ChunkContractAccessesV1 {
+    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+        Self {
+            inner: ChunkContractAccessesInner::new(next_chunk, contracts),
+            // TODO(#11099): Sign the inner message.
+            signature: Signature::default(),
+        }
+    }
 }
 
-impl ChunkMetadata {
-    fn chunk_production_key(&self) -> ChunkProductionKey {
+/// Identifies a chunk by the epoch, block, and shard_id.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkMetadata {
+    epoch_id: EpochId,
+    height_created: BlockHeight,
+    shard_id: ShardId,
+}
+
+impl Into<ChunkProductionKey> for ChunkMetadata {
+    fn into(self) -> ChunkProductionKey {
         ChunkProductionKey {
-            shard_id: self.shard_id,
             epoch_id: self.epoch_id,
             height_created: self.height_created,
+            shard_id: self.shard_id,
         }
+    }
+}
+
+impl From<ChunkProductionKey> for ChunkMetadata {
+    fn from(key: ChunkProductionKey) -> Self {
+        Self { epoch_id: key.epoch_id, height_created: key.height_created, shard_id: key.shard_id }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkContractAccessesInner {
-    metadata: ChunkMetadata,
-    // TODO: Consider making this HashSet.
+    /// Production metadata of the chunk created after the chunk the accesses belong to.
+    /// We associate this message with the next-chunk info because this message is generated
+    /// and distributed while generating the state-witness of the next chunk
+    /// (by the chunk producer of the next chunk)
+    next_chunk: ChunkMetadata,
+    /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
+}
+
+impl ChunkContractAccessesInner {
+    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+        Self {
+            next_chunk: next_chunk.into(),
+            contracts,
+            signature_differentiator: "ChunkContractAccessesInner".to_owned(),
+        }
+    }
 }
 
 // Data structures for chunk validators to request contract code from chunk producers.
@@ -72,12 +99,6 @@ pub enum ContractCodeRequest {
 }
 
 impl ContractCodeRequest {
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
-        match self {
-            Self::V1(request) => request.inner.metadata.chunk_production_key(),
-        }
-    }
-
     pub fn contracts(&self) -> &Vec<CodeHash> {
         match self {
             Self::V1(request) => &request.inner.contracts,

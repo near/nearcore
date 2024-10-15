@@ -654,18 +654,11 @@ impl fmt::Debug for RoutedMessageBody {
                 write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
-            RoutedMessageBody::ChunkContractAccesses(msg) => write!(
-                f,
-                "ChunkContractAccesses(chunk={:?}, contracts={:?})",
-                msg.chunk_production_key(),
-                msg.contracts()
-            ),
-            RoutedMessageBody::ContractCodeRequest(msg) => write!(
-                f,
-                "ContractCodeRequest(chunk={:?}, contracts={:?})",
-                msg.chunk_production_key(),
-                msg.contracts()
-            ),
+            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ChunkContractAccesses(_) => write!(f, "ChunkContractAccesses"),
+            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ContractCodeRequest(_) => write!(f, "ContractCodeRequest"),
+            // TODO(#11099): Add more details to debug message.
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
         }
     }
