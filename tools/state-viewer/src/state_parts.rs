@@ -362,7 +362,7 @@ async fn load_state_parts(
     tracing::info!(
         target: "state-parts",
         epoch_height,
-        shard_id,
+        ?shard_id,
         num_parts,
         ?sync_hash,
         ?part_ids,
@@ -455,7 +455,7 @@ async fn dump_state_parts(
         target: "state-parts",
         epoch_height,
         epoch_id = ?epoch_id.0,
-        shard_id,
+        ?shard_id,
         num_parts,
         ?sync_hash,
         ?part_ids,

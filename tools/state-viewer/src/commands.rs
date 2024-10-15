@@ -29,8 +29,8 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::shard_layout::{self, ShardLayout};
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
@@ -473,10 +473,10 @@ pub(crate) fn dump_state_redis(
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
         None => LoadTrieMode::Latest,
     };
-    let (_, runtime, state_roots, header) =
+    let (epoch_manager, runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
 
-    let res = state_dump_redis(runtime, &state_roots, header);
+    let res = state_dump_redis(epoch_manager, runtime, &state_roots, header);
     assert_eq!(res, Ok(()));
 }
 

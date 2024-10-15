@@ -7,7 +7,6 @@ use near_primitives::account::id::AccountId;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
 use near_store::{DBCol, Store};
 use std::str::FromStr;
