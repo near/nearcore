@@ -1715,13 +1715,15 @@ impl ClientActorInner {
         if !should_state_sync {
             return;
         }
+        let was_state_syncing = matches!(&self.client.sync_status, SyncStatus::StateSync(_));
         let update_sync_status_result = self.update_sync_status();
-        let notify_start_sync = unwrap_and_report_state_sync_result!(update_sync_status_result);
+        unwrap_and_report_state_sync_result!(update_sync_status_result);
 
         let sync_hash = match &self.client.sync_status {
             SyncStatus::StateSync(s) => s.sync_hash,
             _ => unreachable!("Sync status should have been StateSync!"),
         };
+        let notify_start_sync = !was_state_syncing;
 
         let me = signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
@@ -1908,11 +1910,9 @@ impl ClientActorInner {
     }
 
     /// Update sync status to StateSync and reset data if needed.
-    /// Returns true if this is the first time we run state sync and we should
-    /// notify shards to start syncing.
-    fn update_sync_status(&mut self) -> Result<bool, near_chain::Error> {
+    fn update_sync_status(&mut self) -> Result<(), near_chain::Error> {
         if let SyncStatus::StateSync(_) = self.client.sync_status {
-            return Ok(false);
+            return Ok(());
         }
 
         let sync_hash = self.client.find_sync_hash()?;
@@ -1927,8 +1927,7 @@ impl ClientActorInner {
         let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
         self.client.sync_status.update(new_sync_status);
         self.client.last_time_sync_block_requested.clear();
-        // This is the first time we run state sync.
-        return Ok(true);
+        return Ok(());
     }
 
     /// This method returns whether we should move on to state sync. It may run
