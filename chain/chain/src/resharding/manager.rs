@@ -47,6 +47,11 @@ impl ReshardingManager {
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
+        let _span = tracing::debug_span!(
+            target: "resharding", "process_memtrie_resharding_storage_update", 
+            ?block_hash, block_height, ?shard_uid)
+        .entered();
+
         let prev_hash = block.header().prev_hash();
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
@@ -56,24 +61,29 @@ impl ReshardingManager {
             self.epoch_manager.is_next_block_epoch_start(block_hash)?
                 && shard_layout != next_shard_layout;
         if !next_block_has_new_shard_layout {
+            tracing::debug!(target: "resharding", ?prev_hash, "prev block has the same shard layout, skipping");
             return Ok(());
         }
 
         if !matches!(next_shard_layout, ShardLayout::V2(_)) {
+            tracing::debug!(target: "resharding", ?next_shard_layout, "next shard layout is not v2, skipping");
             return Ok(());
         }
         let resharding_event_type =
             ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
         let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
+            tracing::debug!(target: "resharding", ?resharding_event_type, "resharding event type is not split shard, skipping");
             return Ok(());
         };
         if split_shard_event.parent_shard != shard_uid {
+            let parent_shard = split_shard_event.parent_shard;
+            tracing::debug!(target: "resharding", ?parent_shard, "shard uid does not match event parent shard, skipping");
             return Ok(());
         }
 
-        // TODO(#12019): what if node doesn't have memtrie? just pause
+        // TODO(resharding): what if node doesn't have memtrie? just pause
         // processing?
-        // TODO(#12019): fork handling. if epoch is finalized on different
+        // TODO(resharding): fork handling. if epoch is finalized on different
         // blocks, the second finalization will crash.
         tries.freeze_mem_tries(
             shard_uid,
@@ -85,7 +95,7 @@ impl ReshardingManager {
 
         let mut trie_store_update = self.store.store_update();
 
-        // TODO(#12019): leave only tracked shards.
+        // TODO(resharding): leave only tracked shards.
         for (new_shard_uid, retain_mode) in [
             (split_shard_event.left_child_shard, RetainMode::Left),
             (split_shard_event.right_child_shard, RetainMode::Right),
@@ -100,16 +110,24 @@ impl ReshardingManager {
                 return Err(Error::Other("Memtrie not loaded".to_string()));
             };
 
+            tracing::info!(
+                target: "resharding", ?new_shard_uid, ?retain_mode,
+                "Creating child memtrie by retaining nodes in parent memtrie..."
+            );
             let mut mem_tries = mem_tries.write().unwrap();
             let mem_trie_update = mem_tries.update(*chunk_extra.state_root(), true)?;
 
             let (trie_changes, _) =
                 mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
+            // TODO(#12019): proof generation
             let partial_state = PartialState::default();
+            let partial_state_len = match &partial_state {
+                PartialState::TrieValues(values) => values.len(),
+            };
             let partial_storage = PartialStorage { nodes: partial_state };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
-            // TODO(#12019): set all fields of `ChunkExtra`. Consider stronger
+            // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&chunk_extra);
@@ -130,6 +148,10 @@ impl ReshardingManager {
                 &trie_changes,
                 new_shard_uid,
                 &mut trie_store_update.trie_store_update(),
+            );
+            tracing::info!(
+                target: "resharding", ?new_shard_uid, ?new_state_root, ?partial_state_len,
+                "Child memtrie created"
             );
         }
 

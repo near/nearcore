@@ -7,6 +7,7 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::AccountId;
 use std::ops::Range;
 
+#[derive(Debug)]
 /// Whether to retain left or right part of trie after shard split.
 pub enum RetainMode {
     Left,
