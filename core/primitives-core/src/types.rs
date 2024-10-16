@@ -246,3 +246,19 @@ impl FromStr for ShardId {
         Ok(ShardId(shard_id))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::types::ShardId;
+
+    // Check that the ShardId is serialized the same as u64. This is to make
+    // sure that the transition from ShardId being a type alias to being a
+    // newtype is not a protocol upgrade.
+    #[test]
+    fn test_shard_id_borsh() {
+        let shard_id_u64 = 42;
+        let shard_id = ShardId::new(shard_id_u64);
+
+        assert_eq!(borsh::to_vec(&shard_id_u64).unwrap(), borsh::to_vec(&shard_id).unwrap());
+    }
+}
