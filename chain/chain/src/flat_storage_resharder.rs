@@ -608,8 +608,8 @@ mod tests {
         ShardLayout::v2(vec![account!("ff"), account!("pp")], vec![0, 2, 3], Some(shards_split_map))
     }
 
-    /// Generic test setup.
-    fn create_fs_resharder(
+    /// Generic test setup. It creates an instance of chain and a FlatStorageResharder.
+    fn create_chain_and_resharder(
         shard_layout: ShardLayout,
         resharding_sender: ReshardingSender,
     ) -> (Chain, FlatStorageResharder) {
@@ -652,7 +652,7 @@ mod tests {
     fn concurrent_reshardings_are_disallowed() {
         init_test_logger();
         let sender = DelayedScheduler::default().into_multi_sender();
-        let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let controller = &resharder.controller;
         let resharding_event_type = ReshardingEventType::from_shard_layout(
@@ -679,7 +679,7 @@ mod tests {
     fn flat_storage_split_status_set() {
         init_test_logger();
         let sender = DelayedScheduler::default().into_multi_sender();
-        let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.runtime.store().flat_store();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
@@ -719,7 +719,7 @@ mod tests {
     fn resume_split_starts_from_clean_state() {
         init_test_logger();
         let sender = TestScheduler::default().into_multi_sender();
-        let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let flat_store = resharder.runtime.store().flat_store();
         let new_shard_layout = shard_layout_after_split();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
@@ -792,7 +792,7 @@ mod tests {
         init_test_logger();
         // Perform resharding.
         let sender = TestScheduler::default().into_multi_sender();
-        let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let controller = &resharder.controller;
         let resharding_event_type = ReshardingEventType::from_shard_layout(
@@ -852,7 +852,7 @@ mod tests {
         // Perform resharding.
         let scheduler = Arc::new(DelayedScheduler::default());
         let sender = scheduler.as_multi_sender();
-        let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let controller = &resharder.controller;
         let resharding_event_type = ReshardingEventType::from_shard_layout(
@@ -896,7 +896,7 @@ mod tests {
     #[test]
     fn reject_split_shard_if_parent_is_not_ready() {
         let sender = TestScheduler::default().into_multi_sender();
-        let (chain, resharder) = create_fs_resharder(simple_shard_layout(), sender);
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
