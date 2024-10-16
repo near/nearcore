@@ -40,14 +40,6 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-/// Prints backtrace to stderr.
-///
-/// This is intended as a printf-debugging aid.
-pub fn print_backtrace() {
-    let bt = std::backtrace::Backtrace::force_capture();
-    eprintln!("{bt:?}")
-}
-
 /// Asserts that the condition is true, logging an error otherwise.
 ///
 /// This macro complements `assert!` and `debug_assert`. All three macros should
