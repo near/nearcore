@@ -40,6 +40,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -364,7 +365,7 @@ impl Chain {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             MutableConfigValue::new(Default::default(), "resharding_config"),
-            None,
+            noop().into_multi_sender(),
         );
         Ok(Chain {
             clock: clock.clone(),
@@ -404,7 +405,7 @@ impl Chain {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
-        resharding_sender: Option<ReshardingSender>,
+        resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");

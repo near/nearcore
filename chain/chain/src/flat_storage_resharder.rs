@@ -629,10 +629,10 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
-            Some(resharding_sender),
+            resharding_sender,
         )
         .unwrap();
-        let resharder = chain.resharding_manager.flat_storage_resharder.as_ref().unwrap().clone();
+        let resharder = chain.resharding_manager.flat_storage_resharder.clone();
         (chain, resharder)
     }
 

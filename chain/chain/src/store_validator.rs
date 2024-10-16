@@ -393,6 +393,7 @@ mod tests {
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
     use super::*;
+    use near_async::messaging::{noop, IntoMultiSender};
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
@@ -419,7 +420,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
-            None,
+            noop().into_multi_sender(),
         )
         .unwrap();
         (

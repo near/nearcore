@@ -943,7 +943,7 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoSender};
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
@@ -1005,7 +1005,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             validator.clone(),
-            None,
+            noop().into_multi_sender(),
         )
         .unwrap();
 

@@ -1,3 +1,4 @@
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::ChainConfig;
@@ -39,7 +40,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
-        None,
+        noop().into_multi_sender(),
     )
     .unwrap();
     chain.genesis().clone()
@@ -66,7 +67,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
-        None,
+        noop().into_multi_sender(),
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

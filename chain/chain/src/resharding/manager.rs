@@ -28,7 +28,7 @@ pub struct ReshardingManager {
     /// This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
     /// Takes care of performing resharding on the flat storage.
-    pub flat_storage_resharder: Option<FlatStorageResharder>,
+    pub flat_storage_resharder: FlatStorageResharder,
 }
 
 impl ReshardingManager {
@@ -37,16 +37,14 @@ impl ReshardingManager {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         resharding_config: MutableConfigValue<ReshardingConfig>,
-        resharding_sender: Option<ReshardingSender>,
+        resharding_sender: ReshardingSender,
     ) -> Self {
         let resharding_handle = ReshardingHandle::new();
-        let flat_storage_resharder = resharding_sender.map(|sender| {
-            FlatStorageResharder::new(
-                runtime_adapter,
-                sender.into_sender(),
-                FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
-            )
-        });
+        let flat_storage_resharder = FlatStorageResharder::new(
+            runtime_adapter,
+            resharding_sender.into_sender(),
+            FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
+        );
         Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
 
@@ -97,13 +95,10 @@ impl ReshardingManager {
         )?;
 
         // Trigger resharding of flat storage.
-        match &self.flat_storage_resharder {
-            Some(resharder) => resharder.start_resharding(
-                ReshardingEventType::SplitShard(split_shard_event.clone()),
-                &next_shard_layout,
-            )?,
-            None => tracing::error!(target: "resharding", "flat storage resharder not initialized"),
-        };
+        self.flat_storage_resharder.start_resharding(
+            ReshardingEventType::SplitShard(split_shard_event.clone()),
+            &next_shard_layout,
+        )?;
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
         let boundary_account = split_shard_event.boundary_account;

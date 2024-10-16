@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::messaging::{noop, IntoMultiSender};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -256,7 +257,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
-        None,
+        noop().into_multi_sender(),
     )
     .unwrap();
 

@@ -272,18 +272,14 @@ impl Client {
             snapshot_callbacks,
             async_computation_spawner.clone(),
             validator_signer.clone(),
-            Some(resharding_sender.clone()),
+            resharding_sender.clone(),
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
             epoch_manager.clone(),
             runtime_adapter.clone(),
             chain.chain_store(),
-            &chain
-                .resharding_manager
-                .flat_storage_resharder
-                .clone()
-                .expect("flat storage resharding manager should exist"),
+            &chain.resharding_manager.flat_storage_resharder.clone(),
             chain_config.background_migration_threads,
         )?;
         let sharded_tx_pool =

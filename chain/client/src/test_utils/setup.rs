@@ -276,7 +276,7 @@ pub fn setup_only_view(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
-        None,
+        noop().into_multi_sender(),
     )
     .unwrap();
 
@@ -1084,7 +1084,7 @@ pub fn setup_synchronous_shards_manager(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
-        None,
+        noop().into_multi_sender(),
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
