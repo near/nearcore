@@ -15,7 +15,7 @@ use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
 };
-use near_client::sync::state::{StateSync, STATE_DUMP_ITERATION_TIME_LIMIT_SECS};
+use near_client::sync::state::get_epoch_start_sync_hash;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -27,6 +27,10 @@ use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+/// Time limit per state dump iteration.
+/// A node must check external storage for parts to dump again once time is up.
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub struct StateSyncDumper {
     pub clock: Clock,
@@ -662,7 +666,7 @@ fn get_latest_epoch(
     let hash = head.last_block_hash;
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();
-    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
+    let sync_hash = get_epoch_start_sync_hash(chain, final_hash)?;
     let final_block_header = chain.get_block_header(&final_hash)?;
     let epoch_id = *final_block_header.epoch_id();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
