@@ -689,7 +689,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             }
 
             tracing::info!(target: "test", "state sync - set parts");
-            env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header.clone()).unwrap();
+            env.clients[1]
+                .chain
+                .set_state_header(shard_id, sync_hash, state_sync_header.clone())
+                .unwrap();
             for i in 0..num_parts {
                 env.clients[1]
                     .chain
@@ -703,7 +706,6 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             }
             {
                 let store = env.clients[1].runtime_adapter.store();
-                let shard_id = msg.shard_uid.shard_id();
                 let mut store_update = store.store_update();
                 assert!(env.clients[1]
                     .runtime_adapter
@@ -715,12 +717,12 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap());
                 store_update.commit().unwrap();
                 for part_id in 0..num_parts {
-                    let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();
+                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
                     let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
                     env.clients[1]
                         .runtime_adapter
                         .apply_state_part(
-                            0,
+                            shard_id,
                             &state_sync_header.chunk_prev_state_root(),
                             PartId::new(part_id, num_parts),
                             &part,
