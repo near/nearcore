@@ -256,6 +256,8 @@ impl TestLoopBuilder {
                 // gain anything over having them dump parts to a tempdir.
                 external_storage_fallback_threshold: 0,
             }),
+            num_concurrent_p2p_requests: 1,
+            num_concurrent_p2p_requests_during_catchup: 1,
         };
 
         // Configure tracked shards.

@@ -322,7 +322,7 @@ impl Client {
             network_adapter.clone(),
             config.state_sync_timeout,
             &config.chain_id,
-            &config.state_sync.sync,
+            &config.state_sync,
             false,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
@@ -2482,7 +2482,7 @@ impl Client {
                             network_adapter,
                             state_sync_timeout,
                             &self.config.chain_id,
-                            &self.config.state_sync.sync,
+                            &self.config.state_sync,
                             true,
                         ),
                         shards_to_split,
