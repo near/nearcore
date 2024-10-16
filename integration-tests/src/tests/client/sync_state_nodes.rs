@@ -24,6 +24,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -827,9 +828,16 @@ fn test_state_sync_headers() {
                 };
                 tracing::info!(epoch_start_height, "got epoch_start_height");
 
+                let sync_height =
+                    if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
+                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                        epoch_start_height + 2
+                    } else {
+                        epoch_start_height
+                    };
                 let sync_hash_and_num_shards = match view_client1
                     .send(
-                        GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height)))
+                        GetBlock(BlockReference::BlockId(BlockId::Height(sync_height)))
                             .with_span_context(),
                     )
                     .await
