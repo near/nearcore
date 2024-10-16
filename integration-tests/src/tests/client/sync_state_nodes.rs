@@ -1051,9 +1051,16 @@ fn test_state_sync_headers_no_tracked_shards() {
                     return ControlFlow::Continue(());
                 }
 
+                let sync_height =
+                    if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
+                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                        epoch_start_height + 2
+                    } else {
+                        epoch_start_height
+                    };
                 let sync_hash_and_num_shards = match view_client2
                     .send(
-                        GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height)))
+                        GetBlock(BlockReference::BlockId(BlockId::Height(sync_height)))
                             .with_span_context(),
                     )
                     .await
