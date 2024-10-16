@@ -1224,8 +1224,8 @@ mod tests {
             buffered_receipt_indices_value.clone(),
         );
 
-        let buffered_receipt_key =
-            TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 }.to_vec();
+        let receiving_shard = new_shard_id_tmp(0);
+        let buffered_receipt_key = TrieKey::BufferedReceipt { receiving_shard, index: 0 }.to_vec();
         let buffered_receipt_value = Some(FlatStateValue::Inlined(vec![1]));
         store_update.set(
             parent_shard,
