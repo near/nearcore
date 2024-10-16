@@ -149,8 +149,7 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
                                                    - 1]
         protocol_upgrade_datetime = datetime.fromtimestamp(
             protocol_upgrade_timestamp)
-        upgrade_datetime_utc = protocol_upgrade_datetime.astimezone(pytz.utc)
-        upgrade_hour_utc = upgrade_datetime_utc.hour
+        upgrade_hour_utc = protocol_upgrade_datetime.hour
 
         if WORKING_HOURS_START <= upgrade_hour_utc < WORKING_HOURS_END:
             valid_hours.append((hour, protocol_upgrade_epoch_number))
