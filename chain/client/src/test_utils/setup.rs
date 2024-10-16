@@ -22,6 +22,8 @@ use near_async::messaging::{
 };
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::resharding::resharding_actor::ReshardingActor;
+use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
@@ -171,6 +173,9 @@ pub fn setup(
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
+    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new());
+    let resharding_sender = resharding_sender_addr.with_auto_span_context();
+
     let shards_manager_adapter_for_client = LateBoundSender::new();
     let StartClientResult { client_actor, .. } = start_client(
         clock,
@@ -193,6 +198,7 @@ pub fn setup(
         partial_witness_adapter.clone().into_multi_sender(),
         enable_doomslug,
         Some(TEST_SEED),
+        resharding_sender.into_multi_sender(),
     );
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
@@ -273,6 +279,7 @@ pub fn setup_only_view(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
 
@@ -1026,6 +1033,7 @@ pub fn setup_client_with_runtime(
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: Arc<ValidatorSigner>,
+    resharding_sender: ReshardingSender,
 ) -> Client {
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
@@ -1051,6 +1059,7 @@ pub fn setup_client_with_runtime(
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
+        resharding_sender,
         Arc::new(ActixFutureSpawner),
         noop().into_multi_sender(), // state sync ignored for these tests
     )
@@ -1093,6 +1102,7 @@ pub fn setup_synchronous_shards_manager(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
