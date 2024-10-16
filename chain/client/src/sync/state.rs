@@ -592,12 +592,10 @@ impl StateSync {
         let mut peer_requests_sent = 0;
         let mut state_root_and_part_count: Option<(CryptoHash, u64)> = None;
         for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
-            if self
-                .external
-                .is_some()
-                // TODO(saketh): enable after p2p state sync is ready
-                //.as_ref()
-                //.is_some_and(|ext| download.state_requests_count >= ext.peer_attempts_threshold)
+            if self.external.is_some()
+            // TODO(saketh): enable after p2p state sync is ready
+            //.as_ref()
+            //.is_some_and(|ext| download.state_requests_count >= ext.peer_attempts_threshold)
             {
                 // TODO(saketh): After we have sufficient confidence that requesting state parts
                 // from peers is working well, we will eliminate the external storage entirely.
