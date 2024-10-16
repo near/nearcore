@@ -39,6 +39,7 @@ use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
 use near_primitives::block_header::BlockHeader;
+use near_primitives::checked_feature;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -3672,8 +3673,15 @@ mod contract_precompilation_tests {
             start_height,
         );
 
+        let sync_height = if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
+            // `height` is one more than the start of the epoch. Produce two more blocks with chunks.
+            produce_blocks_from_height(&mut env, 2, height) - 1
+        } else {
+            height - 1
+        };
+
         // Perform state sync for the second client.
-        state_sync_on_height(&mut env, height - 1);
+        state_sync_on_height(&mut env, sync_height);
 
         // Check existence of contract in both caches.
         let contract_code = ContractCode::new(wasm_code.clone(), None);
@@ -3693,7 +3701,7 @@ mod contract_precompilation_tests {
         // Check that contract function may be successfully called on the second client.
         // Note that we can't test that behaviour is the same on two clients, because
         // compile_module_cached_wasmer0 is cached by contract key via macro.
-        let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap();
+        let block = env.clients[0].chain.get_block_by_height(sync_height - 1).unwrap();
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
         let state_root = *chunk_extra.state_root();
