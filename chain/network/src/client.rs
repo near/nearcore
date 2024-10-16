@@ -128,7 +128,7 @@ pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct EpochSyncRequestMessage {
-    pub route_back: CryptoHash,
+    pub from_peer: PeerId,
 }
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]

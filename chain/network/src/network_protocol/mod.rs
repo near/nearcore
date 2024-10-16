@@ -442,6 +442,9 @@ pub enum PeerMessage {
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
+
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
 }
 
 impl fmt::Display for PeerMessage {
@@ -551,8 +554,9 @@ pub enum RoutedMessageBody {
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
-    EpochSyncRequest,
-    EpochSyncResponse(CompressedEpochSyncProof),
+    /// Not used, but needed for borsh backward compatibility.
+    _UnusedEpochSyncRequest,
+    _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
 }
 
@@ -643,8 +647,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
             }
-            RoutedMessageBody::EpochSyncRequest => write!(f, "EpochSyncRequest"),
-            RoutedMessageBody::EpochSyncResponse(_) => {
+            RoutedMessageBody::_UnusedEpochSyncRequest => write!(f, "EpochSyncRequest"),
+            RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
@@ -733,7 +737,6 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::EpochSyncRequest
         )
     }
 
