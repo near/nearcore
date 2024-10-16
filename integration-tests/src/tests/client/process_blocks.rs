@@ -3742,6 +3742,7 @@ mod contract_precompilation_tests {
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
+        init_integration_logger();
         let num_clients = 2;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -3782,11 +3783,18 @@ mod contract_precompilation_tests {
             height,
         );
 
+        let sync_height = if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
+            // `height` is one more than the start of the epoch. Produce two more blocks with chunks.
+            produce_blocks_from_height(&mut env, 2, height) - 1
+        } else {
+            height - 1
+        };
+
         // Perform state sync for the second client on the last produced height.
-        state_sync_on_height(&mut env, height - 1);
+        state_sync_on_height(&mut env, sync_height);
 
         let epoch_id =
-            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+            *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
             *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
