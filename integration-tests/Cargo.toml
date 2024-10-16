@@ -79,6 +79,7 @@ sha3.workspace = true
 regex.workspace = true
 
 [features]
+contract_distribution = ["near-chain/contract_distribution", "near-client/contract_distribution", "near-primitives/contract_distribution", "near-store/contract_distribution"]
 performance_stats = [
   "nearcore/performance_stats",
   "near-network/performance_stats",
