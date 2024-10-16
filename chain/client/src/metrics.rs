@@ -445,6 +445,15 @@ pub(crate) fn export_version(neard_version: &near_primitives::version::Version) 
         .inc();
 }
 
+pub(crate) static EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_epoch_sync_last_generated_compressed_proof_size",
+            "Size of the last generated compressed epoch sync proof, in bytes",
+        )
+        .unwrap()
+    });
+
 pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_stage",
