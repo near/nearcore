@@ -50,8 +50,6 @@ near-parameters.workspace = true
 near-schema-checker-lib.workspace = true
 
 [features]
-# If enabled, distributes the contract code separately from the chunk state witness.
-contract_distribution = []
 sandbox = []
 test_features = []
 solomon = ["reed-solomon-erasure", "itertools"]

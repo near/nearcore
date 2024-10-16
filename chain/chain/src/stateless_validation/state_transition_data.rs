@@ -206,7 +206,6 @@ mod tests {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
                     // TODO(#11099): Revisit this.
-                    #[cfg(feature = "contract_distribution")]
                     contract_accesses: vec![],
                 },
             )

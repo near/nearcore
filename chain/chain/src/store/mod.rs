@@ -2014,7 +2014,7 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
-        _contract_accesses: Vec<CodeHash>,
+        contract_accesses: Vec<CodeHash>,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
@@ -2022,8 +2022,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 StoredChunkStateTransitionData {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
-                    #[cfg(feature = "contract_distribution")]
-                    contract_accesses: _contract_accesses,
+                    contract_accesses: contract_accesses,
                 },
             );
         }

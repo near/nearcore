@@ -19,6 +19,5 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
     /// The hashes of contract code that are accessed during the state transition.
     // TODO(#11099): Implement DB migration to add this to the database.
-    #[cfg(feature = "contract_distribution")]
     pub contract_accesses: Vec<super::contract_distribution::CodeHash>,
 }

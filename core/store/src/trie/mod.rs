@@ -774,7 +774,7 @@ impl Trie {
         let Some(recorder) = &self.recorder else {
             return;
         };
-        if !cfg!(feature = "contract_distribution") {
+        {
             let mut r = recorder.borrow_mut();
             if r.codes_to_record.contains(&account_id) {
                 return;
@@ -1602,17 +1602,15 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
-        if !cfg!(feature = "contract_distribution") {
-            // Call `get` for contract codes requested to be recorded.
-            let codes_to_record = if let Some(recorder) = &self.recorder {
-                recorder.borrow().codes_to_record.clone()
-            } else {
-                HashSet::default()
-            };
-            for account_id in codes_to_record {
-                let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
-                let _ = self.get(&trie_key.to_vec());
-            }
+        // Call `get` for contract codes requested to be recorded.
+        let codes_to_record = if let Some(recorder) = &self.recorder {
+            recorder.borrow().codes_to_record.clone()
+        } else {
+            HashSet::default()
+        };
+        for account_id in codes_to_record {
+            let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let _ = self.get(&trie_key.to_vec());
         }
 
         match &self.memtries {
