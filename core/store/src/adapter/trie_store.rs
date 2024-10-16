@@ -172,8 +172,8 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
-    /// Reads shard_uid mapping for given shard.
-    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
+    /// Set the mapping from `child_shard_uid` to `parent_shard_uid`.
+    /// Used by Resharding V3 for State mapping.
     #[cfg(test)]
     fn set_shard_uid_mapping(&mut self, child_shard_uid: ShardUId, parent_shard_uid: ShardUId) {
         self.store_update.set(
@@ -289,7 +289,7 @@ mod tests {
             store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
             store_update.commit().unwrap();
         }
-        // The data is not visible at both shards again.
+        // The data is now visible at both shards again.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
         assert_eq!(*store.get(parent_shard, &dummy_hash).unwrap(), [0]);
     }
