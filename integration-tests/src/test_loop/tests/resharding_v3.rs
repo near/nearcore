@@ -14,6 +14,20 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
 
+fn create_new_shard_layout(base_shard_layout: &ShardLayout, boundary_account: &str) -> ShardLayout {
+    let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
+    let mut shard_ids: Vec<_> = base_shard_layout.shard_ids().collect();
+    let max_shard_id = *shard_ids.iter().max().unwrap();
+    let last_shard_id = shard_ids.pop().unwrap();
+    let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
+        shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
+    let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
+    shard_ids.extend(new_shards.clone());
+    shards_split_map.insert(last_shard_id, new_shards);
+    boundary_accounts.push(boundary_account.parse().unwrap());
+    ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map))
+}
+
 /// Stub for checking Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Shard ids should not be contiguous. For now we reuse existing shard id
@@ -58,18 +72,7 @@ fn test_resharding_v3() {
     base_epoch_config.shard_layout = ShardLayout::v1(vec!["account3".parse().unwrap()], None, 3);
     let base_shard_layout = base_epoch_config.shard_layout.clone();
     let mut epoch_config = base_epoch_config.clone();
-    let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
-    let mut shard_ids: Vec<_> = base_shard_layout.shard_ids().collect();
-    let max_shard_id = *shard_ids.iter().max().unwrap();
-    let last_shard_id = shard_ids.pop().unwrap();
-    let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
-        shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
-    let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
-    shard_ids.extend(new_shards.clone());
-    shards_split_map.insert(last_shard_id, new_shards);
-    boundary_accounts.push(AccountId::try_from("account6".to_string()).unwrap());
-    epoch_config.shard_layout =
-        ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map));
+    epoch_config.shard_layout = create_new_shard_layout(&base_shard_layout, "account6");
     let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),

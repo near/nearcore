@@ -1,6 +1,7 @@
 use crate::test_loop::env::TestLoopChunksStorage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::AccountId;
 use std::sync::{Arc, Mutex};
 
@@ -13,7 +14,7 @@ use std::sync::{Arc, Mutex};
 pub fn partial_encoded_chunks_dropper(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    validator_of_chunks_to_drop: AccountId,
+    drop_chunks_condition: Box<dyn Fn(ShardChunkHeader, Arc<dyn EpochManagerAdapter>) -> bool>,
 ) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
     Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
@@ -50,29 +51,19 @@ pub fn partial_encoded_chunks_dropper(
             chunk
         };
 
-        let prev_block_hash = chunk.prev_block_hash();
-        let shard_id = chunk.shard_id();
-        let height_created = chunk.height_created();
-
         // If we don't have block on top of which chunk is built, we can't
         // retrieve epoch id.
         // This case appears to be too rare to interfere with the goal of
         // dropping chunk.
-        let Ok(epoch_id) = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash)
-        else {
+        if epoch_manager_adapter.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
             return Some(request);
         };
 
-        // Finally, we drop chunk if the given account is present in the list
-        // of its validators.
-        let chunk_validators = epoch_manager_adapter
-            .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
-            .unwrap();
-        if !chunk_validators.contains(&validator_of_chunks_to_drop) {
-            return Some(request);
+        if drop_chunks_condition(chunk, epoch_manager_adapter.clone()) {
+            return None;
         }
 
-        return None;
+        Some(request)
     })
 }
 
