@@ -25,7 +25,7 @@ impl Server {
     /// Spawns a new STUN server on localhost interface.
     /// In fact a TURN server is spawned, which implements a superset
     /// of STUN functionality.
-    pub async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let server_conn = Arc::new(tokio::net::UdpSocket::bind("[::1]:0").await.unwrap());
         let server_addr = server_conn.local_addr().unwrap();
 
@@ -50,12 +50,12 @@ impl Server {
         }
     }
 
-    pub fn addr(&self) -> super::SocketAddr {
+    pub(crate) fn addr(&self) -> super::SocketAddr {
         self.addr
     }
 
     /// Closes the STUN server. close() is async so it cannot be implemented as Drop.
-    pub async fn close(self) {
+    pub(crate) async fn close(self) {
         self.inner.close().await.unwrap();
     }
 }

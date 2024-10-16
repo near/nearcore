@@ -16,7 +16,7 @@ use near_primitives::{
 };
 use tracing::{debug, debug_span, error};
 
-pub fn need_receipt(
+pub(crate) fn need_receipt(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
     me: Option<&AccountId>,
@@ -26,7 +26,7 @@ pub fn need_receipt(
 }
 
 /// Returns true if we need this part to sign the block.
-pub fn need_part(
+pub(crate) fn need_part(
     prev_block_hash: &CryptoHash,
     part_ord: u64,
     me: Option<&AccountId>,
@@ -71,7 +71,7 @@ pub fn get_shards_cares_about_this_or_next_epoch(
         .collect()
 }
 
-pub fn chunk_needs_to_be_fetched_from_archival(
+pub(crate) fn chunk_needs_to_be_fetched_from_archival(
     chunk_prev_block_hash: &CryptoHash,
     header_head: &CryptoHash,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -120,7 +120,7 @@ pub fn make_outgoing_receipts_proofs(
     Ok(it)
 }
 
-pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
+pub(crate) fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
     header: &'a ShardChunkHeader,
     parts: impl Iterator<Item = &'a PartialEncodedChunkPart>,
     receipts: impl Iterator<Item = &'a ReceiptProof>,

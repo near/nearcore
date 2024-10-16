@@ -1,4 +1,4 @@
-pub mod chain_requests;
+pub(crate) mod chain_requests;
 mod downloader;
 mod external;
 mod network;
@@ -42,7 +42,7 @@ use tokio_util::sync::CancellationToken;
 /// headers and parts in parallel for the requested shards, but externally, all that it exposes
 /// is a single `run` method that should be called periodically, returning that we're either
 /// done or still in progress, while updating the externally visible status.
-pub struct StateSync {
+pub(crate) struct StateSync {
     store: Store,
     future_spawner: Arc<dyn FutureSpawner>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -83,7 +83,7 @@ impl StateSync {
     /// However, there is internal limiting of parallelization as well (to make sure
     /// that we do not overload rocksdb, peers, or external storage), so it is
     /// preferred to pass in a spawner that has a lot of concurrency.
-    pub fn new(
+    pub(crate) fn new(
         clock: Clock,
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -190,7 +190,7 @@ impl StateSync {
     }
 
     /// Apply a state sync message received from a peer.
-    pub fn apply_peer_message(
+    pub(crate) fn apply_peer_message(
         &self,
         peer_id: PeerId,
         shard_id: ShardId,
@@ -205,7 +205,7 @@ impl StateSync {
     }
 
     /// Main loop that should be called periodically.
-    pub fn run(
+    pub(crate) fn run(
         &mut self,
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
@@ -295,7 +295,7 @@ impl StateSync {
     }
 }
 
-pub enum StateSyncResult {
+pub(crate) enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
     InProgress,
     /// The state for all shards was downloaded.

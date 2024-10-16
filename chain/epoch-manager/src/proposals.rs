@@ -100,7 +100,7 @@ mod old_validator_selection {
     use crate::proposals::find_threshold;
     use crate::types::RngSeed;
 
-    pub fn proposals_to_epoch_info(
+    pub(crate) fn proposals_to_epoch_info(
         epoch_config: &EpochConfig,
         rng_seed: RngSeed,
         prev_epoch_info: &EpochInfo,
@@ -297,7 +297,7 @@ mod old_validator_selection {
         use crate::proposals::old_validator_selection::shuffle_duplicate_proposals;
 
         #[test]
-        pub fn proposal_shuffling_sanity_checks() {
+        pub(crate) fn proposal_shuffling_sanity_checks() {
             // Since we made our own impl for shuffling, do some sanity checks.
             for i in 0..10 {
                 let mut dup_proposals = (0..i).collect::<Vec<_>>();
@@ -312,7 +312,7 @@ mod old_validator_selection {
         }
 
         #[test]
-        pub fn proposal_randomness_reproducibility() {
+        pub(crate) fn proposal_randomness_reproducibility() {
             // Sanity check that the proposal shuffling implementation does not change.
             let mut dup_proposals = (0..100).collect::<Vec<u64>>();
             shuffle_duplicate_proposals(

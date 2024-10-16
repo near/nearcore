@@ -10,10 +10,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// Marker struct to communicate the error where you try to assign validators to shards
 /// and there are not enough to even meet the minimum per shard.
 #[derive(Debug)]
-pub struct NotEnoughValidators;
+pub(crate) struct NotEnoughValidators;
 
 /// Abstraction to avoid using full validator info in tests.
-pub trait HasStake {
+pub(crate) trait HasStake {
     fn get_stake(&self) -> Balance;
 }
 

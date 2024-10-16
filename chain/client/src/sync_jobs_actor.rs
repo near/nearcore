@@ -31,7 +31,7 @@ impl SyncJobsActor {
         Self { client_sender }
     }
 
-    pub fn spawn_actix_actor(self) -> actix::Addr<ActixWrapper<Self>> {
+    pub(crate) fn spawn_actix_actor(self) -> actix::Addr<ActixWrapper<Self>> {
         let actix_wrapper = ActixWrapper::new(self);
         let arbiter = actix::Arbiter::new().handle();
         let addr = ActixWrapper::<Self>::start_in_arbiter(&arbiter, |ctx| {
@@ -41,7 +41,7 @@ impl SyncJobsActor {
         addr
     }
 
-    pub fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
+    pub(crate) fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
         tracing::debug!(target: "sync", ?msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 

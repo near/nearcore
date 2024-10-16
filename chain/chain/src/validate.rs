@@ -133,7 +133,7 @@ pub fn validate_chunk_with_chunk_extra(
 }
 
 /// Validate that all next chunk information matches previous chunk extra.
-pub fn validate_chunk_with_chunk_extra_and_receipts_root(
+pub(crate) fn validate_chunk_with_chunk_extra_and_receipts_root(
     prev_chunk_extra: &ChunkExtra,
     chunk_header: &ShardChunkHeader,
     outgoing_receipts_root: &CryptoHash,
@@ -463,19 +463,19 @@ mod tests {
     }
 
     #[test]
-    pub fn test_transaction_order_empty() {
+    pub(crate) fn test_transaction_order_empty() {
         let transactions = vec![];
         assert!(validate_transactions_order(&transactions));
     }
 
     #[test]
-    pub fn test_transaction_order_one_tx() {
+    pub(crate) fn test_transaction_order_one_tx() {
         let transactions = vec![make_tx("test_a", "test_A", 1)];
         assert!(validate_transactions_order(&transactions));
     }
 
     #[test]
-    pub fn test_transaction_order_simple() {
+    pub(crate) fn test_transaction_order_simple() {
         let transactions = vec![
             make_tx("test_a", "test_A", 1),
             make_tx("test_b", "test_A", 3),
@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_transaction_order_bad_nonce() {
+    pub(crate) fn test_transaction_order_bad_nonce() {
         let transactions = vec![
             make_tx("test_a", "test_A", 2),
             make_tx("test_b", "test_A", 3),
@@ -501,13 +501,13 @@ mod tests {
     }
 
     #[test]
-    pub fn test_transaction_order_same_tx() {
+    pub(crate) fn test_transaction_order_same_tx() {
         let transactions = vec![make_tx("test_a", "test_A", 1), make_tx("test_a", "test_A", 1)];
         assert!(!validate_transactions_order(&transactions));
     }
 
     #[test]
-    pub fn test_transaction_order_skipped_in_first_batch() {
+    pub(crate) fn test_transaction_order_skipped_in_first_batch() {
         let transactions = vec![
             make_tx("test_a", "test_A", 2),
             make_tx("test_c", "test_A", 2),
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_transaction_order_skipped_in_2nd_batch() {
+    pub(crate) fn test_transaction_order_skipped_in_2nd_batch() {
         let transactions = vec![
             make_tx("test_a", "test_A", 2),
             make_tx("test_c", "test_A", 2),

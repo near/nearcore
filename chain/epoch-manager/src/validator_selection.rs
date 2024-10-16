@@ -174,7 +174,7 @@ fn get_chunk_producers_assignment(
 }
 
 /// Select validators for next epoch and generate epoch info
-pub fn proposals_to_epoch_info(
+pub(crate) fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
     rng_seed: RngSeed,
     prev_epoch_info: &EpochInfo,

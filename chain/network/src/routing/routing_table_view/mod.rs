@@ -60,7 +60,7 @@ pub(crate) enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(Mutex::new(Inner {
             next_hops: Default::default(),
             distance: Default::default(),

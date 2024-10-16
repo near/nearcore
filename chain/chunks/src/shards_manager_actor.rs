@@ -98,7 +98,7 @@ use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::types::EpochManagerAdapter;
 use near_chain_configs::MutableValidatorSigner;
-pub use near_chunks_primitives::Error;
+pub(crate) use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{
@@ -148,14 +148,14 @@ const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const CHUNK_REQUEST_PEER_HORIZON: BlockHeightDelta = 5;
 
 #[derive(PartialEq, Eq)]
-pub enum ChunkStatus {
+pub(crate) enum ChunkStatus {
     Complete(Vec<MerklePath>),
     Incomplete,
     Invalid,
 }
 
 #[derive(Debug)]
-pub enum ProcessPartialEncodedChunkResult {
+pub(crate) enum ProcessPartialEncodedChunkResult {
     /// The information included in the partial encoded chunk is already known, no processing is needed
     Known,
     /// All parts and receipts in the chunk are received and the chunk has been processed
@@ -189,7 +189,7 @@ struct RequestPool {
 }
 
 impl RequestPool {
-    pub fn new(
+    pub(crate) fn new(
         retry_duration: time::Duration,
         switch_to_others_duration: time::Duration,
         switch_to_full_fetch_duration: time::Duration,
@@ -203,26 +203,29 @@ impl RequestPool {
             requests: HashMap::default(),
         }
     }
-    pub fn contains_key(&self, chunk_hash: &ChunkHash) -> bool {
+    pub(crate) fn contains_key(&self, chunk_hash: &ChunkHash) -> bool {
         self.requests.contains_key(chunk_hash)
     }
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.requests.len()
     }
 
-    pub fn insert(&mut self, chunk_hash: ChunkHash, chunk_request: ChunkRequestInfo) {
+    pub(crate) fn insert(&mut self, chunk_hash: ChunkHash, chunk_request: ChunkRequestInfo) {
         self.requests.insert(chunk_hash, chunk_request);
     }
 
-    pub fn get_request_info(&self, chunk_hash: &ChunkHash) -> Option<&ChunkRequestInfo> {
+    pub(crate) fn get_request_info(&self, chunk_hash: &ChunkHash) -> Option<&ChunkRequestInfo> {
         self.requests.get(chunk_hash)
     }
 
-    pub fn remove(&mut self, chunk_hash: &ChunkHash) {
+    pub(crate) fn remove(&mut self, chunk_hash: &ChunkHash) {
         self.requests.remove(chunk_hash);
     }
 
-    pub fn fetch(&mut self, current_time: time::Instant) -> Vec<(ChunkHash, ChunkRequestInfo)> {
+    pub(crate) fn fetch(
+        &mut self,
+        current_time: time::Instant,
+    ) -> Vec<(ChunkHash, ChunkRequestInfo)> {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
         for (chunk_hash, chunk_request) in self.requests.iter_mut() {
@@ -384,7 +387,7 @@ impl ShardsManagerActor {
         }
     }
 
-    pub fn periodically_resend_chunk_requests(
+    pub(crate) fn periodically_resend_chunk_requests(
         &mut self,
         delayed_action_runner: &mut dyn DelayedActionRunner<Self>,
     ) {
@@ -823,7 +826,7 @@ impl ShardsManagerActor {
     }
 
     /// Resends chunk requests if haven't received it within expected time.
-    pub fn resend_chunk_requests(&mut self) {
+    pub(crate) fn resend_chunk_requests(&mut self) {
         let _span = tracing::debug_span!(
             target: "client",
             "resend_chunk_requests",
@@ -1029,7 +1032,7 @@ impl ShardsManagerActor {
     /// This requires encoding the chunk and as such is computationally
     /// expensive operation.  If possible, the request should be served from
     /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
-    // pub for testing
+    // pub(crate) for testing
     fn lookup_partial_encoded_chunk_from_chunk_storage(
         &self,
         part_ords: HashSet<u64>,
@@ -2099,7 +2102,7 @@ impl ShardsManagerActor {
         Ok(())
     }
 
-    pub fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
+    pub(crate) fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
         let _span = tracing::debug_span!(
             target: "chunks",
             "shards_manager_request_from_client",
@@ -2173,7 +2176,7 @@ impl ShardsManagerActor {
         }
     }
 
-    pub fn handle_network_request(&mut self, request: ShardsManagerRequestFromNetwork) {
+    pub(crate) fn handle_network_request(&mut self, request: ShardsManagerRequestFromNetwork) {
         let _span = tracing::debug_span!(
             target: "chunks",
             "shards_manager_request_from_network",
@@ -2227,7 +2230,7 @@ impl ShardsManagerActor {
 
 /// Indicates where we fetched the response to a PartialEncodedChunkRequest.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PartialEncodedChunkResponseSource {
+pub(crate) enum PartialEncodedChunkResponseSource {
     /// No lookup was performed.
     None,
     /// We only had to look into the in-memory partial chunk cache.
@@ -2241,7 +2244,7 @@ pub enum PartialEncodedChunkResponseSource {
 
 impl PartialEncodedChunkResponseSource {
     /// Returns the name to be used for exporting prometheus metrics.
-    pub fn name_for_metrics(&self) -> &'static str {
+    pub(crate) fn name_for_metrics(&self) -> &'static str {
         match self {
             PartialEncodedChunkResponseSource::None => "none",
             PartialEncodedChunkResponseSource::InMemoryCache => "cache",

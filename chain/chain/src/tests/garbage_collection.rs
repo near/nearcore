@@ -308,7 +308,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 // from is an index in blocks array, length is the number of blocks in a chain on top of blocks[from],
 // is_removed = should this chain be removed after GC
 #[derive(Debug, Clone)]
-pub struct SimpleChain {
+pub(crate) struct SimpleChain {
     from: u64,
     length: u64,
     is_removed: bool,

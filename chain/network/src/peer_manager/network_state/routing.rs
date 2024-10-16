@@ -41,7 +41,7 @@ impl NetworkState {
 
     /// Adds AnnounceAccounts (without validating them) to the routing table.
     /// Then it broadcasts all the AnnounceAccounts that haven't been seen before.
-    pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
+    pub(crate) async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
             let new_accounts = this.account_announcements.add_accounts(accounts);
@@ -56,7 +56,7 @@ impl NetworkState {
 
     /// Constructs a partial edge to the given peer with the nonce specified.
     /// If nonce is None, nonce is selected automatically.
-    pub fn propose_edge(
+    pub(crate) fn propose_edge(
         &self,
         clock: &time::Clock,
         peer1: &PeerId,
@@ -80,7 +80,7 @@ impl NetworkState {
 
     /// Constructs an edge from the partial edge constructed by the peer,
     /// adds it to the graph and then broadcasts it.
-    pub async fn finalize_edge(
+    pub(crate) async fn finalize_edge(
         self: &Arc<Self>,
         clock: &time::Clock,
         peer_id: PeerId,
@@ -106,7 +106,7 @@ impl NetworkState {
     /// Validates edges, then adds them to the graph and then broadcasts all the edges that
     /// hasn't been observed before. Returns an error iff any edge was invalid. Even if an
     /// error was returned some of the valid input edges might have been added to the graph.
-    pub async fn add_edges(
+    pub(crate) async fn add_edges(
         self: &Arc<Self>,
         clock: &time::Clock,
         edges: Vec<Edge>,
@@ -229,7 +229,7 @@ impl NetworkState {
     /// Changes are batched via the `update_routes_demux`, then passed to the V2 routing table.
     /// If an updated DistanceVector is returned by the routing table, broadcasts it to peers.
     /// If an error occurs while processing a DistanceVector advertised by a peer, bans the peer.
-    pub async fn update_routes(
+    pub(crate) async fn update_routes(
         self: &Arc<Self>,
         clock: &time::Clock,
         event: NetworkTopologyChange,
@@ -257,7 +257,7 @@ impl NetworkState {
     }
 
     /// Update the routing protocols with a set of peers to avoid routing through.
-    pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
+    pub(crate) fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
         self.graph.set_unreliable_peers(unreliable_peers.clone());
         self.graph_v2.set_unreliable_peers(unreliable_peers);
     }

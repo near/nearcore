@@ -70,7 +70,7 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(clippy::large_enum_variant)]
-pub enum Event {
+pub(crate) enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
     PeerManager(PME),
@@ -78,9 +78,9 @@ pub enum Event {
 }
 
 pub(crate) struct ActorHandler {
-    pub cfg: config::NetworkConfig,
-    pub events: broadcast::Receiver<Event>,
-    pub actix: ActixSystem<PeerManagerActor>,
+    pub(crate) cfg: config::NetworkConfig,
+    pub(crate) events: broadcast::Receiver<Event>,
+    pub(crate) actix: ActixSystem<PeerManagerActor>,
 }
 
 pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
@@ -119,13 +119,13 @@ pub(crate) fn make_chain_info(
 }
 
 pub(crate) struct RawConnection {
-    pub events: broadcast::Receiver<Event>,
-    pub stream: tcp::Stream,
-    pub cfg: peer::testonly::PeerConfig,
+    pub(crate) events: broadcast::Receiver<Event>,
+    pub(crate) stream: tcp::Stream,
+    pub(crate) cfg: peer::testonly::PeerConfig,
 }
 
 impl RawConnection {
-    pub async fn handshake(mut self, clock: &time::Clock) -> peer::testonly::PeerHandle {
+    pub(crate) async fn handshake(mut self, clock: &time::Clock) -> peer::testonly::PeerHandle {
         let stream_id = self.stream.id();
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
@@ -149,7 +149,7 @@ impl RawConnection {
     }
 
     // Try to perform a handshake. PeerManager is expected to reject the handshake.
-    pub async fn manager_fail_handshake(mut self, clock: &time::Clock) -> ClosingReason {
+    pub(crate) async fn manager_fail_handshake(mut self, clock: &time::Clock) -> ClosingReason {
         let stream_id = self.stream.id();
         let peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
@@ -171,7 +171,7 @@ impl RawConnection {
 }
 
 impl ActorHandler {
-    pub fn peer_info(&self) -> PeerInfo {
+    pub(crate) fn peer_info(&self) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(self.cfg.node_key.public_key()),
             addr: self.cfg.node_addr.as_ref().map(|a| **a),
@@ -179,7 +179,7 @@ impl ActorHandler {
         }
     }
 
-    pub async fn send_outbound_connect(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
+    pub(crate) async fn send_outbound_connect(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
         let addr = self.actix.addr.clone();
         let peer_info = peer_info.clone();
         let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
@@ -188,7 +188,7 @@ impl ActorHandler {
         addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
     }
 
-    pub fn connect_to(
+    pub(crate) fn connect_to(
         &self,
         peer_info: &PeerInfo,
         tier: tcp::Tier,
@@ -219,7 +219,7 @@ impl ActorHandler {
         }
     }
 
-    pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(
+    pub(crate) async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(
         &self,
         f: impl 'static + Send + FnOnce(Arc<NetworkState>) -> Fut,
     ) -> R {
@@ -234,7 +234,7 @@ impl ActorHandler {
         recv.await.unwrap()
     }
 
-    pub async fn start_inbound(
+    pub(crate) async fn start_inbound(
         &self,
         chain: Arc<data::Chain>,
         network_cfg: config::NetworkConfig,
@@ -273,7 +273,7 @@ impl ActorHandler {
         conn
     }
 
-    pub async fn start_outbound(
+    pub(crate) async fn start_outbound(
         &self,
         chain: Arc<data::Chain>,
         network_cfg: config::NetworkConfig,
@@ -315,7 +315,7 @@ impl ActorHandler {
     /// Checks internal consistency of the PeerManagerActor.
     /// This is a partial implementation, add more invariant checks
     /// if needed.
-    pub async fn check_consistency(&self) {
+    pub(crate) async fn check_consistency(&self) {
         self.with_state(|s| async move {
             // Check that the set of ready connections matches the PeerStore state.
             let tier2: HashSet<_> = s.tier2.load().ready.keys().cloned().collect();
@@ -350,16 +350,16 @@ impl ActorHandler {
         .await
     }
 
-    pub async fn fix_local_edges(&self, clock: &time::Clock, timeout: time::Duration) {
+    pub(crate) async fn fix_local_edges(&self, clock: &time::Clock, timeout: time::Duration) {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
-    pub async fn set_chain_info(&self, chain_info: ChainInfo) -> bool {
+    pub(crate) async fn set_chain_info(&self, chain_info: ChainInfo) -> bool {
         self.with_state(move |s| async move { s.set_chain_info(chain_info) }).await
     }
 
-    pub async fn tier1_advertise_proxies(
+    pub(crate) async fn tier1_advertise_proxies(
         &self,
         clock: &time::Clock,
     ) -> Option<Arc<SignedAccountData>> {
@@ -367,7 +367,7 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
 
-    pub async fn disconnect(&self, peer_id: &PeerId) {
+    pub(crate) async fn disconnect(&self, peer_id: &PeerId) {
         let peer_id = peer_id.clone();
         self.with_state(move |s| async move {
             let stopped: Vec<()> = s
@@ -386,7 +386,7 @@ impl ActorHandler {
         .await
     }
 
-    pub async fn disconnect_and_ban(
+    pub(crate) async fn disconnect_and_ban(
         &self,
         clock: &time::Clock,
         peer_id: &PeerId,
@@ -400,12 +400,12 @@ impl ActorHandler {
             .await
     }
 
-    pub async fn peer_store_update(&self, clock: &time::Clock) {
+    pub(crate) async fn peer_store_update(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
     }
 
-    pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
+    pub(crate) async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
             s.send_ping(&clock, tcp::Tier::T2, nonce, target);
@@ -413,7 +413,7 @@ impl ActorHandler {
         .await;
     }
 
-    pub async fn announce_account(&self, aa: AnnounceAccount) {
+    pub(crate) async fn announce_account(&self, aa: AnnounceAccount) {
         self.actix
             .addr
             .send(
@@ -425,7 +425,7 @@ impl ActorHandler {
     }
 
     // Awaits until the accounts_data state satisfies predicate `pred`.
-    pub async fn wait_for_accounts_data_pred(
+    pub(crate) async fn wait_for_accounts_data_pred(
         &self,
         pred: impl Fn(Arc<AccountDataCacheSnapshot>) -> bool,
     ) {
@@ -442,7 +442,7 @@ impl ActorHandler {
     }
 
     // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
+    pub(crate) async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
         self.wait_for_accounts_data_pred(|cache| {
             &cache.data.values().cloned().collect::<HashSet<_>>() == want
         })
@@ -450,7 +450,7 @@ impl ActorHandler {
     }
 
     // Awaits until the snapshot_hosts state satisfies predicate `pred`.
-    pub async fn wait_for_snapshot_hosts_pred(
+    pub(crate) async fn wait_for_snapshot_hosts_pred(
         &self,
         pred: impl Fn(Arc<SnapshotHostsCache>) -> bool,
     ) {
@@ -467,14 +467,14 @@ impl ActorHandler {
     }
 
     // Awaits until the snapshot_hosts state matches `want`.
-    pub async fn wait_for_snapshot_hosts(&self, want: &HashSet<Arc<SnapshotHostInfo>>) {
+    pub(crate) async fn wait_for_snapshot_hosts(&self, want: &HashSet<Arc<SnapshotHostInfo>>) {
         self.wait_for_snapshot_hosts_pred(|cache| {
             &cache.get_hosts().into_iter().collect::<HashSet<_>>() == want
         })
         .await
     }
 
-    pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
+    pub(crate) async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
         let mut events = self.events.from_now();
         loop {
             let connections =
@@ -494,7 +494,7 @@ impl ActorHandler {
     }
 
     // Awaits until the routing_table matches `want`.
-    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+    pub(crate) async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
         let mut events = self.events.from_now();
         loop {
             let got =
@@ -511,7 +511,7 @@ impl ActorHandler {
         }
     }
 
-    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
+    pub(crate) async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
         let mut events = self.events.from_now();
         loop {
             let account = account.clone();
@@ -530,7 +530,7 @@ impl ActorHandler {
         }
     }
 
-    pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
+    pub(crate) async fn wait_for_num_connected_peers(&self, wanted: usize) {
         let mut events = self.events.from_now();
         loop {
             let got = self.with_state(|s| async move { s.tier2.load().ready.len() }).await;
@@ -547,7 +547,7 @@ impl ActorHandler {
     }
 
     /// Executes `NetworkState::tier1_connect` method.
-    pub async fn tier1_connect(&self, clock: &time::Clock) {
+    pub(crate) async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
             s.tier1_connect(&clock).await;
@@ -556,7 +556,7 @@ impl ActorHandler {
     }
 
     /// Executes `NetworkState::update_connection_store` method.
-    pub async fn update_connection_store(&self, clock: &time::Clock) {
+    pub(crate) async fn update_connection_store(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
             s.update_connection_store(&clock);

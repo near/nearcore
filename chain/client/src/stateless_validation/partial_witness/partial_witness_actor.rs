@@ -121,7 +121,7 @@ impl PartialWitnessActor {
         }
     }
 
-    pub fn handle_distribute_state_witness_request(
+    pub(crate) fn handle_distribute_state_witness_request(
         &mut self,
         msg: DistributeStateWitnessRequest,
     ) -> Result<(), Error> {
@@ -262,7 +262,7 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
-    pub fn handle_partial_encoded_state_witness(
+    pub(crate) fn handle_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
@@ -287,7 +287,7 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
-    pub fn handle_partial_encoded_state_witness_forward(
+    pub(crate) fn handle_partial_encoded_state_witness_forward(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
@@ -316,7 +316,7 @@ impl PartialWitnessActor {
     /// the ack message and updates the corresponding metric with it.
     /// Currently we do not raise an error for handling of witness-ack messages,
     /// as it is used only for tracking some networking metrics.
-    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
+    pub(crate) fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 }

@@ -19,5 +19,5 @@ pub(crate) enum RegisterPeerError {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct SendMessage {
-    pub message: Arc<PeerMessage>,
+    pub(crate) message: Arc<PeerMessage>,
 }

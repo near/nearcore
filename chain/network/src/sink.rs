@@ -7,7 +7,7 @@
 /// be hidden behind #[cfg(test)].
 use std::sync::Arc;
 
-pub struct Sink<T>(Option<Arc<Box<dyn Fn(T) + Sync + Send + 'static>>>);
+pub(crate) struct Sink<T>(Option<Arc<Box<dyn Fn(T) + Sync + Send + 'static>>>);
 
 impl<T> Clone for Sink<T> {
     fn clone(&self) -> Self {
@@ -16,17 +16,17 @@ impl<T> Clone for Sink<T> {
 }
 
 impl<T> Sink<T> {
-    pub fn null() -> Self {
+    pub(crate) fn null() -> Self {
         Self(None)
     }
 
-    pub fn push(&self, t: T) {
+    pub(crate) fn push(&self, t: T) {
         if let Some(f) = &self.0 {
             f(t)
         }
     }
 
-    pub fn new(f: impl Fn(T) + Sync + Send + 'static) -> Self {
+    pub(crate) fn new(f: impl Fn(T) + Sync + Send + 'static) -> Self {
         Sink(Some(Arc::new(Box::new(f))))
     }
 }
@@ -37,7 +37,7 @@ impl<T: Send + 'static> Sink<T> {
     // If sink is null it doesn't call make() at all,
     // therefore you can use this to skip expensive computation
     // in non-test env.
-    pub fn delayed_push(&self, make: impl FnOnce() -> T) -> Box<dyn Send + 'static + FnOnce()> {
+    pub(crate) fn delayed_push(&self, make: impl FnOnce() -> T) -> Box<dyn Send + 'static + FnOnce()> {
         let maybe_ev = self.0.as_ref().map(|_| make());
         let this = self.clone();
         Box::new(move || {
@@ -47,7 +47,7 @@ impl<T: Send + 'static> Sink<T> {
 }
 
 impl<T: 'static + std::fmt::Debug + Send> Sink<T> {
-    pub fn compose<U>(&self, f: impl Send + Sync + 'static + Fn(U) -> T) -> Sink<U> {
+    pub(crate) fn compose<U>(&self, f: impl Send + Sync + 'static + Fn(U) -> T) -> Sink<U> {
         match self.0.clone() {
             None => Sink::null(),
             Some(s) => Sink::new(Box::new(move |u| s(f(u)))),

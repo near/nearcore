@@ -23,15 +23,15 @@ impl ToString for StateFileType {
 }
 
 impl StateFileType {
-    pub fn part_str() -> String {
+    pub(crate) fn part_str() -> String {
         String::from("part")
     }
 
-    pub fn header_str() -> String {
+    pub(crate) fn header_str() -> String {
         String::from("header")
     }
 
-    pub fn filename(&self) -> String {
+    pub(crate) fn filename(&self) -> String {
         match self {
             StateFileType::StatePart { part_id, num_parts } => {
                 format!("state_part_{:06}_of_{:06}", part_id, num_parts)
@@ -300,7 +300,7 @@ pub fn external_storage_location_directory(
     location_prefix(chain_id, epoch_height, epoch_id, shard_id, obj_type)
 }
 
-pub fn location_prefix(
+pub(crate) fn location_prefix(
     chain_id: &str,
     epoch_height: u64,
     epoch_id: &EpochId,
@@ -319,11 +319,11 @@ pub fn location_prefix(
     }
 }
 
-pub fn part_filename(part_id: u64, num_parts: u64) -> String {
+pub(crate) fn part_filename(part_id: u64, num_parts: u64) -> String {
     format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
-pub fn match_filename(s: &str) -> Option<regex::Captures> {
+pub(crate) fn match_filename(s: &str) -> Option<regex::Captures> {
     let re = regex::Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap();
     re.captures(s)
 }

@@ -8,7 +8,7 @@ use tracing::warn;
 /// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
 /// to that are on the shortest path between us as destination `peer`.
 #[derive(Clone)]
-pub struct Graph {
+pub(crate) struct Graph {
     /// `id` as integer corresponding to `my_peer_id`.
     /// We use u32 to reduce both improve performance, and reduce memory usage.
     source_id: u32,
@@ -29,7 +29,7 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn new(source: PeerId) -> Self {
+    pub(crate) fn new(source: PeerId) -> Self {
         let mut res = Self {
             source_id: 0,
             p2id: HashMap::default(),
@@ -47,13 +47,13 @@ impl Graph {
         res
     }
 
-    pub fn total_active_edges(&self) -> u64 {
+    pub(crate) fn total_active_edges(&self) -> u64 {
         self.total_active_edges
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
     #[cfg(test)]
-    pub fn compute_total_active_edges(&self) -> u64 {
+    pub(crate) fn compute_total_active_edges(&self) -> u64 {
         let result: u64 = self.adjacency.iter().map(|x| x.len() as u64).sum();
         assert_eq!(result % 2, 0);
         result / 2
@@ -102,7 +102,7 @@ impl Graph {
         }
     }
 
-    pub fn add_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+    pub(crate) fn add_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
         assert_ne!(peer0, peer1);
         if !self.contains_edge(peer0, peer1) {
             let id0 = self.get_id(peer0);
@@ -115,7 +115,7 @@ impl Graph {
         }
     }
 
-    pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+    pub(crate) fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
         assert_ne!(peer0, peer1);
         if self.contains_edge(peer0, peer1) {
             let id0 = self.get_id(peer0);
@@ -134,7 +134,7 @@ impl Graph {
     /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
-    pub fn calculate_next_hops_and_distance(
+    pub(crate) fn calculate_next_hops_and_distance(
         &self,
         unreliable_peers: &HashSet<PeerId>,
     ) -> (HashMap<PeerId, Vec<PeerId>>, HashMap<PeerId, u32>) {
@@ -232,7 +232,7 @@ impl Graph {
     }
 
     #[cfg(test)]
-    pub fn calculate_distance(
+    pub(crate) fn calculate_distance(
         &self,
         unreliable_peers: &HashSet<PeerId>,
     ) -> HashMap<PeerId, Vec<PeerId>> {

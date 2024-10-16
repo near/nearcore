@@ -10,14 +10,14 @@ use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
 /// historical balance query should be performed.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct AccountBalanceRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
-    pub account_identifier: AccountIdentifier,
+    pub(crate) account_identifier: AccountIdentifier,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_identifier: Option<PartialBlockIdentifier>,
+    pub(crate) block_identifier: Option<PartialBlockIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub currencies: Option<Vec<Currency>>,
+    pub(crate) currencies: Option<Vec<Currency>>,
 }
 
 /// An AccountBalanceResponse is returned on the /account/balance endpoint. If
@@ -27,22 +27,22 @@ pub(crate) struct AccountBalanceRequest {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub(crate) struct AccountBalanceResponse {
-    pub block_identifier: BlockIdentifier,
+    pub(crate) block_identifier: BlockIdentifier,
 
     /// A single account may have a balance in multiple currencies.
-    pub balances: Vec<Amount>,
+    pub(crate) balances: Vec<Amount>,
     /// Rosetta Spec also optionally provides:
     /// Account-based blockchains that utilize a nonce or sequence number should
     /// include that number in the metadata. This number could be unique to the
     /// identifier or global across the account address.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<AccountBalanceResponseMetadata>,
+    pub(crate) metadata: Option<AccountBalanceResponseMetadata>,
 }
 // Account-based blockchains that utilize a nonce or sequence number should
 // include that number in the metadata.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct AccountBalanceResponseMetadata {
-    pub nonces: Vec<Nonce>,
+    pub(crate) nonces: Vec<Nonce>,
 }
 /// The account_identifier uniquely identifies an account within a network. All
 /// fields in the account_identifier are utilized to determine this uniqueness
@@ -51,16 +51,16 @@ pub(crate) struct AccountBalanceResponseMetadata {
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
-    pub address: super::types::AccountId,
+    pub(crate) address: super::types::AccountId,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sub_account: Option<SubAccountIdentifier>,
+    pub(crate) sub_account: Option<SubAccountIdentifier>,
     /// Rosetta Spec also optionally provides:
     /// Blockchains that utilize a username model (where the address is not a
     /// derivative of a cryptographic public key) should specify the public
     /// key(s) owned by the address in metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<AccountIdentifierMetadata>,
+    pub(crate) metadata: Option<AccountIdentifierMetadata>,
 }
 
 impl From<near_primitives::types::AccountId> for AccountIdentifier {
@@ -81,7 +81,7 @@ impl std::str::FromStr for AccountIdentifier {
     Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, Apiv2Schema,
 )]
 pub(crate) struct AccountIdentifierMetadata {
-    pub public_keys: Vec<PublicKey>,
+    pub(crate) public_keys: Vec<PublicKey>,
 }
 
 /// Allow specifies supported Operation status, Operation types, and all
@@ -94,21 +94,21 @@ pub(crate) struct Allow {
     /// All Operation.Status this implementation supports. Any status that is
     /// returned during parsing that is not listed here will cause client
     /// validation to error.
-    pub operation_statuses: Vec<OperationStatus>,
+    pub(crate) operation_statuses: Vec<OperationStatus>,
 
     /// All Operation.Type this implementation supports. Any type that is
     /// returned during parsing that is not listed here will cause client
     /// validation to error.
-    pub operation_types: Vec<OperationType>,
+    pub(crate) operation_types: Vec<OperationType>,
 
     /// All Errors that this implementation could return. Any error that is
     /// returned during parsing that is not listed here will cause client
     /// validation to error.
-    pub errors: Vec<Error>,
+    pub(crate) errors: Vec<Error>,
 
     /// Any Rosetta implementation that supports querying the balance of an
     /// account at any height in the past should set this to true.
-    pub historical_balance_lookup: bool,
+    pub(crate) historical_balance_lookup: bool,
 }
 
 /// Amount is some Value of a Currency. It is considered invalid to specify a
@@ -118,13 +118,13 @@ pub(crate) struct Amount {
     /// Value of the transaction in atomic units represented as an
     /// arbitrary-sized signed integer.  For example, 1 BTC would be represented
     /// by a value of 100000000.
-    pub value: crate::utils::SignedDiff<near_primitives::types::Balance>,
+    pub(crate) value: crate::utils::SignedDiff<near_primitives::types::Balance>,
 
-    pub currency: Currency,
+    pub(crate) currency: Currency,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 impl std::ops::Neg for Amount {
@@ -159,32 +159,32 @@ impl Amount {
 /// contents.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Block {
-    pub block_identifier: BlockIdentifier,
+    pub(crate) block_identifier: BlockIdentifier,
 
-    pub parent_block_identifier: BlockIdentifier,
+    pub(crate) parent_block_identifier: BlockIdentifier,
 
     /// The timestamp of the block in milliseconds since the Unix Epoch. The
     /// timestamp is stored in milliseconds because some blockchains produce
     /// blocks more often than once a second.
-    pub timestamp: i64,
+    pub(crate) timestamp: i64,
 
-    pub transactions: Vec<Transaction>,
+    pub(crate) transactions: Vec<Transaction>,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// The block_identifier uniquely identifies a block in a particular network.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockIdentifier {
     /// This is also known as the block height.
-    pub index: i64,
-    pub hash: String,
+    pub(crate) index: i64,
+    pub(crate) hash: String,
 }
 
 impl BlockIdentifier {
-    pub fn new(height: BlockHeight, hash: &CryptoHash) -> Self {
+    pub(crate) fn new(height: BlockHeight, hash: &CryptoHash) -> Self {
         Self {
             index: height.try_into().expect("Rosetta only supports block indecies up to i64::MAX"),
             hash: hash.to_string(),
@@ -201,16 +201,16 @@ impl From<&near_primitives::views::BlockView> for BlockIdentifier {
 /// A BlockRequest is utilized to make a block request on the /block endpoint.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
-    pub block_identifier: PartialBlockIdentifier,
+    pub(crate) block_identifier: PartialBlockIdentifier,
 }
 
 /// A BlockResponse includes a fully-populated block or a partially-populated
 /// block with a list of other transactions to fetch (other_transactions).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockResponse {
-    pub block: Option<Block>,
+    pub(crate) block: Option<Block>,
 
     /// Some blockchains may require additional transactions to be fetched that
     /// weren't returned in the block response (ex: block only returns
@@ -218,24 +218,24 @@ pub(crate) struct BlockResponse {
     /// block, this can be very useful as consumers can concurrently fetch all
     /// transactions returned.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub other_transactions: Option<Vec<TransactionIdentifier>>,
+    pub(crate) other_transactions: Option<Vec<TransactionIdentifier>>,
 }
 
 /// A BlockTransactionRequest is used to fetch a Transaction included in a block
 /// that is not returned in a BlockResponse.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockTransactionRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
-    pub block_identifier: PartialBlockIdentifier,
+    pub(crate) block_identifier: PartialBlockIdentifier,
 
-    pub transaction_identifier: TransactionIdentifier,
+    pub(crate) transaction_identifier: TransactionIdentifier,
 }
 
 /// A BlockTransactionResponse contains information about a block transaction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct BlockTransactionResponse {
-    pub transaction: Transaction,
+    pub(crate) transaction: Transaction,
 }
 
 /// ConstructionDeriveRequest is passed to the `/construction/derive`
@@ -246,23 +246,23 @@ pub(crate) struct BlockTransactionResponse {
 /// for validators vs normal accounts).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionDeriveRequest {
-    pub network_identifier: NetworkIdentifier,
-    pub public_key: PublicKey,
+    pub(crate) network_identifier: NetworkIdentifier,
+    pub(crate) public_key: PublicKey,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// ConstructionDeriveResponse is returned by the `/construction/derive`
 /// endpoint.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionDeriveResponse {
-    pub account_identifier: AccountIdentifier,
+    pub(crate) account_identifier: AccountIdentifier,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// ConstructionPreprocessRequest is passed to the `/construction/preprocess`
@@ -293,19 +293,19 @@ pub(crate) struct ConstructionDeriveResponse {
 /// multiplier provided).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionPreprocessRequest {
-    pub network_identifier: NetworkIdentifier,
-    pub operations: Vec<Operation>,
+    pub(crate) network_identifier: NetworkIdentifier,
+    pub(crate) operations: Vec<Operation>,
     /* Rosetta Spec also optionally provides:
      *
-     * pub max_fee: Vec<Amount>,
-     * pub suggested_fee_multiplier: f64,
+     * pub(crate) max_fee: Vec<Amount>,
+     * pub(crate) suggested_fee_multiplier: f64,
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadataOptions {
-    pub signer_account_id: super::types::AccountId,
+    pub(crate) signer_account_id: super::types::AccountId,
 }
 
 /// ConstructionPreprocessResponse contains `options` that will
@@ -319,8 +319,8 @@ pub(crate) struct ConstructionMetadataOptions {
 /// for construction, `required_public_keys` should be omitted.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionPreprocessResponse {
-    pub options: ConstructionMetadataOptions,
-    pub required_public_keys: Vec<AccountIdentifier>,
+    pub(crate) options: ConstructionMetadataOptions,
+    pub(crate) required_public_keys: Vec<AccountIdentifier>,
 }
 
 /// A ConstructionMetadataRequest is utilized to get information required to
@@ -333,7 +333,7 @@ pub(crate) struct ConstructionPreprocessResponse {
 /// returned in ConstructionPreprocessResponse.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadataRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
     /// Some blockchains require different metadata for different types of
     /// transaction construction (ex: delegation versus a transfer). Instead of
@@ -341,22 +341,22 @@ pub(crate) struct ConstructionMetadataRequest {
     /// construction (which may require multiple node fetches), the client can
     /// populate an options object to limit the metadata returned to only the
     /// subset required.
-    pub options: ConstructionMetadataOptions,
+    pub(crate) options: ConstructionMetadataOptions,
 
-    pub public_keys: Vec<PublicKey>,
+    pub(crate) public_keys: Vec<PublicKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadata {
-    pub signer_public_access_key_nonce: u64,
-    pub recent_block_hash: String,
+    pub(crate) signer_public_access_key_nonce: u64,
+    pub(crate) recent_block_hash: String,
 }
 
 /// The ConstructionMetadataResponse returns network-specific metadata used for
 /// transaction construction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadataResponse {
-    pub metadata: ConstructionMetadata,
+    pub(crate) metadata: ConstructionMetadata,
 }
 
 /// ConstructionPayloadsRequest is the request to
@@ -368,10 +368,10 @@ pub(crate) struct ConstructionMetadataResponse {
 /// returned in ConstructionPreprocessResponse.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionPayloadsRequest {
-    pub network_identifier: NetworkIdentifier,
-    pub operations: Vec<Operation>,
-    pub public_keys: Vec<PublicKey>,
-    pub metadata: ConstructionMetadata,
+    pub(crate) network_identifier: NetworkIdentifier,
+    pub(crate) operations: Vec<Operation>,
+    pub(crate) public_keys: Vec<PublicKey>,
+    pub(crate) metadata: ConstructionMetadata,
 }
 
 /// ConstructionTransactionResponse is returned by `/construction/payloads`. It
@@ -380,8 +380,8 @@ pub(crate) struct ConstructionPayloadsRequest {
 /// array of payloads that must be signed by the caller.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionPayloadsResponse {
-    pub unsigned_transaction: BorshInHexString<near_primitives::transaction::Transaction>,
-    pub payloads: Vec<SigningPayload>,
+    pub(crate) unsigned_transaction: BorshInHexString<near_primitives::transaction::Transaction>,
+    pub(crate) payloads: Vec<SigningPayload>,
 }
 
 /// ConstructionCombineRequest is the input to the `/construction/combine`
@@ -390,9 +390,9 @@ pub(crate) struct ConstructionPayloadsResponse {
 /// a network transaction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionCombineRequest {
-    pub network_identifier: NetworkIdentifier,
-    pub unsigned_transaction: BorshInHexString<near_primitives::transaction::Transaction>,
-    pub signatures: Vec<Signature>,
+    pub(crate) network_identifier: NetworkIdentifier,
+    pub(crate) unsigned_transaction: BorshInHexString<near_primitives::transaction::Transaction>,
+    pub(crate) signatures: Vec<Signature>,
 }
 
 /// ConstructionCombineResponse is returned by `/construction/combine`.
@@ -400,7 +400,7 @@ pub(crate) struct ConstructionCombineRequest {
 /// `construction/submit` endpoint.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionCombineResponse {
-    pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
+    pub(crate) signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
 /// ConstructionParseRequest is the input to the `/construction/parse`
@@ -408,12 +408,12 @@ pub(crate) struct ConstructionCombineResponse {
 /// signed transaction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionParseRequest {
-    pub network_identifier: NetworkIdentifier,
-    pub signed: bool,
+    pub(crate) network_identifier: NetworkIdentifier,
+    pub(crate) signed: bool,
     /// This must be either the unsigned transaction blob returned by
     /// `/construction/payloads` or the signed transaction blob
     /// returned by `/construction/combine`.
-    pub transaction: BlobInHexString<Vec<u8>>,
+    pub(crate) transaction: BlobInHexString<Vec<u8>>,
 }
 
 /// ConstructionParseResponse contains an array of operations that occur in
@@ -421,23 +421,23 @@ pub(crate) struct ConstructionParseRequest {
 /// to `/construction/preprocess` and `/construction/payloads`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionParseResponse {
-    pub operations: Vec<Operation>,
+    pub(crate) operations: Vec<Operation>,
 
     /// All account identifiers of signers of a particular transaction. If the
     /// transaction is unsigned, it should be empty.
-    pub account_identifier_signers: Vec<AccountIdentifier>,
+    pub(crate) account_identifier_signers: Vec<AccountIdentifier>,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// The transaction submission request includes a signed transaction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionSubmitRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
-    pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
+    pub(crate) signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
 /// TransactionIdentifierResponse contains the transaction_identifier of a
@@ -445,46 +445,46 @@ pub(crate) struct ConstructionSubmitRequest {
 /// `/construction/submit`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct TransactionIdentifierResponse {
-    pub transaction_identifier: TransactionIdentifier,
+    pub(crate) transaction_identifier: TransactionIdentifier,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// ConstructionHashRequest is the input to the /construction/hash endpoint.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionHashRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
-    pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
+    pub(crate) signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
 /// Currency is composed of a canonical Symbol and Decimals. This Decimals value
 /// is used to convert an Amount.Value from atomic units (Satoshis) to standard
 /// units (Bitcoins).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
-pub struct Currency {
+pub(crate) struct Currency {
     /// Canonical symbol associated with a currency.
-    pub symbol: String,
+    pub(crate) symbol: String,
 
     /// Number of decimal places in the standard unit representation of the
     /// amount.  For example, BTC has 8 decimals. Note that it is not possible
     /// to represent the value of some currency in atomic units that is not base
     /// 10.
-    pub decimals: u32,
+    pub(crate) decimals: u32,
 
     /// Any additional information related to the currency itself.  For example,
     /// it would be useful to populate this object with the contract address of
     /// an ERC-20 token.
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<CurrenyMetadata>,
+    pub(crate) metadata: Option<CurrenyMetadata>,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 
-pub struct CurrenyMetadata {
-    pub contract_address: String,
+pub(crate) struct CurrenyMetadata {
+    pub(crate) contract_address: String,
 }
 
 impl Currency {
@@ -511,21 +511,21 @@ impl FromIterator<Currency> for std::collections::HashMap<String, Currency> {
 pub(crate) struct Error {
     /// Code is a network-specific error code. If desired, this code can be
     /// equivalent to an HTTP status code.
-    pub code: u32,
+    pub(crate) code: u32,
 
     /// Message is a network-specific error message.
-    pub message: String,
+    pub(crate) message: String,
 
     /// An error is retriable if the same request may succeed if submitted
     /// again.
-    pub retriable: bool,
+    pub(crate) retriable: bool,
     /* Rosetta Spec also optionally provides:
      *
      * /// Often times it is useful to return context specific to the request that
      * /// caused the error (i.e. a sample of the stack trace or impacted account)
      * /// in addition to the standard error message.
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub details: Option<serde_json::Value>, */
+     * pub(crate) details: Option<serde_json::Value>, */
 }
 
 impl std::fmt::Display for Error {
@@ -582,16 +582,16 @@ impl actix_web::ResponseError for Error {
 /// particular network_identifier.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MempoolResponse {
-    pub transaction_identifiers: Vec<TransactionIdentifier>,
+    pub(crate) transaction_identifiers: Vec<TransactionIdentifier>,
 }
 
 /// A MempoolTransactionRequest is utilized to retrieve a transaction from the
 /// mempool.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MempoolTransactionRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
 
-    pub transaction_identifier: TransactionIdentifier,
+    pub(crate) transaction_identifier: TransactionIdentifier,
 }
 
 /// A MempoolTransactionResponse contains an estimate of a mempool transaction.
@@ -599,11 +599,11 @@ pub(crate) struct MempoolTransactionRequest {
 /// mempool (ex: fee paid).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MempoolTransactionResponse {
-    pub transaction: Transaction,
+    pub(crate) transaction: Transaction,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// A MetadataRequest is utilized in any request where the only argument is
@@ -612,22 +612,22 @@ pub(crate) struct MempoolTransactionResponse {
 pub(crate) struct MetadataRequest {
     // Rosetta Spec optionally provides, but we don't have any use for it:
     // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub metadata: Option<serde_json::Value>,
+    // pub(crate) metadata: Option<serde_json::Value>,
 }
 
 /// The network_identifier specifies which network a particular object is
 /// associated with.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct NetworkIdentifier {
-    pub blockchain: String,
+    pub(crate) blockchain: String,
 
     /// If a blockchain has a specific chain-id or network identifier, it should
     /// go in this field. It is up to the client to determine which
     /// network-specific identifier is mainnet or testnet.
-    pub network: String,
+    pub(crate) network: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sub_network_identifier: Option<SubNetworkIdentifier>,
+    pub(crate) sub_network_identifier: Option<SubNetworkIdentifier>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -650,40 +650,40 @@ pub(crate) enum SyncStage {
 /// implementation is immediately queryable, this model is often not populated.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SyncStatus {
-    pub current_index: i64,
+    pub(crate) current_index: i64,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_index: Option<i64>,
+    pub(crate) target_index: Option<i64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stage: Option<SyncStage>,
+    pub(crate) stage: Option<SyncStage>,
 }
 
 /// A NetworkListResponse contains all NetworkIdentifiers that the node can
 /// serve information for.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct NetworkListResponse {
-    pub network_identifiers: Vec<NetworkIdentifier>,
+    pub(crate) network_identifiers: Vec<NetworkIdentifier>,
 }
 
 /// NetworkOptionsResponse contains information about the versioning of the node
 /// and the allowed operation statuses, operation types, and errors.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct NetworkOptionsResponse {
-    pub version: Version,
+    pub(crate) version: Version,
 
-    pub allow: Allow,
+    pub(crate) allow: Allow,
 }
 
 /// A NetworkRequest is utilized to retrieve some data specific exclusively to a
 /// NetworkIdentifier.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct NetworkRequest {
-    pub network_identifier: NetworkIdentifier,
+    pub(crate) network_identifier: NetworkIdentifier,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// NetworkStatusResponse contains basic information about the node's view of a
@@ -693,21 +693,21 @@ pub(crate) struct NetworkRequest {
 /// `genesis_block_identifier` is the oldest queryable block.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct NetworkStatusResponse {
-    pub current_block_identifier: BlockIdentifier,
+    pub(crate) current_block_identifier: BlockIdentifier,
 
     /// The timestamp of the block in milliseconds since the Unix Epoch. The
     /// timestamp is stored in milliseconds because some blockchains produce
     /// blocks more often than once a second.
-    pub current_block_timestamp: i64,
+    pub(crate) current_block_timestamp: i64,
 
-    pub genesis_block_identifier: BlockIdentifier,
+    pub(crate) genesis_block_identifier: BlockIdentifier,
 
-    pub oldest_block_identifier: BlockIdentifier,
+    pub(crate) oldest_block_identifier: BlockIdentifier,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_status: Option<SyncStatus>,
+    pub(crate) sync_status: Option<SyncStatus>,
 
-    pub peers: Vec<Peer>,
+    pub(crate) peers: Vec<Peer>,
 }
 
 #[derive(
@@ -785,40 +785,40 @@ pub(crate) enum OperationMetadataTransferFeeType {
 pub(crate) struct OperationMetadata {
     /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
+    pub(crate) transfer_fee_type: Option<OperationMetadataTransferFeeType>,
     /// Has to be specified for ADD_KEY, REMOVE_KEY, DELEGATE_ACTION and STAKE operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_key: Option<PublicKey>,
+    pub(crate) public_key: Option<PublicKey>,
     // /// Has to be specified for ADD_KEY
     // TODO: Allow specifying the access key permissions and nonce. We go with full-access keys for
     // now
     //#[serde(skip_serializing_if = "Option::is_none")]
-    // pub access_key: Option<TODO>,
+    // pub(crate) access_key: Option<TODO>,
     /// Has to be specified for DEPLOY_CONTRACT operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<BlobInHexString<Vec<u8>>>,
+    pub(crate) code: Option<BlobInHexString<Vec<u8>>>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub method_name: Option<String>,
+    pub(crate) method_name: Option<String>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<BlobInHexString<Vec<u8>>>,
+    pub(crate) args: Option<BlobInHexString<Vec<u8>>>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    pub(crate) attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub predecessor_id: Option<AccountIdentifier>,
+    pub(crate) predecessor_id: Option<AccountIdentifier>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_address: Option<String>,
+    pub(crate) contract_address: Option<String>,
     /// Has to be specified for DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_block_height: Option<near_primitives::types::BlockHeight>,
+    pub(crate) max_block_height: Option<near_primitives::types::BlockHeight>,
     /// Has to be specified for DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonce: Option<Nonce>,
+    pub(crate) nonce: Option<Nonce>,
     /// Has to be specified for SIGNED_DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
+    pub(crate) signature: Option<String>,
 }
 
 impl OperationMetadata {
@@ -852,7 +852,7 @@ impl OperationMetadata {
 /// succeed or fail independently from a Transaction.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Operation {
-    pub operation_identifier: OperationIdentifier,
+    pub(crate) operation_identifier: OperationIdentifier,
 
     /// Restrict referenced related_operations to identifier indexes < the
     /// current operation_identifier.index. This ensures there exists a clear
@@ -860,13 +860,13 @@ pub(crate) struct Operation {
     /// imagine relating operations in a single transfer or linking operations
     /// in a call tree.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub related_operations: Option<Vec<OperationIdentifier>>,
+    pub(crate) related_operations: Option<Vec<OperationIdentifier>>,
 
     /// The network-specific type of the operation. Ensure that any type that
     /// can be returned here is also specified in the NetworkStatus. This can
     /// be very useful to downstream consumers that parse all block data.
     #[serde(rename = "type")]
-    pub type_: OperationType,
+    pub(crate) type_: OperationType,
 
     /// The network-specific status of the operation. Status is not defined on
     /// the transaction object because blockchains with smart contracts may have
@@ -874,15 +874,15 @@ pub(crate) struct Operation {
     /// (all operations succeed or all operations fail) will have the same
     /// status for each operation.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<OperationStatusKind>,
+    pub(crate) status: Option<OperationStatusKind>,
 
-    pub account: AccountIdentifier,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub amount: Option<Amount>,
+    pub(crate) account: AccountIdentifier,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<OperationMetadata>,
+    pub(crate) amount: Option<Amount>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) metadata: Option<OperationMetadata>,
 }
 
 /// This is Operation which mustn't contain DelegateActionOperation.
@@ -906,7 +906,7 @@ impl From<NonDelegateActionOperation> for crate::models::Operation {
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug, thiserror::Error)]
 #[error("Delegate operation cannot contain a delegate operation")]
-pub struct IsDelegateOperation;
+pub(crate) struct IsDelegateOperation;
 
 impl TryFrom<crate::models::Operation> for NonDelegateActionOperation {
     type Error = IsDelegateOperation;
@@ -935,7 +935,7 @@ pub(crate) struct OperationIdentifier {
     /// transaction and NOT GLOBAL. The operations in each transaction should
     /// start from index 0. To clarify, there may not be any notion of an
     /// operation index in the blockchain being described.
-    pub index: i64,
+    pub(crate) index: i64,
 
     /// Some blockchains specify an operation index that is essential for
     /// client use. For example, Bitcoin uses a network_index to identify
@@ -943,7 +943,7 @@ pub(crate) struct OperationIdentifier {
     /// populated if there is no notion of an operation index in a blockchain
     /// (typically most account-based blockchains).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_index: Option<i64>,
+    pub(crate) network_index: Option<i64>,
 }
 
 impl OperationIdentifier {
@@ -963,7 +963,7 @@ impl OperationIdentifier {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct OperationStatus {
     /// The status is the network-specific status of the operation.
-    pub status: OperationStatusKind,
+    pub(crate) status: OperationStatusKind,
 
     /// An Operation is considered successful if the Operation.Amount should
     /// affect the Operation.Account. Some blockchains (like Bitcoin) only
@@ -972,7 +972,7 @@ pub(crate) struct OperationStatus {
     /// reconcile the computed balance from the stream of Operations, it is
     /// critical to understand which Operation.Status indicate an Operation is
     /// successful and should affect an Account.
-    pub successful: bool,
+    pub(crate) successful: bool,
 }
 
 /// When fetching data by BlockIdentifier, it may be possible to only specify
@@ -1014,11 +1014,11 @@ impl TryFrom<PartialBlockIdentifier> for near_primitives::types::BlockReference 
 /// A Peer is a representation of a node's peer.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Peer {
-    pub peer_id: String,
+    pub(crate) peer_id: String,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -1041,7 +1041,7 @@ impl From<SubAccount> for crate::models::SubAccountIdentifier {
 pub(crate) struct SubAccountIdentifier {
     /// The SubAccount address may be a cryptographic value or some other
     /// identifier (ex: bonded) that uniquely specifies a SubAccount.
-    pub address: SubAccount,
+    pub(crate) address: SubAccount,
     /* Rosetta Spec also optionally provides:
      *
      * /// If the SubAccount address is not sufficient to uniquely specify a
@@ -1049,7 +1049,7 @@ pub(crate) struct SubAccountIdentifier {
      * /// important to note that two SubAccounts with identical addresses but
      * /// differing metadata will not be considered equal by clients.
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// In blockchains with sharded state, the SubNetworkIdentifier is required to
@@ -1057,11 +1057,11 @@ pub(crate) struct SubAccountIdentifier {
 /// non-sharded blockchains.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SubNetworkIdentifier {
-    pub network: String,
+    pub(crate) network: String,
     /* Rosetta Spec also optionally provides:
      *
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// The timestamp of the block in milliseconds since the Unix Epoch. The
@@ -1076,9 +1076,9 @@ pub(crate) struct Timestamp(i64);
 /// same TransactionIdentifier.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Transaction {
-    pub transaction_identifier: TransactionIdentifier,
+    pub(crate) transaction_identifier: TransactionIdentifier,
 
-    pub operations: Vec<Operation>,
+    pub(crate) operations: Vec<Operation>,
 
     /// The related_transactions allow implementations to link together multiple
     /// transactions.  An unpopulated network identifier indicates that the
@@ -1087,12 +1087,12 @@ pub(crate) struct Transaction {
     /// We’re using it to link NEAR transactions and receipts with receipts they
     /// generated.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub related_transactions: Vec<RelatedTransaction>,
+    pub(crate) related_transactions: Vec<RelatedTransaction>,
 
     /// Transactions that are related to other transactions (like a cross-shard
     /// transaction) should include the transaction_identifier of these
     /// transactions in the metadata.
-    pub metadata: TransactionMetadata,
+    pub(crate) metadata: TransactionMetadata,
 }
 
 /// Transaction related to another [`Transaction`] such as matching transfer or
@@ -1102,11 +1102,11 @@ pub(crate) struct RelatedTransaction {
     // Rosetta API defines an optional network_identifier field as well but
     // since all our related transactions are always on the same network we can
     // leave out this field.
-    // pub network_identifier: NetworkIdentifier,
+    // pub(crate) network_identifier: NetworkIdentifier,
     //
-    pub transaction_identifier: TransactionIdentifier,
+    pub(crate) transaction_identifier: TransactionIdentifier,
 
-    pub direction: RelatedTransactionDirection,
+    pub(crate) direction: RelatedTransactionDirection,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -1120,7 +1120,7 @@ pub(crate) enum RelatedTransactionDirection {
 }
 
 impl RelatedTransaction {
-    pub fn forward(transaction_identifier: TransactionIdentifier) -> Self {
+    pub(crate) fn forward(transaction_identifier: TransactionIdentifier) -> Self {
         Self { transaction_identifier, direction: RelatedTransactionDirection::Forward }
     }
 }
@@ -1147,7 +1147,7 @@ pub(crate) struct TransactionMetadata {
 pub(crate) struct TransactionIdentifier {
     /// Any transactions that are attributable only to a block (ex: a block
     /// event) should use the hash of the block as the identifier.
-    pub hash: String,
+    pub(crate) hash: String,
 }
 
 impl TransactionIdentifier {
@@ -1187,23 +1187,23 @@ pub(crate) struct Version {
     /// The rosetta_version is the version of the Rosetta interface the
     /// implementation adheres to. This can be useful for clients looking to
     /// reliably parse responses.
-    pub rosetta_version: String,
+    pub(crate) rosetta_version: String,
 
     /// The node_version is the canonical version of the node runtime. This can
     /// help clients manage deployments.
-    pub node_version: String,
+    pub(crate) node_version: String,
 
     /// When a middleware server is used to adhere to the Rosetta interface, it
     /// should return its version here. This can help clients manage
     /// deployments.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub middleware_version: Option<String>,
+    pub(crate) middleware_version: Option<String>,
     /* Rosetta Spec also optionally provides:
      *
      * /// Any other information that may be useful about versioning of dependent
      * /// services should be returned here.
      * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+     * pub(crate) metadata: Option<serde_json::Value>, */
 }
 
 /// PublicKey contains a public key byte array for a particular CurveType
@@ -1212,8 +1212,8 @@ pub(crate) struct Version {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct PublicKey {
     /// Hex-encoded public key bytes in the format specified by the CurveType.
-    pub hex_bytes: BlobInHexString<Vec<u8>>,
-    pub curve_type: CurveType,
+    pub(crate) hex_bytes: BlobInHexString<Vec<u8>>,
+    pub(crate) curve_type: CurveType,
 }
 
 impl From<&near_crypto::PublicKey> for PublicKey {
@@ -1264,9 +1264,9 @@ impl From<near_crypto::KeyType> for CurveType {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SigningPayload {
     /// The account identifier that should sign the payload.
-    pub account_identifier: AccountIdentifier,
-    pub hex_bytes: BlobInHexString<Vec<u8>>,
-    pub signature_type: Option<SignatureType>,
+    pub(crate) account_identifier: AccountIdentifier,
+    pub(crate) hex_bytes: BlobInHexString<Vec<u8>>,
+    pub(crate) signature_type: Option<SignatureType>,
 }
 
 /// Signature contains the payload that was signed, the public keys of the
@@ -1275,10 +1275,10 @@ pub(crate) struct SigningPayload {
 /// the signing payloads but may be needed to combine signatures properly.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Signature {
-    pub signing_payload: SigningPayload,
-    pub public_key: PublicKey,
-    pub signature_type: SignatureType,
-    pub hex_bytes: BlobInHexString<Vec<u8>>,
+    pub(crate) signing_payload: SigningPayload,
+    pub(crate) public_key: PublicKey,
+    pub(crate) signature_type: SignatureType,
+    pub(crate) hex_bytes: BlobInHexString<Vec<u8>>,
 }
 
 impl TryFrom<&Signature> for near_crypto::Signature {
@@ -1333,9 +1333,9 @@ impl From<SignatureType> for near_crypto::KeyType {
 // *** NEP-141 FT ***
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub(crate) struct Nep141Event {
-    pub version: String,
+    pub(crate) version: String,
     #[serde(flatten)]
-    pub event_kind: Nep141EventKind,
+    pub(crate) event_kind: Nep141EventKind,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -1348,72 +1348,72 @@ pub(crate) enum Nep141EventKind {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub(crate) struct FtMintData {
-    pub owner_id: String,
-    pub amount: String,
-    pub memo: Option<String>,
+    pub(crate) owner_id: String,
+    pub(crate) amount: String,
+    pub(crate) memo: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub(crate) struct FtTransferData {
-    pub old_owner_id: String,
-    pub new_owner_id: String,
-    pub amount: String,
-    pub memo: Option<String>,
+    pub(crate) old_owner_id: String,
+    pub(crate) new_owner_id: String,
+    pub(crate) amount: String,
+    pub(crate) memo: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub(crate) struct FtBurnData {
-    pub owner_id: String,
-    pub amount: String,
-    pub memo: Option<String>,
+    pub(crate) owner_id: String,
+    pub(crate) amount: String,
+    pub(crate) memo: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FungibleTokenEvent {
-    pub standard: String,
-    pub receipt_id: CryptoHash,
-    pub block_height: u64,
-    pub block_timestamp: u64,
-    pub contract_account_id: String,
-    pub symbol: String,
-    pub decimals: u32,
-    pub affected_account_id: String,
-    pub involved_account_id: Option<String>,
-    pub delta_amount: SignedDiff<u128>,
-    pub cause: String,
-    pub status: String,
-    pub event_memo: Option<String>,
+    pub(crate) standard: String,
+    pub(crate) receipt_id: CryptoHash,
+    pub(crate) block_height: u64,
+    pub(crate) block_timestamp: u64,
+    pub(crate) contract_account_id: String,
+    pub(crate) symbol: String,
+    pub(crate) decimals: u32,
+    pub(crate) affected_account_id: String,
+    pub(crate) involved_account_id: Option<String>,
+    pub(crate) delta_amount: SignedDiff<u128>,
+    pub(crate) cause: String,
+    pub(crate) status: String,
+    pub(crate) event_memo: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct EventBase {
-    pub standard: String,
-    pub receipt_id: CryptoHash,
-    pub block_height: u64,
-    pub block_timestamp: u64,
-    pub contract_account_id: AccountIdentifier,
-    pub status: near_primitives::views::ExecutionStatusView,
+    pub(crate) standard: String,
+    pub(crate) receipt_id: CryptoHash,
+    pub(crate) block_height: u64,
+    pub(crate) block_timestamp: u64,
+    pub(crate) contract_account_id: AccountIdentifier,
+    pub(crate) status: near_primitives::views::ExecutionStatusView,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct FtEvent {
-    pub affected_id: AccountIdentifier,
-    pub involved_id: Option<AccountIdentifier>,
-    pub delta: SignedDiff<u128>,
-    pub symbol: String,
-    pub decimals: u32,
-    pub cause: String,
-    pub memo: Option<String>,
+    pub(crate) affected_id: AccountIdentifier,
+    pub(crate) involved_id: Option<AccountIdentifier>,
+    pub(crate) delta: SignedDiff<u128>,
+    pub(crate) symbol: String,
+    pub(crate) decimals: u32,
+    pub(crate) cause: String,
+    pub(crate) memo: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct FTMetadataResponse {
-    pub spec: String,
-    pub name: String,
-    pub symbol: String,
-    pub icon: Option<String>,
-    pub reference: Option<String>,
-    pub reference_hash: Option<String>,
-    pub decimals: u32,
+    pub(crate) spec: String,
+    pub(crate) name: String,
+    pub(crate) symbol: String,
+    pub(crate) icon: Option<String>,
+    pub(crate) reference: Option<String>,
+    pub(crate) reference_hash: Option<String>,
+    pub(crate) decimals: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct FTAccountBalanceResponse {
-    pub amount: u128,
+    pub(crate) amount: u128,
 }

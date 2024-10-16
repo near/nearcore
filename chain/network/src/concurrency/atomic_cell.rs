@@ -4,13 +4,13 @@ use std::sync::Mutex;
 pub(crate) struct AtomicCell<T>(Mutex<T>);
 
 impl<T: Clone> AtomicCell<T> {
-    pub fn new(v: T) -> Self {
+    pub(crate) fn new(v: T) -> Self {
         Self(Mutex::new(v))
     }
-    pub fn load(&self) -> T {
+    pub(crate) fn load(&self) -> T {
         self.0.lock().unwrap().clone()
     }
-    pub fn store(&self, v: T) {
+    pub(crate) fn store(&self, v: T) {
         *self.0.lock().unwrap() = v;
     }
 }

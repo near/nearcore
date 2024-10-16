@@ -29,24 +29,24 @@ use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
 use crate::shards_manager_actor::ShardsManagerActor;
 
-pub struct ChunkTestFixture {
-    pub store: ChunkStoreAdapter,
-    pub epoch_manager: EpochManagerHandle,
-    pub shard_tracker: ShardTracker,
-    pub mock_network: Arc<MockPeerManagerAdapter>,
-    pub mock_client_adapter: Arc<MockClientAdapterForShardsManager>,
-    pub chain_store: ChainStore,
-    pub all_part_ords: Vec<u64>,
-    pub mock_part_ords: Vec<u64>,
-    pub mock_merkle_paths: Vec<MerklePath>,
-    pub mock_outgoing_receipts: Vec<Receipt>,
-    pub mock_encoded_chunk: EncodedShardChunk,
-    pub mock_chunk_part_owner: AccountId,
-    pub mock_shard_tracker: AccountId,
-    pub mock_chunk_header: ShardChunkHeader,
-    pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
-    pub mock_chain_head: Tip,
-    pub rs: ReedSolomon,
+pub(crate) struct ChunkTestFixture {
+    pub(crate) store: ChunkStoreAdapter,
+    pub(crate) epoch_manager: EpochManagerHandle,
+    pub(crate) shard_tracker: ShardTracker,
+    pub(crate) mock_network: Arc<MockPeerManagerAdapter>,
+    pub(crate) mock_client_adapter: Arc<MockClientAdapterForShardsManager>,
+    pub(crate) chain_store: ChainStore,
+    pub(crate) all_part_ords: Vec<u64>,
+    pub(crate) mock_part_ords: Vec<u64>,
+    pub(crate) mock_merkle_paths: Vec<MerklePath>,
+    pub(crate) mock_outgoing_receipts: Vec<Receipt>,
+    pub(crate) mock_encoded_chunk: EncodedShardChunk,
+    pub(crate) mock_chunk_part_owner: AccountId,
+    pub(crate) mock_shard_tracker: AccountId,
+    pub(crate) mock_chunk_header: ShardChunkHeader,
+    pub(crate) mock_chunk_parts: Vec<PartialEncodedChunkPart>,
+    pub(crate) mock_chain_head: Tip,
+    pub(crate) rs: ReedSolomon,
 }
 
 impl Default for ChunkTestFixture {
@@ -56,7 +56,7 @@ impl Default for ChunkTestFixture {
 }
 
 impl ChunkTestFixture {
-    pub fn new(
+    pub(crate) fn new(
         orphan_chunk: bool,
         num_shards: u64,
         num_block_producers: usize,
@@ -202,7 +202,7 @@ impl ChunkTestFixture {
         }
     }
 
-    pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunk {
+    pub(crate) fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunk {
         let parts = part_ords
             .iter()
             .copied()
@@ -216,7 +216,7 @@ impl ChunkTestFixture {
         })
     }
 
-    pub fn count_chunk_completion_messages(&self) -> usize {
+    pub(crate) fn count_chunk_completion_messages(&self) -> usize {
         let mut chunks_completed = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
             if let ShardsManagerResponse::ChunkCompleted { .. } = message {
@@ -226,7 +226,7 @@ impl ChunkTestFixture {
         chunks_completed
     }
 
-    pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
+    pub(crate) fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
         let mut chunks_ready = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
             if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
@@ -238,7 +238,7 @@ impl ChunkTestFixture {
 }
 
 /// Gets the Tip from the block hash and the EpochManager.
-pub fn tip(epoch_manager: &dyn EpochManagerAdapter, last_block_hash: CryptoHash) -> Tip {
+pub(crate) fn tip(epoch_manager: &dyn EpochManagerAdapter, last_block_hash: CryptoHash) -> Tip {
     let block_info = epoch_manager.get_block_info(&last_block_hash).unwrap();
     let epoch_id = epoch_manager.get_epoch_id(&last_block_hash).unwrap();
     let next_epoch_id = epoch_manager.get_next_epoch_id(&last_block_hash).unwrap();
@@ -252,7 +252,7 @@ pub fn tip(epoch_manager: &dyn EpochManagerAdapter, last_block_hash: CryptoHash)
 }
 
 /// Returns the tip representing the genesis block for testing.
-pub fn default_tip() -> Tip {
+pub(crate) fn default_tip() -> Tip {
     Tip {
         height: 0,
         last_block_hash: CryptoHash::default(),
@@ -265,7 +265,7 @@ pub fn default_tip() -> Tip {
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockClientAdapterForShardsManager {
-    pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
+    pub(crate) requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
 }
 
 impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
@@ -291,7 +291,7 @@ pub struct ShardsManagerResendChunkRequests;
 pub struct SynchronousShardsManagerAdapter {
     // Need a mutex here even though we only support single-threaded tests, because
     // MsgRecipient requires Sync.
-    pub shards_manager: Arc<Mutex<ShardsManagerActor>>,
+    pub(crate) shards_manager: Arc<Mutex<ShardsManagerActor>>,
 }
 
 impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {

@@ -15,10 +15,10 @@ const RATIO_DATA_PARTS: f32 = 0.6;
 
 /// Type alias around what ReedSolomon represents data part as.
 /// This should help with making the code a bit more understandable.
-pub type WitnessPart = Option<Box<[u8]>>;
+pub(crate) type WitnessPart = Option<Box<[u8]>>;
 
 /// Reed Solomon encoder wrapper for encoding and decoding state witness parts.
-pub struct WitnessEncoder {
+pub(crate) struct WitnessEncoder {
     /// None corresponds to the case when we are the only validator for the chunk
     /// since ReedSolomon does not support having exactly 1 total part count and
     /// no parity parts.
@@ -36,21 +36,21 @@ impl WitnessEncoder {
         Self { rs }
     }
 
-    pub fn total_parts(&self) -> usize {
+    pub(crate) fn total_parts(&self) -> usize {
         match self.rs {
             Some(ref rs) => rs.total_shard_count(),
             None => 1,
         }
     }
 
-    pub fn data_parts(&self) -> usize {
+    pub(crate) fn data_parts(&self) -> usize {
         match self.rs {
             Some(ref rs) => rs.data_shard_count(),
             None => 1,
         }
     }
 
-    pub fn encode(&self, witness: &EncodedChunkStateWitness) -> (Vec<WitnessPart>, usize) {
+    pub(crate) fn encode(&self, witness: &EncodedChunkStateWitness) -> (Vec<WitnessPart>, usize) {
         match self.rs {
             Some(ref rs) => reed_solomon_encode(rs, witness),
             None => {
@@ -59,7 +59,7 @@ impl WitnessEncoder {
         }
     }
 
-    pub fn decode(
+    pub(crate) fn decode(
         &self,
         parts: &mut [WitnessPart],
         encoded_length: usize,
@@ -74,16 +74,16 @@ impl WitnessEncoder {
 }
 
 /// We keep one encoder for each length of chunk_validators to avoid re-creating the encoder.
-pub struct WitnessEncoderCache {
+pub(crate) struct WitnessEncoderCache {
     instances: HashMap<usize, Arc<WitnessEncoder>>,
 }
 
 impl WitnessEncoderCache {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { instances: HashMap::new() }
     }
 
-    pub fn entry(&mut self, total_parts: usize) -> Arc<WitnessEncoder> {
+    pub(crate) fn entry(&mut self, total_parts: usize) -> Arc<WitnessEncoder> {
         self.instances
             .entry(total_parts)
             .or_insert_with(|| Arc::new(WitnessEncoder::new(total_parts)))
@@ -91,7 +91,7 @@ impl WitnessEncoderCache {
     }
 }
 
-pub fn witness_part_length(encoded_witness_size: usize, total_parts: usize) -> usize {
+pub(crate) fn witness_part_length(encoded_witness_size: usize, total_parts: usize) -> usize {
     reed_solomon_part_length(encoded_witness_size, num_witness_data_parts(total_parts))
 }
 

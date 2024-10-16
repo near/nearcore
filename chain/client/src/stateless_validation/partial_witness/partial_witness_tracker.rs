@@ -33,15 +33,15 @@ const WITNESS_PARTS_CACHE_SIZE: usize = 40;
 const PROCESSED_WITNESSES_CACHE_SIZE: usize = 200;
 
 struct CacheEntry {
-    pub created_at: Instant,
-    pub data_parts_present: usize,
-    pub parts: Vec<WitnessPart>,
-    pub encoder: Arc<WitnessEncoder>,
-    pub total_parts_size: usize,
+    pub(crate) created_at: Instant,
+    pub(crate) data_parts_present: usize,
+    pub(crate) parts: Vec<WitnessPart>,
+    pub(crate) encoder: Arc<WitnessEncoder>,
+    pub(crate) total_parts_size: usize,
 }
 
 impl CacheEntry {
-    pub fn new(encoder: Arc<WitnessEncoder>) -> Self {
+    pub(crate) fn new(encoder: Arc<WitnessEncoder>) -> Self {
         Self {
             created_at: Instant::now(),
             data_parts_present: 0,
@@ -57,7 +57,7 @@ impl CacheEntry {
 
     // Function to insert a part into the cache entry for the chunk hash. Additionally, it tries to
     // decode and return the state witness if all parts are present.
-    pub fn insert_in_cache_entry(
+    pub(crate) fn insert_in_cache_entry(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Option<std::io::Result<EncodedChunkStateWitness>> {
@@ -90,7 +90,7 @@ impl CacheEntry {
 /// Track the Reed Solomon erasure encoded parts of the `EncodedChunkStateWitness`. These are created
 /// by the chunk producer and distributed to validators. Note that we do not need all the parts of to
 /// recreate the full state witness.
-pub struct PartialEncodedStateWitnessTracker {
+pub(crate) struct PartialEncodedStateWitnessTracker {
     /// Sender to send the encoded state witness to the client actor.
     client_sender: ClientSenderForPartialWitness,
     /// Epoch manager to get the set of chunk validators
@@ -106,7 +106,7 @@ pub struct PartialEncodedStateWitnessTracker {
 }
 
 impl PartialEncodedStateWitnessTracker {
-    pub fn new(
+    pub(crate) fn new(
         client_sender: ClientSenderForPartialWitness,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
@@ -121,7 +121,7 @@ impl PartialEncodedStateWitnessTracker {
         }
     }
 
-    pub fn store_partial_encoded_state_witness(
+    pub(crate) fn store_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {

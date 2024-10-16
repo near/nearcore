@@ -403,9 +403,9 @@ impl FlatStorageShardCreator {
 
 /// Creates flat storages for all shards.
 pub struct FlatStorageCreator {
-    pub shard_creators: HashMap<ShardUId, FlatStorageShardCreator>,
+    pub(crate) shard_creators: HashMap<ShardUId, FlatStorageShardCreator>,
     /// Used to spawn threads for traversing state parts.
-    pub pool: rayon::ThreadPool,
+    pub(crate) pool: rayon::ThreadPool,
 }
 
 impl FlatStorageCreator {

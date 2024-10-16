@@ -152,17 +152,17 @@ impl BlocksInProcessing {
 /// The thread applying the chunks should call `set_done` to send the notification.
 /// The waiter threads should call `wait_until_done` to wait (blocked) for the notification.
 #[derive(Clone)]
-pub struct ApplyChunksDoneTracker(Arc<(Mutex<bool>, Condvar)>);
+pub(crate) struct ApplyChunksDoneTracker(Arc<(Mutex<bool>, Condvar)>);
 
 impl ApplyChunksDoneTracker {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(Arc::new((Mutex::new(false), Condvar::new())))
     }
 
     /// Notifies all threads waiting on `wait_until_done` that apply chunks is done.
     /// This should be called only once.
     /// Returns an error if it is called more than once or the mutex used internally is poisoned.
-    pub fn set_done(&mut self) -> Result<(), &'static str> {
+    pub(crate) fn set_done(&mut self) -> Result<(), &'static str> {
         let (lock, cvar) = &*self.0;
         match lock.lock() {
             Ok(mut guard) => {
@@ -180,7 +180,7 @@ impl ApplyChunksDoneTracker {
 
     /// Blocks the current thread until the `set_done` is called after applying the chunks.
     /// to indicate that apply chunks is done.
-    pub fn wait_until_done(&self) {
+    pub(crate) fn wait_until_done(&self) {
         #[cfg(feature = "testloop")]
         let mut testloop_total_wait_time = Duration::from_millis(0);
 

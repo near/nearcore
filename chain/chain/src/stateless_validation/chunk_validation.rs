@@ -49,7 +49,7 @@ pub enum MainTransition {
 }
 
 impl MainTransition {
-    pub fn block_hash(&self) -> CryptoHash {
+    pub(crate) fn block_hash(&self) -> CryptoHash {
         match self {
             Self::Genesis { block_hash, .. } => *block_hash,
             Self::NewChunk(data) => data.block.block_hash,
@@ -57,7 +57,7 @@ impl MainTransition {
         }
     }
 
-    pub fn shard_id(&self) -> ShardId {
+    pub(crate) fn shard_id(&self) -> ShardId {
         match self {
             Self::Genesis { shard_id, .. } => *shard_id,
             // It is ok to use the shard id from the header because it is a new
@@ -75,8 +75,8 @@ pub struct PreValidationOutput {
 
 #[derive(Clone)]
 pub struct ChunkStateWitnessValidationResult {
-    pub chunk_extra: ChunkExtra,
-    pub outgoing_receipts: Vec<Receipt>,
+    pub(crate) chunk_extra: ChunkExtra,
+    pub(crate) outgoing_receipts: Vec<Receipt>,
 }
 
 pub type MainStateTransitionCache =

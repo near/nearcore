@@ -177,7 +177,7 @@ fn get_standard(event_type: &Event) -> String {
     }
     .to_string()
 }
-pub const FT: &str = "FT_NEP141";
+pub(crate) const FT: &str = "FT_NEP141";
 
 async fn build_event(
     base: crate::models::EventBase,

@@ -98,13 +98,13 @@ const NUM_REBROADCAST_BLOCKS: usize = 30;
 const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
-pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
+pub(crate) const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
 /// Defines whether in case of adversarial block production invalid blocks can
 /// be produced.
 #[cfg(feature = "test_features")]
 #[derive(PartialEq, Eq)]
-pub enum AdvProduceBlocksMode {
+pub(crate) enum AdvProduceBlocksMode {
     All,
     OnlyValid,
 }
@@ -113,9 +113,9 @@ pub struct Client {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behaviour on chain.
     #[cfg(feature = "test_features")]
-    pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
+    pub(crate) adv_produce_blocks: Option<AdvProduceBlocksMode>,
     #[cfg(feature = "test_features")]
-    pub adv_produce_chunks: Option<AdvProduceChunksMode>,
+    pub(crate) adv_produce_chunks: Option<AdvProduceChunksMode>,
     #[cfg(feature = "test_features")]
     pub produce_invalid_chunks: bool,
     #[cfg(feature = "test_features")]
@@ -422,7 +422,10 @@ impl Client {
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
-    pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
+    pub(crate) fn check_head_progress_stalled(
+        &mut self,
+        stall_timeout: Duration,
+    ) -> Result<(), Error> {
         if self.clock.now() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
@@ -435,7 +438,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn remove_transactions_for_block(
+    pub(crate) fn remove_transactions_for_block(
         &mut self,
         me: AccountId,
         block: &Block,
@@ -466,7 +469,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn reintroduce_transactions_for_block(
+    pub(crate) fn reintroduce_transactions_for_block(
         &mut self,
         me: AccountId,
         block: &Block,
@@ -567,7 +570,7 @@ impl Client {
 
     /// Produce block for given `height` on top of chain head.
     /// Either returns produced block (not applied) or error.
-    pub fn produce_block_on_head(
+    pub(crate) fn produce_block_on_head(
         &mut self,
         height: BlockHeight,
         prepare_chunk_headers: bool,
@@ -829,7 +832,7 @@ impl Client {
         Ok(Some(block))
     }
 
-    pub fn try_produce_chunk(
+    pub(crate) fn try_produce_chunk(
         &mut self,
         prev_block: &Block,
         epoch_id: &EpochId,
@@ -863,7 +866,7 @@ impl Client {
         ?epoch_id,
         chunk_hash = tracing::field::Empty,
     ))]
-    pub fn produce_chunk(
+    pub(crate) fn produce_chunk(
         &mut self,
         prev_block: &Block,
         epoch_id: &EpochId,
@@ -1106,7 +1109,7 @@ impl Client {
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     // This function is just a wrapper for process_block_impl that makes error propagation easier.
-    pub fn receive_block(
+    pub(crate) fn receive_block(
         &mut self,
         block: Block,
         peer_id: PeerId,
@@ -1463,7 +1466,7 @@ impl Client {
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk.
-    pub fn on_chunk_completed(
+    pub(crate) fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
@@ -1498,7 +1501,7 @@ impl Client {
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
     /// is invalid.
-    pub fn on_invalid_chunk(&mut self, encoded_chunk: EncodedShardChunk) {
+    pub(crate) fn on_invalid_chunk(&mut self, encoded_chunk: EncodedShardChunk) {
         let mut update = self.chain.mut_chain_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
         if let Err(err) = update.commit() {
@@ -1522,7 +1525,7 @@ impl Client {
     }
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
-    pub fn check_and_update_doomslug_tip(&mut self) -> Result<(), Error> {
+    pub(crate) fn check_and_update_doomslug_tip(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
 
         if tip.last_block_hash != self.doomslug.get_tip().0 {
@@ -1541,7 +1544,7 @@ impl Client {
     }
 
     #[cfg(feature = "sandbox")]
-    pub fn sandbox_update_tip(&mut self, height: BlockHeight) -> Result<(), Error> {
+    pub(crate) fn sandbox_update_tip(&mut self, height: BlockHeight) -> Result<(), Error> {
         let tip = self.chain.head()?;
 
         let last_final_hash =
@@ -1558,7 +1561,7 @@ impl Client {
 
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
-    pub fn sandbox_delta_time(&self) -> Duration {
+    pub(crate) fn sandbox_delta_time(&self) -> Duration {
         let avg_block_prod_time = (self.config.min_block_production_delay.whole_nanoseconds()
             + self.config.max_block_production_delay.whole_nanoseconds())
             / 2;
@@ -1575,7 +1578,7 @@ impl Client {
         Duration::nanoseconds(ns)
     }
 
-    pub fn send_block_approval(
+    pub(crate) fn send_block_approval(
         &mut self,
         parent_hash: &CryptoHash,
         approval: Approval,
@@ -1876,7 +1879,7 @@ impl Client {
         }
     }
 
-    pub fn mark_chunk_header_ready_for_inclusion(
+    pub(crate) fn mark_chunk_header_ready_for_inclusion(
         &mut self,
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
@@ -1930,7 +1933,7 @@ impl Client {
         Ok(shard_chunk)
     }
 
-    pub fn request_missing_chunks(
+    pub(crate) fn request_missing_chunks(
         &mut self,
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
@@ -2003,7 +2006,7 @@ impl Client {
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
     }
 
-    pub fn is_validator(
+    pub(crate) fn is_validator(
         &self,
         epoch_id: &EpochId,
         block_hash: &CryptoHash,
@@ -2478,7 +2481,7 @@ impl Client {
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
-    pub fn run_catchup(
+    pub(crate) fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
@@ -2636,7 +2639,7 @@ impl Client {
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
+    pub(crate) fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
         // TODO(2445): Enable challenges when they are working correctly.
         //        if self.challenges.contains_key(&challenge.hash) {
         //            return Ok(());
@@ -2678,7 +2681,7 @@ impl Client {
 
 /* implements functions used to communicate with network */
 impl Client {
-    pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
+    pub(crate) fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
         let _span = debug_span!(target: "client", "request_block", ?hash, ?peer_id).entered();
         match self.chain.block_exists(&hash) {
             Ok(false) => {
@@ -2695,7 +2698,7 @@ impl Client {
         }
     }
 
-    pub fn ban_peer(&self, peer_id: PeerId, ban_reason: ReasonForBan) {
+    pub(crate) fn ban_peer(&self, peer_id: PeerId, ban_reason: ReasonForBan) {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::BanPeer { peer_id, ban_reason },
         ));
@@ -2807,7 +2810,7 @@ impl Client {
 }
 
 impl Client {
-    pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
+    pub(crate) fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
         let mut ret = vec![];
         for (sync_hash, (_, shard_sync_state, block_catchup_state)) in
             self.catchup_state_syncs.iter()

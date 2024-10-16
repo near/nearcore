@@ -17,7 +17,7 @@ impl<T> BorshInHexString<T>
 where
     T: BorshSerialize + BorshDeserialize,
 {
-    pub fn into_inner(self) -> T {
+    pub(crate) fn into_inner(self) -> T {
         self.0
     }
 }
@@ -92,7 +92,7 @@ impl<T> BlobInHexString<T>
 where
     T: AsRef<[u8]> + From<Vec<u8>>,
 {
-    pub fn into_inner(self) -> T {
+    pub(crate) fn into_inner(self) -> T {
         self.0
     }
 }
@@ -172,7 +172,7 @@ impl<T> SignedDiff<T>
 where
     T: Copy + PartialEq + std::ops::Sub<Output = T> + std::cmp::Ord,
 {
-    pub fn cmp(lhs: T, rhs: T) -> Self {
+    pub(crate) fn cmp(lhs: T, rhs: T) -> Self {
         if lhs <= rhs {
             Self { is_positive: true, absolute_difference: rhs - lhs }
         } else {
@@ -180,11 +180,11 @@ where
         }
     }
 
-    pub fn is_positive(&self) -> bool {
+    pub(crate) fn is_positive(&self) -> bool {
         self.is_positive
     }
 
-    pub fn absolute_difference(&self) -> T {
+    pub(crate) fn absolute_difference(&self) -> T {
         self.absolute_difference
     }
 }
@@ -294,17 +294,17 @@ fn get_liquid_balance_for_storage(
 }
 
 pub(crate) struct RosettaAccountBalances {
-    pub liquid: near_primitives::types::Balance,
-    pub liquid_for_storage: near_primitives::types::Balance,
-    pub locked: near_primitives::types::Balance,
+    pub(crate) liquid: near_primitives::types::Balance,
+    pub(crate) liquid_for_storage: near_primitives::types::Balance,
+    pub(crate) locked: near_primitives::types::Balance,
 }
 
 impl RosettaAccountBalances {
-    pub fn zero() -> Self {
+    pub(crate) fn zero() -> Self {
         Self { liquid: 0, liquid_for_storage: 0, locked: 0 }
     }
 
-    pub fn from_account<T: Into<near_primitives::account::Account>>(
+    pub(crate) fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
         runtime_config: &near_parameters::RuntimeConfigView,
     ) -> Self {
@@ -458,11 +458,11 @@ impl<'a, T> InitializeOnce<'a, T>
 where
     T: std::fmt::Debug + Eq + ToOwned<Owned = T>,
 {
-    pub fn new(error_message: &'a str) -> Self {
+    pub(crate) fn new(error_message: &'a str) -> Self {
         Self { error_message, known_value: None }
     }
 
-    pub fn try_set(&mut self, new_value: &T) -> crate::errors::Result<()> {
+    pub(crate) fn try_set(&mut self, new_value: &T) -> crate::errors::Result<()> {
         if let Some(ref known_value) = self.known_value {
             if new_value != known_value {
                 Err(crate::errors::ErrorKind::InvalidInput(format!(
@@ -478,7 +478,7 @@ where
         }
     }
 
-    pub fn into_inner(self) -> Option<T> {
+    pub(crate) fn into_inner(self) -> Option<T> {
         self.known_value
     }
 }

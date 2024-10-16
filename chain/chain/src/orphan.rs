@@ -65,7 +65,7 @@ impl Orphan {
 /// or
 /// 2) size of the pool exceeds MAX_ORPHAN_SIZE and the orphan was added a long time ago
 ///    or the height is high
-pub struct OrphanBlockPool {
+pub(crate) struct OrphanBlockPool {
     /// A map from block hash to a orphan block
     orphans: HashMap<CryptoHash, Orphan>,
     /// A set that contains all orphans for which we have requested missing chunks for them
@@ -84,7 +84,7 @@ pub struct OrphanBlockPool {
 }
 
 impl OrphanBlockPool {
-    pub fn new() -> OrphanBlockPool {
+    pub(crate) fn new() -> OrphanBlockPool {
         OrphanBlockPool {
             orphans: HashMap::default(),
             orphans_requested_missing_chunks: HashSet::default(),
@@ -94,7 +94,7 @@ impl OrphanBlockPool {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.orphans.len()
     }
 
@@ -150,16 +150,16 @@ impl OrphanBlockPool {
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
     }
 
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
+    pub(crate) fn contains(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains_key(hash)
     }
 
-    pub fn get(&self, hash: &CryptoHash) -> Option<&Orphan> {
+    pub(crate) fn get(&self, hash: &CryptoHash) -> Option<&Orphan> {
         self.orphans.get(hash)
     }
 
     // // Iterates over existing orphans.
-    // pub fn map(&self, orphan_fn: &mut dyn FnMut(&CryptoHash, &Block, &Instant)) {
+    // pub(crate) fn map(&self, orphan_fn: &mut dyn FnMut(&CryptoHash, &Block, &Instant)) {
     //     self.orphans
     //         .iter()
     //         .map(|it| orphan_fn(it.0, it.1.block.get_inner(), &it.1.added))
@@ -170,7 +170,7 @@ impl OrphanBlockPool {
     /// of `prev_hash` and return the list.
     /// This function is called when `prev_hash` is accepted, thus its children can be removed
     /// from the orphan pool and be processed.
-    pub fn remove_by_prev_hash(&mut self, prev_hash: CryptoHash) -> Option<Vec<Orphan>> {
+    pub(crate) fn remove_by_prev_hash(&mut self, prev_hash: CryptoHash) -> Option<Vec<Orphan>> {
         let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
         let ret = self.prev_hash_idx.remove(&prev_hash).map(|hs| {
             hs.iter()
@@ -190,7 +190,7 @@ impl OrphanBlockPool {
 
     /// Return a list of orphans that are among the `target_depth` immediate descendants of
     /// the block `parent_hash`
-    pub fn get_orphans_within_depth(
+    pub(crate) fn get_orphans_within_depth(
         &self,
         parent_hash: CryptoHash,
         target_depth: u64,
@@ -295,7 +295,7 @@ impl Chain {
     ///    (This is because when requesting chunks, we will use `ancestor` hash instead of the
     ///     previous block hash of the orphan to decide epoch id)
     /// 6) The orphan has missing chunks
-    pub fn should_request_chunks_for_orphan(
+    pub(crate) fn should_request_chunks_for_orphan(
         &mut self,
         me: &Option<AccountId>,
         orphan: &Block,
@@ -359,7 +359,7 @@ impl Chain {
     /// `orphan_misses_chunks`: callback to be called when it is ready to request missing chunks for
     ///                         an orphan
     /// `on_challenge`: callback to be called when an orphan should be challenged
-    pub fn check_orphans(
+    pub(crate) fn check_orphans(
         &mut self,
         me: &Option<AccountId>,
         prev_hash: CryptoHash,
@@ -417,7 +417,7 @@ impl Chain {
 
     /// Returns number of evicted orphans.
     #[inline]
-    pub fn orphans_evicted_len(&self) -> usize {
+    pub(crate) fn orphans_evicted_len(&self) -> usize {
         self.orphans.len_evicted()
     }
 

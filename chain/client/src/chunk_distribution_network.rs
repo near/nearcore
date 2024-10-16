@@ -17,7 +17,7 @@ use std::fmt;
 use tracing::{debug, error};
 
 /// Basic interface for the chunk distribution network.
-pub trait ChunkDistributionClient {
+pub(crate) trait ChunkDistributionClient {
     type Error;
     type Response;
 
@@ -39,25 +39,25 @@ pub trait ChunkDistributionClient {
 
 /// Helper struct for the Chunk Distribution Network Feature.
 #[derive(Debug, Clone)]
-pub struct ChunkDistributionNetwork {
+pub(crate) struct ChunkDistributionNetwork {
     client: reqwest::Client,
     config: ChunkDistributionNetworkConfig,
 }
 
 impl ChunkDistributionNetwork {
-    pub fn from_config(config: &ClientConfig) -> Option<Self> {
+    pub(crate) fn from_config(config: &ClientConfig) -> Option<Self> {
         config
             .chunk_distribution_network
             .as_ref()
             .map(|c| Self { client: reqwest::Client::new(), config: c.clone() })
     }
 
-    pub fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.config.enabled
     }
 }
 
-pub fn request_missing_chunks<C>(
+pub(crate) fn request_missing_chunks<C>(
     blocks_missing_chunks: Vec<BlockMissingChunks>,
     orphans_missing_chunks: Vec<OrphanMissingChunks>,
     client: C,

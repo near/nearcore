@@ -1,5 +1,5 @@
-pub mod orphan_witness_handling;
-pub mod orphan_witness_pool;
+pub(crate) mod orphan_witness_handling;
+pub(crate) mod orphan_witness_pool;
 
 use crate::Client;
 use itertools::Itertools;
@@ -50,7 +50,7 @@ pub struct ChunkValidator {
 }
 
 impl ChunkValidator {
-    pub fn new(
+    pub(crate) fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -314,7 +314,7 @@ impl Client {
         ));
     }
 
-    pub fn process_chunk_state_witness_with_prev_block(
+    pub(crate) fn process_chunk_state_witness_with_prev_block(
         &mut self,
         witness: ChunkStateWitness,
         prev_block: &Block,

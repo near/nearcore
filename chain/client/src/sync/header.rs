@@ -16,9 +16,9 @@ use tracing::{debug, warn};
 pub const MAX_BLOCK_HEADERS: u64 = 512;
 
 /// Maximum number of block header hashes to send as part of a locator.
-pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
+pub(crate) const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
-pub const NS_PER_SECOND: u128 = 1_000_000_000;
+pub(crate) const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Progress of downloading the currently requested batch of headers.
 struct BatchProgress {
@@ -33,7 +33,7 @@ struct BatchProgress {
 
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
-pub struct HeaderSync {
+pub(crate) struct HeaderSync {
     clock: Clock,
 
     network_adapter: PeerManagerAdapter,
@@ -67,7 +67,7 @@ pub struct HeaderSync {
 }
 
 impl HeaderSync {
-    pub fn new(
+    pub(crate) fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         initial_timeout: Duration,
@@ -98,7 +98,7 @@ impl HeaderSync {
     /// Can update `sync_status` to `HeaderSync`.
     /// Can request a new batch of headers from a peer.
     /// This function won't tell you that header sync is complete.
-    pub fn run(
+    pub(crate) fn run(
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &Chain,

@@ -21,7 +21,7 @@ const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 /// - partial_witness signature is valid and from the expected chunk_producer
 /// TODO(stateless_validation): Include checks from handle_orphan_state_witness in orphan_witness_handling.rs
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
-pub fn validate_partial_encoded_state_witness(
+pub(crate) fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
     partial_witness: &PartialEncodedStateWitness,
     signer: &ValidatorSigner,
@@ -67,7 +67,7 @@ pub fn validate_partial_encoded_state_witness(
 
 /// Function to validate the chunk endorsement. In addition of ChunkProductionKey, we check the following:
 /// - signature of endorsement and metadata is valid
-pub fn validate_chunk_endorsement(
+pub(crate) fn validate_chunk_endorsement(
     epoch_manager: &dyn EpochManagerAdapter,
     endorsement: &ChunkEndorsementV2,
     store: &Store,

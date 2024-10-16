@@ -912,7 +912,7 @@ impl fmt::Display for SyncRequirement {
 }
 
 impl ClientActorInner {
-    pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+    pub(crate) fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.start_flat_storage_creation(ctx);
 
         // Start syncing job.

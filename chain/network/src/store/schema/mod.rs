@@ -15,7 +15,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-pub struct AccountIdFormat;
+pub(crate) struct AccountIdFormat;
 impl Format for AccountIdFormat {
     type T = AccountId;
     fn encode<W: io::Write>(a: &AccountId, w: &mut W) -> io::Result<()> {
@@ -105,12 +105,12 @@ impl Column for RecentOutboundConnections {
 ////////////////////////////////////////////////////
 // Storage
 
-pub type Error = io::Error;
+pub(crate) type Error = io::Error;
 fn invalid_data(e: impl std::error::Error + Send + Sync + 'static) -> Error {
     Error::new(io::ErrorKind::InvalidData, e)
 }
 
-pub trait Format {
+pub(crate) trait Format {
     type T;
     /// Encode should write encoded <a> to <w>.
     /// Errors may come only from calling methods of <w>.
@@ -129,7 +129,7 @@ fn to_vec<F: Format>(a: &F::T) -> Vec<u8> {
 /// Format trait is automatically derived for BorshRepr instances,
 /// by first converting T to Self and then serializing to Borsh
 /// (Format::decode analogically).
-pub trait BorshRepr: BorshSerialize + BorshDeserialize {
+pub(crate) trait BorshRepr: BorshSerialize + BorshDeserialize {
     type T;
     fn to_repr(a: &Self::T) -> Self;
     fn from_repr(s: Self) -> Result<Self::T, Error>;
@@ -150,7 +150,7 @@ impl<R: BorshRepr> Format for R {
 /// as the isomorphism (therefore the derived Format of Borsh<T> is
 /// just borsh serialization of T).
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct Borsh<T: BorshSerialize + BorshDeserialize>(T);
+pub(crate) struct Borsh<T: BorshSerialize + BorshDeserialize>(T);
 
 impl<T: BorshSerialize + BorshDeserialize + Clone> BorshRepr for Borsh<T> {
     type T = T;
@@ -175,7 +175,7 @@ impl<R: BorshRepr> BorshRepr for Vec<R> {
 }
 
 // Little endian representation for u64.
-pub struct U64LE;
+pub(crate) struct U64LE;
 impl Format for U64LE {
     type T = u64;
     fn encode<W: io::Write>(a: &u64, w: &mut W) -> io::Result<()> {
@@ -188,7 +188,7 @@ impl Format for U64LE {
 
 /// Column is a type-safe specification of the DB column.
 /// It defines how to encode/decode keys and values stored in the column.
-pub trait Column {
+pub(crate) trait Column {
     const COL: DBCol;
     type Key: Format;
     type Value: Format;
@@ -196,14 +196,14 @@ pub trait Column {
 
 /// A type-safe wrapper of the near_store::Store.
 #[derive(Clone)]
-pub struct Store(std::sync::Arc<dyn near_store::db::Database>);
+pub(crate) struct Store(std::sync::Arc<dyn near_store::db::Database>);
 
 /// A type-safe wrapper of the near_store::StoreUpdate.
 #[derive(Default)]
-pub struct StoreUpdate(near_store::db::DBTransaction);
+pub(crate) struct StoreUpdate(near_store::db::DBTransaction);
 
 impl Store {
-    pub fn new_update(&mut self) -> StoreUpdate {
+    pub(crate) fn new_update(&mut self) -> StoreUpdate {
         Default::default()
     }
 
@@ -213,11 +213,11 @@ impl Store {
         "Store::commit",
         skip_all
     )]
-    pub fn commit(&mut self, update: StoreUpdate) -> Result<(), Error> {
+    pub(crate) fn commit(&mut self, update: StoreUpdate) -> Result<(), Error> {
         self.0.write(update.0)
     }
 
-    pub fn get<C: Column>(
+    pub(crate) fn get<C: Column>(
         &self,
         k: &<C::Key as Format>::T,
     ) -> Result<Option<<C::Value as Format>::T>, Error> {
@@ -237,10 +237,10 @@ impl From<Arc<dyn near_store::db::Database>> for Store {
 }
 
 impl StoreUpdate {
-    pub fn set<C: Column>(&mut self, k: &<C::Key as Format>::T, v: &<C::Value as Format>::T) {
+    pub(crate) fn set<C: Column>(&mut self, k: &<C::Key as Format>::T, v: &<C::Value as Format>::T) {
         self.0.set(C::COL, to_vec::<C::Key>(k), to_vec::<C::Value>(v))
     }
-    pub fn _delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
+    pub(crate) fn _delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
         self.0.delete(C::COL, to_vec::<C::Key>(k))
     }
 }

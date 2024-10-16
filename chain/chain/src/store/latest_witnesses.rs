@@ -34,21 +34,21 @@ const SINGLE_LATEST_WITNESS_MAX_SIZE: ByteSize = ByteSize::mb(128);
 const LATEST_WITNESSES_MAX_COUNT: u64 = 60 * 30;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LatestWitnessesKey {
-    pub height: u64,
-    pub shard_id: u64,
-    pub epoch_id: EpochId,
-    pub witness_size: u64,
+pub(crate) struct LatestWitnessesKey {
+    pub(crate) height: u64,
+    pub(crate) shard_id: u64,
+    pub(crate) epoch_id: EpochId,
+    pub(crate) witness_size: u64,
     /// Each witness has a random UUID to ensure that the key is unique.
     /// It allows to store multiple witnesses with the same height and shard_id.
-    pub random_uuid: [u8; 16],
+    pub(crate) random_uuid: [u8; 16],
 }
 
 impl LatestWitnessesKey {
     /// `LatestWitnessesKey` has custom serialization to ensure that the binary representation
     /// starts with big-endian height and shard_id.
     /// This allows to query using a key prefix to find all witnesses for a given height (and shard_id).
-    pub fn serialized(&self) -> [u8; 72] {
+    pub(crate) fn serialized(&self) -> [u8; 72] {
         let mut result = [0u8; 72];
         result[..8].copy_from_slice(&self.height.to_be_bytes());
         result[8..16].copy_from_slice(&self.shard_id.to_be_bytes());
@@ -58,7 +58,7 @@ impl LatestWitnessesKey {
         result
     }
 
-    pub fn deserialize(data: &[u8]) -> Result<LatestWitnessesKey, std::io::Error> {
+    pub(crate) fn deserialize(data: &[u8]) -> Result<LatestWitnessesKey, std::io::Error> {
         if data.len() != 72 {
             return Err(std::io::Error::new(
                 ErrorKind::InvalidInput,
@@ -86,14 +86,14 @@ impl LatestWitnessesKey {
     Debug, Clone, Copy, BorshSerialize, BorshDeserialize, PartialEq, Eq, Default, ProtocolSchema,
 )]
 pub struct LatestWitnessesInfo {
-    pub count: u64,
-    pub total_size: u64,
-    pub lowest_index: u64,
-    pub next_witness_index: u64,
+    pub(crate) count: u64,
+    pub(crate) total_size: u64,
+    pub(crate) lowest_index: u64,
+    pub(crate) next_witness_index: u64,
 }
 
 impl LatestWitnessesInfo {
-    pub fn is_within_limits(&self) -> bool {
+    pub(crate) fn is_within_limits(&self) -> bool {
         self.count <= LATEST_WITNESSES_MAX_COUNT
             && self.total_size <= LATEST_WITNESSES_MAX_SIZE.as_u64()
     }

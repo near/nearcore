@@ -38,12 +38,12 @@ use tracing::info;
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
 struct ValidatorInfoHelper {
-    pub is_validator: bool,
-    pub num_validators: usize,
+    pub(crate) is_validator: bool,
+    pub(crate) num_validators: usize,
 }
 
 /// A helper that prints information about current chain and reports to telemetry.
-pub struct InfoHelper {
+pub(crate) struct InfoHelper {
     clock: Clock,
     /// Nearcore agent (executable) version
     nearcore_version: Version,
@@ -66,7 +66,7 @@ pub struct InfoHelper {
     /// Epoch id.
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
-    pub boot_time_seconds: i64,
+    pub(crate) boot_time_seconds: i64,
     // Allows more detailed logging, for example a list of orphaned blocks.
     enable_multiline_logging: bool,
     // Keeps track of the previous SyncRequirement for updating metrics.
@@ -76,7 +76,7 @@ pub struct InfoHelper {
 }
 
 impl InfoHelper {
-    pub fn new(
+    pub(crate) fn new(
         clock: Clock,
         telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
@@ -102,18 +102,23 @@ impl InfoHelper {
         }
     }
 
-    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
+    pub(crate) fn chunk_processed(
+        &mut self,
+        shard_id: ShardId,
+        gas_used: Gas,
+        balance_burnt: Balance,
+    ) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
             .observe(gas_used as f64 / TERAGAS);
         metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
-    pub fn chunk_skipped(&mut self, shard_id: ShardId) {
+    pub(crate) fn chunk_skipped(&mut self, shard_id: ShardId) {
         metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
     }
 
-    pub fn block_processed(
+    pub(crate) fn block_processed(
         &mut self,
         gas_used: Gas,
         num_chunks: u64,
@@ -302,7 +307,7 @@ impl InfoHelper {
     }
 
     /// Print current summary.
-    pub fn log_summary(
+    pub(crate) fn log_summary(
         &mut self,
         client: &crate::client::Client,
         node_id: &PeerId,
@@ -676,7 +681,7 @@ fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
     })
 }
 
-pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
+pub(crate) fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
     for catchup_status in &catchup_status {
         let shard_sync_string = catchup_status
             .shard_sync_status
@@ -702,7 +707,7 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
     }
 }
 
-pub fn display_sync_status(
+pub(crate) fn display_sync_status(
     sync_status: &SyncStatus,
     head: &Tip,
     state_sync_config: &SyncConfig,
@@ -917,10 +922,10 @@ struct ValidatorProductionStats {
 }
 
 impl ValidatorProductionStatus {
-    pub fn kickout(kickout: ValidatorKickoutView) -> Self {
+    pub(crate) fn kickout(kickout: ValidatorKickoutView) -> Self {
         Self::Kickout(kickout.account_id)
     }
-    pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+    pub(crate) fn validator(info: CurrentEpochValidatorInfo) -> Self {
         Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,

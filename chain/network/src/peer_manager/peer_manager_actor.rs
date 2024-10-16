@@ -76,7 +76,7 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
-pub const MAX_TIER2_PEERS: usize = 128;
+pub(crate) const MAX_TIER2_PEERS: usize = 128;
 
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
 /// (a.k.a. ones that we've been connected to in the past) with these odds.

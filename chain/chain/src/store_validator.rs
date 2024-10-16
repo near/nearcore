@@ -28,7 +28,7 @@ use validate::StoreValidatorError;
 
 mod validate;
 
-pub struct StoreValidatorCache {
+pub(crate) struct StoreValidatorCache {
     head: BlockHeight,
     header_head: BlockHeight,
     tail: BlockHeight,
@@ -74,7 +74,7 @@ pub struct StoreValidator {
     inner: StoreValidatorCache,
     timeout: Option<i64>,
     start_time: Instant,
-    pub is_archival: bool,
+    pub(crate) is_archival: bool,
 
     pub errors: Vec<ErrorMessage>,
     tests: u64,

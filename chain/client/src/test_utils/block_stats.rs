@@ -71,7 +71,7 @@ impl BlockStats {
         self.last_hash = Some(*block.hash());
     }
 
-    pub fn check_stats(&mut self, force: bool) {
+    pub(crate) fn check_stats(&mut self, force: bool) {
         let now = self.clock.now();
         let diff = now - self.last_check;
         if !force && diff < Duration::seconds(60) {
@@ -85,7 +85,7 @@ impl BlockStats {
         );
     }
 
-    pub fn check_block_ratio(&mut self, min_ratio: Option<f64>, max_ratio: Option<f64>) {
+    pub(crate) fn check_block_ratio(&mut self, min_ratio: Option<f64>, max_ratio: Option<f64>) {
         let cur_ratio = (self.num_blocks as f64) / (max(1, self.max_chain_length) as f64);
         if let Some(min_ratio2) = min_ratio {
             if cur_ratio < min_ratio2 {

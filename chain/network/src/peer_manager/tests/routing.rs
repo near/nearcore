@@ -282,7 +282,7 @@ async fn simple_remove() {
 }
 
 // Awaits until the expected ping is seen in the event stream.
-pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: Ping) {
+pub(crate) async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: Ping) {
     events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::Ping(ping)) => {
@@ -298,7 +298,7 @@ pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: P
 }
 
 // Awaits until the expected pong is seen in the event stream.
-pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: Pong) {
+pub(crate) async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: Pong) {
     events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::Pong(pong)) => {
@@ -314,7 +314,7 @@ pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: P
 }
 
 // Awaits until RoutedMessageDropped is seen in the event stream.
-pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
+pub(crate) async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
     events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::RoutedMessageDropped) => Some(()),

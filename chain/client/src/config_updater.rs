@@ -16,9 +16,9 @@ pub struct ConfigUpdater {
 /// Return type of `ConfigUpdater::try_update()`.
 /// Represents which values have been updated.
 #[derive(Default)]
-pub struct ConfigUpdaterResult {
-    pub client_config_updated: bool,
-    pub validator_signer_updated: bool,
+pub(crate) struct ConfigUpdaterResult {
+    pub(crate) client_config_updated: bool,
+    pub(crate) validator_signer_updated: bool,
 }
 
 impl ConfigUpdater {
@@ -30,7 +30,7 @@ impl ConfigUpdater {
 
     /// Check if any of the configs were updated.
     /// If they did, the receiver (rx_config_update) will contain a clone of the new configs.
-    pub fn try_update(
+    pub(crate) fn try_update(
         &mut self,
         update_client_config_fn: &dyn Fn(UpdateableClientConfig) -> bool,
         update_validator_signer_fn: &dyn Fn(Option<Arc<ValidatorSigner>>) -> bool,
@@ -60,7 +60,7 @@ impl ConfigUpdater {
     }
 
     /// Prints an error if it's present.
-    pub fn report_status(&self) {
+    pub(crate) fn report_status(&self) {
         if let Some(updateable_configs_error) = &self.updateable_configs_error {
             tracing::warn!(
                 target: "stats",

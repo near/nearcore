@@ -18,21 +18,21 @@ pub(crate) use self::transfer::TransferOperation;
 
 mod add_key;
 mod create_account;
-pub mod delegate_action;
+pub(crate) mod delegate_action;
 mod delete_account;
 mod delete_key;
 mod deploy_contract;
 mod function_call;
 mod initiate_add_key;
 mod initiate_create_account;
-pub mod initiate_delegate_action;
+pub(crate) mod initiate_delegate_action;
 mod initiate_delete_account;
 mod initiate_delete_key;
 mod initiate_deploy_contract;
 mod initiate_function_call;
-pub mod intitiate_signed_delegate_action;
+pub(crate) mod intitiate_signed_delegate_action;
 mod refund_delete_account;
-pub mod signed_delegate_action;
+pub(crate) mod signed_delegate_action;
 mod stake;
 mod transfer;
 

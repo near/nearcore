@@ -38,7 +38,7 @@ pub(crate) enum RecvError {
 
 #[derive(actix::Message, PartialEq, Eq, Clone, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct Frame(pub Vec<u8>);
+pub(crate) struct Frame(pub(crate) Vec<u8>);
 
 /// Stream critical error.
 /// Actor is responsible for calling ctx.stop() after receiving stream::Error.
@@ -69,7 +69,7 @@ where
         + actix::Handler<Error>
         + actix::Handler<Frame>,
 {
-    pub fn spawn(
+    pub(crate) fn spawn(
         ctx: &mut actix::Context<Actor>,
         stream: tcp::Stream,
         stats: Arc<connection::Stats>,
@@ -108,7 +108,7 @@ where
     /// Silently drops message if the connection has been closed.
     /// If the message is too large, it will be silently dropped inside run_send_loop.
     /// Emits a critical error to Actor if send queue is full.
-    pub fn send(&self, frame: Frame) {
+    pub(crate) fn send(&self, frame: Frame) {
         let msg = &frame.0;
         let mut buf_size =
             self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire) as usize;

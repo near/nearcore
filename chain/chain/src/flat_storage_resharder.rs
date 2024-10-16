@@ -70,7 +70,7 @@ impl FlatStorageResharder {
     /// * `shard_layout`: the new shard layout
     /// * `scheduler`: component used to schedule the background tasks
     /// * `controller`: manages the execution of the background tasks
-    pub fn start_resharding(
+    pub(crate) fn start_resharding(
         &self,
         event_type: ReshardingEventType,
         shard_layout: &ShardLayout,
@@ -93,7 +93,7 @@ impl FlatStorageResharder {
     /// * `status`: resharding status of the shard
     /// * `scheduler`: component used to schedule the background tasks
     /// * `controller`: manages the execution of the background tasks
-    pub fn resume(
+    pub(crate) fn resume(
         &self,
         shard_uid: ShardUId,
         status: &FlatStorageReshardingStatus,
@@ -190,7 +190,7 @@ impl FlatStorageResharder {
     }
 
     /// Returns the current in-progress resharding event, if any.
-    pub fn resharding_event(&self) -> Option<FlatStorageReshardingEventStatus> {
+    pub(crate) fn resharding_event(&self) -> Option<FlatStorageReshardingEventStatus> {
         self.resharding_event.lock().unwrap().clone()
     }
 
@@ -485,7 +485,7 @@ fn copy_kv_to_child(
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
 #[derive(Clone, Debug)]
-pub enum FlatStorageReshardingEventStatus {
+pub(crate) enum FlatStorageReshardingEventStatus {
     /// Split a shard.
     /// Includes the parent shard uid and the operation' status.
     SplitShard(ShardUId, SplittingParentStatus),
@@ -493,7 +493,7 @@ pub enum FlatStorageReshardingEventStatus {
 
 /// Status of a flat storage resharding task.
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
-pub enum FlatStorageReshardingTaskStatus {
+pub(crate) enum FlatStorageReshardingTaskStatus {
     Successful,
     Failed,
     Cancelled,
@@ -502,40 +502,40 @@ pub enum FlatStorageReshardingTaskStatus {
 /// Helps control the flat storage resharder operation. More specifically,
 /// it has a way to know when the background task is done or to interrupt it.
 #[derive(Clone)]
-pub struct FlatStorageResharderController {
+pub(crate) struct FlatStorageResharderController {
     /// Resharding handle to control interruption.
     handle: ReshardingHandle,
     /// This object will be used to signal when the background task is completed.
     completion_sender: Sender<FlatStorageReshardingTaskStatus>,
     /// Corresponding receiver for `completion_sender`.
-    pub completion_receiver: Receiver<FlatStorageReshardingTaskStatus>,
+    pub(crate) completion_receiver: Receiver<FlatStorageReshardingTaskStatus>,
 }
 
 impl FlatStorageResharderController {
     /// Creates a new `FlatStorageResharderController` with its own handle.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
         let handle = ReshardingHandle::new();
         Self { handle, completion_sender, completion_receiver }
     }
 
-    pub fn from_resharding_handle(handle: ReshardingHandle) -> Self {
+    pub(crate) fn from_resharding_handle(handle: ReshardingHandle) -> Self {
         let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
         Self { handle, completion_sender, completion_receiver }
     }
 
-    pub fn handle(&self) -> &ReshardingHandle {
+    pub(crate) fn handle(&self) -> &ReshardingHandle {
         &self.handle
     }
 
     /// Returns whether or not background task is interrupted.
-    pub fn is_interrupted(&self) -> bool {
+    pub(crate) fn is_interrupted(&self) -> bool {
         !self.handle.get()
     }
 }
 
 /// Represent the capability of scheduling the background tasks spawned by flat storage resharding.
-pub trait FlatStorageResharderScheduler {
+pub(crate) trait FlatStorageResharderScheduler {
     fn schedule(&self, f: Box<dyn FnOnce()>);
 }
 

@@ -282,7 +282,7 @@ mod tests {
         .into_handle()
     }
 
-    pub fn record_block(
+    pub(crate) fn record_block(
         epoch_manager: &mut EpochManager,
         prev_h: CryptoHash,
         cur_h: CryptoHash,

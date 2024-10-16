@@ -2,12 +2,12 @@ use crate::models::Currency;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RosettaRpcConfig {
-    pub addr: String,
-    pub cors_allowed_origins: Vec<String>,
+    pub(crate) addr: String,
+    pub(crate) cors_allowed_origins: Vec<String>,
     #[serde(default)]
-    pub limits: RosettaRpcLimitsConfig,
+    pub(crate) limits: RosettaRpcLimitsConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub currencies: Option<Vec<Currency>>,
+    pub(crate) currencies: Option<Vec<Currency>>,
 }
 
 impl Default for RosettaRpcConfig {
@@ -22,14 +22,14 @@ impl Default for RosettaRpcConfig {
 }
 
 impl RosettaRpcConfig {
-    pub fn new(addr: &str) -> Self {
+    pub(crate) fn new(addr: &str) -> Self {
         Self { addr: addr.to_owned(), ..Default::default() }
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RosettaRpcLimitsConfig {
-    pub input_payload_max_size: usize,
+pub(crate) struct RosettaRpcLimitsConfig {
+    pub(crate) input_payload_max_size: usize,
 }
 
 impl Default for RosettaRpcLimitsConfig {

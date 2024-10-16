@@ -98,12 +98,12 @@ enum ReceiptsSyncPhases {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct StateRequestStruct {
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
-    pub sync_prev_prev_hash: Option<CryptoHash>,
-    pub part_id: Option<u64>,
-    pub peer_id: Option<PeerId>,
+pub(crate) struct StateRequestStruct {
+    pub(crate) shard_id: ShardId,
+    pub(crate) sync_hash: CryptoHash,
+    pub(crate) sync_prev_prev_hash: Option<CryptoHash>,
+    pub(crate) part_id: Option<u64>,
+    pub(crate) peer_id: Option<PeerId>,
 }
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received

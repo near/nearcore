@@ -54,29 +54,29 @@ pub(crate) enum AccountDataError {
 /// already signed data received from the network. See `AccountDataCache::set_local`
 /// for more details.
 #[derive(Clone)]
-pub struct LocalAccountData {
-    pub signer: Arc<ValidatorSigner>,
-    pub data: Arc<AccountData>,
+pub(crate) struct LocalAccountData {
+    pub(crate) signer: Arc<ValidatorSigner>,
+    pub(crate) data: Arc<AccountData>,
 }
 
 /// See module-level documentation.
 #[derive(Clone)]
-pub struct AccountDataCacheSnapshot {
+pub(crate) struct AccountDataCacheSnapshot {
     /// Map from account ID to account key.
     /// Used only for selecting target when routing a message to a TIER1 peer.
     /// TODO(gprusak): In fact, since the account key assigned to a given account ID can change
     /// between epochs, Client should rather send messages to node with a specific account key,
     /// rather than with a specific account ID.
-    pub keys_by_id: Arc<AccountKeys>,
+    pub(crate) keys_by_id: Arc<AccountKeys>,
     /// Set of account keys allowed on TIER1 network.
-    pub keys: im::HashSet<PublicKey>,
+    pub(crate) keys: im::HashSet<PublicKey>,
     /// Current state of knowledge about an account.
     /// `data.keys()` is a subset of `keys` at all times,
     /// as cache is collecting data only about the accounts from `keys`,
     /// and data about the particular account might be not known at the given moment.
-    pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
+    pub(crate) data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
 
-    pub local: Option<LocalAccountData>,
+    pub(crate) local: Option<LocalAccountData>,
 }
 
 impl AccountDataCacheSnapshot {
@@ -194,7 +194,7 @@ impl AccountDataCacheSnapshot {
 pub(crate) struct AccountDataCache(ArcMutex<AccountDataCacheSnapshot>);
 
 impl AccountDataCache {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(ArcMutex::new(AccountDataCacheSnapshot {
             keys_by_id: Arc::new(AccountKeys::default()),
             keys: im::HashSet::new(),
@@ -210,7 +210,7 @@ impl AccountDataCache {
     ///   (i.e. in case self.local.signer was not present in the old key set, but is in the new)
     ///   so a call to set_local afterwards is required to do that. For now it is fine because
     ///   the AccountDataCache owner is expected to call set_local periodically anyway.
-    pub fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
+    pub(crate) fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
         self.0
             .try_update(|mut inner| {
                 // Skip further processing if the key set didn't change.
@@ -274,7 +274,7 @@ impl AccountDataCache {
         (data, None)
     }
 
-    pub fn set_local(
+    pub(crate) fn set_local(
         self: &Arc<Self>,
         clock: &time::Clock,
         local: LocalAccountData,
@@ -288,7 +288,7 @@ impl AccountDataCache {
     /// Verifies the signatures and inserts verified data to the cache.
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
-    pub async fn insert(
+    pub(crate) async fn insert(
         self: &Arc<Self>,
         clock: &time::Clock,
         data: Vec<Arc<SignedAccountData>>,
@@ -306,7 +306,7 @@ impl AccountDataCache {
     }
 
     /// Loads the current cache snapshot.
-    pub fn load(&self) -> Arc<AccountDataCacheSnapshot> {
+    pub(crate) fn load(&self) -> Arc<AccountDataCacheSnapshot> {
         self.0.load()
     }
 }

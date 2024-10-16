@@ -2,7 +2,7 @@ use crate::near_chain_primitives::error::QueryError;
 
 #[easy_ext::ext(FromStateViewerErrors)]
 impl QueryError {
-    pub fn from_call_function_error(
+    pub(crate) fn from_call_function_error(
         error: node_runtime::state_viewer::errors::CallFunctionError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -23,7 +23,7 @@ impl QueryError {
         }
     }
 
-    pub fn from_view_account_error(
+    pub(crate) fn from_view_account_error(
         error: node_runtime::state_viewer::errors::ViewAccountError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -41,7 +41,7 @@ impl QueryError {
         }
     }
 
-    pub fn from_view_contract_code_error(
+    pub(crate) fn from_view_contract_code_error(
         error: node_runtime::state_viewer::errors::ViewContractCodeError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -62,7 +62,7 @@ impl QueryError {
         }
     }
 
-    pub fn from_view_state_error(
+    pub(crate) fn from_view_state_error(
         error: node_runtime::state_viewer::errors::ViewStateError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -83,7 +83,7 @@ impl QueryError {
         }
     }
 
-    pub fn from_view_access_key_error(
+    pub(crate) fn from_view_access_key_error(
         error: node_runtime::state_viewer::errors::ViewAccessKeyError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -101,7 +101,7 @@ impl QueryError {
         }
     }
 
-    pub fn from_epoch_error(
+    pub(crate) fn from_epoch_error(
         error: near_primitives::errors::EpochError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,

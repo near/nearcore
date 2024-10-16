@@ -19,7 +19,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
 
     #[test]
-    pub fn receipt_randomness_reproducibility() {
+    pub(crate) fn receipt_randomness_reproducibility() {
         // Sanity check that the receipt shuffling implementation does not change.
         let mut receipt_proofs = vec![0, 1, 2, 3, 4, 5, 6];
         shuffle_receipt_proofs(&mut receipt_proofs, &CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]));

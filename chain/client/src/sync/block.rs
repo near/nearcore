@@ -16,7 +16,7 @@ use tracing::{debug, warn};
 const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
 
 #[derive(Clone)]
-pub struct BlockSyncRequest {
+pub(crate) struct BlockSyncRequest {
     // Head of the chain at the time of the last requests.
     head: CryptoHash,
     // When the last requests were made.
@@ -24,7 +24,7 @@ pub struct BlockSyncRequest {
 }
 
 /// Helper to track block syncing.
-pub struct BlockSync {
+pub(crate) struct BlockSync {
     clock: Clock,
 
     network_adapter: PeerManagerAdapter,
@@ -43,7 +43,7 @@ pub struct BlockSync {
 }
 
 impl BlockSync {
-    pub fn new(
+    pub(crate) fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         block_fetch_horizon: BlockHeightDelta,
@@ -62,7 +62,7 @@ impl BlockSync {
 
     /// Returns true if State Sync is needed.
     /// Returns false is Block Sync is needed. Maybe requests a few blocks from peers.
-    pub fn run(
+    pub(crate) fn run(
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &Chain,

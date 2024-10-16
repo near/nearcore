@@ -24,11 +24,11 @@ use tracing::Instrument;
 
 /// Logic to download state sync headers and parts from peers.
 pub(super) struct StateSyncDownloadSourcePeer {
-    pub clock: Clock,
-    pub store: Store,
-    pub request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-    pub request_timeout: Duration,
-    pub state: Arc<Mutex<StateSyncDownloadSourcePeerSharedState>>,
+    pub(crate) clock: Clock,
+    pub(crate) store: Store,
+    pub(crate) request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
+    pub(crate) request_timeout: Duration,
+    pub(crate) state: Arc<Mutex<StateSyncDownloadSourcePeerSharedState>>,
 }
 
 #[derive(Default)]
@@ -54,7 +54,7 @@ struct PendingPeerRequestValue {
 }
 
 impl StateSyncDownloadSourcePeerSharedState {
-    pub fn receive_peer_message(
+    pub(crate) fn receive_peer_message(
         &mut self,
         peer_id: PeerId,
         shard_id: ShardId,
@@ -84,7 +84,7 @@ impl StateSyncDownloadSourcePeerSharedState {
     }
 
     /// Sets the peers that are eligible for querying state sync headers/parts.
-    pub fn set_highest_peers(&mut self, peers: Vec<PeerId>) {
+    pub(crate) fn set_highest_peers(&mut self, peers: Vec<PeerId>) {
         self.highest_height_peers = peers;
     }
 }

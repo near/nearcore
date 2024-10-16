@@ -28,10 +28,10 @@ pub struct CryptoHashTimer {
 }
 
 impl CryptoHashTimer {
-    pub fn new(clock: Clock, key: CryptoHash) -> Self {
+    pub(crate) fn new(clock: Clock, key: CryptoHash) -> Self {
         Self::new_with_start(clock.clone(), key, clock.now())
     }
-    pub fn new_with_start(clock: Clock, key: CryptoHash, start: Instant) -> Self {
+    pub(crate) fn new_with_start(clock: Clock, key: CryptoHash, start: Instant) -> Self {
         CryptoHashTimer { clock, key, start }
     }
     pub fn get_timer_value(key: CryptoHash) -> Option<Duration> {

@@ -7,15 +7,15 @@
 /// In case a number of requests come after a period of inactivity, semaphore will immediately
 /// let through up to `burst` requests, before going into the previous mode.
 #[derive(Copy, Clone)]
-pub struct Limit {
-    pub burst: u64,
-    pub qps: f64,
+pub(crate) struct Limit {
+    pub(crate) burst: u64,
+    pub(crate) qps: f64,
 }
 
 impl Limit {
     // TODO(gprusak): consider having a constructor for RateLimit which enforces validation
     // and getters for fields, so that they cannot be modified after construction.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if self.qps <= 0. {
             anyhow::bail!("qps has to be >0");
         }

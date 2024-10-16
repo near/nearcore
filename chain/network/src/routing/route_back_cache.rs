@@ -46,7 +46,7 @@ const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
 /// - If the cache is not at full capacity, all new records will be stored.
 /// - If a peer try to abuse the system, it will be able to allocate at most
 ///     `capacity / number_of_active_connections` entries.
-pub struct RouteBackCache {
+pub(crate) struct RouteBackCache {
     /// Maximum number of records allowed in the cache.
     capacity: usize,
     /// Maximum time allowed before removing a record from the cache.
@@ -74,7 +74,7 @@ impl Default for RouteBackCache {
 }
 
 impl RouteBackCache {
-    pub fn new(
+    pub(crate) fn new(
         capacity: usize,
         evict_timeout: time::Duration,
         remove_frequent_min_size: usize,
@@ -179,11 +179,11 @@ impl RouteBackCache {
         }
     }
 
-    pub fn get(&self, hash: &CryptoHash) -> Option<&PeerId> {
+    pub(crate) fn get(&self, hash: &CryptoHash) -> Option<&PeerId> {
         self.main.get(hash).map(|(_, target)| target)
     }
 
-    pub fn remove(&mut self, clock: &time::Clock, hash: &CryptoHash) -> Option<PeerId> {
+    pub(crate) fn remove(&mut self, clock: &time::Clock, hash: &CryptoHash) -> Option<PeerId> {
         self.remove_evicted(clock);
 
         if let Some((time, target)) = self.main.remove(hash) {
@@ -215,7 +215,7 @@ impl RouteBackCache {
         }
     }
 
-    pub fn insert(&mut self, clock: &time::Clock, hash: CryptoHash, target: PeerId) {
+    pub(crate) fn insert(&mut self, clock: &time::Clock, hash: CryptoHash, target: PeerId) {
         if self.main.contains_key(&hash) {
             return;
         }

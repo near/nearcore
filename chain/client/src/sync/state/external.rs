@@ -17,11 +17,11 @@ use tracing::Instrument;
 
 /// Logic for downloading state sync headers and parts from an external source.
 pub(super) struct StateSyncDownloadSourceExternal {
-    pub clock: Clock,
-    pub store: Store,
-    pub chain_id: String,
-    pub conn: ExternalConnection,
-    pub timeout: Duration,
+    pub(crate) clock: Clock,
+    pub(crate) store: Store,
+    pub(crate) chain_id: String,
+    pub(crate) conn: ExternalConnection,
+    pub(crate) timeout: Duration,
 }
 
 impl StateSyncDownloadSourceExternal {

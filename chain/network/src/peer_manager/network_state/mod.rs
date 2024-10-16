@@ -63,7 +63,7 @@ const RECENT_ROUTED_MESSAGES_CACHE_SIZE: usize = 10000;
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
-pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
+pub(crate) const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
@@ -72,7 +72,7 @@ pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::se
 pub(crate) const LIMIT_TIER3_REQUESTS: usize = 60;
 
 impl WhitelistNode {
-    pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
+    pub(crate) fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
         Ok(Self {
             id: pi.id.clone(),
             addr: if let Some(addr) = pi.addr {
@@ -103,61 +103,61 @@ pub(crate) struct NetworkState {
     /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
-    pub config: config::VerifiedConfig,
+    pub(crate) config: config::VerifiedConfig,
     /// When network state has been constructed.
-    pub created_at: time::Instant,
+    pub(crate) created_at: time::Instant,
     /// GenesisId of the chain.
-    pub genesis_id: GenesisId,
-    pub client: ClientSenderForNetwork,
-    pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
-    pub partial_witness_adapter: PartialWitnessSenderForNetwork,
+    pub(crate) genesis_id: GenesisId,
+    pub(crate) client: ClientSenderForNetwork,
+    pub(crate) shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+    pub(crate) partial_witness_adapter: PartialWitnessSenderForNetwork,
 
     /// Network-related info about the chain.
-    pub chain_info: ArcSwap<Option<ChainInfo>>,
+    pub(crate) chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
-    pub accounts_data: Arc<AccountDataCache>,
+    pub(crate) accounts_data: Arc<AccountDataCache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
-    pub account_announcements: Arc<AnnounceAccountCache>,
+    pub(crate) account_announcements: Arc<AnnounceAccountCache>,
     /// Connected peers (inbound and outbound) with their full peer information.
-    pub tier2: connection::Pool,
-    pub tier1: connection::Pool,
-    pub tier3: connection::Pool,
+    pub(crate) tier2: connection::Pool,
+    pub(crate) tier1: connection::Pool,
+    pub(crate) tier3: connection::Pool,
     /// Semaphore limiting inflight inbound handshakes.
-    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
+    pub(crate) inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
-    pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
+    pub(crate) my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
     /// Peer store that provides read/write access to peers.
-    pub peer_store: peer_store::PeerStore,
+    pub(crate) peer_store: peer_store::PeerStore,
     /// Information about state snapshots hosted by network peers.
-    pub snapshot_hosts: Arc<SnapshotHostsCache>,
+    pub(crate) snapshot_hosts: Arc<SnapshotHostsCache>,
     /// Connection store that provides read/write access to stored connections.
-    pub connection_store: connection_store::ConnectionStore,
+    pub(crate) connection_store: connection_store::ConnectionStore,
     /// List of peers to which we should re-establish a connection
-    pub pending_reconnect: Mutex<Vec<PeerInfo>>,
+    pub(crate) pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
-    pub graph: Arc<crate::routing::Graph>,
+    pub(crate) graph: Arc<crate::routing::Graph>,
     /// A sparsified graph of the whole NEAR network.
     /// TODO(saketh): deprecate graph above, rename this to RoutingTable
-    pub graph_v2: Arc<crate::routing::GraphV2>,
+    pub(crate) graph_v2: Arc<crate::routing::GraphV2>,
 
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
-    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
+    pub(crate) recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
-    pub tier2_route_back: Mutex<RouteBackCache>,
+    pub(crate) tier2_route_back: Mutex<RouteBackCache>,
     /// Currently unused, as TIER1 messages do not require a response.
     /// Also TIER1 connections are direct by design (except for proxies),
     /// so routing shouldn't really be needed.
     /// TODO(gprusak): consider removing it altogether.
-    pub tier1_route_back: Mutex<RouteBackCache>,
+    pub(crate) tier1_route_back: Mutex<RouteBackCache>,
 
     /// Queue of received requests to which a response should be made over TIER3.
-    pub tier3_requests: Mutex<VecDeque<Tier3Request>>,
+    pub(crate) tier3_requests: Mutex<VecDeque<Tier3Request>>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
-    pub txns_since_last_block: AtomicUsize,
+    pub(crate) txns_since_last_block: AtomicUsize,
 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
@@ -177,7 +177,7 @@ pub(crate) struct NetworkState {
 }
 
 impl NetworkState {
-    pub fn new(
+    pub(crate) fn new(
         clock: &time::Clock,
         store: store::Store,
         peer_store: peer_store::PeerStore,
@@ -249,7 +249,7 @@ impl NetworkState {
 
     /// Stops peer instance if it is still connected,
     /// and then mark peer as banned in the peer store.
-    pub fn disconnect_and_ban(
+    pub(crate) fn disconnect_and_ban(
         &self,
         clock: &time::Clock,
         peer_id: &PeerId,
@@ -268,7 +268,7 @@ impl NetworkState {
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
     /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
     /// been reached. This predicate should be evaluated AFTER the Handshake.
-    pub fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+    pub(crate) fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
         self.whitelist_nodes
             .iter()
             .filter(|wn| wn.id == peer_info.id)
@@ -299,7 +299,7 @@ impl NetworkState {
     /// To build new edge between this pair of nodes both signatures are required.
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
-    pub async fn register(
+    pub(crate) async fn register(
         self: &Arc<Self>,
         clock: &time::Clock,
         edge: Edge,
@@ -385,7 +385,7 @@ impl NetworkState {
     /// It is intentionally synchronous and expected to be called from PeerActor.stopping.
     /// If it was async, there would be a risk that the unregister will be cancelled before
     /// even starting.
-    pub fn unregister(
+    pub(crate) fn unregister(
         self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
@@ -455,7 +455,7 @@ impl NetworkState {
     }
 
     /// Attempt to connect to the given peer until successful, up to max_attempts times
-    pub async fn reconnect(
+    pub(crate) async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
         peer_info: PeerInfo,
@@ -494,7 +494,7 @@ impl NetworkState {
     }
 
     /// Determine if the given target is referring to us.
-    pub fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
+    pub(crate) fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
         let my_peer_id = self.config.node_id();
         match target {
             PeerIdOrHash::PeerId(peer_id) => &my_peer_id == peer_id,
@@ -503,7 +503,7 @@ impl NetworkState {
     }
 
     #[cfg(test)]
-    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
+    pub(crate) fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
@@ -512,7 +512,7 @@ impl NetworkState {
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
+    pub(crate) fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
@@ -521,7 +521,7 @@ impl NetworkState {
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
+    pub(crate) fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
         Box::new(msg.sign(
             &self.config.node_key,
             self.config.routed_message_ttl,
@@ -531,7 +531,7 @@ impl NetworkState {
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    pub fn send_message_to_peer(
+    pub(crate) fn send_message_to_peer(
         &self,
         clock: &time::Clock,
         tier: tcp::Tier,
@@ -607,7 +607,7 @@ impl NetworkState {
     /// Send message to specific account.
     /// Return whether the message is sent or not.
     /// The message might be sent over TIER1 or TIER2 connection depending on the message type.
-    pub fn send_message_to_account(
+    pub(crate) fn send_message_to_account(
         self: &Arc<Self>,
         clock: &time::Clock,
         account_id: &AccountId,
@@ -694,7 +694,7 @@ impl NetworkState {
         success
     }
 
-    pub async fn receive_routed_message(
+    pub(crate) async fn receive_routed_message(
         &self,
         clock: &time::Clock,
         peer_id: PeerId,
@@ -811,7 +811,7 @@ impl NetworkState {
         }
     }
 
-    pub async fn add_accounts_data(
+    pub(crate) async fn add_accounts_data(
         self: &Arc<Self>,
         clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
@@ -841,7 +841,7 @@ impl NetworkState {
         .unwrap()
     }
 
-    pub async fn add_snapshot_hosts(
+    pub(crate) async fn add_snapshot_hosts(
         self: &Arc<Self>,
         hosts: Vec<Arc<SnapshotHostInfo>>,
     ) -> Option<SnapshotHostInfoError> {
@@ -872,7 +872,7 @@ impl NetworkState {
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
-    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
+    pub(crate) async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {
@@ -962,12 +962,12 @@ impl NetworkState {
         .unwrap()
     }
 
-    pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
+    pub(crate) fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
         self.connection_store.update(clock, &self.tier2.load());
     }
 
     /// Clears pending_reconnect and returns the cleared values
-    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
+    pub(crate) fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
         let mut pending_reconnect = self.pending_reconnect.lock();
         let polled = pending_reconnect.clone();
         pending_reconnect.clear();
@@ -975,13 +975,13 @@ impl NetworkState {
     }
 
     /// Collects and returns PeerInfos for all directly connected TIER2 peers.
-    pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
+    pub(crate) fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
         return self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
     /// Returns true iff the set of TIER1 keys has changed.
-    pub fn set_chain_info(self: &Arc<Self>, info: ChainInfo) -> bool {
+    pub(crate) fn set_chain_info(self: &Arc<Self>, info: ChainInfo) -> bool {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
