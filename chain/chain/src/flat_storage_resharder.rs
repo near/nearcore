@@ -30,6 +30,7 @@ use near_store::flat::{
 };
 use near_store::{ShardUId, StorageError};
 use std::fmt::{Debug, Formatter};
+use std::time::Instant;
 
 /// `FlatStorageResharder` takes care of updating flat storage when a resharding event happens.
 ///
