@@ -54,7 +54,7 @@ fn test_load_memtrie_after_empty_chunks() {
         .clients(client_accounts)
         .build();
 
-    execute_money_transfers(&mut test_loop, &node_datas, &accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();
