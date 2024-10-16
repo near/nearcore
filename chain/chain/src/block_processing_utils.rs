@@ -158,7 +158,9 @@ pub struct ApplyChunksStillApplying {
 impl ApplyChunksDoneWaiter {
     pub fn new() -> (Self, ApplyChunksStillApplying) {
         let lock = Arc::new(tokio::sync::Mutex::new(()));
-        let guard = lock.clone().blocking_lock_owned();
+        // Use try_lock_owned() rather than blocking_lock_owned(), because otherwise
+        // this causes a panic if we do this on a tokio runtime.
+        let guard = lock.clone().try_lock_owned().expect("should succeed on a fresh mutex");
         (ApplyChunksDoneWaiter(lock), ApplyChunksStillApplying { _guard: guard })
     }
 
