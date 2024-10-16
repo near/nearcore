@@ -358,6 +358,15 @@ pub(crate) fn block_chunks_exist(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
+    let tail_height =
+        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY).unwrap().unwrap_or(0);
+    if block.header().height() <= tail_height {
+        // If this node has undergone state sync to block H (where H is the first block of an epoch),
+        // then it appears that blocks before H may not have the chunk bodies in storage.
+        // Note, that this is NOT a completely correct check. It is only a heuristic that is good enough
+        // for single-shard, no-missing-chunks state sync or epoch sync tests.
+        return Ok(());
+    }
     for chunk_header in block.chunks().iter() {
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
@@ -482,12 +491,20 @@ pub(crate) fn canonical_prev_block_validity(
     height: &BlockHeight,
     hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
+    if let Some(epoch_sync_boundary) = &sv.epoch_sync_boundary {
+        // Headers that are below the epoch_sync_boundary are not expected to be present,
+        // so skip the check in that case.
+        if height <= epoch_sync_boundary {
+            return Ok(());
+        }
+    }
     if *height != sv.config.genesis_height {
         let header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref()),
             "Can't get Block Header {:?} from DBCol::BlockHeader",
             hash
         );
+
         let prev_hash = *header.prev_hash();
         let prev_header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_ref()),
@@ -756,11 +773,18 @@ pub(crate) fn chunk_extra_block_exists(
 pub(crate) fn block_info_block_header_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    _block_info: &BlockInfo,
+    block_info: &BlockInfo,
 ) -> Result<(), StoreValidatorError> {
     // fake block info for pre-genesis block
     if *block_hash == CryptoHash::default() {
         return Ok(());
+    }
+    if let Some(epoch_sync_boundary) = &sv.epoch_sync_boundary {
+        // BlockInfo before the epoch sync boundary is not guaranteed to have a
+        // corresponding header.
+        if block_info.height() < *epoch_sync_boundary {
+            return Ok(());
+        }
     }
     unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, block_hash.as_ref()),
