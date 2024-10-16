@@ -183,7 +183,11 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-    state_update.trie.request_code_recording(account_id.clone());
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness
+        .enabled(apply_state.current_protocol_version)
+    {
+        state_update.trie.request_code_recording(account_id.clone());
+    }
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
 
