@@ -132,7 +132,7 @@ fn should_drop_chunk_for_protocol_upgrade(
         let epoch_start_height =
             epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
         range.contains(&(height_created as i64 - epoch_start_height as i64))
-    } else if epoch_protocol_version < protocol_version {
+    } else if epoch_protocol_version + 1 == protocol_version {
         // Drop condition for the last epoch with old protocol version.
         let maybe_upgrade_height = epoch_manager_adapter
             .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
