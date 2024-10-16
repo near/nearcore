@@ -194,11 +194,14 @@ impl Client {
                     }
                     Error::Other(message)
                 })?;
-            if cfg!(feature = "contract_distribution") {
+            #[cfg(feature = "contract_distribution")]
+            {
                 let StoredChunkStateTransitionData { base_state, receipts_hash, contract_accesses } =
                     stored_data;
                 (base_state, receipts_hash, contract_accesses)
-            } else {
+            }
+            #[cfg(not(feature = "contract_distribution"))]
+            {
                 let StoredChunkStateTransitionData { base_state, receipts_hash, .. } = stored_data;
                 (base_state, receipts_hash, vec![])
             }
