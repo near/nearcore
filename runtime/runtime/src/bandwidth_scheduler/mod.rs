@@ -1,7 +1,7 @@
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerState,
 };
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::StateChangeCause;
 use near_primitives::version::ProtocolFeature;
 use near_store::{
@@ -13,6 +13,8 @@ use crate::ApplyState;
 pub struct BandwidthSchedulerOutput {
     /// In future the output will contain the granted bandwidth.
     pub mock_data: [u8; 32],
+    /// Used only for a sanity check.
+    pub scheduler_state_hash: CryptoHash,
 }
 
 pub fn run_bandwidth_scheduler(
@@ -37,6 +39,8 @@ pub fn run_bandwidth_scheduler(
             BandwidthSchedulerState { mock_data: [0; 32] }
         }
     };
+
+    let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
 
     let mut all_shards = apply_state.congestion_info.all_shards();
     all_shards.sort();
@@ -77,7 +81,10 @@ pub fn run_bandwidth_scheduler(
     set_bandwidth_scheduler_state(state_update, &scheduler_state);
     state_update.commit(StateChangeCause::BandwidthSchedulerStateUpdate);
 
-    Ok(Some(BandwidthSchedulerOutput { mock_data: scheduler_state.mock_data }))
+    Ok(Some(BandwidthSchedulerOutput {
+        mock_data: scheduler_state.mock_data,
+        scheduler_state_hash,
+    }))
 }
 
 /// Generate mock bandwidth requests based on scheduler output and shard id.

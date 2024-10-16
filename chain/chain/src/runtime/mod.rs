@@ -469,6 +469,7 @@ impl NightshadeRuntime {
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
             bandwidth_requests: apply_result.bandwidth_requests,
+            bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
         };
 
         Ok(result)

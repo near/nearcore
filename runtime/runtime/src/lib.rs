@@ -199,6 +199,8 @@ pub struct ApplyResult {
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
     pub bandwidth_requests: Option<BandwidthRequests>,
+    /// Used only for a sanity check.
+    pub bandwidth_scheduler_state_hash: CryptoHash,
 }
 
 #[derive(Debug)]
@@ -1459,7 +1461,11 @@ impl Runtime {
             && processing_state.protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
-            return missing_chunk_apply_result(&delayed_receipts, processing_state);
+            return missing_chunk_apply_result(
+                &delayed_receipts,
+                processing_state,
+                &bandwidth_scheduler_output,
+            );
         }
 
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
@@ -2126,6 +2132,10 @@ impl Runtime {
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
             bandwidth_requests,
+            bandwidth_scheduler_state_hash: bandwidth_scheduler_output
+                .as_ref()
+                .map(|o| o.scheduler_state_hash)
+                .unwrap_or_default(),
         })
     }
 }
@@ -2211,6 +2221,7 @@ fn action_transfer_or_implicit_account_creation(
 fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
     processing_state: ApplyProcessingState,
+    bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
 ) -> Result<ApplyResult, RuntimeError> {
     let (trie, trie_changes, state_changes) = processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
@@ -2248,6 +2259,10 @@ fn missing_chunk_apply_result(
         metrics: None,
         congestion_info,
         bandwidth_requests: previous_bandwidth_requests,
+        bandwidth_scheduler_state_hash: bandwidth_scheduler_output
+            .as_ref()
+            .map(|o| o.scheduler_state_hash)
+            .unwrap_or_default(),
     });
 }
 

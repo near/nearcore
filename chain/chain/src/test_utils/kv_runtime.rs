@@ -1324,6 +1324,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            bandwidth_scheduler_state_hash: CryptoHash::default(),
         })
     }
 
