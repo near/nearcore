@@ -1815,6 +1815,11 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
+        if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
+            self.clear_all_downloaded_parts()?;
+        }
+
         // 2) Start creating snapshot if needed.
         if let Err(err) = self.process_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
@@ -3014,6 +3019,16 @@ impl Chain {
         let mut chain_store_update = self.mut_chain_store().store_update();
         chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
         chain_store_update.commit()
+    }
+
+    /// Drop all downloaded or generated state parts and headers.
+    pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
+        tracing::debug!(target: "state_sync", "Clear old state parts");
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.delete_all(DBCol::StateParts);
+        store_update.delete_all(DBCol::StateHeaders);
+        store_update.commit()?;
+        Ok(())
     }
 
     pub fn catchup_blocks_step(
