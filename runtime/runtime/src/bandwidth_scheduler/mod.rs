@@ -2,7 +2,7 @@ use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerState,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::StateChangeCause;
+use near_primitives::types::{ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::{
     get_bandwidth_scheduler_state, set_bandwidth_scheduler_state, StorageError, TrieUpdate,
@@ -29,7 +29,7 @@ pub fn run_bandwidth_scheduler(
         target: "runtime",
         "run_bandwidth_scheduler",
         height = apply_state.block_height,
-        shard_id = apply_state.shard_id);
+        shard_id = apply_state.shard_id.get());
 
     // Read the current scheduler state from the Trie
     let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
@@ -45,7 +45,7 @@ pub fn run_bandwidth_scheduler(
     let mut all_shards = apply_state.congestion_info.all_shards();
     all_shards.sort();
     if all_shards.is_empty() {
-        all_shards = vec![0];
+        all_shards = vec![ShardId::new(0)];
     }
 
     let prev_block_hash = apply_state.prev_block_hash;
@@ -100,7 +100,7 @@ pub fn generate_mock_bandwidth_requests(
         target: "runtime",
         "generate_mock_bandwidth_requests",
         height = apply_state.block_height,
-        shard_id = apply_state.shard_id);
+        shard_id = apply_state.shard_id.get());
 
     let Some(scheduler_output) = scheduler_output_opt else {
         tracing::debug!(
@@ -112,7 +112,7 @@ pub fn generate_mock_bandwidth_requests(
 
     let mut data = Vec::new();
     data.extend_from_slice(scheduler_output.mock_data.as_slice());
-    data.extend_from_slice(apply_state.shard_id.to_be_bytes().as_slice());
+    data.extend_from_slice(apply_state.shard_id.get().to_be_bytes().as_slice());
     let hash_data: [u8; 32] = hash(data.as_slice()).into();
 
     let mut requests = Vec::new();

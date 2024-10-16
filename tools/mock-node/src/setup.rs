@@ -12,9 +12,10 @@ use near_jsonrpc_client::JsonRpcClient;
 use near_network::tcp;
 use near_network::types::PeerInfo;
 use near_primitives::network::PeerId;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::get_num_state_parts;
-use near_primitives::types::{BlockHeight, NumShards, ShardId};
+use near_primitives::types::BlockHeight;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -51,7 +52,7 @@ fn setup_mock_peer(
     network_start_height: Option<BlockHeight>,
     network_config: MockNetworkConfig,
     target_height: BlockHeight,
-    num_shards: ShardId,
+    shard_layout: ShardLayout,
     mock_listen_addr: tcp::ListenerAddr,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
@@ -76,7 +77,7 @@ fn setup_mock_peer(
             chain_id,
             archival,
             block_production_delay.unsigned_abs(),
-            num_shards,
+            shard_layout,
             network_start_height,
             network_config,
         )
@@ -184,8 +185,10 @@ pub fn setup_mock_node(
         // copy state for all shards
         let block = network_chain_store.get_block(&hash).unwrap();
         let prev_hash = *block.header().prev_hash();
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as u64;
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = client_epoch_manager.get_shard_layout(epoch_id).unwrap();
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let state_root = chunk_header.prev_state_root();
             let state_root_node =
                 mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
@@ -201,7 +204,7 @@ pub fn setup_mock_node(
                         parent: &parent_span,
                         "obtain_and_apply_state_part",
                         part_id,
-                        shard_id)
+                        ?shard_id)
                     .entered();
 
                     let state_part = mock_network_runtime
@@ -250,9 +253,9 @@ pub fn setup_mock_node(
     )
     .unwrap();
     let head = chain.head().unwrap();
+    let epoch_id = head.epoch_id;
+    let shard_layout = mock_network_epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let target_height = min(target_height.unwrap_or(head.height), head.height);
-    let num_shards =
-        mock_network_epoch_manager.shard_ids(&head.epoch_id).unwrap().len() as NumShards;
 
     config.network_config.peer_store.boot_nodes.clear();
     let mock_peer = setup_mock_peer(
@@ -261,7 +264,7 @@ pub fn setup_mock_node(
         network_start_height,
         network_config.clone(),
         target_height,
-        num_shards,
+        shard_layout,
         mock_listen_addr,
     );
 
@@ -291,6 +294,7 @@ mod tests {
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::transaction::SignedTransaction;
+    use near_primitives::types::new_shard_id_vec_tmp;
     use near_store::test_utils::gen_account_from_alphabet;
     use nearcore::{load_test_config, start_with_config};
     use rand::thread_rng;
@@ -318,7 +322,7 @@ mod tests {
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
         near_config.config.store.state_snapshot_enabled = true;
-        near_config.config.tracked_shards = vec![0]; // Track all shards.
+        near_config.config.tracked_shards = new_shard_id_vec_tmp(&[0]); // Track all shards.
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path();
@@ -404,7 +408,7 @@ mod tests {
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
         let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
         near_config1.client_config.min_num_peers = 1;
-        near_config1.client_config.tracked_shards = vec![0]; // Track all shards.
+        near_config1.client_config.tracked_shards = new_shard_id_vec_tmp(&[0]); // Track all shards.
         near_config1.config.store.state_snapshot_enabled = true;
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
 

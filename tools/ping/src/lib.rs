@@ -6,7 +6,7 @@ use near_network::raw::{ConnectError, Connection, DirectMessage, Message, Routed
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{new_shard_id_vec_tmp, AccountId, BlockHeight};
 use near_primitives::version::ProtocolVersion;
 use std::cmp;
 use std::collections::hash_map::Entry;
@@ -400,7 +400,7 @@ async fn ping_via_node(
         chain_id,
         genesis_hash,
         head_height,
-        vec![0],
+        new_shard_id_vec_tmp(&[0]),
         near_time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {

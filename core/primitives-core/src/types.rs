@@ -1,7 +1,7 @@
-// #[cfg(feature = "new_shard_id")]
-// use std::fmt::Display;
-// #[cfg(feature = "new_shard_id")]
-// use std::ops::Add;
+use std::fmt::Display;
+use std::num::ParseIntError;
+use std::ops::Add;
+use std::str::FromStr;
 
 use crate::hash::CryptoHash;
 
@@ -49,11 +49,6 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
 
-/// The shard identifier. The ShardId is currently being migrated to a newtype -
-/// please see the new ShardId definition below.
-// #[cfg(not(feature = "new_shard_id"))]
-pub type ShardId = u64;
-
 /// The ShardIndex is the index of the shard in an array of shard data.
 /// Historically the ShardId was always in the range 0..NUM_SHARDS and was used
 /// as the shard index. This is no longer the case, and the ShardIndex should be
@@ -64,11 +59,7 @@ pub type ShardIndex = usize;
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn new_shard_id_tmp(id: u64) -> ShardId {
-    // #[cfg(not(feature = "new_shard_id"))]
-    return id;
-
-    // #[cfg(feature = "new_shard_id")]
-    // return ShardId::new(id);
+    return ShardId::new(id);
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
@@ -79,58 +70,36 @@ pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
 }
 
 pub fn shard_id_max() -> ShardId {
-    // #[cfg(not(feature = "new_shard_id"))]
-    return ShardId::MAX;
-
-    // #[cfg(feature = "new_shard_id")]
-    // return ShardId::max();
+    return ShardId::max();
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_usize(id: ShardId) -> usize {
-    // #[cfg(not(feature = "new_shard_id"))]
-    return id as usize;
-
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as usize;
+    return id.get() as usize;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u16(id: ShardId) -> u16 {
-    // #[cfg(not(feature = "new_shard_id"))]
-    return id as u16;
-
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as u16;
+    return id.get() as u16;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u32(id: ShardId) -> u32 {
-    // #[cfg(not(feature = "new_shard_id"))]
-    return id as u32;
-
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as u32;
+    return id.get() as u32;
 }
 
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
 pub const fn shard_id_as_u64(id: ShardId) -> u64 {
-    // #[cfg(not(feature = "new_shard_id"))]
-    return id as u64;
-
-    // #[cfg(feature = "new_shard_id")]
-    // return id.get() as u64;
+    return id.get();
 }
-
-/*
 
 // TODO(wacban) Complete the transition to ShardId as a newtype.
 /// The shard identifier. It may be a arbitrary number - it does not need to be
@@ -140,7 +109,6 @@ pub const fn shard_id_as_u64(id: ShardId) -> u64 {
 /// The shard id is wrapped in a newtype to prevent the old pattern of using
 /// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
 /// if fully complete it potentially may be simplified to a regular type alias.
-#[cfg(feature = "new_shard_id")]
 #[derive(
     arbitrary::Arbitrary,
     borsh::BorshSerialize,
@@ -158,28 +126,28 @@ pub const fn shard_id_as_u64(id: ShardId) -> u64 {
 )]
 pub struct ShardId(u64);
 
-#[cfg(feature = "new_shard_id")]
 impl ShardId {
     /// Create a new shard id. Please note that this function should not be used
     /// to convert a shard index (a number in 0..num_shards range) to ShardId.
     /// Instead the ShardId should be obtained from the shard_layout.
     ///
     /// ```
-    /// // BAD USAGE:
-    /// for shard_index in 1..num_shards {
-    ///     let shard_id = ShardId::new(shard_index); // Incorrect!!!
-    /// }
-    /// ```
-    /// ```
-    /// // GOOD USAGE 1:
-    /// for shard_index in 1..num_shards {
-    ///     let shard_id = shard_layout.get_shard_id(shard_index);
-    /// }
-    /// // GOOD USAGE 2:
-    /// for shard_id in shard_layout.shard_ids() {
-    ///     let shard_id = shard_layout.get_shard_id(shard_index);
-    /// }
-    /// ```
+    // // BAD USAGE:
+    // for shard_index in 1..num_shards {
+    //     let shard_id = ShardId::new(shard_index); // Incorrect!!!
+    // }
+    // ```
+    // ```
+    // // GOOD USAGE 1:
+    // for shard_index in 1..num_shards {
+    //     let shard_id = shard_layout.get_shard_id(shard_index);
+    // }
+    // // GOOD USAGE 2:
+    // for shard_id in shard_layout.shard_ids() {
+    //     let shard_id = shard_layout.get_shard_id(shard_index);
+    // }
+    // ```
+    // TODO - fix doctests
     pub const fn new(id: u64) -> Self {
         Self(id)
     }
@@ -205,70 +173,60 @@ impl ShardId {
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl Display for ShardId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl From<u64> for ShardId {
     fn from(id: u64) -> Self {
         Self(id)
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl Into<u64> for ShardId {
     fn into(self) -> u64 {
         self.0
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl From<u32> for ShardId {
     fn from(id: u32) -> Self {
         Self(id as u64)
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl Into<u32> for ShardId {
     fn into(self) -> u32 {
         self.0 as u32
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl From<i32> for ShardId {
     fn from(id: i32) -> Self {
         Self(id as u64)
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl From<usize> for ShardId {
     fn from(id: usize) -> Self {
         Self(id as u64)
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl From<u16> for ShardId {
     fn from(id: u16) -> Self {
         Self(id as u64)
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl Into<u16> for ShardId {
     fn into(self) -> u16 {
         self.0 as u16
     }
 }
 
-#[cfg(feature = "new_shard_id")]
 impl<T> Add<T> for ShardId
 where
     T: Add<u64, Output = u64>,
@@ -280,4 +238,27 @@ where
     }
 }
 
-*/
+impl FromStr for ShardId {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let shard_id = s.parse::<u64>()?;
+        Ok(ShardId(shard_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::types::ShardId;
+
+    // Check that the ShardId is serialized the same as u64. This is to make
+    // sure that the transition from ShardId being a type alias to being a
+    // newtype is not a protocol upgrade.
+    #[test]
+    fn test_shard_id_borsh() {
+        let shard_id_u64 = 42;
+        let shard_id = ShardId::new(shard_id_u64);
+
+        assert_eq!(borsh::to_vec(&shard_id_u64).unwrap(), borsh::to_vec(&shard_id).unwrap());
+    }
+}

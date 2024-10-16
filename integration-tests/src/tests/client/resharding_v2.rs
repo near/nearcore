@@ -520,6 +520,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
         env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
     let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
     let shard_id = shard_uid.shard_id();
+    let shard_index = shard_layout.get_shard_index(shard_id);
     for (i, me) in env.validators.iter().enumerate() {
         let client = &env.clients[i];
         let care_about_shard =
@@ -543,7 +544,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
             )
             .unwrap();
 
-        let chunk = &block.chunks()[shard_id as usize];
+        let chunk = &block.chunks()[shard_index];
         if chunk.height_included() == block.header().height() {
             client
                 .runtime_adapter
