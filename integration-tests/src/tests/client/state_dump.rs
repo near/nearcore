@@ -15,13 +15,11 @@ use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{new_shard_id_tmp, BlockHeight};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::DBCol;
 use near_store::Store;
 use nearcore::state_sync::StateSyncDumper;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -298,12 +296,10 @@ fn run_state_sync_with_dumped_parts(
         .await
         .unwrap();
 
-        // Simulate state sync
+        // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
         tracing::info!("syncing node: simulating state sync..");
         env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header).unwrap();
         let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
-        let runtime_client_0 = Arc::clone(&env.clients[0].runtime_adapter);
-        let client_0_store = runtime_client_0.store();
         let mut store_update = runtime_client_1.store().store_update();
         assert!(runtime_client_1
             .get_flat_storage_manager()
@@ -313,11 +309,16 @@ fn run_state_sync_with_dumped_parts(
             )
             .unwrap());
         store_update.commit().unwrap();
-
+        let shard_id = new_shard_id_tmp(0);
         for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-            let part = client_0_store.get(DBCol::StateParts, &key).unwrap().unwrap();
-
+            let path = root_dir.path().join(external_storage_location(
+                &config.chain_id,
+                &epoch_id,
+                epoch_height,
+                shard_id,
+                &StateFileType::StatePart { part_id, num_parts },
+            ));
+            let part = std::fs::read(&path).expect("Part file not found. It should exist");
             let part_id = PartId::new(part_id, num_parts);
             runtime_client_1
                 .apply_state_part(shard_id, &state_root, part_id, &part, &epoch_id)
