@@ -2,14 +2,16 @@ use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -30,10 +32,36 @@ fn create_new_shard_layout(base_shard_layout: &ShardLayout, boundary_account: &s
     ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map))
 }
 
+fn print_and_assert_shard_accounts(client: &Client) {
+    let tip = client.chain.head().unwrap();
+    let epoch_id = tip.epoch_id;
+    let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+    for shard_uid in epoch_config.shard_layout.shard_uids() {
+        let chunk_extra = client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
+        let trie = client
+            .runtime_adapter
+            .get_trie_for_shard(
+                shard_uid.shard_id(),
+                &tip.prev_block_hash,
+                *chunk_extra.state_root(),
+                false,
+            )
+            .unwrap();
+        let mut shard_accounts = vec![];
+        for item in trie.lock_for_iter().iter().unwrap() {
+            let (key, value) = item.unwrap();
+            let state_record = StateRecord::from_raw_key_value(key, value).unwrap();
+            if let StateRecord::Account { account_id, .. } = state_record {
+                shard_accounts.push(account_id.to_string());
+            }
+        }
+        println!("accounts for shard {}: {:?}", shard_uid, shard_accounts);
+        assert!(!shard_accounts.is_empty());
+    }
+}
+
 /// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
-/// - Shard ids should not be contiguous. For now we reuse existing shard id
-/// which is incorrect!!!
 /// - Nodes must not track all shards. State sync must succeed.
 /// - Set up chunk validator-only nodes. State witness must pass validation.
 /// - Consistent tx load. All txs must succeed.
@@ -65,11 +93,11 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
     base_epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
         false;
-    // TODO(#11881): enable kickouts when blocks and chunks are produced
-    // properly.
-    base_epoch_config.block_producer_kickout_threshold = 0;
-    base_epoch_config.chunk_producer_kickout_threshold = 0;
-    base_epoch_config.chunk_validator_only_kickout_threshold = 0;
+    if !chunk_ranges_to_drop.is_empty() {
+        base_epoch_config.block_producer_kickout_threshold = 0;
+        base_epoch_config.chunk_producer_kickout_threshold = 0;
+        base_epoch_config.chunk_validator_only_kickout_threshold = 0;
+    }
     base_epoch_config.shard_layout = ShardLayout::v1(vec!["account3".parse().unwrap()], None, 3);
     let base_shard_layout = base_epoch_config.shard_layout.clone();
     let mut epoch_config = base_epoch_config.clone();
@@ -111,8 +139,12 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
 
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        if latest_block_height.load(std::sync::atomic::Ordering::SeqCst) < tip.height {
-            latest_block_height.store(tip.height, std::sync::atomic::Ordering::SeqCst);
+        if latest_block_height.load(Ordering::SeqCst) < tip.height {
+            if latest_block_height.load(Ordering::SeqCst) == 0 {
+                println!("State before resharding:");
+                print_and_assert_shard_accounts(client);
+            }
+            latest_block_height.store(tip.height, Ordering::SeqCst);
             println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
             if chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
@@ -130,22 +162,8 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
             return false;
         }
 
-        // If resharding happened, also check that each shard has non-empty state.
-        for shard_uid in epoch_config.shard_layout.shard_uids() {
-            let chunk_extra =
-                client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
-            let trie = client
-                .runtime_adapter
-                .get_trie_for_shard(
-                    shard_uid.shard_id(),
-                    &tip.prev_block_hash,
-                    *chunk_extra.state_root(),
-                    false,
-                )
-                .unwrap();
-            let items = trie.lock_for_iter().iter().unwrap().count();
-            assert!(items > 0);
-        }
+        println!("State after resharding:");
+        print_and_assert_shard_accounts(client);
 
         return true;
     };
