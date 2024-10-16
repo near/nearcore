@@ -112,12 +112,6 @@ impl<T> MaybeValidated<T> {
         }
     }
 
-    /// Marks the payload as valid.  No verification is performed; it’s caller’s
-    /// responsibility to make sure the payload has indeed been validated.
-    pub fn mark_as_valid(&self) {
-        self.validated.set(true);
-    }
-
     /// Applies function to the payload (whether it’s been validated or not) and
     /// returns new object with result of the function as payload.  Validated
     /// state is not changed.
