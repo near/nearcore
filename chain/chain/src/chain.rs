@@ -1977,8 +1977,9 @@ impl Chain {
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
-                // TODO(#12019): consider adding to catchup flow.
+                // TODO(resharding): consider adding to catchup flow.
                 self.resharding_manager.process_memtrie_resharding_storage_update(
+                    self.chain_store.store_update(),
                     &block,
                     shard_uid,
                     self.runtime_adapter.get_tries(),
@@ -2479,15 +2480,16 @@ impl Chain {
             return Err(sync_hash_not_first_hash(sync_hash));
         }
 
-        let epoch_id = sync_prev_block.header().epoch_id();
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_layout = self.epoch_manager.get_shard_layout(&sync_block_epoch_id)?;
+        let prev_epoch_id = sync_prev_block.header().epoch_id();
+        let prev_shard_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        let prev_shard_index = prev_shard_layout.get_shard_index(shard_id);
 
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = sync_prev_block.hash();
         let chunks = sync_prev_block.chunks();
         let chunk_header =
-            chunks.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
+            chunks.get(prev_shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
@@ -2500,8 +2502,10 @@ impl Chain {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         let chunk = self.get_chunk_clone_from_header(chunk_header)?;
-        let chunk_proof =
-            chunk_proofs.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?.clone();
+        let chunk_proof = chunk_proofs
+            .get(prev_shard_index)
+            .ok_or_else(|| Error::InvalidShardId(shard_id))?
+            .clone();
         let block_header =
             self.get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
 
@@ -2512,7 +2516,7 @@ impl Chain {
             Ok(prev_block) => {
                 let prev_chunk_header = prev_block
                     .chunks()
-                    .get(shard_index)
+                    .get(prev_shard_index)
                     .ok_or_else(|| Error::InvalidShardId(shard_id))?
                     .clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
@@ -2527,7 +2531,7 @@ impl Chain {
                 assert_eq!(&prev_chunk_headers_root, prev_block.header().chunk_headers_root());
 
                 let prev_chunk_proof = prev_chunk_proofs
-                    .get(shard_index)
+                    .get(prev_shard_index)
                     .ok_or_else(|| Error::InvalidShardId(shard_id))?
                     .clone();
                 let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -2551,6 +2555,7 @@ impl Chain {
         let incoming_receipts_proofs = self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
+            &shard_layout,
             sync_hash,
             prev_chunk_height_included,
         )?;
@@ -2579,7 +2584,7 @@ impl Chain {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
-                let from_shard_index = shard_layout.get_shard_index(*from_shard_id);
+                let from_shard_index = prev_shard_layout.get_shard_index(*from_shard_id);
 
                 let root_proof = block.chunks()[from_shard_index].prev_outgoing_receipts_root();
                 root_proofs_cur
@@ -2922,46 +2927,6 @@ impl Chain {
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
         Ok(())
-    }
-
-    pub fn schedule_apply_state_parts(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
-    ) -> Result<(), Error> {
-        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-
-        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk_prev_state_root();
-
-        state_parts_task_scheduler.send(ApplyStatePartsRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            shard_uid,
-            state_root,
-            num_parts,
-            epoch_id,
-            sync_hash,
-        });
-
-        Ok(())
-    }
-
-    pub fn schedule_load_memtrie(
-        &self,
-        shard_uid: ShardUId,
-        sync_hash: CryptoHash,
-        chunk: &ShardChunk,
-        load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
-    ) {
-        load_memtrie_scheduler.send(LoadMemtrieRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            shard_uid,
-            prev_state_root: chunk.prev_state_root(),
-            sync_hash,
-        });
     }
 
     pub fn create_flat_storage_for_shard(
@@ -3779,9 +3744,12 @@ impl Chain {
                 // we can't use hash from the current block here yet because the incoming receipts
                 // for this block is not stored yet
                 let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+                let shard_layout =
+                    self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
                 let old_receipts = &self.chain_store().get_incoming_receipts_for_shard(
                     self.epoch_manager.as_ref(),
                     shard_id,
+                    &shard_layout,
                     *prev_hash,
                     prev_chunk_height_included,
                 )?;
@@ -4633,76 +4601,6 @@ pub fn collect_receipts_from_response(
     collect_receipts(
         receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs.iter()),
     )
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct ApplyStatePartsRequest {
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub shard_uid: ShardUId,
-    pub state_root: StateRoot,
-    pub num_parts: u64,
-    pub epoch_id: EpochId,
-    pub sync_hash: CryptoHash,
-}
-
-// Skip `runtime_adapter`, because it's a complex object that has complex logic
-// and many fields.
-impl Debug for ApplyStatePartsRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ApplyStatePartsRequest")
-            .field("runtime_adapter", &"<not shown>")
-            .field("shard_uid", &self.shard_uid)
-            .field("state_root", &self.state_root)
-            .field("num_parts", &self.num_parts)
-            .field("epoch_id", &self.epoch_id)
-            .field("sync_hash", &self.sync_hash)
-            .finish()
-    }
-}
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct ApplyStatePartsResponse {
-    pub apply_result: Result<(), near_chain_primitives::error::Error>,
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
-}
-
-// This message is handled by `sync_job_actions.rs::handle_load_memtrie_request()`.
-// It is a request for `runtime_adapter` to load in-memory trie for `shard_uid`.
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct LoadMemtrieRequest {
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub shard_uid: ShardUId,
-    // Required to load memtrie.
-    pub prev_state_root: StateRoot,
-    // Needs to be included in a response to the caller for identification purposes.
-    pub sync_hash: CryptoHash,
-}
-
-// Skip `runtime_adapter`, because it's a complex object that has complex logic
-// and many fields.
-impl Debug for LoadMemtrieRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LoadMemtrieRequest")
-            .field("runtime_adapter", &"<not shown>")
-            .field("shard_uid", &self.shard_uid)
-            .field("prev_state_root", &self.prev_state_root)
-            .field("sync_hash", &self.sync_hash)
-            .finish()
-    }
-}
-
-// It is message indicating the result of loading in-memory trie for `shard_id`.
-// `sync_hash` is passed around to indicate to which block we were catching up.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct LoadMemtrieResponse {
-    pub load_result: Result<(), near_chain_primitives::error::Error>,
-    pub shard_uid: ShardUId,
-    pub sync_hash: CryptoHash,
 }
 
 #[derive(actix::Message)]
