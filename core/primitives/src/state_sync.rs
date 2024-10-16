@@ -65,11 +65,6 @@ impl BitArray {
         let num_bytes = (capacity + 7) / 8;
         Self { data: vec![0; num_bytes as usize], capacity }
     }
-
-    pub fn set_bit(&mut self, bit: u64) {
-        assert!(bit < self.capacity);
-        self.data[(bit / 8) as usize] |= 1 << (bit % 8);
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

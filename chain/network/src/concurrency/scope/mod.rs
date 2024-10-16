@@ -228,27 +228,6 @@ impl<E: 'static> Drop for Service<E> {
 }
 
 impl<E: 'static + Send> Service<E> {
-    /// Checks if the referred scope has been terminated.
-    pub fn is_terminated(&self) -> bool {
-        self.0.upgrade().is_none()
-    }
-
-    /// Waits until the scope is terminated.
-    ///
-    /// Returns `ErrCanceled` iff `ctx` was canceled before that.
-    pub fn terminated<'a>(
-        &'a self,
-    ) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
-        let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
-        async move {
-            if let Some(t) = terminated {
-                ctx::wait(t.recv()).await
-            } else {
-                Ok(())
-            }
-        }
-    }
-
     /// Cancels the scope's context and waits until the scope is terminated.
     ///
     /// Note that ErrCanceled is returned if the `ctx` passed as argument is canceled before that,

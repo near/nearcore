@@ -19,7 +19,9 @@ use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
+use near_primitives::types::{
+    new_shard_id_tmp, AccountId, BlockHeightDelta, BlockReference, NumSeats,
+};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{load_test_config, start_with_config, NearConfig};
 
@@ -73,8 +75,8 @@ fn init_test_staking(
         // And they are not needed in these tests.
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
-            config.config.tracked_shards = vec![0];
-            config.client_config.tracked_shards = vec![0];
+            config.config.tracked_shards = vec![new_shard_id_tmp(0)];
+            config.client_config.tracked_shards = vec![new_shard_id_tmp(0)];
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =

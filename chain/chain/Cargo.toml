@@ -31,7 +31,6 @@ tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
-yansi.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true

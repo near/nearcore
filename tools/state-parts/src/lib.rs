@@ -4,7 +4,7 @@ use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{new_shard_id_vec_tmp, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use near_time::Instant;
 use sha2::Digest;
@@ -58,7 +58,7 @@ fn handle_message(
             };
 
             tracing::info!(
-                shard_id,
+                ?shard_id,
                 ?sync_hash,
                 ?part_id,
                 ?duration,
@@ -100,7 +100,7 @@ async fn state_parts_from_node(
         chain_id,
         genesis_hash,
         head_height,
-        vec![0],
+        new_shard_id_vec_tmp(&[0]),
         near_time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
@@ -135,7 +135,7 @@ async fn state_parts_from_node(
             _ = &mut next_request => {
                 let target = &peer_id;
                 let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
-                tracing::info!(target: "state-parts", ?target, shard_id, ?block_hash, part_id, ttl, "Sending a request");
+                tracing::info!(target: "state-parts", ?target, ?shard_id, ?block_hash, part_id, ttl, "Sending a request");
                 result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
                 app_info.requests_sent.insert(part_id, near_time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);

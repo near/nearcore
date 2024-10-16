@@ -2437,12 +2437,12 @@ fn test_catchup_gas_price_change() {
             .unwrap());
         store_update.commit().unwrap();
         for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
             env.clients[1]
                 .runtime_adapter
                 .apply_state_part(
-                    0,
+                    shard_id,
                     &state_sync_header.chunk_prev_state_root(),
                     PartId::new(part_id, num_parts),
                     &part,
@@ -2451,7 +2451,7 @@ fn test_catchup_gas_price_change() {
                 .unwrap();
         }
     }
-    env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
+    env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =
