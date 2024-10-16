@@ -1324,6 +1324,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
             // Since all actions are transfer actions, there is no contracts accessed.
             contract_accesses: vec![],
+            contract_deploys: vec![],
         })
     }
 

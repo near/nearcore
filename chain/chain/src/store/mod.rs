@@ -2015,6 +2015,7 @@ impl<'a> ChainStoreUpdate<'a> {
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
         _contract_accesses: Vec<CodeHash>,
+        _contract_deploys: Vec<CodeHash>,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
@@ -2024,6 +2025,8 @@ impl<'a> ChainStoreUpdate<'a> {
                     receipts_hash: applied_receipts_hash,
                     #[cfg(feature = "contract_distribution")]
                     contract_accesses: _contract_accesses,
+                    #[cfg(feature = "contract_distribution")]
+                    contract_deploys: vec![],
                 },
             );
         }

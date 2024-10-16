@@ -208,6 +208,9 @@ mod tests {
                     // TODO(#11099): Revisit this.
                     #[cfg(feature = "contract_distribution")]
                     contract_accesses: vec![],
+                    // TODO(#11099): Revisit this.
+                    #[cfg(feature = "contract_distribution")]
+                    contract_deploys: vec![],
                 },
             )
             .unwrap();

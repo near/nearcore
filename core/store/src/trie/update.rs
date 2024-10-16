@@ -1,7 +1,7 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
-use crate::contract::ContractStorage;
+use crate::contract::{ContractStorage, ContractStorageResult};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -58,8 +58,10 @@ pub struct TrieUpdateResult {
     pub trie: Trie,
     pub trie_changes: TrieChanges,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
+    /// Code-hashes of the contracts accessed (called).
     pub contract_accesses: Vec<CodeHash>,
-    pub contract_deploys: Vec<ContractCode>,
+    /// Code-hashes of the contracts deployed.
+    pub contract_deploys: Vec<CodeHash>,
 }
 
 impl TrieUpdate {
@@ -144,7 +146,6 @@ impl TrieUpdate {
                 .changes
                 .push(RawStateChange { cause: event.clone(), data: value });
         }
-        self.contract_storage.commit();
     }
 
     pub fn rollback(&mut self) {
@@ -190,8 +191,15 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        let ContractStorageResult { contract_accesses, contract_deploys } = contract_storage.finalize();
-        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses, contract_deploys })
+        let ContractStorageResult { contract_accesses, contract_deploys } =
+            contract_storage.finalize();
+        Ok(TrieUpdateResult {
+            trie,
+            trie_changes,
+            state_changes,
+            contract_accesses,
+            contract_deploys,
+        })
     }
 
     /// Returns Error if the underlying storage fails

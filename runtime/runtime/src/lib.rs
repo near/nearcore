@@ -192,7 +192,7 @@ pub struct ApplyResult {
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
     pub contract_accesses: Vec<CodeHash>,
-    pub contract_deploys: Vec<ContractCode>,
+    pub contract_deploys: Vec<CodeHash>,
 }
 
 #[derive(Debug)]

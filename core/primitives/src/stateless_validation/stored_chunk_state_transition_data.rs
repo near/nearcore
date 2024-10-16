@@ -21,4 +21,8 @@ pub struct StoredChunkStateTransitionData {
     // TODO(#11099): Implement DB migration to add this to the database.
     #[cfg(feature = "contract_distribution")]
     pub contract_accesses: Vec<super::contract_distribution::CodeHash>,
+    /// The hashes of contract code that are deployed during the state transition.
+    // TODO(#11099): Implement DB migration to add this to the database.
+    #[cfg(feature = "contract_distribution")]
+    pub contract_deploys: Vec<super::contract_distribution::CodeHash>,
 }

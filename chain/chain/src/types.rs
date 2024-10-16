@@ -102,10 +102,10 @@ pub struct ApplyChunkResult {
     /// should be set to None for chunks before the CongestionControl protocol
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
-    /// Hashes of the contracts accessed while applying the chunk.
+    /// Code-hashes of the contracts accessed (called) while applying the chunk.
     pub contract_accesses: Vec<CodeHash>,
-    /// Contract code deployed while applying the chunk.
-    pub contract_deploys: Vec<ContractCode>,
+    /// Code-hashes of the contracts deployed while applying the chunk.
+    pub contract_deploys: Vec<CodeHash>,
 }
 
 impl ApplyChunkResult {

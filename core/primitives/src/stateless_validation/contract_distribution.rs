@@ -262,7 +262,18 @@ impl
 }
 
 /// Hash of some (uncompiled) contract code.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    BorshSerialize,
+    BorshDeserialize,
+    ProtocolSchema,
+)]
 pub struct CodeHash(pub CryptoHash);
 
 /// Raw bytes of the (uncompiled) contract code.
