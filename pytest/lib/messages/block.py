@@ -212,8 +212,10 @@ class ShardChunkHeaderInnerV2:
 class ShardChunkHeaderInnerV3:
     pass
 
+
 class ShardChunkHeaderInnerV4:
     pass
+
 
 class PartialEncodedChunkPart:
     pass
@@ -309,14 +311,18 @@ class CongestionInfo:
 class CongestionInfoV1:
     pass
 
+
 class BandwidthRequests:
     pass
+
 
 class BandwidthRequestsV1:
     pass
 
+
 class BandwidthRequest:
     pass
+
 
 class ChunkEndorsement:
     pass
@@ -1022,19 +1028,18 @@ block_schema = [
     ],
     [
         BandwidthRequestsV1, {
-            'kind':
-                'struct',
-            'fields': [
-                'requests', [BandwidthRequest]
-            ]
+            'kind': 'struct',
+            'fields': ['requests', [BandwidthRequest]]
         }
     ],
     [
-        BandwidthRequest, {
+        BandwidthRequest,
+        {
             'kind':
                 'struct',
             'fields': [
-                'to_shard', 'u8' # TODO(bandwidth_scheduler) - add requested values
+                'to_shard',
+                'u8'  # TODO(bandwidth_scheduler) - add requested values
             ]
         }
     ],
