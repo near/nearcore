@@ -59,6 +59,7 @@ pub struct TrieUpdateResult {
     pub trie_changes: TrieChanges,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub contract_accesses: Vec<CodeHash>,
+    pub contract_deploys: Vec<ContractCode>,
 }
 
 impl TrieUpdate {
@@ -143,10 +144,12 @@ impl TrieUpdate {
                 .changes
                 .push(RawStateChange { cause: event.clone(), data: value });
         }
+        self.contract_storage.commit();
     }
 
     pub fn rollback(&mut self) {
         self.prospective.clear();
+        self.contract_storage.rollback();
     }
 
     /// Prepare the accumulated state changes to be applied to the underlying storage.
@@ -187,10 +190,8 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        // TODO(#11099): Retrieve the correct list of code hashes accessed while applying the chunk
-        // from ContractStorage and set in the following.
-        let contract_accesses = contract_storage.finalize().contract_accesses;
-        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses })
+        let ContractStorageResult { contract_accesses, contract_deploys } = contract_storage.finalize();
+        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses, contract_deploys })
     }
 
     /// Returns Error if the underlying storage fails

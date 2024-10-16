@@ -104,6 +104,8 @@ pub struct ApplyChunkResult {
     pub congestion_info: Option<CongestionInfo>,
     /// Hashes of the contracts accessed while applying the chunk.
     pub contract_accesses: Vec<CodeHash>,
+    /// Contract code deployed while applying the chunk.
+    pub contract_deploys: Vec<ContractCode>,
 }
 
 impl ApplyChunkResult {
