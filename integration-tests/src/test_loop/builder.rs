@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 use near_async::futures::FutureSpawner;
@@ -51,7 +51,7 @@ enum DropCondition {
     EndorsementsFrom(AccountId),
     /// Whether test loop should drop all chunks in the given range of heights
     /// relative to first block height where protocol version changes.
-    ProtocolUpgradeChunkRange((ProtocolVersion, ShardUId, std::ops::Range<i64>)),
+    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -84,6 +84,118 @@ pub(crate) struct TestLoopBuilder {
     warmup: bool,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
+}
+
+/// Registers condition to drop certain message received by the peer manager actor.
+fn register_drop_condition(
+    peer_manager_actor: &mut TestLoopPeerManagerActor,
+    chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
+    condition: &DropCondition,
+) {
+    match condition {
+        DropCondition::ChunksValidatedBy(account_id) => {
+            let account_id = account_id.clone();
+            let drop_chunks_condition = Box::new(
+                move |chunk: ShardChunkHeader,
+                      epoch_manager_adapter: Arc<dyn EpochManagerAdapter>|
+                      -> bool {
+                    let prev_block_hash = chunk.prev_block_hash();
+                    let shard_id = chunk.shard_id();
+                    let height_created = chunk.height_created();
+                    let epoch_id = epoch_manager_adapter
+                        .get_epoch_id_from_prev_block(prev_block_hash)
+                        .unwrap();
+
+                    // Drop chunk if the given account is present in the list
+                    // of its validators.
+                    let chunk_validators = epoch_manager_adapter
+                        .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
+                        .unwrap();
+                    return chunk_validators.contains(&account_id);
+                },
+            );
+
+            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+                chunks_storage,
+                epoch_manager_adapter,
+                drop_chunks_condition,
+            ));
+        }
+        DropCondition::EndorsementsFrom(account_id) => {
+            peer_manager_actor
+                .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
+        }
+        DropCondition::ProtocolUpgradeChunkRange((protocol_version, chunk_ranges)) => {
+            let protocol_version = *protocol_version;
+            let chunk_ranges = chunk_ranges.clone();
+
+            let drop_chunks_condition = Box::new(
+                move |chunk: ShardChunkHeader,
+                      epoch_manager_adapter: Arc<dyn EpochManagerAdapter>|
+                      -> bool {
+                    let prev_block_hash = chunk.prev_block_hash();
+                    let shard_id = chunk.shard_id();
+                    let height_created = chunk.height_created();
+                    let epoch_id = epoch_manager_adapter
+                        .get_epoch_id_from_prev_block(prev_block_hash)
+                        .unwrap();
+                    let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
+                    let chunk_shard_uid =
+                        ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                    let Some(range) = chunk_ranges.get(&chunk_shard_uid) else {
+                        return false;
+                    };
+
+                    let epoch_protocol_version =
+                        epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
+                    return if epoch_protocol_version == protocol_version {
+                        let prev_epoch_id = epoch_manager_adapter
+                            .get_prev_epoch_id_from_prev_block(prev_block_hash)
+                            .unwrap();
+                        let prev_epoch_protocol_version = epoch_manager_adapter
+                            .get_epoch_protocol_version(&prev_epoch_id)
+                            .unwrap();
+                        if prev_epoch_protocol_version == protocol_version {
+                            // This is not the first epoch with new protocol version.
+                            return false;
+                        }
+
+                        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap()
+                        {
+                            // Corner case for the first block in the epoch.
+                            return range.contains(&0);
+                        }
+                        // Otherwise this returns epoch start height of our epoch.
+                        let epoch_start_height =
+                            epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
+                        range.contains(&(height_created as i64 - epoch_start_height as i64))
+                    } else {
+                        let maybe_upgrade_height = epoch_manager_adapter
+                            .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
+                            .unwrap();
+                        let Some(upgrade_height) = maybe_upgrade_height else {
+                            // We cannot determine the protocol upgrade height yet.
+                            return false;
+                        };
+                        let next_epoch_id = epoch_manager_adapter
+                            .get_next_epoch_id_from_prev_block(prev_block_hash)
+                            .unwrap();
+                        let next_epoch_protocol_version = epoch_manager_adapter
+                            .get_epoch_protocol_version(&next_epoch_id)
+                            .unwrap();
+                        assert!(epoch_protocol_version < next_epoch_protocol_version);
+                        range.contains(&(height_created as i64 - upgrade_height as i64))
+                    };
+                },
+            );
+            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+                chunks_storage,
+                epoch_manager_adapter,
+                drop_chunks_condition,
+            ));
+        }
+    }
 }
 
 impl TestLoopBuilder {
@@ -155,6 +267,16 @@ impl TestLoopBuilder {
 
     pub(crate) fn drop_endorsements_from(mut self, account_id: &str) -> Self {
         self.drop_conditions.push(DropCondition::EndorsementsFrom(account_id.parse().unwrap()));
+        self
+    }
+
+    pub(crate) fn drop_protocol_upgrade_chunks(
+        mut self,
+        protocol_version: ProtocolVersion,
+        chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+    ) -> Self {
+        self.drop_conditions
+            .push(DropCondition::ProtocolUpgradeChunkRange((protocol_version, chunk_ranges)));
         self
     }
 
@@ -563,138 +685,13 @@ impl TestLoopBuilder {
                 Arc::new(self.test_loop.future_spawner()),
             );
 
-            // validator_of_chunks_to_drop: AccountId,
-            // protocol_version: ProtocolVersion,
-            // shard_uid: ShardUId,
-            // range: std::ops::Range<i64>,
-
             for condition in &self.drop_conditions {
-                match condition {
-                    DropCondition::ChunksValidatedBy(account_id) => {
-                        let account_id = account_id.clone();
-                        let drop_chunks_condition = Box::new(
-                            move |chunk: ShardChunkHeader,
-                                  epoch_manager_adapter: Arc<dyn EpochManagerAdapter>|
-                                  -> bool {
-                                let prev_block_hash = chunk.prev_block_hash();
-                                let shard_id = chunk.shard_id();
-                                let height_created = chunk.height_created();
-                                let epoch_id = epoch_manager_adapter
-                                    .get_epoch_id_from_prev_block(prev_block_hash)
-                                    .unwrap();
-
-                                // Finally, we drop chunk if the given account is present in the list
-                                // of its validators.
-                                let chunk_validators = epoch_manager_adapter
-                                    .get_chunk_validator_assignments(
-                                        &epoch_id,
-                                        shard_id,
-                                        height_created,
-                                    )
-                                    .unwrap();
-                                return chunk_validators.contains(&account_id);
-                            },
-                        );
-
-                        peer_manager_actor.register_override_handler(
-                            partial_encoded_chunks_dropper(
-                                self.chunks_storage.clone(),
-                                epoch_manager_adapters[idx].clone(),
-                                drop_chunks_condition,
-                            ),
-                        );
-                    }
-                    DropCondition::EndorsementsFrom(account_id) => {
-                        peer_manager_actor.register_override_handler(chunk_endorsement_dropper(
-                            account_id.clone(),
-                        ));
-                    }
-                    DropCondition::ProtocolUpgradeChunkRange((
-                        protocol_version,
-                        shard_uid,
-                        range,
-                    )) => {
-                        let protocol_version = protocol_version.clone();
-                        let shard_uid = shard_uid.clone();
-                        let range = range.clone();
-
-                        let drop_chunks_condition = Box::new(
-                            move |chunk: ShardChunkHeader,
-                                  epoch_manager_adapter: Arc<dyn EpochManagerAdapter>|
-                                  -> bool {
-                                let prev_block_hash = chunk.prev_block_hash();
-                                let shard_id = chunk.shard_id();
-                                let height_created = chunk.height_created();
-                                let epoch_id = epoch_manager_adapter
-                                    .get_epoch_id_from_prev_block(prev_block_hash)
-                                    .unwrap();
-                                let shard_layout =
-                                    epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
-                                let chunk_shard_uid =
-                                    ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                                if chunk_shard_uid != shard_uid {
-                                    return false;
-                                }
-
-                                let epoch_protocol_version = epoch_manager_adapter
-                                    .get_epoch_protocol_version(&epoch_id)
-                                    .unwrap();
-                                return if epoch_protocol_version == protocol_version {
-                                    let prev_epoch_id = epoch_manager_adapter
-                                        .get_prev_epoch_id_from_prev_block(prev_block_hash)
-                                        .unwrap();
-                                    let prev_epoch_protocol_version = epoch_manager_adapter
-                                        .get_epoch_protocol_version(&prev_epoch_id)
-                                        .unwrap();
-                                    if prev_epoch_protocol_version == protocol_version {
-                                        // This is not the first epoch with new protocol version.
-                                        return false;
-                                    }
-
-                                    if epoch_manager_adapter
-                                        .is_next_block_epoch_start(prev_block_hash)
-                                        .unwrap()
-                                    {
-                                        // Corner case for the first block in the epoch.
-                                        return range.contains(&0);
-                                    }
-                                    // Otherwise this returns epoch start height of our epoch.
-                                    let epoch_start_height = epoch_manager_adapter
-                                        .get_epoch_start_height(&prev_block_hash)
-                                        .unwrap();
-                                    range.contains(
-                                        &(height_created as i64 - epoch_start_height as i64),
-                                    )
-                                } else {
-                                    let maybe_upgrade_height = epoch_manager_adapter
-                                        .get_estimated_protocol_upgrade_block_height(
-                                            *prev_block_hash,
-                                        )
-                                        .unwrap();
-                                    let Some(upgrade_height) = maybe_upgrade_height else {
-                                        // We cannot determine the protocol upgrade height yet.
-                                        return false;
-                                    };
-                                    let next_epoch_id = epoch_manager_adapter
-                                        .get_next_epoch_id_from_prev_block(prev_block_hash)
-                                        .unwrap();
-                                    let next_epoch_protocol_version = epoch_manager_adapter
-                                        .get_epoch_protocol_version(&next_epoch_id)
-                                        .unwrap();
-                                    assert!(epoch_protocol_version < next_epoch_protocol_version);
-                                    range.contains(&(height_created as i64 - upgrade_height as i64))
-                                };
-                            },
-                        );
-                        peer_manager_actor.register_override_handler(
-                            partial_encoded_chunks_dropper(
-                                self.chunks_storage.clone(),
-                                epoch_manager_adapters[idx].clone(),
-                                drop_chunks_condition,
-                            ),
-                        );
-                    }
-                }
+                register_drop_condition(
+                    &mut peer_manager_actor,
+                    self.chunks_storage.clone(),
+                    epoch_manager_adapters[idx].clone(),
+                    condition,
+                );
             }
 
             self.test_loop.register_actor_for_index(

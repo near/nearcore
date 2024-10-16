@@ -7,7 +7,9 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use std::collections::BTreeMap;
+use near_store::ShardUId;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -28,7 +30,7 @@ fn create_new_shard_layout(base_shard_layout: &ShardLayout, boundary_account: &s
     ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map))
 }
 
-/// Stub for checking Resharding V3.
+/// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Shard ids should not be contiguous. For now we reuse existing shard id
 /// which is incorrect!!!
@@ -39,8 +41,7 @@ fn create_new_shard_layout(base_shard_layout: &ShardLayout, boundary_account: &s
 /// - Cross-shard receipts of all kinds, crossing resharding boundary.
 /// - Shard layout v2 -> v2 transition.
 /// - Shard layout can be taken from mainnet.
-#[test]
-fn test_resharding_v3() {
+fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>) {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -91,21 +92,32 @@ fn test_resharding_v3() {
     }
     let (genesis, _) = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let mut builder = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .track_all_shards()
-        .build();
+        .track_all_shards();
+    if !chunk_ranges_to_drop.is_empty() {
+        builder = builder
+            .drop_protocol_upgrade_chunks(base_protocol_version + 1, chunk_ranges_to_drop.clone());
+    }
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder.build();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
+    let latest_block_height = AtomicU64::new(0);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
         let tip = client.chain.head().unwrap();
 
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
+        if latest_block_height.load(std::sync::atomic::Ordering::SeqCst) < tip.height {
+            latest_block_height.store(tip.height, std::sync::atomic::Ordering::SeqCst);
+            println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
+            if chunk_ranges_to_drop.is_empty() {
+                assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
+            }
+        }
 
         // Return true if we passed an epoch with increased number of shards.
         let epoch_height =
@@ -146,4 +158,24 @@ fn test_resharding_v3() {
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+#[test]
+fn test_resharding_v3() {
+    test_resharding_v3_base(HashMap::new());
+}
+
+#[test]
+fn test_resharding_v3_drop_chunks() {
+    let chunk_ranges_to_drop = HashMap::from([
+        // TODO(resharding): doesn't work because of "Missing main transition
+        // state proof"
+        // (ShardUId { shard_id: 1, version: 3 }, -2..0),
+        // TODO(resharding): hangs. Something is wrong with skipping the first
+        // chunk for non-split shard.
+        // (ShardUId { shard_id: 0, version: 3 }, -2..2),
+        // TODO(resharding): for some reason, leads to skipped blocks as well.
+        (ShardUId { shard_id: 2, version: 3 }, 0..2),
+    ]);
+    test_resharding_v3_base(chunk_ranges_to_drop);
 }
