@@ -440,6 +440,9 @@ impl Drop for TestLoopV2 {
                 event.due, event.event.description
             );
         }
+        // Drop any references that may be held by the event callbacks. This can help
+        // with destruction of the data.
+        self.events.clear();
         // Needed for the log visualizer to know when the test loop ends.
         tracing::info!(target: "test_loop", "TEST_LOOP_SHUTDOWN");
     }
