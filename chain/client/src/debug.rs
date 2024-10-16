@@ -54,9 +54,9 @@ const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 50;
 const DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW: u64 = 1000;
 
 /// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
-pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
+pub(crate) const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
 
-pub struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
+pub(crate) struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
 
 impl BlockProductionTracker {
     pub(crate) fn new() -> Self {

@@ -40,7 +40,7 @@ pub struct ChainUpdate<'a> {
 }
 
 impl<'a> ChainUpdate<'a> {
-    pub fn new(
+    pub(crate) fn new(
         chain_store: &'a mut ChainStore,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -74,7 +74,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Commit changes to the chain into the database.
-    pub fn commit(self) -> Result<(), Error> {
+    pub(crate) fn commit(self) -> Result<(), Error> {
         self.chain_store_update.commit()
     }
 
@@ -296,7 +296,7 @@ impl<'a> ChainUpdate<'a> {
         Ok(res)
     }
 
-    pub fn create_light_client_block(
+    pub(crate) fn create_light_client_block(
         &mut self,
         header: &BlockHeader,
     ) -> Result<LightClientBlockView, Error> {
@@ -458,7 +458,7 @@ impl<'a> ChainUpdate<'a> {
     /// This method is called when the state sync is finished for a shard. It
     /// applies the chunk at the height included of the chunk in the sync hash
     /// and stores the results in the db.
-    pub fn set_state_finalize(
+    pub(crate) fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -589,7 +589,7 @@ impl<'a> ChainUpdate<'a> {
     /// This method is called when the state sync is finished for a shard. It is
     /// used for applying chunks from after the height included, up until the
     /// sync hash, and storing the results. Those chunks are old (missing).
-    pub fn set_state_finalize_on_height(
+    pub(crate) fn set_state_finalize_on_height(
         &mut self,
         height: BlockHeight,
         shard_id: ShardId,

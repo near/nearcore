@@ -25,16 +25,16 @@ use tracing::Instrument;
 /// As a result, the user of this API only needs to request the header or ensure the
 /// part exists on disk, and the downloader will take care of the rest.
 pub(super) struct StateSyncDownloader {
-    pub clock: Clock,
-    pub store: Store,
-    pub preferred_source: Arc<dyn StateSyncDownloadSource>,
-    pub fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
-    pub num_attempts_before_fallback: usize,
-    pub header_validation_sender:
+    pub(crate) clock: Clock,
+    pub(crate) store: Store,
+    pub(crate) preferred_source: Arc<dyn StateSyncDownloadSource>,
+    pub(crate) fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
+    pub(crate) num_attempts_before_fallback: usize,
+    pub(crate) header_validation_sender:
         AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
-    pub runtime: Arc<dyn RuntimeAdapter>,
-    pub retry_timeout: Duration,
-    pub task_tracker: TaskTracker,
+    pub(crate) runtime: Arc<dyn RuntimeAdapter>,
+    pub(crate) retry_timeout: Duration,
+    pub(crate) task_tracker: TaskTracker,
 }
 
 impl StateSyncDownloader {
@@ -43,7 +43,7 @@ impl StateSyncDownloader {
     ///
     /// This method will only return an error if the download cannot be completed even
     /// with retries, or if the download is cancelled.
-    pub fn ensure_shard_header(
+    pub(crate) fn ensure_shard_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -129,7 +129,7 @@ impl StateSyncDownloader {
     ///
     /// This method will only return an error if the download cannot be completed even
     /// with retries, or if the download is cancelled.
-    pub fn ensure_shard_part_downloaded(
+    pub(crate) fn ensure_shard_part_downloaded(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,

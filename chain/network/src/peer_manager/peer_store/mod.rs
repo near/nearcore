@@ -277,7 +277,7 @@ impl Inner {
     /// * it updates KnownPeerStatus.last_seen of the connected peers
     /// * it removes peers which were not seen for config.peer_expiration_duration
     /// This function should be called periodically.
-    pub fn update(&mut self, clock: &time::Clock) {
+    pub(crate) fn update(&mut self, clock: &time::Clock) {
         let now = clock.now_utc();
         self.unban(now);
         self.update_last_seen(now);
@@ -288,7 +288,7 @@ impl Inner {
 pub(crate) struct PeerStore(Mutex<Inner>);
 
 impl PeerStore {
-    pub fn new(clock: &time::Clock, config: Config) -> anyhow::Result<Self> {
+    pub(crate) fn new(clock: &time::Clock, config: Config) -> anyhow::Result<Self> {
         let boot_nodes: HashSet<_> = config.boot_nodes.iter().map(|p| p.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
         let mut peerid_2_state =
@@ -341,33 +341,33 @@ impl PeerStore {
         Ok(PeerStore(Mutex::new(inner)))
     }
 
-    pub fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
+    pub(crate) fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
         self.0.lock().config.blacklist.contains(*addr)
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.0.lock().peer_states.len()
     }
 
-    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
+    pub(crate) fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.0.lock().peer_states.get(peer_id).is_some_and(|s| s.status.is_banned())
     }
 
-    pub fn count_banned(&self) -> usize {
+    pub(crate) fn count_banned(&self) -> usize {
         self.0.lock().peer_states.iter().filter(|(_, st)| st.status.is_banned()).count()
     }
 
-    pub fn update(&self, clock: &time::Clock) {
+    pub(crate) fn update(&self, clock: &time::Clock) {
         self.0.lock().update(clock)
     }
 
     #[allow(dead_code)]
     /// Returns the state of the current peer in memory.
-    pub fn get_peer_state(&self, peer_id: &PeerId) -> Option<KnownPeerState> {
+    pub(crate) fn get_peer_state(&self, peer_id: &PeerId) -> Option<KnownPeerState> {
         self.0.lock().peer_states.get(peer_id).cloned()
     }
 
-    pub fn peer_connected(&self, clock: &time::Clock, peer_info: &PeerInfo) {
+    pub(crate) fn peer_connected(&self, clock: &time::Clock, peer_info: &PeerInfo) {
         let mut inner = self.0.lock();
         inner.add_signed_peer(clock, peer_info.clone());
         let entry = inner.peer_states.get_mut(&peer_info.id).unwrap();
@@ -375,7 +375,11 @@ impl PeerStore {
         entry.status = KnownPeerStatus::Connected;
     }
 
-    pub fn peer_disconnected(&self, clock: &time::Clock, peer_id: &PeerId) -> anyhow::Result<()> {
+    pub(crate) fn peer_disconnected(
+        &self,
+        clock: &time::Clock,
+        peer_id: &PeerId,
+    ) -> anyhow::Result<()> {
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             peer_state.last_seen = clock.now_utc();
@@ -387,7 +391,7 @@ impl PeerStore {
     }
 
     /// Records the last attempt to connect to peer.
-    pub fn peer_connection_attempt(
+    pub(crate) fn peer_connection_attempt(
         &self,
         clock: &time::Clock,
         peer_id: &PeerId,
@@ -410,7 +414,7 @@ impl PeerStore {
         Ok(())
     }
 
-    pub fn peer_ban(
+    pub(crate) fn peer_ban(
         &self,
         clock: &time::Clock,
         peer_id: &PeerId,
@@ -430,7 +434,7 @@ impl PeerStore {
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
-    pub fn unconnected_peer(
+    pub(crate) fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
         prefer_previously_connected_peer: bool,
@@ -470,7 +474,7 @@ impl PeerStore {
     }
 
     /// Return healthy known peers up to given amount.
-    pub fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
+    pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
         self.0
             .lock()
             .find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
@@ -483,7 +487,11 @@ impl PeerStore {
     /// are nodes there we haven’t received signatures of their peer ID.
     ///
     /// See also [`Self::add_direct_peer`] and [`Self::add_signed_peer`].
-    pub fn add_indirect_peers(&self, clock: &time::Clock, peers: impl Iterator<Item = PeerInfo>) {
+    pub(crate) fn add_indirect_peers(
+        &self,
+        clock: &time::Clock,
+        peers: impl Iterator<Item = PeerInfo>,
+    ) {
         let mut inner = self.0.lock();
         let mut total: usize = 0;
         let mut blacklisted: usize = 0;
@@ -510,11 +518,11 @@ impl PeerStore {
     /// confirming that identity yet.
     ///
     /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].
-    pub fn add_direct_peer(&self, clock: &time::Clock, peer_info: PeerInfo) {
+    pub(crate) fn add_direct_peer(&self, clock: &time::Clock, peer_info: PeerInfo) {
         self.0.lock().add_peer(clock, peer_info, TrustLevel::Direct)
     }
 
-    pub fn load(&self) -> HashMap<PeerId, KnownPeerState> {
+    pub(crate) fn load(&self) -> HashMap<PeerId, KnownPeerState> {
         self.0.lock().peer_states.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 }

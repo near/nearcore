@@ -16,7 +16,7 @@ pub(super) struct TaskTracker {
 
 impl TaskTracker {
     /// Creates a new TaskTracker with a specified concurrency limit.
-    pub fn new(limit: usize) -> Self {
+    pub(crate) fn new(limit: usize) -> Self {
         TaskTracker {
             semaphore: Arc::new(Semaphore::new(limit)),
             statuses: Arc::new(Mutex::new(BTreeMap::new())),
@@ -28,7 +28,7 @@ impl TaskTracker {
     /// "Asynchronously" means that when a handle is not available, the function does NOT block.
     /// The description will become part of the status string.
     #[tracing::instrument(skip(self))]
-    pub async fn get_handle(&self, description: &str) -> Arc<TaskHandle> {
+    pub(crate) async fn get_handle(&self, description: &str) -> Arc<TaskHandle> {
         // Acquire a permit from the semaphore.
         let permit = self.semaphore.clone().acquire_owned().await.unwrap();
         let description = description.to_string();
@@ -49,7 +49,7 @@ impl TaskTracker {
     }
 
     /// Returns the statuses of all active tasks.
-    pub fn statuses(&self) -> Vec<String> {
+    pub(crate) fn statuses(&self) -> Vec<String> {
         self.statuses.lock().unwrap().values().cloned().collect()
     }
 }
@@ -65,7 +65,7 @@ pub(super) struct TaskHandle {
 
 impl TaskHandle {
     /// Sets the status string for this handle.
-    pub fn set_status(&self, status: &str) {
+    pub(crate) fn set_status(&self, status: &str) {
         tracing::debug!(%status, "State sync task status changed");
         let mut statuses = self.statuses.lock().unwrap();
         statuses.insert(self.id, format!("{}: {}", self.task_description, status));

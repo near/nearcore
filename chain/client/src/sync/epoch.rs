@@ -40,7 +40,7 @@ pub struct EpochSync {
 }
 
 impl EpochSync {
-    pub fn new(
+    pub(crate) fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         genesis: BlockHeader,
@@ -369,7 +369,7 @@ impl EpochSync {
 
     /// Performs the epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
-    pub fn run(
+    pub(crate) fn run(
         &self,
         status: &mut SyncStatus,
         chain: &Chain,
@@ -415,7 +415,7 @@ impl EpochSync {
         Ok(())
     }
 
-    pub fn apply_proof(
+    pub(crate) fn apply_proof(
         &self,
         status: &mut SyncStatus,
         chain: &mut Chain,

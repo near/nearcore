@@ -71,7 +71,7 @@ struct ActiveEdge {
 /// A mapping from known PeerIds to distinct integer (u32) ids 0,1,2,...
 /// The `p2id` mapping is used to allow indexing nodes into Vecs rather than HashMaps,
 /// improving performance and reducing memory usage of the routing protocol implementation.
-pub struct EdgeCache {
+pub(crate) struct EdgeCache {
     verified_nonces: im::HashMap<EdgeKey, u64>,
     active_edges: im::HashMap<EdgeKey, ActiveEdge>,
 
@@ -89,7 +89,7 @@ pub struct EdgeCache {
 }
 
 impl EdgeCache {
-    pub fn new(local_node_id: PeerId) -> Self {
+    pub(crate) fn new(local_node_id: PeerId) -> Self {
         // Initializes the EdgeCache assigning id 0 to the local node
         Self {
             verified_nonces: Default::default(),
@@ -102,13 +102,13 @@ impl EdgeCache {
     }
 
     /// Accepts a verified edge and updates the state of `verified_nonces`.
-    pub fn write_verified_nonce(&mut self, edge: &Edge) {
+    pub(crate) fn write_verified_nonce(&mut self, edge: &Edge) {
         self.verified_nonces.insert(edge.key().into(), edge.nonce());
     }
 
     /// Accepts an edge. Returns true iff we already have a verified nonce
     /// for the edge's key which is at least as new as the edge's nonce.
-    pub fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
+    pub(crate) fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
         self.verified_nonces
             .get(&edge.key().into())
             .is_some_and(|cached_nonce| cached_nonce >= &edge.nonce())
@@ -263,7 +263,7 @@ impl EdgeCache {
 
     /// Stores the key-value pair (peer_id, edges) in the EdgeCache's `active_trees` map, overwriting
     /// any previous entry for the same peer. Updates `active_edges` accordingly.
-    pub fn update_tree(&mut self, peer_id: &PeerId, tree: &Vec<Edge>) {
+    pub(crate) fn update_tree(&mut self, peer_id: &PeerId, tree: &Vec<Edge>) {
         // Insert the new edges before removing any old ones.
         // Nodes are pruned from the `p2id` mapping as soon as all edges incident with them are
         // removed. If we removed the edges in the old tree first, we might unlabel and relabel a
@@ -287,7 +287,7 @@ impl EdgeCache {
     ///
     /// Returns None if no tree is stored.
     /// Returns None if for any edge in the tree, no nonce is available.
-    pub fn get_min_nonce(&mut self, peer_id: &PeerId) -> Option<u64> {
+    pub(crate) fn get_min_nonce(&mut self, peer_id: &PeerId) -> Option<u64> {
         let edge_keys = self.active_trees.get(peer_id)?;
 
         let mut min_nonce: Option<u64> = None;
@@ -301,7 +301,7 @@ impl EdgeCache {
     }
 
     /// Removes the tree stored for the given peer, if there is one.
-    pub fn remove_tree(&mut self, peer_id: &PeerId) {
+    pub(crate) fn remove_tree(&mut self, peer_id: &PeerId) {
         if let Some(edges) = self.active_trees.remove(peer_id) {
             for e in &edges {
                 self.remove_active_edge(e);
@@ -310,23 +310,23 @@ impl EdgeCache {
     }
 
     /// Upper bound on mapped u32 ids; not inclusive
-    pub fn max_id(&self) -> usize {
+    pub(crate) fn max_id(&self) -> usize {
         self.degree.len()
     }
 
     /// Iterator over the (PeerId, u32) mapping
-    pub fn iter_peers(&self) -> Iter<'_, PeerId, u32> {
+    pub(crate) fn iter_peers(&self) -> Iter<'_, PeerId, u32> {
         self.p2id.iter()
     }
 
     /// Number of known edges in the network
-    pub fn known_edges_ct(&self) -> usize {
+    pub(crate) fn known_edges_ct(&self) -> usize {
         self.verified_nonces.len()
     }
 
     /// Prunes entries with nonces older than `prune_nonces_older_than`
     /// from `verified_nonces`
-    pub fn prune_old_edges(&mut self, prune_nonces_older_than: u64) {
+    pub(crate) fn prune_old_edges(&mut self, prune_nonces_older_than: u64) {
         // Drop any entries with old nonces from the verified_nonces cache
         self.verified_nonces.retain(|_, nonce| nonce >= &prune_nonces_older_than);
     }
@@ -339,7 +339,7 @@ impl EdgeCache {
     ///
     /// Returns None if the input is inconsistent with the state of the cache
     /// (reachability or distances are not consistent with the `active_edges`).
-    pub fn construct_spanning_tree(&self, distance: &HashMap<PeerId, u32>) -> Option<Vec<Edge>> {
+    pub(crate) fn construct_spanning_tree(&self, distance: &HashMap<PeerId, u32>) -> Option<Vec<Edge>> {
         let mut edges = Vec::<Edge>::new();
         let mut has_edge = HashSet::<PeerId>::new();
 

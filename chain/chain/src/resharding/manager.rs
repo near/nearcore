@@ -26,7 +26,7 @@ pub struct ReshardingManager {
 }
 
 impl ReshardingManager {
-    pub fn new(
+    pub(crate) fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         resharding_config: MutableConfigValue<ReshardingConfig>,
@@ -38,7 +38,7 @@ impl ReshardingManager {
     /// memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete resharding, proper memtries are to be
     /// created later.
-    pub fn process_memtrie_resharding_storage_update(
+    pub(crate) fn process_memtrie_resharding_storage_update(
         &mut self,
         mut chain_store_update: ChainStoreUpdate,
         block: &Block,

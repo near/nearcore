@@ -42,40 +42,40 @@ pub struct BlocksDelayTracker {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockTrackingStats {
+pub(crate) struct BlockTrackingStats {
     /// Timestamp when block was received.
-    pub received_timestamp: Instant,
-    pub received_utc_timestamp: Utc,
+    pub(crate) received_timestamp: Instant,
+    pub(crate) received_utc_timestamp: Utc,
     /// Timestamp when block was put to the orphan pool, if it ever was
-    pub orphaned_timestamp: Option<Instant>,
+    pub(crate) orphaned_timestamp: Option<Instant>,
     /// Timestamp when block was put to the missing chunks pool
-    pub missing_chunks_timestamp: Option<Instant>,
+    pub(crate) missing_chunks_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the orphan pool
-    pub removed_from_orphan_timestamp: Option<Instant>,
+    pub(crate) removed_from_orphan_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the missing chunks pool
-    pub removed_from_missing_chunks_timestamp: Option<Instant>,
+    pub(crate) removed_from_missing_chunks_timestamp: Option<Instant>,
     /// Timestamp when block was done processing
-    pub processed_timestamp: Option<Instant>,
+    pub(crate) processed_timestamp: Option<Instant>,
     /// Whether the block is not processed because of different reasons
-    pub dropped: Option<DroppedReason>,
+    pub(crate) dropped: Option<DroppedReason>,
     /// Stores the error message encountered during the processing of this block
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
     /// for a shard, the corresponding item will be None.
-    pub chunks: Vec<Option<ChunkHash>>,
+    pub(crate) chunks: Vec<Option<ChunkHash>>,
 }
 
 /// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
 /// before it is received.
 #[derive(Debug, Clone)]
-pub struct ChunkTrackingStats {
-    pub height_created: BlockHeight,
-    pub shard_id: ShardId,
-    pub prev_block_hash: CryptoHash,
+pub(crate) struct ChunkTrackingStats {
+    pub(crate) height_created: BlockHeight,
+    pub(crate) shard_id: ShardId,
+    pub(crate) prev_block_hash: CryptoHash,
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<Utc>,
+    pub(crate) requested_timestamp: Option<Utc>,
     /// Timestamp of when the node receives all information it needs for this chunk
-    pub completed_timestamp: Option<Utc>,
+    pub(crate) completed_timestamp: Option<Utc>,
 }
 
 impl ChunkTrackingStats {
@@ -196,7 +196,7 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_block_orphaned(&mut self, block_hash: &CryptoHash) {
+    pub(crate) fn mark_block_orphaned(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.orphaned_timestamp = Some(self.clock.now());
         } else {
@@ -204,7 +204,7 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_block_unorphaned(&mut self, block_hash: &CryptoHash) {
+    pub(crate) fn mark_block_unorphaned(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_orphan_timestamp = Some(self.clock.now());
         } else {
@@ -212,7 +212,7 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_block_has_missing_chunks(&mut self, block_hash: &CryptoHash) {
+    pub(crate) fn mark_block_has_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.missing_chunks_timestamp = Some(self.clock.now());
         } else {
@@ -220,7 +220,7 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_block_completed_missing_chunks(&mut self, block_hash: &CryptoHash) {
+    pub(crate) fn mark_block_completed_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
         } else {
@@ -290,7 +290,7 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn finish_block_processing(
+    pub(crate) fn finish_block_processing(
         &mut self,
         shard_layout: &ShardLayout,
         block_hash: &CryptoHash,

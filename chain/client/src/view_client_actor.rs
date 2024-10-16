@@ -77,11 +77,11 @@ const REQUEST_WAIT_TIME: i64 = 1000;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Request and response manager across all instances of ViewClientActor.
-pub struct ViewClientRequestManager {
+pub(crate) struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
-    pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
+    pub(crate) tx_status_requests: lru::LruCache<CryptoHash, Instant>,
     /// Transaction status response
-    pub tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
+    pub(crate) tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
 }
 
 pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
@@ -89,7 +89,7 @@ pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActorInner {
     clock: Clock,
-    pub adv: crate::adversarial::Controls,
+    pub(crate) adv: crate::adversarial::Controls,
 
     /// Validator account (if present). This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
@@ -100,13 +100,13 @@ pub struct ViewClientActorInner {
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-    pub config: ClientConfig,
+    pub(crate) config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl ViewClientRequestManager {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             tx_status_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
             tx_status_response: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),

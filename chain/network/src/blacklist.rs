@@ -58,7 +58,7 @@ impl FromIterator<Entry> for Blacklist {
 
 impl Blacklist {
     /// Returns whether given address is on the blacklist.
-    pub fn contains(&self, addr: net::SocketAddr) -> bool {
+    pub(crate) fn contains(&self, addr: net::SocketAddr) -> bool {
         self.0.contains(&Entry::from_ip(addr.ip())) || self.0.contains(&Entry::from_addr(addr))
     }
 }

@@ -13,7 +13,7 @@ use metrics_tracker::OrphanWitnessMetricsTracker;
 /// To process a ChunkStateWitness we need to have the previous block, but it might happen that a ChunkStateWitness
 /// shows up before the block is available. In such cases the witness is put in `OrphanStateWitnessPool` until the
 /// required block arrives and the witness can be processed.
-pub struct OrphanStateWitnessPool {
+pub(crate) struct OrphanStateWitnessPool {
     witness_cache: LruCache<ChunkProductionKey, CacheEntry>,
 }
 
@@ -25,7 +25,7 @@ struct CacheEntry {
 impl OrphanStateWitnessPool {
     /// Create a new `OrphanStateWitnessPool` with a capacity of `cache_capacity` witnesses.
     /// The `Default` trait implementation provides reasonable defaults.
-    pub fn new(cache_capacity: usize) -> Self {
+    pub(crate) fn new(cache_capacity: usize) -> Self {
         if cache_capacity > 128 {
             tracing::warn!(
                 target: "client",
@@ -45,7 +45,7 @@ impl OrphanStateWitnessPool {
     /// shard_id, size, epoch_id and distance from the tip. The pool would still work without it, but without
     /// validation it'd be possible to fill the whole cache with spam.
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
-    pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
+    pub(crate) fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
         let cache_key = witness.chunk_production_key();
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
@@ -66,7 +66,7 @@ impl OrphanStateWitnessPool {
 
     /// Find all orphaned witnesses that were waiting for this block and remove them from the pool.
     /// The block has arrived, so they can be now processed, they're no longer orphans.
-    pub fn take_state_witnesses_waiting_for_block(
+    pub(crate) fn take_state_witnesses_waiting_for_block(
         &mut self,
         prev_block: &CryptoHash,
     ) -> Vec<ChunkStateWitness> {
@@ -90,7 +90,7 @@ impl OrphanStateWitnessPool {
     /// Remove all witnesses below the given height from the pool.
     /// Orphan witnesses below the final height of the chain won't be needed anymore,
     /// so they can be removed from the pool to free up memory.
-    pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
+    pub(crate) fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
         let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
         for (cache_key, cache_entry) in self.witness_cache.iter() {
             let witness_height = cache_key.height_created;
@@ -131,13 +131,13 @@ mod metrics_tracker {
     /// Its constructor adds the witness to the metrics, and later its destructor
     /// removes the witness from metrics.
     /// Using this struct is much less error-prone than adjusting the metrics by hand.
-    pub struct OrphanWitnessMetricsTracker {
+    pub(crate) struct OrphanWitnessMetricsTracker {
         shard_id: String,
         witness_size: usize,
     }
 
     impl OrphanWitnessMetricsTracker {
-        pub fn new(
+        pub(crate) fn new(
             witness: &ChunkStateWitness,
             witness_size: usize,
         ) -> OrphanWitnessMetricsTracker {

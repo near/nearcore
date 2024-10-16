@@ -18,7 +18,7 @@ use crate::types::RuntimeAdapter;
 use crate::{metrics, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 #[derive(Clone)]
-pub enum GCMode {
+pub(crate) enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
     StateSync { clear_block_info: bool },
@@ -522,7 +522,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     // Clearing block data of `block_hash`, if on a fork.
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
-    pub fn clear_block_data(
+    pub(crate) fn clear_block_data(
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
         mut block_hash: CryptoHash,
@@ -808,7 +808,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col_state_parts(
+    pub(crate) fn gc_col_state_parts(
         &mut self,
         sync_hash: CryptoHash,
         shard_id: ShardId,

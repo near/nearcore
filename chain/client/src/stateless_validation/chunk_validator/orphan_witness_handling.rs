@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// OrphanStateWitnessPool and protects against spam attacks.
 /// The range starts at 2 because a witness at height of head+1 would
 /// have the previous block available (the chain head), so it wouldn't be an orphan.
-pub const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
+pub(crate) const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
 
 impl Client {
     pub fn handle_orphan_state_witness(
@@ -103,7 +103,7 @@ impl Client {
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
     /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
     /// It also removes old witnesses (below final height) from the orphan pool to save memory.
-    pub fn process_ready_orphan_witnesses_and_clean_old(
+    pub(crate) fn process_ready_orphan_witnesses_and_clean_old(
         &mut self,
         new_block: &Block,
         signer: &Option<Arc<ValidatorSigner>>,

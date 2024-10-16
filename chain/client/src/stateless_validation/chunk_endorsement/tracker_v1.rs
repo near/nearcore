@@ -16,7 +16,7 @@ use near_primitives::types::AccountId;
 const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
 
 /// Module to track chunk endorsements received from chunk validators.
-pub struct ChunkEndorsementTracker {
+pub(crate) struct ChunkEndorsementTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     inner: Mutex<ChunkEndorsementTrackerInner>,
 }
@@ -52,7 +52,7 @@ impl ChunkEndorsementTracker {
         }
     }
 
-    pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
+    pub(crate) fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
             epoch_manager: epoch_manager.clone(),
             inner: Mutex::new(ChunkEndorsementTrackerInner {
@@ -70,7 +70,7 @@ impl ChunkEndorsementTracker {
 
     /// Process pending endorsements for the given chunk header.
     /// It removes these endorsements from the `pending_chunk_endorsements` cache.
-    pub fn process_pending_endorsements(&self, chunk_header: &ShardChunkHeader) {
+    pub(crate) fn process_pending_endorsements(&self, chunk_header: &ShardChunkHeader) {
         self.inner.lock().unwrap().process_pending_endorsements(chunk_header);
     }
 
@@ -105,7 +105,7 @@ impl ChunkEndorsementTracker {
 
     /// This function is called by block producer potentially multiple times if there's not enough stake.
     /// For older protocol version, we return an empty array of chunk endorsements.
-    pub fn collect_chunk_endorsements(
+    pub(crate) fn collect_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
@@ -116,7 +116,7 @@ impl ChunkEndorsementTracker {
 impl ChunkEndorsementTrackerInner {
     /// Process pending endorsements for the given chunk header.
     /// It removes these endorsements from the `pending_chunk_endorsements` cache.
-    pub fn process_pending_endorsements(&mut self, chunk_header: &ShardChunkHeader) {
+    pub(crate) fn process_pending_endorsements(&mut self, chunk_header: &ShardChunkHeader) {
         let chunk_hash = &chunk_header.chunk_hash();
         let chunk_endorsements = self.pending_chunk_endorsements.pop(chunk_hash);
         let Some(chunk_endorsements) = chunk_endorsements else {
@@ -194,7 +194,7 @@ impl ChunkEndorsementTrackerInner {
         Ok(())
     }
 
-    pub fn compute_chunk_endorsements_impl(
+    pub(crate) fn compute_chunk_endorsements_impl(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {

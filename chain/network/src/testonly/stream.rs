@@ -6,14 +6,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::network_protocol::{Encoding, PeerMessage};
 use crate::tcp;
 
-pub struct Stream {
+pub(crate) struct Stream {
     stream: tcp::Stream,
     force_encoding: Option<Encoding>,
     protocol_buffers_supported: bool,
 }
 
 impl Stream {
-    pub fn new(force_encoding: Option<Encoding>, stream: tcp::Stream) -> Self {
+    pub(crate) fn new(force_encoding: Option<Encoding>, stream: tcp::Stream) -> Self {
         Self { stream, force_encoding, protocol_buffers_supported: false }
     }
 
@@ -27,7 +27,7 @@ impl Stream {
         return None;
     }
 
-    pub async fn read(&mut self) -> Result<PeerMessage, std::io::Error> {
+    pub(crate) async fn read(&mut self) -> Result<PeerMessage, std::io::Error> {
         'read: loop {
             let n = self.stream.stream.read_u32_le().await? as usize;
             let mut buf = BytesMut::new();
@@ -51,7 +51,7 @@ impl Stream {
         }
     }
 
-    pub async fn write(&mut self, msg: &PeerMessage) {
+    pub(crate) async fn write(&mut self, msg: &PeerMessage) {
         if let Some(enc) = self.encoding() {
             self.write_encoded(&msg.serialize(enc)).await;
         } else {

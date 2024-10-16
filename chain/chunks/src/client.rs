@@ -92,7 +92,7 @@ impl ShardedTransactionPool {
         })
     }
 
-    pub fn debug_status(&self) -> String {
+    pub(crate) fn debug_status(&self) -> String {
         self.tx_pools
             .iter()
             .filter(|(_, pool)| pool.len() > 0)

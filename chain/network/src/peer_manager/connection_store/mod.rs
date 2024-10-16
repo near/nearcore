@@ -14,7 +14,7 @@ mod testonly;
 mod tests;
 
 /// Size of the LRU cache of recent outbound connections.
-pub const OUTBOUND_CONNECTIONS_CACHE_SIZE: usize = 40;
+pub(crate) const OUTBOUND_CONNECTIONS_CACHE_SIZE: usize = 40;
 /// How long a connection should survive before being stored.
 pub(crate) const STORED_CONNECTIONS_MIN_DURATION: time::Duration = time::Duration::minutes(10);
 
@@ -73,19 +73,19 @@ impl Inner {
 pub(crate) struct ConnectionStore(ArcMutex<Inner>);
 
 impl ConnectionStore {
-    pub fn new(store: store::Store) -> anyhow::Result<Self> {
+    pub(crate) fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
         let inner = Inner { store, outbound };
         Ok(ConnectionStore(ArcMutex::new(inner)))
     }
 
     /// Returns all stored outbound connections
-    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
+    pub(crate) fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
         return self.0.load().outbound.clone();
     }
 
     /// If there is an outbound connection to the given peer in storage, removes it
-    pub fn remove_from_connection_store(&self, peer_id: &PeerId) {
+    pub(crate) fn remove_from_connection_store(&self, peer_id: &PeerId) {
         self.0.update(|mut inner| {
             inner.remove_outbound(peer_id);
             ((), inner)
@@ -95,7 +95,7 @@ impl ConnectionStore {
     /// Called upon closing a connection. If closed for a reason indicating we should
     /// not reconnect (for example, a ban), removes the connection from storage.
     /// Returns a boolean indicating whether the connection should be re-established.
-    pub fn connection_closed(
+    pub(crate) fn connection_closed(
         &self,
         peer_info: &PeerInfo,
         peer_type: &PeerType,
@@ -118,7 +118,7 @@ impl ConnectionStore {
     }
 
     /// Given a snapshot of the TIER2 connection pool, updates the connections in storage.
-    pub fn update(&self, clock: &time::Clock, tier2: &connection::PoolSnapshot) {
+    pub(crate) fn update(&self, clock: &time::Clock, tier2: &connection::PoolSnapshot) {
         let now = clock.now();
         let now_utc = clock.now_utc();
 

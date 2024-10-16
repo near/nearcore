@@ -32,23 +32,23 @@ const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
 /// When a PartialEncodedChunk is received, it can be merged to the existing EncodedChunksCacheEntry
 /// for the chunk
-pub struct EncodedChunksCacheEntry {
-    pub header: ShardChunkHeader,
-    pub parts: HashMap<u64, PartialEncodedChunkPart>,
-    pub receipts: HashMap<ShardId, ReceiptProof>,
+pub(crate) struct EncodedChunksCacheEntry {
+    pub(crate) header: ShardChunkHeader,
+    pub(crate) parts: HashMap<u64, PartialEncodedChunkPart>,
+    pub(crate) receipts: HashMap<ShardId, ReceiptProof>,
     /// whether this entry has all parts and receipts
-    pub complete: bool,
+    pub(crate) complete: bool,
     /// whether this chunk is ready for inclusion for producing a block
-    pub ready_for_inclusion: bool,
+    pub(crate) ready_for_inclusion: bool,
     /// Whether the header has been **fully** validated.
     /// Every entry added to the cache already has their header "partially" validated
     /// by validate_chunk_header. When the previous block is accepted, they must be
     /// validated again to make sure they are fully validated.
     /// See comments in `validate_chunk_header` for more context on partial vs full validation
-    pub header_fully_validated: bool,
+    pub(crate) header_fully_validated: bool,
 }
 
-pub struct EncodedChunksCache {
+pub(crate) struct EncodedChunksCache {
     /// Largest seen height from the head of the chain
     largest_seen_height: BlockHeight,
 
@@ -68,7 +68,7 @@ pub struct EncodedChunksCache {
 }
 
 impl EncodedChunksCacheEntry {
-    pub fn from_chunk_header(header: ShardChunkHeader) -> Self {
+    pub(crate) fn from_chunk_header(header: ShardChunkHeader) -> Self {
         EncodedChunksCacheEntry {
             header,
             parts: HashMap::new(),
@@ -81,7 +81,7 @@ impl EncodedChunksCacheEntry {
 
     /// Inserts previously unknown chunks and receipts, returning the part ords that were
     /// previously unknown.
-    pub fn merge_in_partial_encoded_chunk(
+    pub(crate) fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
     ) -> HashSet<u64> {
@@ -103,7 +103,7 @@ impl EncodedChunksCacheEntry {
 }
 
 impl EncodedChunksCache {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         EncodedChunksCache {
             largest_seen_height: 0,
             encoded_chunks: HashMap::new(),
@@ -113,12 +113,12 @@ impl EncodedChunksCache {
         }
     }
 
-    pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&EncodedChunksCacheEntry> {
+    pub(crate) fn get(&self, chunk_hash: &ChunkHash) -> Option<&EncodedChunksCacheEntry> {
         self.encoded_chunks.get(chunk_hash)
     }
 
     /// Mark an entry as complete, which means it has all parts and receipts needed
-    pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
+    pub(crate) fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.complete = true;
             let previous_block_hash = &entry.header.prev_block_hash().clone();
@@ -128,7 +128,7 @@ impl EncodedChunksCache {
         }
     }
 
-    pub fn mark_entry_validated(&mut self, chunk_hash: &ChunkHash) {
+    pub(crate) fn mark_entry_validated(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.header_fully_validated = true;
         } else {
@@ -137,14 +137,14 @@ impl EncodedChunksCache {
     }
 
     /// Get a list of incomplete chunks whose previous block hash is `prev_block_hash`
-    pub fn get_incomplete_chunks(
+    pub(crate) fn get_incomplete_chunks(
         &self,
         prev_block_hash: &CryptoHash,
     ) -> Option<&HashSet<ChunkHash>> {
         self.incomplete_chunks.get(prev_block_hash)
     }
 
-    pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
+    pub(crate) fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
         if let Some(entry) = self.encoded_chunks.remove(chunk_hash) {
             self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
             Some(entry)
@@ -170,7 +170,7 @@ impl EncodedChunksCache {
 
     // Create an empty entry from the header and insert it if there is no entry for the chunk already
     // Return a mutable reference to the entry
-    pub fn get_or_insert_from_header(
+    pub(crate) fn get_or_insert_from_header(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
@@ -192,19 +192,19 @@ impl EncodedChunksCache {
         })
     }
 
-    pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
+    pub(crate) fn height_within_front_horizon(&self, height: BlockHeight) -> bool {
         height >= self.largest_seen_height && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
     }
 
-    pub fn height_within_rear_horizon(&self, height: BlockHeight) -> bool {
+    pub(crate) fn height_within_rear_horizon(&self, height: BlockHeight) -> bool {
         height + HEIGHT_HORIZON >= self.largest_seen_height && height <= self.largest_seen_height
     }
 
-    pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
+    pub(crate) fn height_within_horizon(&self, height: BlockHeight) -> bool {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    pub fn get_chunk_hash_by_height_and_shard(
+    pub(crate) fn get_chunk_hash_by_height_and_shard(
         &self,
         height: BlockHeight,
         shard_id: ShardId,
@@ -214,7 +214,7 @@ impl EncodedChunksCache {
 
     /// Add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry,
     /// returning the set of part ords that were previously unknown.
-    pub fn merge_in_partial_encoded_chunk(
+    pub(crate) fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
     ) -> HashSet<u64> {
@@ -223,7 +223,7 @@ impl EncodedChunksCache {
     }
 
     /// Remove a chunk from the cache if it is outside of horizon
-    pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
+    pub(crate) fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
             let height = entry.header.height_created();
             if !self.height_within_horizon(height) {
@@ -233,7 +233,7 @@ impl EncodedChunksCache {
     }
 
     /// Update largest seen height and removes chunks from the cache that are outside of horizon
-    pub fn update_largest_seen_height<T>(
+    pub(crate) fn update_largest_seen_height<T>(
         &mut self,
         new_height: BlockHeight,
         requested_chunks: &HashMap<ChunkHash, T>,
@@ -256,7 +256,7 @@ impl EncodedChunksCache {
 
     /// Marks the chunk for inclusion in a block; returns true if we haven't already
     /// called for this chunk. Requires that the chunk is already in the cache.
-    pub fn mark_chunk_for_inclusion(&mut self, chunk_hash: &ChunkHash) -> bool {
+    pub(crate) fn mark_chunk_for_inclusion(&mut self, chunk_hash: &ChunkHash) -> bool {
         let entry = self.encoded_chunks.get_mut(chunk_hash).unwrap();
         if entry.ready_for_inclusion {
             false

@@ -76,18 +76,18 @@ const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 const ACCOUNTS_DATA_FULL_SYNC_INTERVAL: time::Duration = time::Duration::minutes(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnectionClosedEvent {
+pub(crate) struct ConnectionClosedEvent {
     pub(crate) stream_id: tcp::StreamId,
     pub(crate) reason: ClosingReason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HandshakeStartedEvent {
+pub(crate) struct HandshakeStartedEvent {
     pub(crate) stream_id: tcp::StreamId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HandshakeCompletedEvent {
+pub(crate) struct HandshakeCompletedEvent {
     pub(crate) stream_id: tcp::StreamId,
     pub(crate) edge: Edge,
     pub(crate) tier: tcp::Tier,
@@ -205,7 +205,7 @@ struct HandshakeSpec {
 }
 
 type HandshakeSignalSender = tokio::sync::oneshot::Sender<std::convert::Infallible>;
-pub type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallible>;
+pub(crate) type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallible>;
 
 impl PeerActor {
     /// Spawns a PeerActor on a separate actix::Arbiter and awaits for the
@@ -1749,7 +1749,7 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct Stop {
-    pub ban_reason: Option<ReasonForBan>,
+    pub(crate) ban_reason: Option<ReasonForBan>,
 }
 
 impl actix::Handler<WithSpanContext<Stop>> for PeerActor {

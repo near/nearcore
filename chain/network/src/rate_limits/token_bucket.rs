@@ -13,7 +13,7 @@
 use near_async::time::Instant;
 
 #[derive(thiserror::Error, Debug, PartialEq)]
-pub enum TokenBucketError {
+pub(crate) enum TokenBucketError {
     #[error("invalid value for refill rate ({0})")]
     InvalidRefillRate(f32),
 }
@@ -25,7 +25,7 @@ const TOKEN_PARTS_NUMBER: u64 = 1 << 31;
 ///
 /// The precision guarantee is, at least, such that a bucket having `refill_rate` = 0.001s
 /// update at regular intervals every 10ms will successfully generate a token after 1000±1s.
-pub struct TokenBucket {
+pub(crate) struct TokenBucket {
     /// Maximum number of tokens the bucket can hold.
     maximum_size: u32,
     /// Tokens in the bucket. They are stored as `tokens * TOKEN_PARTS_NUMBER`.
@@ -50,7 +50,7 @@ impl TokenBucket {
     /// # Errors
     ///
     /// Returns an error if any of the arguments has an invalid value.
-    pub fn new(
+    pub(crate) fn new(
         initial_size: u32,
         maximum_size: u32,
         refill_rate: f32,
@@ -69,7 +69,7 @@ impl TokenBucket {
     /// If the tokens are available they are subtracted from the current `size` and
     /// the method returns `true`. Otherwise, `size` is not changed and the method
     /// returns `false`.
-    pub fn acquire(&mut self, tokens: u32, now: Instant) -> bool {
+    pub(crate) fn acquire(&mut self, tokens: u32, now: Instant) -> bool {
         self.refill(now);
         let tokens = to_tokens_with_parts(tokens);
         if self.size >= tokens {

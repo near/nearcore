@@ -4,7 +4,7 @@ use std::sync::Arc;
 pub(super) struct Once(Arc<tokio::sync::Semaphore>);
 
 impl Once {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(Arc::new(tokio::sync::Semaphore::new(0)))
     }
 
@@ -12,14 +12,14 @@ impl Once {
     ///
     /// After this call recv().await will always return immediately.
     /// After this call any subsequent call to send() is a noop.
-    pub fn send(&self) {
+    pub(crate) fn send(&self) {
         self.0.close();
     }
 
     /// recv() waits for the first call to send().
     ///
     /// Cancellable.
-    pub async fn recv(&self) {
+    pub(crate) async fn recv(&self) {
         // We await for the underlying semaphore to get closed.
         // This is the only possible outcome, because we never add
         // any permits to the semaphore.
@@ -28,7 +28,7 @@ impl Once {
     }
 
     /// Checks if send() was already called.
-    pub fn try_recv(&self) -> bool {
+    pub(crate) fn try_recv(&self) -> bool {
         self.0.is_closed()
     }
 }

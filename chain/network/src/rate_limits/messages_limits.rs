@@ -13,14 +13,14 @@ use super::token_bucket::{TokenBucket, TokenBucketError};
 /// Object responsible to manage the rate limits of all network messages
 /// for a single connection/peer.
 #[derive(Default)]
-pub struct RateLimits {
+pub(crate) struct RateLimits {
     buckets: EnumMap<RateLimitedPeerMessageKey, Option<TokenBucket>>,
 }
 
 impl RateLimits {
     /// Creates all buckets as configured in `config`.
     /// See also [TokenBucket::new].
-    pub fn from_config(config: &Config, start_time: Instant) -> Self {
+    pub(crate) fn from_config(config: &Config, start_time: Instant) -> Self {
         let mut buckets = enum_map! { _ => None };
         // Configuration is assumed to be correct. Any failure to build a bucket is ignored.
         for (key, message_config) in &config.rate_limits {
@@ -49,7 +49,7 @@ impl RateLimits {
     ///
     /// Returns `true` if the message should be allowed to continue. Otherwise,
     /// if it should be rate limited, returns `false`.
-    pub fn is_allowed(&mut self, message: &PeerMessage, now: Instant) -> bool {
+    pub(crate) fn is_allowed(&mut self, message: &PeerMessage, now: Instant) -> bool {
         if let Some((key, cost)) = get_key_and_token_cost(message) {
             if let Some(bucket) = &mut self.buckets[key] {
                 return bucket.acquire(cost, now);
@@ -62,30 +62,30 @@ impl RateLimits {
 /// Rate limit configuration for a single network message.
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
-pub struct SingleMessageConfig {
-    pub maximum_size: u32,
-    pub refill_rate: f32,
+pub(crate) struct SingleMessageConfig {
+    pub(crate) maximum_size: u32,
+    pub(crate) refill_rate: f32,
     /// Optional initial size. Defaults to `maximum_size` if absent.
-    pub initial_size: Option<u32>,
+    pub(crate) initial_size: Option<u32>,
 }
 
 impl SingleMessageConfig {
-    pub fn new(maximum_size: u32, refill_rate: f32, initial_size: Option<u32>) -> Self {
+    pub(crate) fn new(maximum_size: u32, refill_rate: f32, initial_size: Option<u32>) -> Self {
         Self { maximum_size, refill_rate, initial_size }
     }
 }
 
 /// Network messages rate limits configuration.
 #[derive(Default, Clone)]
-pub struct Config {
-    pub rate_limits: HashMap<RateLimitedPeerMessageKey, SingleMessageConfig>,
+pub(crate) struct Config {
+    pub(crate) rate_limits: HashMap<RateLimitedPeerMessageKey, SingleMessageConfig>,
 }
 
 /// Struct to manage user defined overrides for [Config]. The key difference with the base struct
 /// is that in this values can be set to `None` to disable preset rate limits.
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
 pub struct OverrideConfig {
-    pub rate_limits: HashMap<RateLimitedPeerMessageKey, Option<SingleMessageConfig>>,
+    pub(crate) rate_limits: HashMap<RateLimitedPeerMessageKey, Option<SingleMessageConfig>>,
 }
 
 impl Config {
@@ -94,7 +94,9 @@ impl Config {
     /// # Errors
     ///
     /// If at least one error is present, returns the list of all configuration errors.  
-    pub fn validate(&self) -> Result<(), Vec<(RateLimitedPeerMessageKey, TokenBucketError)>> {
+    pub(crate) fn validate(
+        &self,
+    ) -> Result<(), Vec<(RateLimitedPeerMessageKey, TokenBucketError)>> {
         let mut errors = Vec::new();
         for (key, message_config) in &self.rate_limits {
             if let Err(err) = TokenBucket::validate_refill_rate(message_config.refill_rate) {
@@ -109,14 +111,14 @@ impl Config {
     }
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
-    pub fn standard_preset() -> Self {
+    pub(crate) fn standard_preset() -> Self {
         // TODO(trisfald): make preset
         Self::default()
     }
 
     /// Applies rate limits configuration overrides to `self`. In practice, merges the two configurations
     /// giving preference to the values defined by the `overrides` parameter.
-    pub fn apply_overrides(&mut self, overrides: OverrideConfig) {
+    pub(crate) fn apply_overrides(&mut self, overrides: OverrideConfig) {
         for (key, message_config) in overrides.rate_limits {
             match message_config {
                 Some(value) => self.rate_limits.insert(key, value),
@@ -141,7 +143,7 @@ impl Config {
     serde::Deserialize,
 )]
 #[allow(clippy::large_enum_variant)]
-pub enum RateLimitedPeerMessageKey {
+pub(crate) enum RateLimitedPeerMessageKey {
     SyncRoutingTable,
     DistanceVector,
     RequestUpdateNonce,

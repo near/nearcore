@@ -18,22 +18,22 @@ mod tests;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
-pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
-pub type DistanceTable = HashMap<PeerId, u32>;
+pub(crate) type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
+pub(crate) type DistanceTable = HashMap<PeerId, u32>;
 
 #[derive(Clone)]
-pub struct GraphConfig {
-    pub node_id: PeerId,
-    pub prune_unreachable_peers_after: time::Duration,
-    pub prune_edges_after: Option<time::Duration>,
+pub(crate) struct GraphConfig {
+    pub(crate) node_id: PeerId,
+    pub(crate) prune_unreachable_peers_after: time::Duration,
+    pub(crate) prune_edges_after: Option<time::Duration>,
 }
 
 #[derive(Default)]
-pub struct GraphSnapshot {
-    pub edges: im::HashMap<EdgeKey, Edge>,
-    pub local_edges: HashMap<PeerId, Edge>,
-    pub next_hops: Arc<NextHopTable>,
-    pub distances: Arc<DistanceTable>,
+pub(crate) struct GraphSnapshot {
+    pub(crate) edges: im::HashMap<EdgeKey, Edge>,
+    pub(crate) local_edges: HashMap<PeerId, Edge>,
+    pub(crate) next_hops: Arc<NextHopTable>,
+    pub(crate) distances: Arc<DistanceTable>,
 }
 
 struct Inner {
@@ -189,7 +189,7 @@ impl Inner {
         "GraphInner::update",
         skip_all
     )]
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         clock: &time::Clock,
         unreliable_peers: &HashSet<PeerId>,
@@ -233,13 +233,13 @@ pub(crate) struct Graph {
     inner: Arc<Mutex<Inner>>,
     snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
-    pub routing_table: RoutingTableView,
+    pub(crate) routing_table: RoutingTableView,
 
     runtime: Runtime,
 }
 
 impl Graph {
-    pub fn new(config: GraphConfig) -> Self {
+    pub(crate) fn new(config: GraphConfig) -> Self {
         Self {
             routing_table: RoutingTableView::new(),
             inner: Arc::new(Mutex::new(Inner {
@@ -254,11 +254,11 @@ impl Graph {
         }
     }
 
-    pub fn load(&self) -> Arc<GraphSnapshot> {
+    pub(crate) fn load(&self) -> Arc<GraphSnapshot> {
         self.snapshot.load_full()
     }
 
-    pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
+    pub(crate) fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
@@ -277,7 +277,7 @@ impl Graph {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
-    pub async fn update(
+    pub(crate) async fn update(
         self: &Arc<Self>,
         clock: &time::Clock,
         edges: Vec<Vec<Edge>>,

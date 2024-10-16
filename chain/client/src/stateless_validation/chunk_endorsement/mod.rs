@@ -17,12 +17,12 @@ mod tracker_v2;
 /// Module to track chunk endorsements received from chunk validators.
 pub struct ChunkEndorsementTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    pub tracker_v1: tracker_v1::ChunkEndorsementTracker,
-    pub tracker_v2: tracker_v2::ChunkEndorsementTracker,
+    pub(crate) tracker_v1: tracker_v1::ChunkEndorsementTracker,
+    pub(crate) tracker_v2: tracker_v2::ChunkEndorsementTracker,
 }
 
 impl Client {
-    pub fn process_chunk_endorsement(
+    pub(crate) fn process_chunk_endorsement(
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
@@ -41,7 +41,7 @@ impl Client {
 }
 
 impl ChunkEndorsementTracker {
-    pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>, store: Store) -> Self {
+    pub(crate) fn new(epoch_manager: Arc<dyn EpochManagerAdapter>, store: Store) -> Self {
         Self {
             tracker_v1: tracker_v1::ChunkEndorsementTracker::new(epoch_manager.clone()),
             tracker_v2: tracker_v2::ChunkEndorsementTracker::new(epoch_manager.clone(), store),
@@ -50,7 +50,7 @@ impl ChunkEndorsementTracker {
     }
 
     // TODO(ChunkEndorsementV2): Remove chunk_header once tracker_v1 is deprecated
-    pub fn process_chunk_endorsement(
+    pub(crate) fn process_chunk_endorsement(
         &mut self,
         endorsement: ChunkEndorsement,
         chunk_header: Option<ShardChunkHeader>,
@@ -65,7 +65,7 @@ impl ChunkEndorsementTracker {
         }
     }
 
-    pub fn collect_chunk_endorsements(
+    pub(crate) fn collect_chunk_endorsements(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {

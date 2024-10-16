@@ -23,13 +23,13 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 pub(super) struct StateSyncShardHandle {
-    pub status: Arc<Mutex<ShardSyncStatus>>,
-    pub result: oneshot::Receiver<Result<(), near_chain::Error>>,
-    pub cancel: CancellationToken,
+    pub(crate) status: Arc<Mutex<ShardSyncStatus>>,
+    pub(crate) result: oneshot::Receiver<Result<(), near_chain::Error>>,
+    pub(crate) cancel: CancellationToken,
 }
 
 impl StateSyncShardHandle {
-    pub fn status(&self) -> ShardSyncStatus {
+    pub(crate) fn status(&self) -> ShardSyncStatus {
         *self.status.lock().unwrap()
     }
 }

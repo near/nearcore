@@ -30,15 +30,15 @@ pub(crate) enum SnapshotHostInfoError {
 }
 
 #[derive(Clone)]
-pub struct Config {
+pub(crate) struct Config {
     /// The maximum number of SnapshotHostInfos to store locally.
     /// At present this constraint is enforced using a simple
     /// least-recently-used cache. In the future, we may wish to
     /// implement something more sophisticated.
-    pub snapshot_hosts_cache_size: u32,
+    pub(crate) snapshot_hosts_cache_size: u32,
     /// The number of hosts we'll add to structures related to state part peer
     /// selection each time we need to request parts from a new peer
-    pub part_selection_cache_batch_size: u32,
+    pub(crate) part_selection_cache_batch_size: u32,
 }
 
 /// When multiple hosts offer the same part, this hash is compared
@@ -170,7 +170,7 @@ impl Inner {
 
     /// Given a state part request produced by the local node,
     /// selects a host to which the request should be routed.
-    pub fn select_host_for_part(
+    pub(crate) fn select_host_for_part(
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
@@ -233,7 +233,7 @@ impl Inner {
 pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 
 impl SnapshotHostsCache {
-    pub fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         Self(Mutex::new(Inner {
             hosts: LruCache::new(
                 NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
@@ -290,7 +290,7 @@ impl SnapshotHostsCache {
     /// Verifies the signatures and inserts verified data to the cache.
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
-    pub async fn insert(
+    pub(crate) async fn insert(
         self: &Self,
         data: Vec<Arc<SnapshotHostInfo>>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
@@ -309,11 +309,11 @@ impl SnapshotHostsCache {
     }
 
     /// Skips signature verification. Used only for the local node's own information.
-    pub fn insert_skip_verify(self: &Self, my_info: Arc<SnapshotHostInfo>) {
+    pub(crate) fn insert_skip_verify(self: &Self, my_info: Arc<SnapshotHostInfo>) {
         let _ = self.0.lock().try_insert(my_info);
     }
 
-    pub fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
+    pub(crate) fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
         self.0.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
     }
 
@@ -322,7 +322,7 @@ impl SnapshotHostsCache {
     }
 
     /// Given a state part request, selects a peer host to which the request should be sent.
-    pub fn select_host_for_part(
+    pub(crate) fn select_host_for_part(
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
@@ -332,7 +332,7 @@ impl SnapshotHostsCache {
     }
 
     /// Triggered by state sync actor after processing a state part.
-    pub fn part_received(&self, shard_id: ShardId, part_id: u64) {
+    pub(crate) fn part_received(&self, shard_id: ShardId, part_id: u64) {
         let mut inner = self.0.lock();
         inner.peer_selector.remove(&(shard_id, part_id));
     }

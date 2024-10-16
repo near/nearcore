@@ -13,7 +13,7 @@ use near_o11y::metrics::{
 use std::sync::LazyLock;
 
 /// Labels represents a schema of an IntGaugeVec metric.
-pub trait Labels: 'static {
+pub(crate) trait Labels: 'static {
     /// Array should be [&'static str;N], where N is the number of labels.
     type Array: AsRef<[&'static str]>;
     /// Names of the gauge vector labels.
@@ -24,16 +24,16 @@ pub trait Labels: 'static {
 }
 
 /// Type-safe wrapper of IntGaugeVec.
-pub struct Gauge<L: Labels> {
+pub(crate) struct Gauge<L: Labels> {
     inner: IntGaugeVec,
     _labels: std::marker::PhantomData<L>,
 }
 
-pub struct GaugePoint(IntGauge);
+pub(crate) struct GaugePoint(IntGauge);
 
 impl<L: Labels> Gauge<L> {
     /// Constructs a new prometheus Gauge with schema `L`.
-    pub fn new(name: &str, help: &str) -> Result<Self, near_o11y::metrics::prometheus::Error> {
+    pub(crate) fn new(name: &str, help: &str) -> Result<Self, near_o11y::metrics::prometheus::Error> {
         Ok(Self {
             inner: try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
             _labels: std::marker::PhantomData,
@@ -43,7 +43,7 @@ impl<L: Labels> Gauge<L> {
     /// Adds a point represented by `labels` to the gauge.
     /// Returns a guard of the point - when the guard is dropped
     /// the point is removed from the gauge.
-    pub fn new_point(&'static self, labels: &L) -> GaugePoint {
+    pub(crate) fn new_point(&'static self, labels: &L) -> GaugePoint {
         let point = self.inner.with_label_values(labels.values().as_ref());
         point.inc();
         GaugePoint(point)
@@ -56,9 +56,9 @@ impl Drop for GaugePoint {
     }
 }
 
-pub struct Connection {
-    pub type_: PeerType,
-    pub encoding: Option<Encoding>,
+pub(crate) struct Connection {
+    pub(crate) type_: PeerType,
+    pub(crate) encoding: Option<Encoding>,
 }
 
 impl Labels for Connection {
@@ -75,7 +75,7 @@ pub(crate) struct MetricGuard<M: prometheus::core::Metric> {
 }
 
 impl<M: prometheus::core::Metric> MetricGuard<M> {
-    pub fn new<T: MetricVecBuilder<M = M>>(
+    pub(crate) fn new<T: MetricVecBuilder<M = M>>(
         metric_vec: &'static MetricVec<T>,
         labels: Vec<String>,
     ) -> Self {
@@ -107,7 +107,7 @@ impl<M: prometheus::core::Metric> std::ops::Deref for MetricGuard<M> {
 
 pub(crate) type IntGaugeGuard = MetricGuard<prometheus::IntGauge>;
 
-pub static PEER_CONNECTIONS: LazyLock<Gauge<Connection>> =
+pub(crate) static PEER_CONNECTIONS: LazyLock<Gauge<Connection>> =
     LazyLock::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());
 
 pub(crate) static PEER_CONNECTIONS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
@@ -458,11 +458,11 @@ pub(crate) enum MessageDropped {
 }
 
 impl MessageDropped {
-    pub fn inc(self, msg: &RoutedMessageBody) {
+    pub(crate) fn inc(self, msg: &RoutedMessageBody) {
         self.inc_msg_type(msg.into())
     }
 
-    pub fn inc_unknown_msg(self) {
+    pub(crate) fn inc_unknown_msg(self) {
         self.inc_msg_type("unknown")
     }
 

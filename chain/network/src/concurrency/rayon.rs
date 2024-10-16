@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Returns the closure result.
 /// WARNING: panicking within a rayon task seems to be causing a double panic,
 /// and hence the panic message is not visible when running "cargo test".
-pub async fn run<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
+pub(crate) async fn run<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
     let (send, recv) = tokio::sync::oneshot::channel();
     rayon::spawn(move || {
         if send.send(f()).is_err() {
@@ -16,7 +16,7 @@ pub async fn run<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T
     recv.await.unwrap()
 }
 
-pub fn run_blocking<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
+pub(crate) fn run_blocking<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
     let (send, recv) = tokio::sync::oneshot::channel();
     rayon::spawn(move || {
         if send.send(f()).is_err() {
@@ -28,7 +28,7 @@ pub fn run_blocking<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -
 
 /// Applies f to the iterated elements and collects the results, until the first None is returned.
 /// Returns the results collected so far and a bool (false iff any None was returned).
-pub fn try_map<I: ParallelIterator, T: Send>(
+pub(crate) fn try_map<I: ParallelIterator, T: Send>(
     iter: I,
     f: impl Sync + Send + Fn(I::Item) -> Option<T>,
 ) -> (Vec<T>, bool) {
@@ -51,7 +51,7 @@ pub fn try_map<I: ParallelIterator, T: Send>(
 /// Applies `func` to the iterated elements and collects the outputs. On the first `Error` the execution is stopped.
 /// Returns the outputs collected so far and a [`Result`] ([`Result::Err`] iff any `Error` was returned).
 /// Same as [`try_map`], but it operates on [`Result`] instead of [`Option`].
-pub fn try_map_result<I: ParallelIterator, T: Send, E: Error + Send>(
+pub(crate) fn try_map_result<I: ParallelIterator, T: Send, E: Error + Send>(
     iter: I,
     func: impl Sync + Send + Fn(I::Item) -> Result<T, E>,
 ) -> (Vec<T>, Result<(), E>) {

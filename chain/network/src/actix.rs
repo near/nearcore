@@ -2,10 +2,10 @@ use anyhow::anyhow;
 
 // A system thread which is joined on drop.
 // TODO: replace with std::thread::ScopedJoinHandle once it is stable.
-pub struct Thread(Option<std::thread::JoinHandle<anyhow::Result<()>>>);
+pub(crate) struct Thread(Option<std::thread::JoinHandle<anyhow::Result<()>>>);
 
 impl Thread {
-    pub fn spawn<F: Send + 'static + FnOnce() -> anyhow::Result<()>>(f: F) -> Self {
+    pub(crate) fn spawn<F: Send + 'static + FnOnce() -> anyhow::Result<()>>(f: F) -> Self {
         Self(Some(std::thread::spawn(f)))
     }
 }

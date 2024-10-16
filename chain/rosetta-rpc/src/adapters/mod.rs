@@ -210,10 +210,10 @@ pub(crate) async fn collect_transactions(
 /// has only a single "account" field, so to indicate "sender" and "receiver"
 /// we use two operations (e.g. InitiateAddKey and AddKey).
 #[derive(Debug, Clone, PartialEq)]
-pub struct NearActions {
-    pub sender_account_id: near_primitives::types::AccountId,
-    pub receiver_account_id: near_primitives::types::AccountId,
-    pub actions: Vec<near_primitives::transaction::Action>,
+pub(crate) struct NearActions {
+    pub(crate) sender_account_id: near_primitives::types::AccountId,
+    pub(crate) receiver_account_id: near_primitives::types::AccountId,
+    pub(crate) actions: Vec<near_primitives::transaction::Action>,
 }
 
 impl From<NearActions> for Vec<crate::models::Operation> {

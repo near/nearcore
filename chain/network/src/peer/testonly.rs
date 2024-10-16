@@ -24,18 +24,18 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 
-pub struct PeerConfig {
-    pub chain: Arc<data::Chain>,
-    pub network: NetworkConfig,
-    pub force_encoding: Option<crate::network_protocol::Encoding>,
+pub(crate) struct PeerConfig {
+    pub(crate) chain: Arc<data::Chain>,
+    pub(crate) network: NetworkConfig,
+    pub(crate) force_encoding: Option<crate::network_protocol::Encoding>,
 }
 
 impl PeerConfig {
-    pub fn id(&self) -> PeerId {
+    pub(crate) fn id(&self) -> PeerId {
         self.network.node_id()
     }
 
-    pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
+    pub(crate) fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
         PartialEdgeInfo::new(&self.id(), other, nonce, &self.network.node_key)
     }
 }
@@ -50,14 +50,14 @@ pub(crate) enum Event {
 }
 
 pub(crate) struct PeerHandle {
-    pub cfg: Arc<PeerConfig>,
+    pub(crate) cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
-    pub events: broadcast::Receiver<Event>,
-    pub edge: Option<Edge>,
+    pub(crate) events: broadcast::Receiver<Event>,
+    pub(crate) edge: Option<Edge>,
 }
 
 impl PeerHandle {
-    pub async fn send(&self, message: PeerMessage) {
+    pub(crate) async fn send(&self, message: PeerMessage) {
         self.actix
             .addr
             .send(SendMessage { message: Arc::new(message) }.with_span_context())
@@ -65,7 +65,7 @@ impl PeerHandle {
             .unwrap();
     }
 
-    pub async fn complete_handshake(&mut self) {
+    pub(crate) async fn complete_handshake(&mut self) {
         self.edge = Some(
             self.events
                 .recv_until(|ev| match ev {
@@ -81,7 +81,7 @@ impl PeerHandle {
         );
     }
 
-    pub fn routed_message(
+    pub(crate) fn routed_message(
         &self,
         body: RoutedMessageBody,
         peer_id: PeerId,
@@ -95,7 +95,7 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
+    pub(crate) async fn start_endpoint(
         clock: time::Clock,
         cfg: PeerConfig,
         stream: tcp::Stream,

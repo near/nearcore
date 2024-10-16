@@ -15,8 +15,8 @@ use tracing::warn;
 /// Information about the shard being synced
 #[derive(Debug)]
 pub struct SyncShardInfo {
-    pub shard_uid: ShardUId,
-    pub sync_hash: CryptoHash,
+    pub(crate) shard_uid: ShardUId,
+    pub(crate) sync_hash: CryptoHash,
 }
 
 /// Messages between Client and Sync Actor
@@ -30,9 +30,9 @@ pub enum SyncMessage {
 }
 
 pub struct SyncActorHandler {
-    pub client_sender: Sender<SyncMessage>,
-    pub network_sender: Sender<StateSyncResponse>,
-    pub shutdown: Mutex<Box<dyn FnMut() + Send>>,
+    pub(crate) client_sender: Sender<SyncMessage>,
+    pub(crate) network_sender: Sender<StateSyncResponse>,
+    pub(crate) shutdown: Mutex<Box<dyn FnMut() + Send>>,
 }
 
 impl Drop for SyncActorHandler {
@@ -94,7 +94,7 @@ impl SyncAdapter {
     }
 
     /// Starts a new arbiter and runs the actor on it
-    pub fn start(&mut self, shard_uid: ShardUId) {
+    pub(crate) fn start(&mut self, shard_uid: ShardUId) {
         assert!(!self.actor_handler_map.contains_key(&shard_uid), "Actor already started.");
         let client = self.client_adapter.clone();
         let network = self.network_adapter.clone();
@@ -102,16 +102,16 @@ impl SyncAdapter {
     }
 
     /// Stop the actor and remove it
-    pub fn stop(&mut self, shard_uid: ShardUId) {
+    pub(crate) fn stop(&mut self, shard_uid: ShardUId) {
         self.actor_handler_map.remove(&shard_uid).expect("Actor not started.");
     }
 
-    pub fn stop_all(&mut self) {
+    pub(crate) fn stop_all(&mut self) {
         self.actor_handler_map.clear();
     }
 
     /// Forward message to the right shard
-    pub fn send_state_sync_response(&self, shard_uid: ShardUId, msg: StateSyncResponse) {
+    pub(crate) fn send_state_sync_response(&self, shard_uid: ShardUId, msg: StateSyncResponse) {
         let handler = self.actor_handler_map.get(&shard_uid);
         match handler {
             None => {
@@ -121,7 +121,7 @@ impl SyncAdapter {
         }
     }
 
-    pub fn send_sync_message(&self, shard_uid: ShardUId, msg: SyncMessage) {
+    pub(crate) fn send_sync_message(&self, shard_uid: ShardUId, msg: SyncMessage) {
         let handler = self.actor_handler_map.get(&shard_uid);
         match handler {
             None => {

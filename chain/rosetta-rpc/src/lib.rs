@@ -26,9 +26,9 @@ mod models;
 mod types;
 mod utils;
 
-pub const BASE_PATH: &str = "";
-pub const API_VERSION: &str = "1.4.4";
-pub const BLOCKCHAIN: &str = "nearprotocol";
+pub(crate) const BASE_PATH: &str = "";
+pub(crate) const API_VERSION: &str = "1.4.4";
+pub(crate) const BLOCKCHAIN: &str = "nearprotocol";
 
 /// Genesis together with genesis block identifier.
 struct GenesisWithIdentifier {

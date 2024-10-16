@@ -48,9 +48,9 @@ mod api;
 mod metrics;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
-pub struct RpcPollingConfig {
-    pub polling_interval: Duration,
-    pub polling_timeout: Duration,
+pub(crate) struct RpcPollingConfig {
+    pub(crate) polling_interval: Duration,
+    pub(crate) polling_timeout: Duration,
 }
 
 impl Default for RpcPollingConfig {
@@ -63,9 +63,9 @@ impl Default for RpcPollingConfig {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct RpcLimitsConfig {
+pub(crate) struct RpcLimitsConfig {
     /// Maximum byte size of the json payload.
-    pub json_payload_max_size: usize,
+    pub(crate) json_payload_max_size: usize,
 }
 
 impl Default for RpcLimitsConfig {
@@ -145,7 +145,7 @@ where
 
 #[easy_ext::ext(FromNetworkClientResponses)]
 impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
-    pub fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
+    pub(crate) fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
         match resp {
             ProcessTxResponse::InvalidTx(context) => Self::InvalidTransaction { context },
             ProcessTxResponse::NoResponse => Self::TimeoutError,
@@ -738,7 +738,7 @@ impl JsonRpcHandler {
         Ok(status.rpc_into())
     }
 
-    pub async fn status(
+    pub(crate) async fn status(
         &self,
     ) -> Result<
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
@@ -748,7 +748,7 @@ impl JsonRpcHandler {
         Ok(status.rpc_into())
     }
 
-    pub async fn old_debug(
+    pub(crate) async fn old_debug(
         &self,
     ) -> Result<
         Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
@@ -763,7 +763,7 @@ impl JsonRpcHandler {
         }
     }
 
-    pub async fn debug(
+    pub(crate) async fn debug(
         &self,
         path: &str,
     ) -> Result<
@@ -836,7 +836,7 @@ impl JsonRpcHandler {
         }
     }
 
-    pub async fn debug_block_status(
+    pub(crate) async fn debug_block_status(
         &self,
         starting_height: Option<BlockHeight>,
     ) -> Result<
@@ -854,7 +854,7 @@ impl JsonRpcHandler {
         }
     }
 
-    pub async fn protocol_config(
+    pub(crate) async fn protocol_config(
         &self,
         request_data: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
     ) -> Result<
@@ -1170,7 +1170,7 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
     }
 
-    pub async fn split_storage_info(
+    pub(crate) async fn split_storage_info(
         &self,
         _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
     ) -> Result<

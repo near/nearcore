@@ -17,23 +17,23 @@ mod adv {
             Self(std::sync::Arc::new(Inner { is_archival, ..Inner::default() }))
         }
 
-        pub fn disable_header_sync(&self) -> bool {
+        pub(crate) fn disable_header_sync(&self) -> bool {
             self.0.disable_header_sync.load(Ordering::SeqCst)
         }
 
-        pub fn set_disable_header_sync(&mut self, value: bool) {
+        pub(crate) fn set_disable_header_sync(&mut self, value: bool) {
             self.0.disable_header_sync.store(value, Ordering::SeqCst);
         }
 
-        pub fn disable_doomslug(&self) -> bool {
+        pub(crate) fn disable_doomslug(&self) -> bool {
             self.0.disable_doomslug.load(Ordering::SeqCst)
         }
 
-        pub fn set_disable_doomslug(&self, value: bool) {
+        pub(crate) fn set_disable_doomslug(&self, value: bool) {
             self.0.disable_doomslug.store(value, Ordering::SeqCst);
         }
 
-        pub fn is_archival(&self) -> bool {
+        pub(crate) fn is_archival(&self) -> bool {
             self.0.is_archival
         }
     }
@@ -49,11 +49,11 @@ mod adv {
             Self
         }
 
-        pub const fn disable_header_sync(&self) -> bool {
+        pub(crate) const fn disable_header_sync(&self) -> bool {
             false
         }
 
-        pub const fn disable_doomslug(&self) -> bool {
+        pub(crate) const fn disable_doomslug(&self) -> bool {
             false
         }
     }

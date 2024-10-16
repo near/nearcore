@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::net;
 use std::sync::Arc;
 
-pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
+pub(crate) fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
         version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
@@ -40,7 +40,7 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block
     )
 }
 
-pub fn make_block(
+pub(crate) fn make_block(
     clock: time::Clock,
     signer: &ValidatorSigner,
     prev: &Block,
@@ -72,29 +72,29 @@ pub fn make_block(
     )
 }
 
-pub fn make_account_id<R: Rng>(rng: &mut R) -> AccountId {
+pub(crate) fn make_account_id<R: Rng>(rng: &mut R) -> AccountId {
     format!("account{}", rng.gen::<u32>()).parse().unwrap()
 }
 
-pub fn make_secret_key<R: Rng>(rng: &mut R) -> SecretKey {
+pub(crate) fn make_secret_key<R: Rng>(rng: &mut R) -> SecretKey {
     SecretKey::from_seed(KeyType::ED25519, &rng.gen::<u64>().to_string())
 }
 
-pub fn make_peer_id<R: Rng>(rng: &mut R) -> PeerId {
+pub(crate) fn make_peer_id<R: Rng>(rng: &mut R) -> PeerId {
     PeerId::new(make_secret_key(rng).public_key())
 }
 
-pub fn make_signer<R: Rng>(rng: &mut R) -> InMemorySigner {
+pub(crate) fn make_signer<R: Rng>(rng: &mut R) -> InMemorySigner {
     InMemorySigner::from_secret_key(make_account_id(rng), make_secret_key(rng))
 }
 
-pub fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
+pub(crate) fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
     let account_id = make_account_id(rng);
     let seed = rng.gen::<u64>().to_string();
     InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, &seed)
 }
 
-pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
+pub(crate) fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
     let signer = make_signer(rng);
     PeerInfo {
         id: PeerId::new(signer.public_key),
@@ -103,7 +103,7 @@ pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
     }
 }
 
-pub fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
+pub(crate) fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
     let peer_id = make_peer_id(rng);
     let validator_signer = make_validator_signer(rng);
     let signature = validator_signer.sign_account_announce(
@@ -119,7 +119,7 @@ pub fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
     }
 }
 
-pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
+pub(crate) fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     let a = make_signer(rng);
     let b = make_signer(rng);
     PartialEdgeInfo::new(
@@ -130,7 +130,7 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     )
 }
 
-pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
+pub(crate) fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
     let (a, b) = if a.public_key() < b.public_key() { (a, b) } else { (b, a) };
     let ap = PeerId::new(a.public_key());
     let bp = PeerId::new(b.public_key());
@@ -138,7 +138,7 @@ pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
     Edge::new(ap, bp, nonce, a.sign(hash.as_ref()), b.sign(hash.as_ref()))
 }
 
-pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
+pub(crate) fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
     let signers: Vec<_> = (0..7).map(|_| make_secret_key(rng)).collect();
     RoutingTableUpdate {
         accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
@@ -154,7 +154,7 @@ pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
     }
 }
 
-pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
+pub(crate) fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
     let sender = make_signer(rng);
     let receiver = make_account_id(rng);
     SignedTransaction::send_money(
@@ -167,7 +167,7 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
     )
 }
 
-pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
+pub(crate) fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
     Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: rng.sample_iter(&Standard).take(65).collect(),
@@ -181,7 +181,7 @@ pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
 // I give no guarantee that it will produce correct data, I'm just approximating
 // the real thing, since this functionality is not encapsulated in
 // the production code well enough to reuse it in tests.
-pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
+pub(crate) fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let total_shard_count = 10;
     let parity_shard_count = 5;
     let rs = ReedSolomon::new(total_shard_count, parity_shard_count).unwrap();
@@ -207,10 +207,10 @@ struct ChunkSet {
 }
 
 impl ChunkSet {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { chunks: HashMap::default() }
     }
-    pub fn make(&mut self) -> Vec<ShardChunk> {
+    pub(crate) fn make(&mut self) -> Vec<ShardChunk> {
         let shard_ids: Vec<_> = (0..4).into_iter().map(new_shard_id_tmp).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
@@ -227,11 +227,11 @@ impl ChunkSet {
     }
 }
 
-pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
+pub(crate) fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
     CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
 }
 
-pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
+pub(crate) fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
     let mut account_keys = AccountKeys::new();
     for s in signers {
         account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
@@ -239,15 +239,15 @@ pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
     account_keys
 }
 
-pub struct Chain {
-    pub genesis_id: GenesisId,
-    pub blocks: Vec<Block>,
-    pub chunks: HashMap<ChunkHash, ShardChunk>,
-    pub tier1_accounts: Vec<InMemoryValidatorSigner>,
+pub(crate) struct Chain {
+    pub(crate) genesis_id: GenesisId,
+    pub(crate) blocks: Vec<Block>,
+    pub(crate) chunks: HashMap<ChunkHash, ShardChunk>,
+    pub(crate) tier1_accounts: Vec<InMemoryValidatorSigner>,
 }
 
 impl Chain {
-    pub fn make<R: Rng>(clock: &time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
+    pub(crate) fn make<R: Rng>(clock: &time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
         let mut chunks = ChunkSet::new();
         let mut blocks = vec![];
         blocks.push(make_genesis_block(&clock.clock(), chunks.make()));
@@ -272,19 +272,19 @@ impl Chain {
         }
     }
 
-    pub fn height(&self) -> BlockHeight {
+    pub(crate) fn height(&self) -> BlockHeight {
         self.tip().height()
     }
 
-    pub fn tip(&self) -> &BlockHeader {
+    pub(crate) fn tip(&self) -> &BlockHeader {
         self.blocks.last().unwrap().header()
     }
 
-    pub fn get_tier1_accounts(&self) -> AccountKeys {
+    pub(crate) fn get_tier1_accounts(&self) -> AccountKeys {
         make_account_keys(&self.tier1_accounts)
     }
 
-    pub fn get_chain_info(&self) -> ChainInfo {
+    pub(crate) fn get_chain_info(&self) -> ChainInfo {
         ChainInfo {
             tracked_shards: Default::default(),
             block: self.blocks.last().unwrap().clone(),
@@ -292,7 +292,7 @@ impl Chain {
         }
     }
 
-    pub fn get_peer_chain_info(&self) -> PeerChainInfoV2 {
+    pub(crate) fn get_peer_chain_info(&self) -> PeerChainInfoV2 {
         PeerChainInfoV2 {
             genesis_id: self.genesis_id.clone(),
             tracked_shards: Default::default(),
@@ -301,11 +301,11 @@ impl Chain {
         }
     }
 
-    pub fn get_block_headers(&self) -> Vec<BlockHeader> {
+    pub(crate) fn get_block_headers(&self) -> Vec<BlockHeader> {
         self.blocks.iter().map(|b| b.header().clone()).collect()
     }
 
-    pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
+    pub(crate) fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
         let seed = &rng.gen::<u64>().to_string();
         let mut cfg =
             config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::reserve_for_test());
@@ -315,7 +315,7 @@ impl Chain {
         cfg
     }
 
-    pub fn make_tier1_data<R: Rng>(
+    pub(crate) fn make_tier1_data<R: Rng>(
         &self,
         rng: &mut R,
         clock: &time::Clock,
@@ -334,7 +334,7 @@ impl Chain {
     }
 }
 
-pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
+pub(crate) fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     let a = make_signer(rng);
     let b = make_signer(rng);
     let a_id = PeerId::new(a.public_key);
@@ -351,7 +351,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     }
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
+pub(crate) fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
     RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
@@ -360,23 +360,23 @@ pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Rout
         None,
     )
 }
-pub fn make_ipv4(rng: &mut impl Rng) -> net::IpAddr {
+pub(crate) fn make_ipv4(rng: &mut impl Rng) -> net::IpAddr {
     net::IpAddr::V4(net::Ipv4Addr::from(rng.gen::<[u8; 4]>()))
 }
 
-pub fn make_ipv6(rng: &mut impl Rng) -> net::IpAddr {
+pub(crate) fn make_ipv6(rng: &mut impl Rng) -> net::IpAddr {
     net::IpAddr::V6(net::Ipv6Addr::from(rng.gen::<[u8; 16]>()))
 }
 
-pub fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
+pub(crate) fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
     net::SocketAddr::new(make_ipv4(rng), rng.gen())
 }
 
-pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
+pub(crate) fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
     PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: make_peer_id(rng) }
 }
 
-pub fn make_account_data(
+pub(crate) fn make_account_data(
     rng: &mut impl Rng,
     version: u64,
     timestamp: time::Utc,
@@ -409,7 +409,7 @@ pub fn make_account_data(
     }
 }
 
-pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
+pub(crate) fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let peer_id = make_peer_id(rng);
     make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id)

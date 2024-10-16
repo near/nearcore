@@ -20,7 +20,7 @@ use crate::stateless_validation::validate::validate_chunk_endorsement;
 const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
 
 /// Module to track chunk endorsements received from chunk validators.
-pub struct ChunkEndorsementTracker {
+pub(crate) struct ChunkEndorsementTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Used to find the chain HEAD when validating partial witnesses.
     store: Store,

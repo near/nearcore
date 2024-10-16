@@ -78,7 +78,7 @@ pub(crate) static CONGESTION_PREPARE_TX_GAS_LIMIT: LazyLock<IntGaugeVec> = LazyL
     .unwrap()
 });
 
-pub static APPLYING_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+pub(crate) static APPLYING_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_applying_chunks_time",
         "Time taken to apply chunks per shard",

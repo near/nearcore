@@ -103,7 +103,7 @@ use time::ext::InstantExt as _;
 use tracing::{debug, debug_span, error, info, warn, Span};
 
 /// The size of the invalid_blocks in-memory pool
-pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
+pub(crate) const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
 
 /// 5000 years in seconds. Big constant for sandbox to allow time traveling.
 #[cfg(feature = "sandbox")]
@@ -158,7 +158,7 @@ impl Debug for BlockMissingChunks {
 /// Returns Err(Error) if any error occurs when checking store
 ///         Ok(Err(BlockKnownError)) if the block header is known
 ///         Ok(Ok()) otherwise
-pub fn check_header_known(
+pub(crate) fn check_header_known(
     chain: &Chain,
     header: &BlockHeader,
 ) -> Result<Result<(), BlockKnownError>, Error> {
@@ -610,7 +610,7 @@ impl Chain {
         )
     }
 
-    pub fn genesis_chunk_extra(
+    pub(crate) fn genesis_chunk_extra(
         &self,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
@@ -1174,7 +1174,7 @@ impl Chain {
     /// Note: you might be wondering why the list of challenged blocks is not part of ChallengesResult.
     /// That's because ChallengesResult is part of BlockHeader, to modify that struct requires protocol
     /// upgrade.
-    pub fn verify_challenges(
+    pub(crate) fn verify_challenges(
         &self,
         challenges: &[Challenge],
         epoch_id: &EpochId,
@@ -1300,7 +1300,7 @@ impl Chain {
         }
     }
 
-    pub fn ping_missing_chunks(
+    pub(crate) fn ping_missing_chunks(
         &self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
@@ -1394,7 +1394,7 @@ impl Chain {
     /// processed as incoming receipts in this block, because that may include incoming receipts
     /// generated in previous blocks too, if some shards in the previous blocks did not produce
     /// new chunks.
-    pub fn collect_incoming_receipts_from_block(
+    pub(crate) fn collect_incoming_receipts_from_block(
         &self,
         me: &Option<AccountId>,
         block: &Block,
@@ -1515,7 +1515,7 @@ impl Chain {
 
     /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
     /// soon as possible and allow next block producer to skip invalid blocks.
-    pub fn process_challenge(&mut self, challenge: &Challenge) {
+    pub(crate) fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
         match self.verify_challenges(&[challenge.clone()], &head.epoch_id, &head.last_block_hash) {
             Ok((_, challenged_blocks)) => {
@@ -1612,7 +1612,7 @@ impl Chain {
     }
 
     /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
+    pub(crate) fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(hash) {
                 if let Ok(header_at_height) = self.get_block_header_by_height(header.height()) {
@@ -2895,7 +2895,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_state_header(
+    pub(crate) fn get_state_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -2929,7 +2929,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn create_flat_storage_for_shard(
+    pub(crate) fn create_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
         chunk: &ShardChunk,
@@ -3005,7 +3005,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn clear_downloaded_parts(
+    pub(crate) fn clear_downloaded_parts(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -3492,7 +3492,7 @@ impl Chain {
         })
     }
 
-    pub fn get_resharding_state_roots(
+    pub(crate) fn get_resharding_state_roots(
         chain_store: &dyn ChainStoreAccess,
         epoch_manager: &dyn EpochManagerAdapter,
         block: &Block,
@@ -3556,7 +3556,7 @@ impl Chain {
     /// returning true only if node produces state witness only for the next
     /// chunk. However, node can't determine this if next validators missed
     /// chunks.
-    pub fn should_produce_state_witness_for_this_or_next_epoch(
+    pub(crate) fn should_produce_state_witness_for_this_or_next_epoch(
         &self,
         me: &Option<AccountId>,
         block_header: &BlockHeader,
@@ -4652,11 +4652,11 @@ pub struct ChunkStateWitnessMessage {
 ///     have this block as previous are added to pending
 pub struct BlocksCatchUpState {
     /// Hash of first block of an epoch
-    pub first_block_hash: CryptoHash,
+    pub(crate) first_block_hash: CryptoHash,
     /// Epoch id
-    pub epoch_id: EpochId,
+    pub(crate) epoch_id: EpochId,
     /// Collection of block hashes that are yet to be sent for processed
-    pub pending_blocks: Vec<CryptoHash>,
+    pub(crate) pending_blocks: Vec<CryptoHash>,
     /// Map from block hashes that are scheduled for processing to saved store updates from their
     /// preprocessing
     pub scheduled_blocks: HashSet<CryptoHash>,

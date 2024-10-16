@@ -67,13 +67,13 @@ pub(crate) struct Socket(tokio::net::TcpSocket);
 
 #[cfg(test)]
 impl Socket {
-    pub fn bind() -> Self {
+    pub(crate) fn bind() -> Self {
         let socket = tokio::net::TcpSocket::new_v6().unwrap();
         socket.bind("[::1]:0".parse().unwrap()).unwrap();
         Self(socket)
     }
 
-    pub async fn connect(self, peer_info: &PeerInfo, tier: Tier) -> Stream {
+    pub(crate) async fn connect(self, peer_info: &PeerInfo, tier: Tier) -> Stream {
         // TODO(gprusak): this could replace Stream::connect,
         // however this means that we will have to replicate everything
         // that tokio::net::TcpStream sets on the socket.
@@ -135,7 +135,7 @@ impl Stream {
     /// Establishes a loopback TCP connection to localhost with random ports.
     /// Returns a pair of streams: (outbound,inbound).
     #[cfg(test)]
-    pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
+    pub(crate) async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
         let listener_addr = ListenerAddr::reserve_for_test();
         let peer_info = PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
         let socket_options = SocketOptions::default();
@@ -247,7 +247,7 @@ impl ListenerAddr {
 pub(crate) struct Listener(tokio::net::TcpListener);
 
 impl Listener {
-    pub async fn accept(&mut self) -> std::io::Result<Stream> {
+    pub(crate) async fn accept(&mut self) -> std::io::Result<Stream> {
         let (stream, _) = self.0.accept().await?;
         Stream::new(stream, StreamType::Inbound)
     }

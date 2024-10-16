@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
+pub(crate) fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
     let ch = Arc::new(Channel {
         stream: std::sync::RwLock::new(vec![]),
         notify: tokio::sync::Notify::new(),
@@ -19,10 +19,10 @@ struct Channel<T> {
     notify: tokio::sync::Notify,
 }
 
-pub struct Sender<T>(Arc<Channel<T>>);
+pub(crate) struct Sender<T>(Arc<Channel<T>>);
 
 #[derive(Clone)]
-pub struct Receiver<T> {
+pub(crate) struct Receiver<T> {
     channel: Arc<Channel<T>>,
     next: usize,
 }
@@ -34,13 +34,13 @@ impl<T> Clone for Sender<T> {
 }
 
 impl<T: Send + Sync + 'static> Sender<T> {
-    pub fn send(&self, v: T) {
+    pub(crate) fn send(&self, v: T) {
         let mut l = self.0.stream.write().unwrap();
         l.push(v);
         self.0.notify.notify_waiters();
     }
 
-    pub fn sink(&self) -> Sink<T> {
+    pub(crate) fn sink(&self) -> Sink<T> {
         let s = self.clone();
         Sink::new(move |v| s.send(v))
     }
@@ -52,13 +52,13 @@ impl<T: Clone + Send> Receiver<T> {
     // the events being mixed in the stream.
     // Without actix, awaiting the expected state
     // should get way easier.
-    pub fn from_now(&self) -> Self {
+    pub(crate) fn from_now(&self) -> Self {
         Self { channel: self.channel.clone(), next: self.channel.stream.read().unwrap().len() }
     }
 
     /// recv() extracts a value from the channel.
     /// If channel is empty, awaits until a value is pushed to the channel.
-    pub async fn recv(&mut self) -> T {
+    pub(crate) async fn recv(&mut self) -> T {
         self.next += 1;
         let new_value_pushed = {
             // The lock has to be inside a block without await,
@@ -81,7 +81,7 @@ impl<T: Clone + Send> Receiver<T> {
     /// Calls recv() in a loop until the returned value satisfies the predicate `pred`
     /// (predicate is satisfied iff it returns `Some(u)`). Returns `u`.
     /// All the values popped from the channel in the process are dropped silently.
-    pub async fn recv_until<U>(&mut self, mut pred: impl FnMut(T) -> Option<U>) -> U {
+    pub(crate) async fn recv_until<U>(&mut self, mut pred: impl FnMut(T) -> Option<U>) -> U {
         loop {
             if let Some(u) = pred(self.recv().await) {
                 return u;
@@ -91,7 +91,7 @@ impl<T: Clone + Send> Receiver<T> {
 
     /// Non-blocking version of recv(): pops a value from the channel,
     /// or returns None if channel is empty.
-    pub fn try_recv(&mut self) -> Option<T> {
+    pub(crate) fn try_recv(&mut self) -> Option<T> {
         let l = self.channel.stream.read().unwrap();
         if l.len() <= self.next {
             return None;

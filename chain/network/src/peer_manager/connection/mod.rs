@@ -62,57 +62,57 @@ impl tcp::Tier {
 #[derive(Default)]
 pub(crate) struct Stats {
     /// Number of messages received since the last reset of the counter.
-    pub received_messages: AtomicU64,
+    pub(crate) received_messages: AtomicU64,
     /// Number of bytes received since the last reset of the counter.
-    pub received_bytes: AtomicU64,
+    pub(crate) received_bytes: AtomicU64,
     /// Avg received bytes/s, based on the last few minutes of traffic.
-    pub received_bytes_per_sec: AtomicU64,
+    pub(crate) received_bytes_per_sec: AtomicU64,
     /// Avg sent bytes/s, based on the last few minutes of traffic.
-    pub sent_bytes_per_sec: AtomicU64,
+    pub(crate) sent_bytes_per_sec: AtomicU64,
 
     /// Number of messages in the buffer to send.
-    pub messages_to_send: AtomicU64,
+    pub(crate) messages_to_send: AtomicU64,
     /// Number of bytes (sum of message sizes) in the buffer to send.
-    pub bytes_to_send: AtomicU64,
+    pub(crate) bytes_to_send: AtomicU64,
 }
 
 /// Contains information relevant to a connected peer.
 pub(crate) struct Connection {
     // TODO(gprusak): add rate limiting on TIER1 connections for defence in-depth.
-    pub tier: tcp::Tier,
+    pub(crate) tier: tcp::Tier,
     // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
-    pub addr: actix::Addr<PeerActor>,
+    pub(crate) addr: actix::Addr<PeerActor>,
 
-    pub peer_info: PeerInfo,
+    pub(crate) peer_info: PeerInfo,
     /// AccountKey ownership proof.
-    pub owned_account: Option<SignedOwnedAccount>,
+    pub(crate) owned_account: Option<SignedOwnedAccount>,
     /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
+    pub(crate) genesis_id: GenesisId,
     /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
+    pub(crate) tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
-    pub archival: bool,
-    pub last_block: ArcSwap<Option<BlockInfo>>,
+    pub(crate) archival: bool,
+    pub(crate) last_block: ArcSwap<Option<BlockInfo>>,
 
     /// Who started connection. Inbound (other) or Outbound (us).
-    pub peer_type: PeerType,
+    pub(crate) peer_type: PeerType,
     /// Time where the connection was established.
-    pub established_time: time::Instant,
+    pub(crate) established_time: time::Instant,
 
     /// Last time requested peers.
-    pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
+    pub(crate) last_time_peer_requested: AtomicCell<Option<time::Instant>>,
     /// Last time we received a message from this peer.
-    pub last_time_received_message: AtomicCell<time::Instant>,
+    pub(crate) last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
-    pub stats: Arc<Stats>,
+    pub(crate) stats: Arc<Stats>,
     /// prometheus gauge point guard.
-    pub _peer_connections_metric: metrics::GaugePoint,
+    pub(crate) _peer_connections_metric: metrics::GaugePoint,
 
     /// Demultiplexer for the calls to send_accounts_data().
-    pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+    pub(crate) send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
     /// Demultiplexer for the calls to send_snapshot_hosts().
-    pub send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
+    pub(crate) send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -126,7 +126,7 @@ impl fmt::Debug for Connection {
 }
 
 impl Connection {
-    pub fn full_peer_info(&self) -> FullPeerInfo {
+    pub(crate) fn full_peer_info(&self) -> FullPeerInfo {
         let chain_info = PeerChainInfo {
             genesis_id: self.genesis_id.clone(),
             last_block: *self.last_block.load().as_ref(),
@@ -136,19 +136,19 @@ impl Connection {
         FullPeerInfo { peer_info: self.peer_info.clone(), chain_info }
     }
 
-    pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
+    pub(crate) fn stop(&self, ban_reason: Option<ReasonForBan>) {
         self.addr.do_send(peer_actor::Stop { ban_reason }.with_span_context());
     }
 
     // TODO(gprusak): embed Stream directly in Connection,
     // so that we can skip actix queue when sending messages.
-    pub fn send_message(&self, msg: Arc<PeerMessage>) {
+    pub(crate) fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
-    pub fn send_accounts_data(
+    pub(crate) fn send_accounts_data(
         self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,
     ) -> impl Future<Output = ()> {
@@ -195,7 +195,7 @@ impl Connection {
     // Accepts a list of SnapshotHostInfos to be broadcast to all neighbors of the node.
     // Multiple calls to this function made in quick succession will be condensed into a
     // single outgoing message.
-    pub fn send_snapshot_hosts(
+    pub(crate) fn send_snapshot_hosts(
         self: &Arc<Self>,
         data: Vec<Arc<SnapshotHostInfo>>,
     ) -> impl Future<Output = ()> {
@@ -247,14 +247,14 @@ impl Connection {
 
 #[derive(Clone)]
 pub(crate) struct PoolSnapshot {
-    pub me: PeerId,
+    pub(crate) me: PeerId,
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
-    pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    pub(crate) ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Index on `ready` by Connection.owned_account.account_key.
     /// We allow only 1 connection to a peer with the given account_key,
     /// as it is an invalid setup to have 2 nodes acting as the same validator.
-    pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
+    pub(crate) ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
     /// to connect to each other at the same time.
@@ -285,15 +285,15 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
-    pub outbound_handshakes: im::HashSet<PeerId>,
+    pub(crate) outbound_handshakes: im::HashSet<PeerId>,
     /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
-    pub loop_inbound: Option<Arc<Connection>>,
+    pub(crate) loop_inbound: Option<Arc<Connection>>,
 }
 
 pub(crate) struct OutboundHandshakePermit(PeerId, Weak<ArcMutex<PoolSnapshot>>);
 
 impl OutboundHandshakePermit {
-    pub fn peer_id(&self) -> &PeerId {
+    pub(crate) fn peer_id(&self) -> &PeerId {
         &self.0
     }
 }
@@ -333,7 +333,7 @@ pub(crate) enum PoolError {
 }
 
 impl Pool {
-    pub fn new(me: PeerId) -> Pool {
+    pub(crate) fn new(me: PeerId) -> Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
             loop_inbound: None,
             me,
@@ -343,11 +343,11 @@ impl Pool {
         })))
     }
 
-    pub fn load(&self) -> Arc<PoolSnapshot> {
+    pub(crate) fn load(&self) -> Arc<PoolSnapshot> {
         self.0.load()
     }
 
-    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
+    pub(crate) fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
             let id = peer.peer_info.id.clone();
             // We support loopback connections for the purpose of
@@ -445,7 +445,7 @@ impl Pool {
     /// NOTE: Pool supports loop connections (i.e. connections in which both ends are the same
     /// node) for the purpose of verifying one's own public IP.
     // TODO(gprusak): simplify this flow.
-    pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
+    pub(crate) fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.try_update(move |mut pool| {
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
@@ -458,7 +458,7 @@ impl Pool {
         })
     }
 
-    pub fn remove(&self, conn: &Arc<Connection>) {
+    pub(crate) fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|mut pool| {
             match pool.ready.entry(conn.peer_info.id.clone()) {
                 im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
@@ -480,7 +480,7 @@ impl Pool {
 
     /// Send message to peer that belongs to our active set
     /// Return whether the message is sent or not.
-    pub fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
+    pub(crate) fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
         let pool = self.load();
         if let Some(peer) = pool.ready.get(&peer_id) {
             peer.send_message(msg);
@@ -496,7 +496,7 @@ impl Pool {
     }
 
     /// Broadcast message to all ready peers.
-    pub fn broadcast_message(&self, msg: Arc<PeerMessage>) {
+    pub(crate) fn broadcast_message(&self, msg: Arc<PeerMessage>) {
         metrics::BROADCAST_MESSAGES.with_label_values(&[msg.msg_variant()]).inc();
         for peer in self.load().ready.values() {
             peer.send_message(msg.clone());

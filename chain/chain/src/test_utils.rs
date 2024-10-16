@@ -33,19 +33,19 @@ use tracing::debug;
 pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
 pub use self::validator_schedule::ValidatorSchedule;
 
-pub fn get_chain(clock: Clock) -> Chain {
+pub(crate) fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
 }
 
-pub fn get_chain_with_num_shards(clock: Clock, num_shards: NumShards) -> Chain {
+pub(crate) fn get_chain_with_num_shards(clock: Clock, num_shards: NumShards) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, num_shards)
 }
 
-pub fn get_chain_with_epoch_length(clock: Clock, epoch_length: NumBlocks) -> Chain {
+pub(crate) fn get_chain_with_epoch_length(clock: Clock, epoch_length: NumBlocks) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, epoch_length, 1)
 }
 
-pub fn get_chain_with_epoch_length_and_num_shards(
+pub(crate) fn get_chain_with_epoch_length_and_num_shards(
     clock: Clock,
     epoch_length: NumBlocks,
     num_shards: NumShards,
@@ -174,7 +174,7 @@ pub fn format_hash(hash: CryptoHash) -> String {
 }
 
 /// Displays chain from given store.
-pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
+pub(crate) fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     let epoch_manager = chain.epoch_manager.clone();
     let chain_store = chain.mut_chain_store();
     let head = chain_store.head().unwrap();

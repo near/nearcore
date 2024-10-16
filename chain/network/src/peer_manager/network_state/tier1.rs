@@ -75,7 +75,7 @@ impl super::NetworkState {
     /// Requests direct peers for accounts data full sync.
     /// Should be called whenever the accounts_data.keys changes, and
     /// periodically just in case.
-    pub fn tier1_request_full_sync(&self) {
+    pub(crate) fn tier1_request_full_sync(&self) {
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
             requesting_full_sync: true,
@@ -86,7 +86,7 @@ impl super::NetworkState {
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
     /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
     /// to ANY proxy of this node.
-    pub async fn tier1_advertise_proxies(
+    pub(crate) async fn tier1_advertise_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
     ) -> Option<Arc<SignedAccountData>> {
@@ -214,7 +214,7 @@ impl super::NetworkState {
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
     /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
-    pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
+    pub(crate) async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
         let tier1_cfg = match &self.config.tier1 {
             Some(it) => it,
             None => return,
@@ -359,7 +359,7 @@ impl super::NetworkState {
     /// It is expected to perform <10 lookups total on average,
     /// so the call latency should be negligible wrt sending a TCP packet.
     // TODO(gprusak): If not, consider precomputing the AccountKey -> Connection mapping.
-    pub fn get_tier1_proxy(&self, data: &SignedAccountData) -> Option<Arc<connection::Connection>> {
+    pub(crate) fn get_tier1_proxy(&self, data: &SignedAccountData) -> Option<Arc<connection::Connection>> {
         let tier1 = self.tier1.load();
         // Prefer direct connections.
         if let Some(conn) = tier1.ready_by_account_key.get(&data.account_key) {

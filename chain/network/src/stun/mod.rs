@@ -10,7 +10,7 @@ mod tests;
 pub(crate) mod testonly;
 
 /// Address of the format "<domain/ip>:<port>" of STUN servers.
-pub type ServerAddr = String;
+pub(crate) type ServerAddr = String;
 
 pub(crate) type Error = stun::Error;
 

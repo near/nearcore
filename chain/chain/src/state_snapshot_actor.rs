@@ -36,14 +36,14 @@ impl StateSnapshotActor {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct DeleteAndMaybeCreateSnapshotRequest {
+pub(crate) struct DeleteAndMaybeCreateSnapshotRequest {
     /// Optionally send request to create a new snapshot after deleting any existing snapshots.
     create_snapshot_request: Option<CreateSnapshotRequest>,
 }
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct CreateSnapshotRequest {
+pub(crate) struct CreateSnapshotRequest {
     /// prev_hash of the last processed block.
     prev_block_hash: CryptoHash,
     /// epoch height associated with prev_block_hash
@@ -55,7 +55,7 @@ pub struct CreateSnapshotRequest {
 }
 
 impl StateSnapshotActor {
-    pub fn handle_delete_and_maybe_create_snapshot_request(
+    pub(crate) fn handle_delete_and_maybe_create_snapshot_request(
         &mut self,
         msg: DeleteAndMaybeCreateSnapshotRequest,
     ) {
@@ -71,7 +71,7 @@ impl StateSnapshotActor {
         }
     }
 
-    pub fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
+    pub(crate) fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
         tracing::debug!(target: "state_snapshot", ?msg);
 
         let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block } =

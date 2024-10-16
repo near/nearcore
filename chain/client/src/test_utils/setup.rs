@@ -74,7 +74,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
-pub const TEST_SEED: RngSeed = [3; 32];
+pub(crate) const TEST_SEED: RngSeed = [3; 32];
 
 /// min block production time in milliseconds
 pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
@@ -82,7 +82,7 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
-pub fn setup(
+pub(crate) fn setup(
     clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
@@ -218,7 +218,7 @@ pub fn setup(
     )
 }
 
-pub fn setup_only_view(
+pub(crate) fn setup_only_view(
     clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
@@ -332,7 +332,7 @@ pub fn setup_mock(
     )
 }
 
-pub fn setup_mock_with_validity_period(
+pub(crate) fn setup_mock_with_validity_period(
     clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
@@ -1010,7 +1010,7 @@ pub fn setup_no_network_with_validity_period(
     )
 }
 
-pub fn setup_client_with_runtime(
+pub(crate) fn setup_client_with_runtime(
     clock: Clock,
     num_validator_seats: NumSeats,
     enable_doomslug: bool,
@@ -1059,7 +1059,7 @@ pub fn setup_client_with_runtime(
     client
 }
 
-pub fn setup_synchronous_shards_manager(
+pub(crate) fn setup_synchronous_shards_manager(
     clock: Clock,
     account_id: Option<AccountId>,
     client_adapter: Sender<ShardsManagerResponse>,
@@ -1117,6 +1117,6 @@ pub fn setup_synchronous_shards_manager(
 /// A multi-sender for both the client and network parts of the ShardsManager API.
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ShardsManagerAdapterForTest {
-    pub client: Sender<ShardsManagerRequestFromClient>,
-    pub network: Sender<ShardsManagerRequestFromNetwork>,
+    pub(crate) client: Sender<ShardsManagerRequestFromClient>,
+    pub(crate) network: Sender<ShardsManagerRequestFromNetwork>,
 }

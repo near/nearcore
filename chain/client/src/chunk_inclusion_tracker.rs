@@ -20,10 +20,10 @@ const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 // chunk_header, received_time and chunk_producer are populated when we call mark_chunk_header_ready_for_inclusion
 // endorsements is populated later during call to prepare_chunk_headers_ready_for_inclusion
 struct ChunkInfo {
-    pub chunk_header: ShardChunkHeader,
-    pub received_time: Utc,
-    pub chunk_producer: AccountId,
-    pub endorsements: ChunkEndorsementsState,
+    pub(crate) chunk_header: ShardChunkHeader,
+    pub(crate) received_time: Utc,
+    pub(crate) chunk_producer: AccountId,
+    pub(crate) endorsements: ChunkEndorsementsState,
 }
 
 pub struct ChunkInclusionTracker {
@@ -43,7 +43,7 @@ pub struct ChunkInclusionTracker {
 }
 
 impl ChunkInclusionTracker {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             prev_block_to_chunk_hash_ready: LruCache::new(
                 NonZeroUsize::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE).unwrap(),
@@ -56,7 +56,7 @@ impl ChunkInclusionTracker {
     }
 
     /// Call this function once we've collected all encoded chunk body and we are ready to include the chunk in block.
-    pub fn mark_chunk_header_ready_for_inclusion(
+    pub(crate) fn mark_chunk_header_ready_for_inclusion(
         &mut self,
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
@@ -95,7 +95,7 @@ impl ChunkInclusionTracker {
 
     /// Add account_id to the list of banned chunk producers for the given epoch.
     /// This would typically happen for cases when a validator has produced an invalid chunk.
-    pub fn ban_chunk_producer(&mut self, epoch_id: EpochId, account_id: AccountId) {
+    pub(crate) fn ban_chunk_producer(&mut self, epoch_id: EpochId, account_id: AccountId) {
         self.banned_chunk_producers.put((epoch_id, account_id), ());
     }
 
@@ -167,7 +167,7 @@ impl ChunkInclusionTracker {
         chunk_headers_ready_for_inclusion
     }
 
-    pub fn num_chunk_headers_ready_for_inclusion(
+    pub(crate) fn num_chunk_headers_ready_for_inclusion(
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
@@ -175,7 +175,7 @@ impl ChunkInclusionTracker {
         self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash).len()
     }
 
-    pub fn get_banned_chunk_producers(&self) -> Vec<(EpochId, Vec<AccountId>)> {
+    pub(crate) fn get_banned_chunk_producers(&self) -> Vec<(EpochId, Vec<AccountId>)> {
         let mut banned_chunk_producers: HashMap<EpochId, Vec<_>> = HashMap::new();
         for ((epoch_id, account_id), _) in self.banned_chunk_producers.iter() {
             banned_chunk_producers.entry(*epoch_id).or_default().push(account_id.clone());
@@ -200,7 +200,7 @@ impl ChunkInclusionTracker {
         Ok((chunk_header, signatures))
     }
 
-    pub fn get_chunk_producer_and_received_time(
+    pub(crate) fn get_chunk_producer_and_received_time(
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<(AccountId, Utc), Error> {
@@ -208,7 +208,7 @@ impl ChunkInclusionTracker {
         Ok((chunk_info.chunk_producer.clone(), chunk_info.received_time))
     }
 
-    pub fn record_endorsement_metrics(&self, prev_block_hash: &CryptoHash) {
+    pub(crate) fn record_endorsement_metrics(&self, prev_block_hash: &CryptoHash) {
         let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
             return;
         };

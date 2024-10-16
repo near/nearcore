@@ -2,7 +2,7 @@ use actix::MailboxError;
 
 /// Error occurs in case of failed data fetch
 #[derive(Debug)]
-pub enum FailedToFetchData {
+pub(crate) enum FailedToFetchData {
     MailboxError(MailboxError),
     String(String),
 }

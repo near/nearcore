@@ -28,11 +28,11 @@ use near_store::test_utils::create_test_store;
 use near_primitives::shard_layout::ShardLayout;
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
 
-pub const DEFAULT_GAS_PRICE: u128 = 100;
-pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
-pub const TEST_SEED: RngSeed = [3; 32];
+pub(crate) const DEFAULT_GAS_PRICE: u128 = 100;
+pub(crate) const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+pub(crate) const TEST_SEED: RngSeed = [3; 32];
 
-pub fn hash_range(num: usize) -> Vec<CryptoHash> {
+pub(crate) fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
     for i in 0..num {
         result.push(hash(i.to_le_bytes().as_ref()));
@@ -40,11 +40,13 @@ pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     result
 }
 
-pub fn change_stake(stake_changes: Vec<(AccountId, Balance)>) -> BTreeMap<AccountId, Balance> {
+pub(crate) fn change_stake(
+    stake_changes: Vec<(AccountId, Balance)>,
+) -> BTreeMap<AccountId, Balance> {
     stake_changes.into_iter().collect()
 }
 
-pub fn epoch_info(
+pub(crate) fn epoch_info(
     epoch_height: EpochHeight,
     accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
@@ -66,7 +68,7 @@ pub fn epoch_info(
     )
 }
 
-pub fn epoch_info_with_num_seats(
+pub(crate) fn epoch_info_with_num_seats(
     epoch_height: EpochHeight,
     mut accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
@@ -124,7 +126,7 @@ pub fn epoch_info_with_num_seats(
     )
 }
 
-pub fn epoch_config_with_production_config(
+pub(crate) fn epoch_config_with_production_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
@@ -161,7 +163,7 @@ pub fn epoch_config_with_production_config(
     AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
 }
 
-pub fn epoch_config(
+pub(crate) fn epoch_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
@@ -181,7 +183,7 @@ pub fn epoch_config(
     )
 }
 
-pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
+pub(crate) fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
     ValidatorStake::new(account_id, public_key, amount)
 }
@@ -198,7 +200,7 @@ pub fn default_reward_calculator() -> RewardCalculator {
     }
 }
 
-pub fn reward(info: Vec<(AccountId, Balance)>) -> HashMap<AccountId, Balance> {
+pub(crate) fn reward(info: Vec<(AccountId, Balance)>) -> HashMap<AccountId, Balance> {
     info.into_iter().collect()
 }
 
@@ -234,7 +236,7 @@ pub fn setup_epoch_manager(
     .unwrap()
 }
 
-pub fn setup_default_epoch_manager(
+pub(crate) fn setup_default_epoch_manager(
     validators: Vec<(AccountId, Balance)>,
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
@@ -306,7 +308,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     epoch_manager
 }
 
-pub fn record_block_with_final_block_hash(
+pub(crate) fn record_block_with_final_block_hash(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
     cur_h: CryptoHash,
@@ -337,7 +339,7 @@ pub fn record_block_with_final_block_hash(
         .unwrap();
 }
 
-pub fn record_block_with_slashes(
+pub(crate) fn record_block_with_slashes(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
     cur_h: CryptoHash,
@@ -369,7 +371,7 @@ pub fn record_block_with_slashes(
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.
-pub fn record_block(
+pub(crate) fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
     cur_h: CryptoHash,
@@ -380,7 +382,7 @@ pub fn record_block(
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.
-pub fn block_info(
+pub(crate) fn block_info(
     hash: CryptoHash,
     height: BlockHeight,
     last_finalized_height: BlockHeight,
@@ -407,6 +409,6 @@ pub fn block_info(
     })
 }
 
-pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
+pub(crate) fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
     epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
 }

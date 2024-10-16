@@ -10,26 +10,26 @@ use tracing::error;
 /// Struct used to destructure a new shard layout definition into the resulting resharding event.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-pub enum ReshardingEventType {
+pub(crate) enum ReshardingEventType {
     /// Split of a shard.
     SplitShard(ReshardingSplitShardParams),
 }
 
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-pub struct ReshardingSplitShardParams {
+pub(crate) struct ReshardingSplitShardParams {
     // Shard being split.
-    pub parent_shard: ShardUId,
+    pub(crate) parent_shard: ShardUId,
     // Child to the left of the account boundary.
-    pub left_child_shard: ShardUId,
+    pub(crate) left_child_shard: ShardUId,
     // Child to the right of the account boundary.
-    pub right_child_shard: ShardUId,
+    pub(crate) right_child_shard: ShardUId,
     /// The account at the boundary between the two children.
-    pub boundary_account: AccountId,
+    pub(crate) boundary_account: AccountId,
     /// Hash of the first block having the new shard layout.
-    pub block_hash: CryptoHash,
+    pub(crate) block_hash: CryptoHash,
     /// The block before `block_hash`.
-    pub prev_block_hash: CryptoHash,
+    pub(crate) prev_block_hash: CryptoHash,
 }
 
 impl ReshardingEventType {
@@ -42,7 +42,7 @@ impl ReshardingEventType {
     /// * `prev_block_hash`: hash of the block preceding `block_hash`
     ///
     /// Returns a [ReshardingEventType] if exactly one resharding change is contained in `shard_layout`, otherwise returns `None`.
-    pub fn from_shard_layout(
+    pub(crate) fn from_shard_layout(
         shard_layout: &ShardLayout,
         block_hash: CryptoHash,
         prev_block_hash: CryptoHash,

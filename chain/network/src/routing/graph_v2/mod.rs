@@ -23,16 +23,16 @@ mod testonly;
 #[cfg(test)]
 mod tests;
 
-pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
+pub(crate) type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 
 #[derive(Clone)]
-pub struct GraphConfigV2 {
-    pub node_id: PeerId,
-    pub prune_edges_after: Option<time::Duration>,
+pub(crate) struct GraphConfigV2 {
+    pub(crate) node_id: PeerId,
+    pub(crate) prune_edges_after: Option<time::Duration>,
 }
 
 #[derive(Debug)]
-pub enum NetworkTopologyChange {
+pub(crate) enum NetworkTopologyChange {
     PeerConnected(PeerId, Edge),
     PeerDisconnected(PeerId),
     PeerAdvertisedDistances(network_protocol::DistanceVector),
@@ -43,9 +43,9 @@ pub enum NetworkTopologyChange {
 #[derive(Debug)]
 struct PeerDistances {
     /// Advertised distances indexed by the local EdgeCache's peer to id mapping.
-    pub distance: Vec<Option<u32>>,
+    pub(crate) distance: Vec<Option<u32>>,
     /// The lowest nonce among all edges used to validate the distances.
-    pub min_nonce: u64,
+    pub(crate) min_nonce: u64,
 }
 
 struct Inner {
@@ -635,13 +635,13 @@ impl Inner {
 pub(crate) struct GraphV2 {
     inner: Arc<Mutex<Inner>>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
-    pub routing_table: RoutingTableView,
+    pub(crate) routing_table: RoutingTableView,
 
     runtime: Runtime,
 }
 
 impl GraphV2 {
-    pub fn new(config: GraphConfigV2) -> Self {
+    pub(crate) fn new(config: GraphConfigV2) -> Self {
         let local_node = config.node_id.clone();
         let edge_cache = EdgeCache::new(local_node.clone());
 
@@ -669,7 +669,7 @@ impl GraphV2 {
         }
     }
 
-    pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
+    pub(crate) fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
@@ -694,7 +694,7 @@ impl GraphV2 {
     /// Returns (distance_vector, oks) where
     /// * distance_vector is an Option<DistanceVector> to be broadcasted
     /// * oks.len() == distance_vectors.len() and oks[i] is true iff distance_vectors[i] was valid
-    pub async fn batch_process_network_changes(
+    pub(crate) async fn batch_process_network_changes(
         self: &Arc<Self>,
         clock: &time::Clock,
         updates: Vec<NetworkTopologyChange>,

@@ -16,7 +16,7 @@ use std::fmt;
     serde::Deserialize,
 )]
 #[serde(transparent)]
-pub struct AccountId(near_primitives::types::AccountId);
+pub(crate) struct AccountId(near_primitives::types::AccountId);
 
 impl fmt::Debug for AccountId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -15,30 +15,30 @@ pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
 /// Contains online thresholds for validators.
 #[derive(Clone, Debug)]
-pub struct ValidatorOnlineThresholds {
+pub(crate) struct ValidatorOnlineThresholds {
     /// Online minimum threshold below which validator doesn't receive reward.
-    pub online_min_threshold: Rational32,
+    pub(crate) online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
-    pub online_max_threshold: Rational32,
+    pub(crate) online_max_threshold: Rational32,
     /// If set, contains a number between 0 and 100 (percentage), and endorsement ratio
     /// below this threshold will be treated 0, and otherwise be treated 1,
     /// before calculating the average uptime ratio of the validator.
     /// If not set, endorsement ratio will be used as is.
-    pub endorsement_cutoff_threshold: Option<u8>,
+    pub(crate) endorsement_cutoff_threshold: Option<u8>,
 }
 
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
-    pub max_inflation_rate: Rational32,
-    pub num_blocks_per_year: u64,
-    pub epoch_length: u64,
-    pub protocol_reward_rate: Rational32,
-    pub protocol_treasury_account: AccountId,
-    pub num_seconds_per_year: u64,
+    pub(crate) max_inflation_rate: Rational32,
+    pub(crate) num_blocks_per_year: u64,
+    pub(crate) epoch_length: u64,
+    pub(crate) protocol_reward_rate: Rational32,
+    pub(crate) protocol_treasury_account: AccountId,
+    pub(crate) num_seconds_per_year: u64,
 }
 
 impl RewardCalculator {
-    pub fn new(config: &GenesisConfig, epoch_length: u64) -> Self {
+    pub(crate) fn new(config: &GenesisConfig, epoch_length: u64) -> Self {
         RewardCalculator {
             max_inflation_rate: config.max_inflation_rate,
             num_blocks_per_year: config.num_blocks_per_year,
@@ -52,7 +52,7 @@ impl RewardCalculator {
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
     /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.
-    pub fn calculate_reward(
+    pub(crate) fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
         validator_stake: &HashMap<AccountId, Balance>,

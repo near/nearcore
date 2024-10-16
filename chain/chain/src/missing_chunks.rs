@@ -13,7 +13,7 @@ type BlockHash = CryptoHash;
 
 const MAX_BLOCKS_MISSING_CHUNKS: usize = 1024;
 
-pub trait BlockLike {
+pub(crate) trait BlockLike {
     fn hash(&self) -> BlockHash;
     fn height(&self) -> BlockHeight;
 }
@@ -52,7 +52,7 @@ pub struct MissingChunksPool<Block: BlockLike> {
 }
 
 impl<Block: BlockLike> MissingChunksPool<Block> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             missing_chunks: Default::default(),
             blocks_missing_chunks: Default::default(),
@@ -62,19 +62,19 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         }
     }
 
-    pub fn contains(&self, block_hash: &BlockHash) -> bool {
+    pub(crate) fn contains(&self, block_hash: &BlockHash) -> bool {
         self.blocks_waiting_for_chunks.contains_key(block_hash)
     }
 
-    pub fn get(&self, block_hash: &BlockHash) -> Option<&Block> {
+    pub(crate) fn get(&self, block_hash: &BlockHash) -> Option<&Block> {
         self.blocks_waiting_for_chunks.get(block_hash)
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.blocks_waiting_for_chunks.len()
     }
 
-    pub fn ready_blocks(&mut self) -> Vec<Block> {
+    pub(crate) fn ready_blocks(&mut self) -> Vec<Block> {
         if self.blocks_ready_to_process.is_empty() {
             return Vec::new();
         }
@@ -82,7 +82,11 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         heap.into_sorted_vec().into_iter().map(|x| x.0).collect()
     }
 
-    pub fn add_block_with_missing_chunks(&mut self, block: Block, missing_chunks: Vec<ChunkHash>) {
+    pub(crate) fn add_block_with_missing_chunks(
+        &mut self,
+        block: Block,
+        missing_chunks: Vec<ChunkHash>,
+    ) {
         let block_hash = block.hash();
         // This case can only happen when missing chunks are not being eventually received and
         // thus removing blocks from the HashMap. It means the this node has severely stalled out.

@@ -24,7 +24,7 @@ struct ChunkStateWitnessKey {
 }
 
 impl ChunkStateWitnessKey {
-    pub fn new(chunk_hash: ChunkHash) -> Self {
+    pub(crate) fn new(chunk_hash: ChunkHash) -> Self {
         Self { chunk_hash }
     }
 }
@@ -44,13 +44,13 @@ struct ChunkStateWitnessRecord {
 /// getting the ack message back, where the ack message is used as a proxy for the endorsement
 /// message from validators to block producers to make an estimate of network time for sending
 /// witness and receiving the endorsement.
-pub struct ChunkStateWitnessTracker {
+pub(crate) struct ChunkStateWitnessTracker {
     witnesses: LruCache<ChunkStateWitnessKey, ChunkStateWitnessRecord>,
     clock: Clock,
 }
 
 impl ChunkStateWitnessTracker {
-    pub fn new(clock: Clock) -> Self {
+    pub(crate) fn new(clock: Clock) -> Self {
         Self {
             witnesses: LruCache::new(
                 NonZeroUsize::new(CHUNK_STATE_WITNESS_MAX_RECORD_COUNT).unwrap(),
@@ -60,7 +60,7 @@ impl ChunkStateWitnessTracker {
     }
 
     /// Adds a new witness message to track.
-    pub fn record_witness_sent(
+    pub(crate) fn record_witness_sent(
         &mut self,
         chunk_hash: ChunkHash,
         witness_size_in_bytes: usize,
@@ -81,7 +81,7 @@ impl ChunkStateWitnessTracker {
 
     /// Handles an ack message for the witness. Calculates the round-trip duration and
     /// records it in the corresponding metric.
-    pub fn on_witness_ack_received(&mut self, ack: ChunkStateWitnessAck) -> () {
+    pub(crate) fn on_witness_ack_received(&mut self, ack: ChunkStateWitnessAck) -> () {
         let key = ChunkStateWitnessKey { chunk_hash: ack.chunk_hash };
         tracing::trace!(target: "state_witness_tracker", witness_key=?key,
             "Received ack for state witness");

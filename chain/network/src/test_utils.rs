@@ -37,7 +37,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<
 
 /// Timeouts by stopping system without any condition and raises panic.
 /// Useful in tests to prevent them from running forever.
-#[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
     actix::spawn(tokio::time::sleep(tokio::time::Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
@@ -142,13 +141,13 @@ where
 }
 
 // Gets random PeerId
-pub fn random_peer_id() -> PeerId {
+pub(crate) fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
     PeerId::new(sk.public_key())
 }
 
 // Gets random EpochId
-pub fn random_epoch_id() -> EpochId {
+pub(crate) fn random_epoch_id() -> EpochId {
     EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
 }
 
@@ -198,7 +197,7 @@ impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
 #[derive(actix::Message, Default, Debug)]
 #[rtype(result = "()")]
 pub struct StopSignal {
-    pub should_panic: bool,
+    pub(crate) should_panic: bool,
 }
 
 impl StopSignal {
@@ -303,6 +302,6 @@ impl MockPeerManagerAdapter {
 
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub struct SetAdvOptions {
-    pub set_max_peers: Option<u64>,
+pub(crate) struct SetAdvOptions {
+    pub(crate) set_max_peers: Option<u64>,
 }

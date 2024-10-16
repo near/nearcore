@@ -28,13 +28,13 @@ use tokio::sync::oneshot;
 /// Boxed asynchronous function. In rust asynchronous functions
 /// are just regular functions which return a Future.
 /// This is a convenience alias to express a
-pub type BoxAsyncFn<Arg, Res> = Box<dyn 'static + Send + FnOnce(Arg) -> BoxFuture<'static, Res>>;
+pub(crate) type BoxAsyncFn<Arg, Res> = Box<dyn 'static + Send + FnOnce(Arg) -> BoxFuture<'static, Res>>;
 
 /// AsyncFn trait represents asynchronous functions which can be boxed.
 /// As a simplification (which makes the error messages more readable)
 /// we require the argument and result types to be 'static + Send, which is
 /// usually required anyway in practice due to Rust limitations.
-pub trait AsyncFn<Arg: 'static + Send, Res: 'static + Send> {
+pub(crate) trait AsyncFn<Arg: 'static + Send, Res: 'static + Send> {
     fn wrap(self) -> BoxAsyncFn<Arg, Res>;
 }
 
@@ -78,14 +78,14 @@ type Stream<Arg, Res> = mpsc::UnboundedSender<Call<Arg, Res>>;
 ///   callers may synchronize and select a leader to execute the handler. This will however make
 ///   the demux implementation way more complicated.
 #[derive(Clone)]
-pub struct Demux<Arg, Res>(Stream<Arg, Res>);
+pub(crate) struct Demux<Arg, Res>(Stream<Arg, Res>);
 
 #[derive(thiserror::Error, Debug, PartialEq)]
 #[error("tokio::Runtime running the demux service has been stopped")]
-pub struct ServiceStoppedError;
+pub(crate) struct ServiceStoppedError;
 
 impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
-    pub fn call(
+    pub(crate) fn call(
         &self,
         arg: Arg,
         f: impl AsyncFn<Vec<Arg>, Vec<Res>>,
@@ -103,7 +103,7 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
 
     // Spawns a subroutine performing the demultiplexing.
     // Panics if rl is not valid.
-    pub fn new(rl: rate::Limit) -> Demux<Arg, Res> {
+    pub(crate) fn new(rl: rate::Limit) -> Demux<Arg, Res> {
         rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
         // TODO(gprusak): this task should be running as long as Demux object exists.

@@ -19,7 +19,7 @@ use near_primitives::types::NumBlocks;
 use near_time::Clock;
 use serde_json::json;
 
-pub static TEST_GENESIS_CONFIG: std::sync::LazyLock<GenesisConfig> =
+pub(crate) static TEST_GENESIS_CONFIG: std::sync::LazyLock<GenesisConfig> =
     std::sync::LazyLock::new(|| {
         GenesisConfig::from_json(include_str!("../res/genesis_config.json"))
     });
@@ -29,7 +29,10 @@ pub enum NodeType {
     NonValidator,
 }
 
-pub fn start_all(clock: Clock, node_type: NodeType) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
+pub fn start_all(
+    clock: Clock,
+    node_type: NodeType,
+) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
     start_all_with_validity_period(clock, node_type, 100, false)
 }
 
