@@ -240,7 +240,7 @@ pub trait ChainStoreAccess {
 
             if prev_shard_layout != current_shard_layout {
                 let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
-                tracing::debug!(
+                tracing::info!(
                     target: "chain",
                     version = current_shard_layout.version(),
                     prev_version = prev_shard_layout.version(),

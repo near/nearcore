@@ -484,24 +484,33 @@ impl ShardTries {
         }
     }
 
-    /// Freezes in-memory trie for source shard and copies reference to it to
-    /// target shards.
+    /// Freezes in-memory trie for parent shard and copies reference to it to
+    /// children shards.
     /// Needed to serve queries for these shards just after resharding, before
     /// proper memtries are loaded.
     pub fn freeze_mem_tries(
         &self,
-        source_shard_uid: ShardUId,
-        target_shard_uids: Vec<ShardUId>,
+        parent_shard_uid: ShardUId,
+        children_shard_uids: Vec<ShardUId>,
     ) -> Result<(), StorageError> {
+        info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Freezing parent memtrie, creating children memtries...",
+        );
         let mut outer_guard = self.0.mem_tries.write().unwrap();
-        let Some(memtries) = outer_guard.remove(&source_shard_uid) else {
-            return Err(StorageError::MemTrieLoadingError("Memtrie not loaded".to_string()));
+        let Some(memtries) = outer_guard.remove(&parent_shard_uid) else {
+            return Err(StorageError::MemTrieLoadingError(format!(
+                "On freezing parent memtrie, memtrie not loaded for shard {:?}",
+                parent_shard_uid
+            )));
         };
         let mut guard = memtries.write().unwrap();
-        let memtries = std::mem::replace(&mut *guard, MemTries::new(source_shard_uid));
+        let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
         let frozen_memtries = memtries.freeze();
 
-        for shard_uid in [vec![source_shard_uid], target_shard_uids].concat() {
+        for shard_uid in [vec![parent_shard_uid], children_shard_uids.clone()].concat() {
             outer_guard.insert(
                 shard_uid,
                 Arc::new(RwLock::new(MemTries::from_frozen_memtries(
@@ -511,6 +520,12 @@ impl ShardTries {
             );
         }
 
+        info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Memtries freezing complete"
+        );
         Ok(())
     }
 }

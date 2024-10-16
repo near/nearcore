@@ -112,6 +112,52 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
     return future_epochs
 
 
+def find_epoch_for_timestamp(future_epochs, voting_timestamp):
+    for (epoch_number, epoch_timestamp) in enumerate(future_epochs):
+        if voting_timestamp < epoch_timestamp:
+            return epoch_number
+    return len(future_epochs)
+
+
+def valid_voting_datetime(s):
+    try:
+        dt = datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+        return dt
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"Invalid voting date format: '{s}'. Please use 'YYYY-MM-DD HH:MM:SS'."
+        )
+
+
+def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
+    voting_datetime = target_timezone.localize(voting_date)
+
+    # Find the epoch T in which the voting date falls
+    epoch_T = find_epoch_for_timestamp(future_epochs,
+                                       voting_datetime.timestamp())
+    if epoch_T <= 0:
+        print("Error: Voting date is before the first predicted epoch.")
+        return
+
+    # Calculate when the protocol upgrade will happen (start of epoch T+2)
+    protocol_upgrade_epoch_number = epoch_T + 2
+    if protocol_upgrade_epoch_number > len(future_epochs):
+        print(
+            "Not enough future epochs predicted to determine the protocol upgrade time."
+        )
+        return
+    protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number -
+                                               1]
+    protocol_upgrade_datetime = datetime.fromtimestamp(
+        protocol_upgrade_timestamp, tz=target_timezone)
+    protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
+        '%Y-%m-%d %H:%M:%S %Z%z %A')
+    print(f"\nVoting date falls into epoch {epoch_T}.")
+    print(
+        f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
+    )
+
+
 # Main function to run the process
 def main(args):
     latest_block = get_block(args.url, None)
@@ -125,9 +171,13 @@ def main(args):
         args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
 
     # Predict future epoch start dates
-    predict_future_epochs(current_timestamp,
-                          exponential_weighted_average_epoch_length,
-                          args.num_future_epochs, args.timezone)
+    future_epochs = predict_future_epochs(
+        current_timestamp, exponential_weighted_average_epoch_length,
+        args.num_future_epochs, args.timezone)
+
+    if args.voting_date:
+        find_protocol_upgrade_time(args.voting_date, future_epochs,
+                                   args.timezone)
 
 
 # Custom action to set the URL based on chain_id
@@ -165,13 +215,16 @@ if __name__ == "__main__":
                         help="Decay rate for exponential weighting.")
     parser.add_argument("--num_future_epochs",
                         type=int,
-                        default=3,
+                        default=10,
                         help="Number of future epochs to predict.")
     parser.add_argument(
         "--timezone",
         type=valid_timezone,
         default="UTC",
         help="Time zone to display times in (e.g., 'America/New_York').")
+    parser.add_argument("--voting_date",
+                        type=valid_voting_datetime,
+                        help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
 
     args = parser.parse_args()
     main(args)

@@ -391,6 +391,8 @@ impl TestLoopBuilder {
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
             partial_witness_adapter.as_multi_sender(),
             resharding_sender.as_multi_sender(),
+            Arc::new(self.test_loop.future_spawner()),
+            client_adapter.as_multi_sender(),
         )
         .unwrap();
 
@@ -460,7 +462,6 @@ impl TestLoopBuilder {
             Default::default(),
             None,
             sync_jobs_adapter.as_multi_sender(),
-            Box::new(self.test_loop.future_spawner()),
         )
         .unwrap();
 
