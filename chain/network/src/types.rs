@@ -290,7 +290,7 @@ pub enum NetworkRequests {
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
-    EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
+    EpochSyncResponse { peer_id: PeerId, proof: CompressedEpochSyncProof },
 }
 
 #[derive(Debug, actix::Message, strum::IntoStaticStr)]
