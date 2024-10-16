@@ -4035,7 +4035,6 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "yansi",
 ]
 
 [[package]]
@@ -4193,7 +4192,6 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "yansi",
 ]
 
 [[package]]

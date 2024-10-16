@@ -31,21 +31,6 @@ impl<T> Sink<T> {
     }
 }
 
-impl<T: Send + 'static> Sink<T> {
-    // Accepts a constructor of the value to push.
-    // Returns a function which does the push.
-    // If sink is null it doesn't call make() at all,
-    // therefore you can use this to skip expensive computation
-    // in non-test env.
-    pub fn delayed_push(&self, make: impl FnOnce() -> T) -> Box<dyn Send + 'static + FnOnce()> {
-        let maybe_ev = self.0.as_ref().map(|_| make());
-        let this = self.clone();
-        Box::new(move || {
-            maybe_ev.map(|ev| this.push(ev));
-        })
-    }
-}
-
 impl<T: 'static + std::fmt::Debug + Send> Sink<T> {
     pub fn compose<U>(&self, f: impl Send + Sync + 'static + Fn(U) -> T) -> Sink<U> {
         match self.0.clone() {
