@@ -168,7 +168,7 @@ impl TrieUpdate {
     pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let span = tracing::Span::current();
-        let TrieUpdate { trie, committed, .. } = self;
+        let TrieUpdate { trie, committed, contract_storage, .. } = self;
         let start_counts = trie.accounting_cache.borrow().get_trie_nodes_count();
         let mut state_changes = Vec::with_capacity(committed.len());
         let trie_changes =
@@ -189,7 +189,7 @@ impl TrieUpdate {
         }
         // TODO(#11099): Retrieve the correct list of code hashes accessed while applying the chunk
         // from ContractStorage and set in the following.
-        let contract_accesses = vec![];
+        let contract_accesses = contract_storage.finalize().contract_accesses;
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses })
     }
 

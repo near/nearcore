@@ -65,7 +65,7 @@ rustc_version = "0.4"
 default = ["json_rpc", "rosetta_rpc"]
 
 # If enabled, distributes the contract code separately from the chunk state witness.
-contract_distribution = ["near-client/contract_distribution", "near-primitives/contract_distribution"]
+contract_distribution = ["near-client/contract_distribution", "near-primitives/contract_distribution", "near-store/contract_distribution"]
 performance_stats = ["nearcore/performance_stats"]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]

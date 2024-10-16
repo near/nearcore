@@ -78,6 +78,8 @@ io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = ["near-vm-runner/test_features"]
+# If enabled, distributes the contract code separately from the chunk state witness.
+contract_distribution = ["near-primitives/contract_distribution"]
 
 # TODO(#11639): extract metrics into separate feature
 nightly_protocol = [

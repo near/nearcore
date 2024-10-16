@@ -585,6 +585,8 @@ impl RoutedMessageBody {
             RoutedMessageBody::ChunkEndorsement(_)
             | RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            // TODO(#11099): Remove this when we filter the targets of message at the sender side.
+            | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }

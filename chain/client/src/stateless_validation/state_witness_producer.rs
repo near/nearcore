@@ -180,7 +180,7 @@ impl Client {
         let (base_state, receipts_hash, contract_accesses) = if prev_chunk_header.is_genesis() {
             (Default::default(), hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()), vec![])
         } else {
-            let StoredChunkStateTransitionData { base_state, receipts_hash, .. } = store
+            let stored_data = store
                 .get_ser(
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(main_block, shard_id),
@@ -194,9 +194,14 @@ impl Client {
                     }
                     Error::Other(message)
                 })?;
-            // TODO(#11099): Return contract_accesses from StoredChunkStateTransitionData instead of empty vector.
-            let contract_accesses = vec![];
-            (base_state, receipts_hash, contract_accesses)
+            if cfg!(feature = "contract_distribution") {
+                let StoredChunkStateTransitionData { base_state, receipts_hash, contract_accesses } =
+                    stored_data;
+                (base_state, receipts_hash, contract_accesses)
+            } else {
+                let StoredChunkStateTransitionData { base_state, receipts_hash, .. } = stored_data;
+                (base_state, receipts_hash, vec![])
+            }
         };
         let main_transition = ChunkStateTransition {
             block_hash: *main_block,

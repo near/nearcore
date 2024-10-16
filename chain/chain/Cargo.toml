@@ -67,7 +67,7 @@ assert_matches.workspace = true
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
 # If enabled, distributes the contract code separately from the chunk state witness.
-contract_distribution = ["near-primitives/contract_distribution"]
+contract_distribution = ["near-primitives/contract_distribution", "near-store/contract_distribution"]
 expensive_tests = []
 test_features = [
   "near-vm-runner/test_features",
