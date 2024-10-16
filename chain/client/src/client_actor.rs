@@ -2069,7 +2069,7 @@ impl ClientActorInner {
         let block_hash = *block.hash();
         if let Err(err) = self.client.chain.validate_block(&block) {
             byzantine_assert!(false);
-            error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+            //error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
         }
 
         let extra_block_hashes = self.get_extra_sync_block_hashes(*header.prev_hash());

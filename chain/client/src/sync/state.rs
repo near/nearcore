@@ -650,6 +650,7 @@ impl StateSync {
                 if *p2p_permits == 0 {
                     continue;
                 }
+                info!(target: "sync", "decremented p2p_permit sending req {}", *p2p_permits);
                 *p2p_permits -= 1;
 
                 // The request sent to the network adapater needs to include the sync_prev_prev_hash
@@ -904,6 +905,7 @@ impl StateSync {
                         metrics::STATE_SYNC_RETRY_PART
                             .with_label_values(&[&shard_id.to_string()])
                             .inc();
+                        info!(target: "sync", "incremented p2p_permit on timeout/error");
                         *self.p2p_semaphore.lock().unwrap() += 1;
                         part_download.run_me.store(true, Ordering::SeqCst);
                         part_download.error = false;
@@ -1294,6 +1296,7 @@ fn request_part_from_peers(
             {
                 // Send a StateRequestPart on the next iteration
                 run_me.store(true, Ordering::SeqCst);
+                info!(target: "sync", "incremented p2p_permits due to RouteNotFound");
                 *p2p_semaphore.lock().unwrap() += 1;
             }
             future::ready(())
@@ -1351,6 +1354,7 @@ fn process_download_response(
                     .with_label_values(&[&shard_id.to_string(), &file_type])
                     .inc_by(data_len);
             } else {
+                info!(target: "sync", "successful response incremented p2p_permit");
                 *p2p_semaphore.lock().unwrap() += 1;
             }
             download.map(|download| download.done = true);
