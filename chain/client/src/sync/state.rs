@@ -56,7 +56,7 @@ use rand::thread_rng;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{Semaphore, TryAcquireError};
 use tracing::info;
 
@@ -121,8 +121,8 @@ pub struct StateSync {
     /// Is used for communication with the peers.
     network_adapter: PeerManagerAdapter,
 
-    /// Semaphore used to restrict simultaneous requests to peers
-    p2p_semaphore: Arc<tokio::sync::Semaphore>,
+    /// Counter used to restrict simultaneous requests to peers
+    p2p_semaphore: Arc<Mutex<usize>>,
 
     /// Timeout (set in config - by default to 60 seconds) is used to figure out how long we should wait
     /// for the answer from the other node before giving up.
@@ -204,7 +204,7 @@ impl StateSync {
             clock,
             external,
             network_adapter,
-            p2p_semaphore: Arc::new(tokio::sync::Semaphore::new(num_p2p_permits)),
+            p2p_semaphore: Arc::new(Mutex::new(num_p2p_permits)),
             timeout,
             state_parts_apply_results: HashMap::new(),
             load_memtrie_results: HashMap::new(),
@@ -421,6 +421,7 @@ impl StateSync {
                     file_type,
                     download_result,
                     provenance,
+                    self.p2p_semaphore.clone(),
                 );
             }
         }
@@ -645,9 +646,11 @@ impl StateSync {
                     self.state_parts_mpsc_tx.clone(),
                 );
             } else {
-                if self.p2p_semaphore.available_permits() == 0 {
+                let mut p2p_permits = self.p2p_semaphore.lock().unwrap();
+                if *p2p_permits == 0 {
                     continue;
                 }
+                *p2p_permits -= 1;
 
                 // The request sent to the network adapater needs to include the sync_prev_prev_hash
                 // so that a peer hosting the correct snapshot can be selected.
@@ -901,6 +904,7 @@ impl StateSync {
                         metrics::STATE_SYNC_RETRY_PART
                             .with_label_values(&[&shard_id.to_string()])
                             .inc();
+                        *self.p2p_semaphore.lock().unwrap() += 1;
                         part_download.run_me.store(true, Ordering::SeqCst);
                         part_download.error = false;
                         part_download.prev_update_time = now;
@@ -1268,44 +1272,33 @@ fn request_part_from_peers(
     sync_prev_prev_hash: CryptoHash,
     network_adapter: &PeerManagerAdapter,
     state_parts_future_spawner: &dyn FutureSpawner,
-    p2p_semaphore: Arc<Semaphore>,
+    p2p_semaphore: Arc<Mutex<usize>>,
 ) {
     download.run_me.store(false, Ordering::SeqCst);
     download.state_requests_count += 1;
     let run_me = download.run_me.clone();
 
-    match p2p_semaphore.try_acquire_owned() {
-        Ok(permit) => {
-            state_parts_future_spawner.spawn(
-                "StateSync",
-                network_adapter
-                .send_async(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::StateRequestPart {
-                            shard_id,
-                            sync_hash,
-                            sync_prev_prev_hash,
-                            part_id,
-                        },
-                ))
-                .then(move |result| {
-                    if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
-                    {
-                        // Send a StateRequestPart on the next iteration
-                        run_me.store(true, Ordering::SeqCst);
-                    }
-                    drop(permit);
-                    future::ready(())
-                }),
-            );
-        }
-        Err(TryAcquireError::NoPermits) => {
-            download.run_me.store(true, Ordering::SeqCst);
-        }
-        Err(TryAcquireError::Closed) => {
-            download.run_me.store(true, Ordering::SeqCst);
-            tracing::warn!(target: "sync", %shard_id, part_id, "Failed to schedule p2p request. Semaphore closed.");
-        }
-    }
+    state_parts_future_spawner.spawn(
+        "StateSync",
+        network_adapter
+        .send_async(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::StateRequestPart {
+                    shard_id,
+                    sync_hash,
+                    sync_prev_prev_hash,
+                    part_id,
+                },
+        ))
+        .then(move |result| {
+            if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
+            {
+                // Send a StateRequestPart on the next iteration
+                run_me.store(true, Ordering::SeqCst);
+                *p2p_semaphore.lock().unwrap() += 1;
+            }
+            future::ready(())
+        }),
+    );
 }
 
 /// Takes a received state part and attempts to validate and store the part.
@@ -1345,6 +1338,7 @@ fn process_download_response(
     file_type: String,
     download_result: Result<u64, String>,
     provenance: PartProvenance,
+    p2p_semaphore: Arc<Mutex<usize>>,
 ) {
     match download_result {
         Ok(data_len) => {
@@ -1356,6 +1350,8 @@ fn process_download_response(
                 metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
                     .with_label_values(&[&shard_id.to_string(), &file_type])
                     .inc_by(data_len);
+            } else {
+                *p2p_semaphore.lock().unwrap() += 1;
             }
             download.map(|download| download.done = true);
         }
