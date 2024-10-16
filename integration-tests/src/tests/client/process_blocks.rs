@@ -3861,7 +3861,14 @@ mod contract_precompilation_tests {
             env.clients[0].process_tx(delete_account_tx, false, false),
             ProcessTxResponse::ValidTx
         );
-        height = produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height);
+        // `height` is the first block of a new epoch (which has not been produced yet),
+        // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
+        // to get to produce the first block of the next epoch. If we want to state sync the new
+        // way, we produce two more than that
+        let num_new_blocks_in_epoch =
+            if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) { 3 } else { 1 };
+        height =
+            produce_blocks_from_height(&mut env, EPOCH_LENGTH + num_new_blocks_in_epoch, height);
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
