@@ -79,7 +79,7 @@ fn setup_runtime_for_shard(
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
     let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        [(0, ExtendedCongestionInfo::default())].into()
+        [(new_shard_id_tmp(0), ExtendedCongestionInfo::default())].into()
     } else {
         [].into()
     };
@@ -1270,14 +1270,19 @@ fn test_congestion_buffering() {
         apply_state.config.congestion_control_config.max_congestion_incoming_gas;
     apply_state
         .congestion_info
-        .get_mut(&0)
+        .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
         .add_delayed_receipt_gas(max_congestion_incoming_gas)
         .unwrap();
     // set allowed shard of shard 0 to 0 to prevent shard 1 from forwarding
-    apply_state.congestion_info.get_mut(&0).unwrap().congestion_info.set_allowed_shard(0);
-    apply_state.congestion_info.insert(1, Default::default());
+    apply_state
+        .congestion_info
+        .get_mut(&receiver_shard)
+        .unwrap()
+        .congestion_info
+        .set_allowed_shard(0);
+    apply_state.congestion_info.insert(local_shard, Default::default());
 
     // We need receipts that produce an outgoing receipt. Function calls and
     // delegate actions are currently the two only choices. We use delegate
@@ -1328,7 +1333,7 @@ fn test_congestion_buffering() {
     // to be forwarded per round
     apply_state
         .congestion_info
-        .get_mut(&0)
+        .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
         .remove_delayed_receipt_gas(10)
@@ -1392,7 +1397,7 @@ fn commit_apply_result(
 ) -> CryptoHash {
     // congestion control requires an update on
     let shard_id = apply_state.shard_id;
-    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+    let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
     if let Some(congestion_info) = apply_result.congestion_info {
         apply_state
             .congestion_info
