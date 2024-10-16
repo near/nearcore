@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use near_chain_configs::ReshardingHandle;
 use near_chain_primitives::Error;
 
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use crate::resharding::types::FlatStorageSplitShardRequest;
@@ -233,24 +233,20 @@ impl FlatStorageResharder {
     /// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
     pub fn split_shard_task(&self) {
         let task_status = self.split_shard_task_impl();
-        let controller = self.controller.clone();
         self.split_shard_task_postprocessing(task_status);
         info!(target: "resharding", ?task_status, "flat storage shard split task finished");
-        if let Err(err) = controller.completion_sender.send(task_status) {
-            warn!(target: "resharding", ?err, "error notifying completion of flat storage shard split task")
-        };
     }
 
     /// Performs the bulk of [split_shard_task].
     ///
     /// Returns `true` if the routine completed successfully.
     fn split_shard_task_impl(&self) -> FlatStorageReshardingTaskStatus {
-        if self.controller.is_interrupted() {
+        if self.controller.is_cancelled() {
             return FlatStorageReshardingTaskStatus::Cancelled;
         }
 
         /// Determines after how many key-values the process stops to
-        /// commit changes and to check interruptions.
+        /// commit changes and to check cancellation.
         const BATCH_SIZE: usize = 10_000;
 
         let (parent_shard, status) = self
@@ -305,7 +301,7 @@ impl FlatStorageResharder {
             if iter_exhausted {
                 break;
             }
-            if self.controller.is_interrupted() {
+            if self.controller.is_cancelled() {
                 return FlatStorageReshardingTaskStatus::Cancelled;
             }
         }
@@ -350,7 +346,7 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingTaskStatus::Failed
             | FlatStorageReshardingTaskStatus::Cancelled => {
-                // We got an error or an interrupt request.
+                // We got an error or a cancellation request.
                 // Reset parent.
                 store_update.set_flat_storage_status(
                     parent_shard,
@@ -500,44 +496,37 @@ pub enum FlatStorageReshardingTaskStatus {
     Cancelled,
 }
 
-/// Helps control the flat storage resharder operation. More specifically,
-/// it has a way to know when the background task is done or to interrupt it.
+/// Helps control the flat storage resharder background operations. This struct wraps
+/// [ReshardingHandle] and gives better meaning request to stop any processing when applied to flat
+/// storage. In flat storage resharding there's a slight difference between interrupt and cancel.
+/// Interruption happens when the node crashes whilst cancellation is an on demand request. An
+/// interrupted flat storage resharding will resume on node restart, a cancelled one won't.
 #[derive(Clone, Debug)]
 pub struct FlatStorageResharderController {
-    /// Resharding handle to control interruption.
+    /// Resharding handle to control cancellation.
     handle: ReshardingHandle,
-    /// This object will be used to signal when the background task is completed.
-    completion_sender: crossbeam_channel::Sender<FlatStorageReshardingTaskStatus>,
-    /// Corresponding receiver for `completion_sender`.
-    pub completion_receiver: crossbeam_channel::Receiver<FlatStorageReshardingTaskStatus>,
 }
 
 impl FlatStorageResharderController {
     /// Creates a new `FlatStorageResharderController` with its own handle.
     pub fn new() -> Self {
-        let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
         let handle = ReshardingHandle::new();
-        Self { handle, completion_sender, completion_receiver }
+        Self { handle }
     }
 
     pub fn from_resharding_handle(handle: ReshardingHandle) -> Self {
-        let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
-        Self { handle, completion_sender, completion_receiver }
+        Self { handle }
     }
 
-    pub fn handle(&self) -> &ReshardingHandle {
-        &self.handle
-    }
-
-    /// Returns whether or not background task is interrupted.
-    pub fn is_interrupted(&self) -> bool {
+    /// Returns whether or not background task is cancelled.
+    pub fn is_cancelled(&self) -> bool {
         !self.handle.get()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, time::Duration};
+    use std::collections::BTreeMap;
 
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
@@ -667,8 +656,8 @@ mod tests {
             .start_resharding(resharding_event_type.clone(), &new_shard_layout)
             .is_ok());
 
-        // Immediately interrupt the resharding.
-        controller.handle().stop();
+        // Immediately cancel the resharding.
+        controller.handle.stop();
 
         assert!(resharder.resharding_event().is_some());
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());
@@ -794,7 +783,6 @@ mod tests {
         let sender = TestScheduler::default().into_multi_sender();
         let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
         let new_shard_layout = shard_layout_after_split();
-        let controller = &resharder.controller;
         let resharding_event_type = ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
@@ -817,12 +805,6 @@ mod tests {
         assert!(flat_store
             .get(right_child, &account_vv_key.to_vec())
             .is_ok_and(|val| val.is_some()));
-
-        // Controller should signal that resharding ended.
-        assert_eq!(
-            controller.completion_receiver.recv_timeout(Duration::from_secs(1)),
-            Ok(FlatStorageReshardingTaskStatus::Successful)
-        );
 
         // Check final status of parent flat storage.
         let parent = ShardUId { version: 3, shard_id: 1 };
@@ -847,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn interrupt_split_shard() {
+    fn cancel_split_shard() {
         init_test_logger();
         // Perform resharding.
         let scheduler = Arc::new(DelayedScheduler::default());
@@ -868,17 +850,13 @@ mod tests {
         let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } = status;
 
         // Cancel the task before it starts.
-        controller.handle().stop();
+        controller.handle.stop();
 
         // Run the task.
         scheduler.call_split_shard_task();
 
         // Check that resharding was effectively cancelled.
         let flat_store = resharder.runtime.store().flat_store();
-        assert_eq!(
-            controller.completion_receiver.recv_timeout(Duration::from_secs(1)),
-            Ok(FlatStorageReshardingTaskStatus::Cancelled)
-        );
         assert_eq!(
             flat_store.get_flat_storage_status(parent_shard),
             Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }))
