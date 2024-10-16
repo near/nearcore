@@ -100,19 +100,31 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
+    /// Reads shard_uid mapping for given shard.
+    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
+    fn read_shard_uid_mapping_from_db(
+        &self,
+        shard_uid: ShardUId,
+    ) -> Result<ShardUId, StorageError> {
+        let store = TrieStoreAdapter::new(Store::new(self.store_update.storage.clone()));
+        store.read_shard_uid_mapping_from_db(shard_uid)
+    }
+
     pub fn decrement_refcount_by(
         &mut self,
         shard_uid: ShardUId,
         hash: &CryptoHash,
         decrement: NonZero<u32>,
     ) {
-        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let mapped_shard_uid =
+            self.read_shard_uid_mapping_from_db(shard_uid).expect("decrement_refcount_by failed");
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
     }
 
     pub fn decrement_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash) {
-        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let mapped_shard_uid =
+            self.read_shard_uid_mapping_from_db(shard_uid).expect("decrement_refcount failed");
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount(DBCol::State, key.as_ref());
     }
@@ -122,11 +134,12 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         shard_uid: ShardUId,
         hash: &CryptoHash,
         data: &[u8],
-        decrement: NonZero<u32>,
+        increment: NonZero<u32>,
     ) {
-        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let mapped_shard_uid =
+            self.read_shard_uid_mapping_from_db(shard_uid).expect("increment_refcount_by failed");
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
-        self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, decrement);
+        self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
     }
 
     pub fn set_state_snapshot_hash(&mut self, hash: Option<CryptoHash>) {
@@ -159,6 +172,17 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
+    /// Reads shard_uid mapping for given shard.
+    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
+    #[cfg(test)]
+    fn set_shard_uid_mapping(&mut self, child_shard_uid: ShardUId, parent_shard_uid: ShardUId) {
+        self.store_update.set(
+            DBCol::StateShardUIdMapping,
+            child_shard_uid.to_bytes().as_ref(),
+            &borsh::to_vec(&parent_shard_uid).expect("Borsh serialize cannot fail"),
+        )
+    }
+
     pub fn delete_all_state(&mut self) {
         self.store_update.delete_all(DBCol::State)
     }
@@ -169,4 +193,104 @@ pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -
     key[0..8].copy_from_slice(&shard_uid.to_bytes());
     key[8..].copy_from_slice(hash.as_ref());
     key
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use near_primitives::errors::StorageError;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardUId;
+
+    use crate::adapter::trie_store::TrieStoreAdapter;
+    use crate::NodeStorage;
+
+    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
+        Some(num) => num,
+        None => panic!(),
+    };
+
+    #[test]
+    fn test_trie_store_adapter() {
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        let store = TrieStoreAdapter::new(opener.open().unwrap().get_hot_store());
+        let shard_uids: Vec<ShardUId> =
+            (0..3).map(|i| ShardUId { version: 0, shard_id: i }).collect();
+        let dummy_hash = CryptoHash::default();
+
+        assert_matches!(
+            store.get(shard_uids[0], &dummy_hash),
+            Err(StorageError::MissingTrieValue(_, _))
+        );
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount_by(shard_uids[0], &dummy_hash, &[0], ONE);
+            store_update.increment_refcount_by(shard_uids[1], &dummy_hash, &[1], ONE);
+            store_update.increment_refcount_by(shard_uids[2], &dummy_hash, &[2], ONE);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(*store.get(shard_uids[0], &dummy_hash).unwrap(), [0]);
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all_state();
+            store_update.commit().unwrap();
+        }
+        assert_matches!(
+            store.get(shard_uids[0], &dummy_hash),
+            Err(StorageError::MissingTrieValue(_, _))
+        );
+    }
+
+    #[test]
+    fn test_shard_uid_mapping() {
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        let store = TrieStoreAdapter::new(opener.open().unwrap().get_hot_store());
+        let parent_shard = ShardUId { version: 0, shard_id: 0 };
+        let child_shard = ShardUId { version: 0, shard_id: 1 };
+        let dummy_hash = CryptoHash::default();
+        // Write some data to `parent_shard`.
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount_by(parent_shard, &dummy_hash, &[0], ONE);
+            store_update.commit().unwrap();
+        }
+        // The data is not visible by child shard, because the mapping has not been set yet.
+        assert_matches!(
+            store.get(child_shard, &dummy_hash),
+            Err(StorageError::MissingTrieValue(_, _))
+        );
+        // Set the shard_uid mapping from `child_shard` to `parent_shard`.
+        {
+            let mut store_update = store.store_update();
+            store_update.set_shard_uid_mapping(child_shard, parent_shard);
+            store_update.commit().unwrap();
+        }
+        // The data is now visible at both `parent_shard` and `child_shard`.
+        assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
+        assert_eq!(*store.get(parent_shard, &dummy_hash).unwrap(), [0]);
+        // Remove the data using `parent_shard` UId.
+        {
+            let mut store_update = store.store_update();
+            store_update.decrement_refcount(parent_shard, &dummy_hash);
+            store_update.commit().unwrap();
+        }
+        // The data is now not visible at any shard.
+        assert_matches!(
+            store.get(child_shard, &dummy_hash),
+            Err(StorageError::MissingTrieValue(_, _))
+        );
+        assert_matches!(
+            store.get(parent_shard, &dummy_hash),
+            Err(StorageError::MissingTrieValue(_, _))
+        );
+        // Restore the data now using the `child_shard` UId.
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
+            store_update.commit().unwrap();
+        }
+        // The data is not visible at both shards again.
+        assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
+        assert_eq!(*store.get(parent_shard, &dummy_hash).unwrap(), [0]);
+    }
 }
