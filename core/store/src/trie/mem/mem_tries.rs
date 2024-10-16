@@ -62,6 +62,9 @@ impl MemTries {
         }
     }
 
+    /// Creates a new `MemTries` from a frozen `FrozenMemTries`.
+    /// Used on resharding, where memtries with different UIDs share some
+    /// nodes.
     pub fn from_frozen_memtries(shard_uid: ShardUId, frozen_memtries: FrozenMemTries) -> Self {
         Self {
             arena: HybridArena::from_frozen(shard_uid.to_string(), frozen_memtries.arena),
