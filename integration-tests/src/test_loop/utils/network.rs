@@ -5,16 +5,14 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::AccountId;
 use std::sync::{Arc, Mutex};
 
-/// Handler to drop all network messages relevant to chunk validated by
-/// `validator_of_chunks_to_drop`. If number of nodes on chain is significant
-/// enough (at least three?), this is enough to prevent chunk from being
-/// included.
-///
-/// This logic can be easily extended to dropping chunk based on any rule.
+type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool>;
+
+/// Handler to drop all network messages relevant to chunk body, based on
+/// `drop_chunks_condition` result.
 pub fn partial_encoded_chunks_dropper(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    drop_chunks_condition: Box<dyn Fn(ShardChunkHeader, Arc<dyn EpochManagerAdapter>) -> bool>,
+    drop_chunks_condition: DropChunkCondition,
 ) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
     Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
@@ -59,7 +57,7 @@ pub fn partial_encoded_chunks_dropper(
             return Some(request);
         };
 
-        if drop_chunks_condition(chunk, epoch_manager_adapter.clone()) {
+        if drop_chunks_condition(chunk) {
             return None;
         }
 
@@ -67,7 +65,8 @@ pub fn partial_encoded_chunks_dropper(
     })
 }
 
-/// Handler to drop all network messages containing chunk endorsements sent from a given chunk-validator account.
+/// Handler to drop all network messages containing chunk endorsements sent
+/// from a given chunk-validator account.
 pub fn chunk_endorsement_dropper(
     validator: AccountId,
 ) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {

@@ -11,7 +11,6 @@ use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -120,31 +119,28 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     }
     let (genesis, _) = genesis_builder.build();
 
-    let mut builder = builder
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .track_all_shards();
-    if !chunk_ranges_to_drop.is_empty() {
-        builder = builder
-            .drop_protocol_upgrade_chunks(base_protocol_version + 1, chunk_ranges_to_drop.clone());
-    }
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder.build();
+        .drop_protocol_upgrade_chunks(base_protocol_version + 1, chunk_ranges_to_drop.clone())
+        .track_all_shards()
+        .build();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
-    let latest_block_height = AtomicU64::new(0);
+    let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
         let tip = client.chain.head().unwrap();
 
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        if latest_block_height.load(Ordering::SeqCst) < tip.height {
-            if latest_block_height.load(Ordering::SeqCst) == 0 {
+        if latest_block_height.get() < tip.height {
+            if latest_block_height.get() == 0 {
                 println!("State before resharding:");
                 print_and_assert_shard_accounts(client);
             }
-            latest_block_height.store(tip.height, Ordering::SeqCst);
+            latest_block_height.set(tip.height);
             println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
             if chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
