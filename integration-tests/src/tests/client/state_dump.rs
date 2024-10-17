@@ -16,7 +16,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{new_shard_id_tmp, BlockHeight};
+use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};

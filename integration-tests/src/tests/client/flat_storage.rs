@@ -11,7 +11,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{new_shard_id_tmp, shard_id_as_u64, AccountId};
+use near_primitives::types::{shard_id_as_u64, AccountId};
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{

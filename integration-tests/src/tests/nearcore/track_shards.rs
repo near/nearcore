@@ -8,7 +8,6 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::new_shard_id_tmp;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
 

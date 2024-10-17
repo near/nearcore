@@ -612,7 +612,7 @@ mod trie_cache_tests {
     use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::{new_shard_id_tmp, shard_id_as_u32, ShardId};
+    use near_primitives::types::{shard_id_as_u32, ShardId};
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());

@@ -15,7 +15,7 @@ use near_primitives::sharding::{
     ShardChunkHeader,
 };
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{new_shard_id_tmp, MerkleHash};
+use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::chunk_store::ChunkStoreAdapter;

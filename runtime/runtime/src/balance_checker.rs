@@ -400,7 +400,7 @@ mod tests {
     };
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::types::{new_shard_id_tmp, MerkleHash, StateChangeCause};
+    use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set, set_account, Trie};
     use testlib::runtime_utils::{alice_account, bob_account};

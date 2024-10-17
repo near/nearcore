@@ -226,7 +226,6 @@ mod tests {
             PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderInnerV3,
             ShardChunkHeaderV3,
         },
-        types::new_shard_id_tmp,
         validator_signer::EmptyValidatorSigner,
     };
     use std::{collections::HashMap, convert::Infallible, future::Future};

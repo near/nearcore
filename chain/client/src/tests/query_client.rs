@@ -20,7 +20,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{new_shard_id_tmp, BlockId, BlockReference, EpochId};
+use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;

@@ -6,7 +6,7 @@ use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::types::{new_shard_id_tmp, ShardId, ShardIndex, StateRoot};
+use near_primitives::types::{ShardId, ShardIndex, StateRoot};
 use near_store::Mode;
 use nearcore::{get_default_home, load_config, NightshadeRuntime, NightshadeRuntimeExt};
 use std::time::{Duration, Instant};

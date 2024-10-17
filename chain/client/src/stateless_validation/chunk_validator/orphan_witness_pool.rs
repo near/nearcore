@@ -180,7 +180,7 @@ mod tests {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-    use near_primitives::types::{new_shard_id_tmp, shard_id_max, BlockHeight, ShardId};
+    use near_primitives::types::{shard_id_max, BlockHeight, ShardId};
 
     use super::OrphanStateWitnessPool;
 

@@ -3,7 +3,6 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::new_shard_id_tmp;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{trie_key::TrieKey, types::AccountId};
 use near_store::{ShardUId, TrieAccess, TrieUpdate};
