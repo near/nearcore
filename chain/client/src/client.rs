@@ -45,7 +45,7 @@ use near_chunks::logic::{
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
-use near_client_primitives::types::{Error, ShardSyncStatus, StateSyncStatus};
+use near_client_primitives::types::{Error, StateSyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::ProcessTxResponse;
@@ -64,9 +64,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardInfo,
+    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -2492,10 +2491,6 @@ impl Client {
 
         for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-            // I *think* this is not relevant anymore, since we download
-            // already the next epoch's state.
-            // let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, &me)?;
-            let shards_to_split = HashMap::new();
             let state_sync_timeout = self.config.state_sync_timeout;
             let block_header = self.chain.get_block(&sync_hash)?.header().clone();
             let epoch_id = block_header.epoch_id();
@@ -2520,7 +2515,7 @@ impl Client {
                         ),
                         StateSyncStatus {
                             sync_hash,
-                            sync_status: shards_to_split.clone(),
+                            sync_status: HashMap::new(),
                             download_tasks: Vec::new(),
                             computation_tasks: Vec::new(),
                         },
@@ -2529,7 +2524,7 @@ impl Client {
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?shards_to_split, "Catchup");
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?status.sync_status, "Catchup");
 
             let tracking_shards: Vec<ShardId> =
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
@@ -2586,54 +2581,6 @@ impl Client {
         }
 
         Ok(())
-    }
-
-    /// This method checks which of the shards requested for state sync are already present.
-    /// Any shard that is currently tracked needs not to be downloaded again.
-    ///
-    /// The hidden logic here is that shards that are marked for state sync but
-    /// are currently tracked are actually marked for splitting. Please see the
-    /// comment on [`Chain::get_shards_to_state_sync`] for further explanation.
-    ///
-    /// Returns a map from the shard_id to ShardSyncDownload only for those
-    /// shards that need to be split.
-    #[allow(unused)]
-    fn get_shards_to_split(
-        &mut self,
-        sync_hash: CryptoHash,
-        state_sync_info: &StateSyncInfo,
-        me: &Option<AccountId>,
-    ) -> Result<HashMap<ShardId, ShardSyncStatus>, Error> {
-        let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
-        let need_to_reshard = self.epoch_manager.will_shard_layout_change(&prev_hash)?;
-
-        if !need_to_reshard {
-            debug!(target: "catchup", "do not need to reshard");
-            return Ok(HashMap::new());
-        }
-
-        // If the client already has the state for this epoch, skip the downloading phase
-        let shards_to_split = state_sync_info
-            .shards
-            .iter()
-            .filter_map(|ShardInfo(shard_id, _)| self.should_split_shard(*shard_id, me, prev_hash))
-            .collect();
-        Ok(shards_to_split)
-    }
-
-    /// Shard should be split if state sync was requested for it but we already
-    /// track it.
-    fn should_split_shard(
-        &mut self,
-        shard_id: ShardId,
-        me: &Option<AccountId>,
-        prev_hash: CryptoHash,
-    ) -> Option<(ShardId, ShardSyncStatus)> {
-        if self.shard_tracker.care_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
-            Some((shard_id, ShardSyncStatus::ReshardingScheduling))
-        } else {
-            None
-        }
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
