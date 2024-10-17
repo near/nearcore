@@ -87,7 +87,7 @@ pub(crate) struct TestLoopBuilder {
     track_all_shards: bool,
 }
 
-// Checks whether chunk is validated by the given account.
+/// Checks whether chunk is validated by the given account.
 fn is_chunk_validated_by(
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     chunk: ShardChunkHeader,

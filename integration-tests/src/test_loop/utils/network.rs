@@ -12,7 +12,7 @@ type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool>;
 pub fn partial_encoded_chunks_dropper(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    drop_chunks_condition: DropChunkCondition,
+    drop_chunk_condition: DropChunkCondition,
 ) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
     Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
@@ -57,7 +57,7 @@ pub fn partial_encoded_chunks_dropper(
             return Some(request);
         };
 
-        if drop_chunks_condition(chunk) {
+        if drop_chunk_condition(chunk) {
             return None;
         }
 
