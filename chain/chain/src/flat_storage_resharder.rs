@@ -206,14 +206,14 @@ impl FlatStorageResharder {
 
     /// Cleans up children shards flat storage's content (status is excluded).
     #[tracing::instrument(
-        level = "debug",
+        level = "info",
         target = "resharding",
         "FlatStorageResharder::clean_children_shards",
         skip_all
     )]
     fn clean_children_shards(&self, status: &SplittingParentStatus) -> Result<(), Error> {
         let SplittingParentStatus { left_child_shard, right_child_shard, .. } = status;
-        debug!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
+        info!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
         let mut store_update = self.runtime.store().flat_store().store_update();
         for child in [left_child_shard, right_child_shard] {
             store_update.remove_all_deltas(*child);
