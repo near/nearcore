@@ -295,7 +295,7 @@ impl FlatStorageResharder {
             while processed_size < batch_size && !iter_exhausted {
                 match iter.next() {
                     Some(Ok((key, value))) => {
-                        processed_size += key.len() + value.value_len();
+                        processed_size += key.len() + value.size();
                         if let Err(err) =
                             shard_split_handle_key_value(key, value, &mut store_update, &status)
                         {
