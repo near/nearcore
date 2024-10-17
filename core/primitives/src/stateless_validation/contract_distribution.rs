@@ -190,8 +190,7 @@ pub struct ContractCodeResponseInner {
 
 impl ContractCodeResponseInner {
     fn new(contracts: &Vec<CodeBytes>) -> Self {
-        let (compressed_contracts, _size) =
-            CompressedContractCode::encode(&contracts).unwrap();
+        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts).unwrap();
         Self {
             compressed_contracts,
             signature_differentiator: "ContractCodeResponseInner".to_owned(),

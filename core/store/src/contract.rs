@@ -75,6 +75,10 @@ impl ContractStorage {
     /// Destructs the ContractStorage and returns the list of storage reads.
     pub(crate) fn finalize(self) -> ContractStorageResult {
         let mut guard = self.storage_reads.lock().expect("no panics");
-        ContractStorageResult { contract_accesses: guard.take().unwrap().into_iter().collect() }
+        // TODO(#11099): Change `replace` to `take` after investigating why `get` is called after the TrieUpdate
+        // is finalizing in the yield-resume tests.
+        ContractStorageResult {
+            contract_accesses: guard.replace(HashSet::new()).unwrap().into_iter().collect(),
+        }
     }
 }
