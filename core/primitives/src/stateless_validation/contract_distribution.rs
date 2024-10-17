@@ -1,15 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
-use near_primitives_core::{
-    hash::CryptoHash,
-    types::{BlockHeight, ShardId},
-};
+use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
 
-use crate::{
-    types::EpochId, utils::compression::CompressedData, validator_signer::ValidatorSigner,
-};
+use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 
 use super::{ChunkProductionKey, SignatureDifferentiator};
 
@@ -36,9 +31,9 @@ impl ChunkContractAccesses {
         }
     }
 
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
-            Self::V1(accesses) => accesses.inner.next_chunk.clone().into(),
+            Self::V1(accesses) => &accesses.inner.next_chunk,
         }
     }
 }
@@ -62,30 +57,6 @@ impl ChunkContractAccessesV1 {
     }
 }
 
-/// Identifies a chunk by the epoch, block, and shard in which it was produced.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-struct ChunkMetadata {
-    epoch_id: EpochId,
-    height_created: BlockHeight,
-    shard_id: ShardId,
-}
-
-impl Into<ChunkProductionKey> for ChunkMetadata {
-    fn into(self) -> ChunkProductionKey {
-        ChunkProductionKey {
-            epoch_id: self.epoch_id,
-            height_created: self.height_created,
-            shard_id: self.shard_id,
-        }
-    }
-}
-
-impl From<ChunkProductionKey> for ChunkMetadata {
-    fn from(key: ChunkProductionKey) -> Self {
-        Self { epoch_id: key.epoch_id, height_created: key.height_created, shard_id: key.shard_id }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkContractAccessesInner {
     /// Production metadata of the chunk created after the chunk the accesses belong to.
@@ -93,7 +64,7 @@ pub struct ChunkContractAccessesInner {
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
     // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
-    next_chunk: ChunkMetadata,
+    next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
@@ -102,7 +73,7 @@ pub struct ChunkContractAccessesInner {
 impl ChunkContractAccessesInner {
     fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
         Self {
-            next_chunk: next_chunk.into(),
+            next_chunk,
             contracts,
             signature_differentiator: "ChunkContractAccessesInner".to_owned(),
         }
@@ -133,9 +104,9 @@ impl ContractCodeRequest {
         }
     }
 
-    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
-            Self::V1(request) => request.inner.next_chunk.clone().into(),
+            Self::V1(request) => &request.inner.next_chunk,
         }
     }
 }
@@ -166,7 +137,7 @@ pub struct ContractCodeRequestInner {
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
     // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
-    next_chunk: ChunkMetadata,
+    next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
     signature_differentiator: SignatureDifferentiator,
@@ -175,7 +146,7 @@ pub struct ContractCodeRequestInner {
 impl ContractCodeRequestInner {
     fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
         Self {
-            next_chunk: next_chunk.into(),
+            next_chunk,
             contracts,
             signature_differentiator: "ContractCodeRequestInner".to_owned(),
         }
@@ -214,19 +185,14 @@ impl ContractCodeResponseV1 {
 pub struct ContractCodeResponseInner {
     /// Code for the contracts.
     compressed_contracts: CompressedContractCode,
-    /// Total size (in number of bytes) of the "uncompressed" form of contracts.
-    /// Used to limit the output while uncompressing it.
-    total_size: usize,
     signature_differentiator: SignatureDifferentiator,
 }
 
 impl ContractCodeResponseInner {
     fn new(contracts: &Vec<CodeBytes>) -> Self {
-        let (compressed_contracts, total_size) =
-            CompressedContractCode::encode(&contracts).unwrap();
+        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts).unwrap();
         Self {
             compressed_contracts,
-            total_size,
             signature_differentiator: "ContractCodeResponseInner".to_owned(),
         }
     }

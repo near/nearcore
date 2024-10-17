@@ -24,7 +24,9 @@ use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
@@ -2014,19 +2016,17 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
-        _contract_accesses: Vec<CodeHash>,
-        _contract_deploys: Vec<CodeHash>,
+        contract_accesses: Vec<CodeHash>,
+        contract_deploys: Vec<CodeHash>,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
-                    #[cfg(feature = "contract_distribution")]
-                    contract_accesses: _contract_accesses,
-                    #[cfg(feature = "contract_distribution")]
-                    contract_deploys: vec![],
+                    contract_accesses,
+                    contract_deploys,
                 },
             );
         }

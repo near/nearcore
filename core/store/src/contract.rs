@@ -59,16 +59,17 @@ impl ContractStorage {
             }
         }
 
-        if cfg!(feature = "contract_distribution") {
-            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            let accesses = guard.as_mut().expect("must not be called after finalized");
-            accesses.insert(CodeHash(code_hash));
-        }
-
-        match self.storage.retrieve_raw_bytes(&code_hash) {
+        let contract_code = match self.storage.retrieve_raw_bytes(&code_hash) {
             Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
             Err(_) => None,
+        };
+
+        if contract_code.is_some() {
+            let mut guard = self.storage_reads.lock().expect("no panics");
+            guard.as_mut().expect("must not be called after finalize").insert(CodeHash(code_hash));
         }
+
+        contract_code
     }
 
     pub fn store(&self, code: ContractCode) {
@@ -92,16 +93,11 @@ impl ContractStorage {
     /// Destructs the ContractStorage and returns the list of contract deployments and accesses.
     /// This serves as the commit operation, so there is no other explicit commit method.
     pub(crate) fn finalize(self) -> ContractStorageResult {
-        let contract_deploys = {
-            let mut guard = self.uncommitted_deploys.write().expect("no panics");
-            guard.take().expect("must not be finalized before").into_keys().collect()
-        };
-        let contract_accesses = if cfg!(feature = "contract_distribution") {
-            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            guard.take().expect("must not be finalized before").into_iter().collect()
-        } else {
-            vec![]
-        };
-        ContractStorageResult { contract_deploys, contract_accesses }
+        let mut guard = self.storage_reads.lock().expect("no panics");
+        // TODO(#11099): Change `replace` to `take` after investigating why `get` is called after the TrieUpdate
+        // is finalizing in the yield-resume tests.
+        ContractStorageResult {
+            contract_accesses: guard.replace(HashSet::new()).unwrap().into_iter().collect(),
+        }
     }
 }
