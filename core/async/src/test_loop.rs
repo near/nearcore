@@ -434,6 +434,9 @@ impl Drop for TestLoopV2 {
     fn drop(&mut self) {
         self.queue_received_events();
         if let Some(event) = self.events.pop() {
+            // Drop any references that may be held by the event callbacks. This can help
+            // with destruction of the data.
+            self.events.clear();
             panic!(
                 "Event scheduled at {} is not handled at the end of the test: {}.
                  Consider calling `test.shutdown_and_drain_remaining_events(...)`.",

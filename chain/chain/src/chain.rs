@@ -1,5 +1,6 @@
 use crate::block_processing_utils::{
-    ApplyChunksDoneTracker, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
+    ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
+    BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
@@ -46,7 +47,6 @@ use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
@@ -294,8 +294,9 @@ type UpdateShardJob =
     (ShardId, Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>);
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
-/// to update shards, the second element is BlockPreprocessInfo
-type PreprocessBlockResult = (Vec<UpdateShardJob>, BlockPreprocessInfo);
+/// to update shards, the second element is BlockPreprocessInfo, and the third element shall be
+/// dropped when the chunks finish applying.
+type PreprocessBlockResult = (Vec<UpdateShardJob>, BlockPreprocessInfo, ApplyChunksStillApplying);
 
 // Used only for verify_block_hash_and_signature. See that method.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1820,7 +1821,7 @@ impl Chain {
                 return Err(e);
             }
         };
-        let (apply_chunk_work, block_preprocess_info) = preprocess_res;
+        let (apply_chunk_work, block_preprocess_info, apply_chunks_still_applying) = preprocess_res;
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
@@ -1835,7 +1836,6 @@ impl Chain {
         let block = block.into_inner();
         let block_hash = *block.hash();
         let block_height = block.header().height();
-        let apply_chunks_done_tracker = block_preprocess_info.apply_chunks_done_tracker.clone();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 3) schedule apply chunks, which will be executed in the rayon thread pool.
@@ -1843,7 +1843,7 @@ impl Chain {
             block_hash,
             block_height,
             apply_chunk_work,
-            apply_chunks_done_tracker,
+            apply_chunks_still_applying,
             apply_chunks_done_sender,
         );
 
@@ -1858,7 +1858,7 @@ impl Chain {
         block_hash: CryptoHash,
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
-        mut apply_chunks_done_tracker: ApplyChunksDoneTracker,
+        apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
@@ -1868,10 +1868,7 @@ impl Chain {
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             sc.send((block_hash, res)).unwrap();
-            if let Err(_) = apply_chunks_done_tracker.set_done() {
-                // This should never happen, if it does, it means there is a bug in our code.
-                log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
-            }
+            drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
                 sender.send(ApplyChunksDoneMessage {});
             }
@@ -2296,6 +2293,8 @@ impl Chain {
             invalid_chunks,
         )?;
 
+        let (apply_chunks_done_waiter, apply_chunks_still_applying) = ApplyChunksDoneWaiter::new();
+
         Ok((
             apply_chunk_work,
             BlockPreprocessInfo {
@@ -2305,9 +2304,10 @@ impl Chain {
                 challenges_result,
                 challenged_blocks,
                 provenance: provenance.clone(),
-                apply_chunks_done_tracker: ApplyChunksDoneTracker::new(),
+                apply_chunks_done_waiter,
                 block_start_processing_time: block_received_time,
             },
+            apply_chunks_still_applying,
         ))
     }
 

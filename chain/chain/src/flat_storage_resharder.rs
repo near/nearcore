@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use near_chain_configs::ReshardingHandle;
 use near_chain_primitives::Error;
 
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use crate::resharding::types::FlatStorageSplitShardRequest;
@@ -204,9 +204,15 @@ impl FlatStorageResharder {
     }
 
     /// Cleans up children shards flat storage's content (status is excluded).
+    #[tracing::instrument(
+        level = "info",
+        target = "resharding",
+        "FlatStorageResharder::clean_children_shards",
+        skip_all
+    )]
     fn clean_children_shards(&self, status: &SplittingParentStatus) -> Result<(), Error> {
         let SplittingParentStatus { left_child_shard, right_child_shard, .. } = status;
-        debug!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
+        info!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
         let mut store_update = self.runtime.store().flat_store().store_update();
         for child in [left_child_shard, right_child_shard] {
             store_update.remove_all_deltas(*child);
@@ -263,8 +269,14 @@ impl FlatStorageResharder {
         // Prepare the store object for commits and the iterator over parent's flat storage.
         let flat_store = self.runtime.store().flat_store();
         let mut iter = flat_store.iter(parent_shard);
+        let mut batches_done = 0;
 
         loop {
+            let _span = tracing::debug_span!(
+                target: "resharding",
+                "split_shard_task_impl/batch",
+                batch_id = ?batches_done)
+            .entered();
             let mut store_update = flat_store.store_update();
 
             // Process a `BATCH_SIZE` worth of key value pairs.
@@ -295,7 +307,7 @@ impl FlatStorageResharder {
                 return FlatStorageReshardingTaskStatus::Failed;
             }
 
-            // TODO(Trisfald): metrics and logs
+            batches_done += 1;
 
             // If `iter`` is exhausted we can exit after the store commit.
             if iter_exhausted {
@@ -310,6 +322,12 @@ impl FlatStorageResharder {
 
     /// Performs post-processing of shard splitting after all key-values have been moved from parent to
     /// children. `success` indicates whether or not the previous phase was successful.
+    #[tracing::instrument(
+        level = "info",
+        target = "resharding",
+        "FlatStorageResharder::split_shard_task_postprocessing",
+        skip_all
+    )]
     fn split_shard_task_postprocessing(&self, task_status: FlatStorageReshardingTaskStatus) {
         let (parent_shard, split_status) = self
             .get_parent_shard_and_status()
