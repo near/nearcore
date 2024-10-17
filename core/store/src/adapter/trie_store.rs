@@ -11,8 +11,8 @@ use crate::{DBCol, KeyForStateChanges, Store, StoreUpdate, TrieChanges, STATE_SN
 
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 
-/// Accesses to State column should use mapped ShardUId (either itself or ancestor in the resharding tree),
-/// according to State mapping strategy introduced in Resharding V3.
+/// Accesses to the State column should use the mapped ShardUId (either itself or ancestor in the resharding tree),
+/// according to the State mapping strategy introduced in Resharding V3.
 pub struct MappedShardUId(ShardUId);
 
 #[derive(Clone)]
