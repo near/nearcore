@@ -22,8 +22,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime as Utc};
 use tracing::debug_span;
-use yansi::Color::Magenta;
-use yansi::Style;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -194,55 +192,6 @@ impl ShardSyncDownload {
             return None;
         }
         self.downloads.get_mut(0)
-    }
-}
-
-pub fn format_shard_sync_phase_per_shard(
-    new_shard_sync: &HashMap<ShardId, ShardSyncDownload>,
-    use_colour: bool,
-) -> Vec<(ShardId, String)> {
-    new_shard_sync
-        .iter()
-        .map(|(&shard_id, shard_progress)| {
-            (shard_id, format_shard_sync_phase(shard_progress, use_colour))
-        })
-        .collect::<Vec<(_, _)>>()
-}
-
-/// Applies style if `use_colour` is enabled.
-fn paint(s: &str, style: Style, use_style: bool) -> String {
-    if use_style {
-        style.paint(s).to_string()
-    } else {
-        s.to_string()
-    }
-}
-
-/// Formats the given ShardSyncDownload for logging.
-pub fn format_shard_sync_phase(
-    shard_sync_download: &ShardSyncDownload,
-    use_colour: bool,
-) -> String {
-    match &shard_sync_download.status {
-        ShardSyncStatus::StateDownloadHeader => format!(
-            "{} requests sent {}, last target {:?}",
-            paint("HEADER", Magenta.style().bold(), use_colour),
-            shard_sync_download.downloads.get(0).map_or(0, |x| x.state_requests_count),
-            shard_sync_download.downloads.get(0).map_or(None, |x| x.last_target.as_ref()),
-        ),
-        ShardSyncStatus::StateDownloadParts => {
-            let mut num_parts_done = 0;
-            let mut num_parts_not_done = 0;
-            for download in shard_sync_download.downloads.iter() {
-                if download.done {
-                    num_parts_done += 1;
-                } else {
-                    num_parts_not_done += 1;
-                }
-            }
-            format!("num_parts_done={num_parts_done} num_parts_not_done={num_parts_not_done}")
-        }
-        status => format!("{status:?}"),
     }
 }
 

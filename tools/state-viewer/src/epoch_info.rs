@@ -295,7 +295,8 @@ fn display_validator_info(
         for (block_height, shard_id) in cp_for_chunks {
             if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
                 let block = chain_store.get_block(&block_hash).unwrap();
-                if block.chunks()[shard_id as usize].height_included() != block_height {
+                let shard_index = shard_layout.get_shard_index(shard_id);
+                if block.chunks()[shard_index].height_included() != block_height {
                     missing_chunks.push((block_height, shard_id));
                 }
             } else {

@@ -120,7 +120,6 @@ impl BootstrapCmd {
         shard_id: ShardId,
         state_root: StateRoot,
     ) {
-        let shard_id = shard_id as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
         let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
         let runtime_config = protocol_config.runtime_config;
@@ -161,10 +160,11 @@ impl PrepareBenchmarkCmd {
 
         let prev_hash = block_header.prev_hash();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
-        for (shard_id, &state_root) in state_roots.iter().enumerate() {
+        for (shard_index, &state_root) in state_roots.iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             println!("old - {:?} - {:?}", shard_id, state_root);
-            let shard_id = shard_id as u64;
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
 
             let tries = runtime.get_tries();

@@ -10,6 +10,7 @@ use crate::missing_chunks::MissingChunksPool;
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
+use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
@@ -39,6 +40,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -361,7 +363,9 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
+            runtime_adapter.clone(),
             MutableConfigValue::new(Default::default(), "resharding_config"),
+            noop().into_multi_sender(),
         );
         Ok(Chain {
             clock: clock.clone(),
@@ -401,6 +405,7 @@ impl Chain {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
+        resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -537,7 +542,9 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             chain_store.store().clone(),
             epoch_manager.clone(),
+            runtime_adapter.clone(),
             chain_config.resharding_config,
+            resharding_sender,
         );
         Ok(Chain {
             clock: clock.clone(),
@@ -1815,6 +1822,11 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
+        if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
+            self.clear_all_downloaded_parts()?;
+        }
+
         // 2) Start creating snapshot if needed.
         if let Err(err) = self.process_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
@@ -3014,6 +3026,16 @@ impl Chain {
         let mut chain_store_update = self.mut_chain_store().store_update();
         chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
         chain_store_update.commit()
+    }
+
+    /// Drop all downloaded or generated state parts and headers.
+    pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
+        tracing::debug!(target: "state_sync", "Clear old state parts");
+        let mut store_update = self.chain_store.store().store_update();
+        store_update.delete_all(DBCol::StateParts);
+        store_update.delete_all(DBCol::StateHeaders);
+        store_update.commit()?;
+        Ok(())
     }
 
     pub fn catchup_blocks_step(

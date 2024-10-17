@@ -1,4 +1,5 @@
 use crate::client_actor::ClientActorInner;
+use crate::metrics;
 use borsh::BorshDeserialize;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
@@ -28,7 +29,7 @@ use near_store::{DBCol, Store, FINAL_HEAD_KEY};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::instrument;
 
 pub struct EpochSync {
@@ -37,6 +38,9 @@ pub struct EpochSync {
     genesis: BlockHeader,
     async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     config: EpochSyncConfig,
+    /// The last epoch sync proof and the epoch ID it was computed for.
+    /// We reuse the same proof as long as the current epoch ID is the same.
+    last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
 }
 
 impl EpochSync {
@@ -47,13 +51,23 @@ impl EpochSync {
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
     ) -> Self {
-        Self { clock, network_adapter, genesis, async_computation_spawner, config }
+        Self {
+            clock,
+            network_adapter,
+            genesis,
+            async_computation_spawner,
+            config,
+            last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
+        }
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
     /// a new node or bring a far-behind node to a recent epoch.
-    #[instrument(skip(store))]
-    pub fn derive_epoch_sync_proof(store: Store) -> Result<EpochSyncProof, Error> {
+    #[instrument(skip(store, cache))]
+    pub fn derive_epoch_sync_proof(
+        store: Store,
+        cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
+    ) -> Result<CompressedEpochSyncProof, Error> {
         // Epoch sync initializes a new node with the first block of some epoch; we call that
         // epoch the "target epoch". In the context of talking about the proof or the newly
         // bootstrapped node, it is also called the "current epoch".
@@ -85,7 +99,27 @@ impl EpochSync {
                 Error::Other("Could not find second last block of target epoch".to_string())
             })?;
 
-        Self::derive_epoch_sync_proof_from_final_block(store, target_epoch_second_last_block_header)
+        let mut guard = cache.lock().unwrap();
+        if let Some((epoch_id, proof)) = &*guard {
+            if epoch_id == target_epoch_last_block_header.epoch_id() {
+                return Ok(proof.clone());
+            }
+        }
+        // We're purposefully not releasing the lock here. This is so that if the cache
+        // is out of date, only one thread should be doing the computation.
+        let proof = Self::derive_epoch_sync_proof_from_final_block(
+            store,
+            target_epoch_second_last_block_header,
+        );
+        let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
+            Ok(proof) => proof,
+            Err(err) => {
+                return Err(Error::Other(format!("Failed to compress epoch sync proof: {:?}", err)))
+            }
+        };
+        metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(proof.size_bytes() as i64);
+        *guard = Some((*target_epoch_last_block_header.epoch_id(), proof.clone()));
+        Ok(proof)
     }
 
     /// Derives an epoch sync proof using a target epoch which the given block header is in.
@@ -527,25 +561,19 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
         let store = self.client.chain.chain_store.store().clone();
         let network_adapter = self.client.network_adapter.clone();
         let route_back = msg.route_back;
+        let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
         self.client.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
             move || {
-                let proof = match EpochSync::derive_epoch_sync_proof(store) {
+                let proof = match EpochSync::derive_epoch_sync_proof(store, cache) {
                     Ok(epoch_sync_proof) => epoch_sync_proof,
                     Err(err) => {
                         tracing::error!(?err, "Failed to derive epoch sync proof");
                         return;
                     }
                 };
-                let (compressed_proof, _) = match CompressedEpochSyncProof::encode(&proof) {
-                    Ok(compressed_proof) => compressed_proof,
-                    Err(err) => {
-                        tracing::error!(?err, "Failed to compress epoch sync proof");
-                        return;
-                    }
-                };
                 network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::EpochSyncResponse { route_back, proof: compressed_proof },
+                    NetworkRequests::EpochSyncResponse { route_back, proof },
                 ));
             },
         )
