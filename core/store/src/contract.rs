@@ -65,22 +65,16 @@ impl ContractStorage {
             }
         }
 
-        let contract_code = match self.storage.retrieve_raw_bytes(&code_hash) {
+        match self.storage.retrieve_raw_bytes(&code_hash) {
             Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
             Err(_) => None,
-        };
-
-        if contract_code.is_some() {
-            let mut guard = self.storage_reads.lock().expect("no panics");
-            guard.as_mut().expect("must not be called after finalize").insert(CodeHash(code_hash));
         }
-
-        contract_code
     }
 
     /// Records a call to a contract by code-hash.
     ///
     /// This is used to capture the contracts that are called when applying a chunk.
+    /// Calling `rollback` clears this recording.
     pub fn record_call(&self, code_hash: CryptoHash) {
         let mut guard = self.uncommitted_accesses.lock().expect("no panics");
         guard.as_mut().expect("must not be called after finalize").insert(code_hash.into());
@@ -89,6 +83,7 @@ impl ContractStorage {
     /// Stores the contract code as an uncommitted deploy.
     ///
     /// Subsequent calls to `get` will return the code that was stored here.
+    /// Calling `rollback` clears this uncommitted deploy.
     pub fn store(&self, code: ContractCode) {
         let mut guard = self.uncommitted_deploys.write().expect("no panics");
         let deploys = guard.as_mut().expect("must not be called after finalized");
@@ -120,15 +115,5 @@ impl ContractStorage {
             guard.take().unwrap().into_keys().collect()
         };
         ContractStorageResult { contract_deploys, contract_accesses }
-    }
-
-    /// Destructs the ContractStorage and returns the list of storage reads.
-    pub(crate) fn finalize(self) -> ContractStorageResult {
-        let mut guard = self.storage_reads.lock().expect("no panics");
-        // TODO(#11099): Change `replace` to `take` after investigating why `get` is called after the TrieUpdate
-        // is finalizing in the yield-resume tests.
-        ContractStorageResult {
-            contract_accesses: guard.replace(HashSet::new()).unwrap().into_iter().collect(),
-        }
     }
 }

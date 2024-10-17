@@ -185,6 +185,10 @@ pub(crate) fn action_function_call(
         .into());
     }
 
+    // When the contract code is excluded from the witness, the Trie read for the contract code
+    // is not recorded and the code-size does not contribute to the storage-proof limit.
+    // Instead we just record that the code with the given hash was called, so that we can identify
+    // which contract-code to distribute to the validators.
     if ProtocolFeature::ExcludeContractCodeFromStateWitness
         .enabled(apply_state.current_protocol_version)
     {
