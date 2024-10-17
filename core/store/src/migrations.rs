@@ -385,6 +385,7 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
                 base_state,
                 receipts_hash,
                 contract_accesses: vec![],
+                contract_deploys: vec![],
             }))?;
         update.set(DBCol::StateTransitionData, &key, &new_value);
     }

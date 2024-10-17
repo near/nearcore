@@ -25,4 +25,6 @@ pub struct StoredChunkStateTransitionDataV1 {
     pub receipts_hash: CryptoHash,
     /// The code-hashes of the contracts that are accessed (called) during the state transition.
     pub contract_accesses: Vec<CodeHash>,
+    /// The code-hashes of the contracts that are deployed during the state transition.
+    pub contract_deploys: Vec<CodeHash>,
 }
