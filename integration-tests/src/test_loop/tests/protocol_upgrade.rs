@@ -83,7 +83,7 @@ fn test_protocol_upgrade(
         .transaction_validity_period(1000)
         .epoch_length(epoch_length)
         .validators_desired_roles(&producers, &validators)
-        .shuffle_shard_assignment_for_chunk_producers(false); // TODO(remove?)
+        .shuffle_shard_assignment_for_chunk_producers(false);
     for account in accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
