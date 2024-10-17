@@ -82,6 +82,7 @@ fn dump_state_changes(
         let block_header = chain_store.get_block_header_by_height(block_height).unwrap();
         let block_hash = block_header.hash();
         let epoch_id = block_header.epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
         let key = KeyForStateChanges::for_block(block_header.hash());
         let mut state_changes_per_shard: Vec<_> =
             epoch_manager.shard_ids(epoch_id).unwrap().into_iter().map(|_| vec![]).collect();
@@ -89,16 +90,18 @@ fn dump_state_changes(
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
             let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
-            state_changes_per_shard[shard_id as usize].push(value);
+            let shard_index = shard_layout.get_shard_index(shard_id);
+            state_changes_per_shard[shard_index].push(value);
         }
 
         tracing::info!(target: "state-changes", block_height = block_header.height(), num_state_changes_per_shard = ?state_changes_per_shard.iter().map(|v|v.len()).collect::<Vec<usize>>());
-        let state_changes : Vec<StateChangesForShard> = state_changes_per_shard.into_iter().enumerate().filter_map(|(shard_id,state_changes)|{
+        let state_changes : Vec<StateChangesForShard> = state_changes_per_shard.into_iter().enumerate().filter_map(|(shard_index,state_changes)|{
             if state_changes.is_empty() {
                 // Skip serializing state changes for a shard if no state changes were found for this shard in this block.
                 None
             } else {
-                Some(StateChangesForShard{shard_id:shard_id as ShardId, state_changes})
+                let shard_id = shard_layout.get_shard_id(shard_index);
+                Some(StateChangesForShard{shard_id, state_changes})
             }
         }).collect();
 
@@ -157,6 +160,7 @@ fn apply_state_changes(
         let block_height = block_header.height();
         let epoch_id = block_header.epoch_id();
         let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+        let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
 
         for StateChangesForShard { shard_id: state_change_shard_id, state_changes } in state_changes
         {
@@ -165,7 +169,7 @@ fn apply_state_changes(
             }
 
             if let Ok(block) = chain_store.get_block(block_hash) {
-                let known_state_root = block.chunks()[shard_id as usize].prev_state_root();
+                let known_state_root = block.chunks()[shard_index].prev_state_root();
                 assert_eq!(known_state_root, state_root);
                 tracing::debug!(target: "state-changes", block_height, ?state_root, "Known StateRoot matches");
             }
@@ -220,6 +224,6 @@ pub fn get_state_change_shard_id(
                 .map_err(|err| {
                     near_chain::near_chain_primitives::error::Error::Other(err.to_string())
                 })?;
-        Ok(shard_uid.shard_id as ShardId)
+        Ok(shard_uid.shard_id())
     }
 }

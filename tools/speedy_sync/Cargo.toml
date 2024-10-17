@@ -20,6 +20,7 @@ nearcore.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-epoch-manager.workspace = true
+near-async.workspace = true
 
 borsh.workspace = true
 serde.workspace = true

@@ -20,7 +20,7 @@ use near_primitives::transaction::{
     SignedTransaction, StakeAction, Transaction,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
+    new_shard_id_tmp, AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
@@ -2030,7 +2030,7 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
+                chunks: vec![MappedChunk { shard_id: new_shard_id_tmp(0), txs: Vec::new() }],
             };
 
             for h in next_heights {

@@ -20,7 +20,7 @@ use near_o11y::{
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
-use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_primitives::types::{new_shard_id_vec_tmp, Gas, NumSeats, NumShards, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -626,16 +626,18 @@ pub(super) struct LocalnetCmd {
 }
 
 impl LocalnetCmd {
-    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<u64> {
+    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<ShardId> {
         if tracked_shards.to_lowercase() == "all" {
-            return (0..num_shards).collect();
+            let tracked_shards = 0..num_shards;
+            let tracked_shards: Vec<_> = tracked_shards.collect();
+            return new_shard_id_vec_tmp(&tracked_shards);
         }
         if tracked_shards.to_lowercase() == "none" {
             return vec![];
         }
         tracked_shards
             .split(',')
-            .map(|shard_id| shard_id.parse::<u64>().expect("Shard id must be an integer"))
+            .map(|shard_id| shard_id.parse::<ShardId>().expect("Shard id must be an integer"))
             .collect()
     }
 

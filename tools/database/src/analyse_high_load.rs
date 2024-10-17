@@ -161,9 +161,9 @@ impl HighLoadStatsCommand {
         let mut tx_by_account = vec![0; 4];
         let mut receipts_by_account = vec![0; 4];
 
-        for chunk_header in block.chunks().iter() {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            // Note that this doesn't work if there are missing chunks and resharding.
             let shard_id = chunk_header.shard_id();
-
             // let mut gas_usage_in_shard = GasUsageInShard::new();
 
             let outcome_ids = store
@@ -188,11 +188,11 @@ impl HighLoadStatsCommand {
                     .outcome;
 
                 let (account_id, gas_used_by_tx) = (outcome.executor_id, outcome.gas_burnt);
-                gas_used[shard_id as usize] += gas_used_by_tx;
+                gas_used[shard_index] += gas_used_by_tx;
                 if account_id == target_account_id {
-                    gas_used_by_account[shard_id as usize] += gas_used_by_tx;
-                    tx_by_account[shard_id as usize] += 1;
-                    receipts_by_account[shard_id as usize] += outcome.receipt_ids.len();
+                    gas_used_by_account[shard_index] += gas_used_by_tx;
+                    tx_by_account[shard_index] += 1;
+                    receipts_by_account[shard_index] += outcome.receipt_ids.len();
                 }
             }
         }

@@ -27,6 +27,12 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+// TODO(wacban) rename to ShardInfo
+pub struct ShardUIdAndIndex {
+    pub shard_uid: ShardUId,
+    pub shard_index: ShardIndex,
+}
+
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
 /// prefer the former whenever possible. The latter is for legacy tests.
@@ -65,6 +71,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError>;
 
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_info(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUIdAndIndex, EpochError>;
+
     /// Converts `ShardId` (index of shard in the *current* layout) to
     /// `ShardUId` (`ShardId` + the version of shard layout itself.)
     fn shard_id_to_uid(
@@ -72,6 +85,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError>;
+
+    fn shard_id_to_index(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardIndex, EpochError>;
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
@@ -520,6 +539,19 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(account_id_to_shard_id(account_id, &shard_layout))
     }
 
+    fn account_id_to_shard_info(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUIdAndIndex, EpochError> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        Ok(ShardUIdAndIndex { shard_uid, shard_index })
+    }
+
     fn shard_id_to_uid(
         &self,
         shard_id: ShardId,
@@ -528,6 +560,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
+    }
+
+    fn shard_id_to_index(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardIndex, EpochError> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        Ok(shard_layout.get_shard_index(shard_id))
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
