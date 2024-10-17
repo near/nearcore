@@ -463,7 +463,7 @@ mod tests {
             let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
             set_initial_state(&mut trie_update);
             trie_update.commit(StateChangeCause::NotWritableToDisk);
-            let trie_changes = trie_update.finalize().unwrap().1;
+            let trie_changes = trie_update.finalize().unwrap().trie_changes;
             let mut store_update = tries.store_update();
             let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
             store_update.commit().unwrap();
