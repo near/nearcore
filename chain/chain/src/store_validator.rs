@@ -94,13 +94,12 @@ impl StoreValidator {
         store: Store,
         is_archival: bool,
     ) -> Self {
-        let epoch_sync_boundary = if let Ok(Some(epoch_sync_proof)) =
-            store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-        {
-            Some(epoch_sync_proof.current_epoch.first_block_header_in_epoch.height())
-        } else {
-            None
-        };
+        let epoch_sync_boundary = store
+            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
+            .expect("Store IO error when getting EpochSyncProof")
+            .map(|epoch_sync_proof| {
+                epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
+            });
         StoreValidator {
             me,
             config,
