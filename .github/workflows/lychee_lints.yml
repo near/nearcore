@@ -19,3 +19,4 @@ jobs:
       - uses: lycheeverse/lychee-action@2ac9f030ccdea0033e2510a23a67da2a2da98492
         with:
           fail: true
+          
