@@ -498,7 +498,9 @@ impl ShardChunkHeader {
                 // That is because the first chunk where this feature is
                 // enabled does not have the congestion info.
                 ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
-                ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+                ShardChunkHeaderInner::V3(_) => {
+                    version >= CONGESTION_CONTROL_VERSION && version < BANDWIDTH_SCHEDULER_VERSION
+                }
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
         }
