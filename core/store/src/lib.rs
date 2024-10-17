@@ -327,7 +327,7 @@ impl Store {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate { transaction: DBTransaction::new(), storage: Arc::clone(&self.storage) }
+        StoreUpdate { transaction: DBTransaction::new(), store: self.clone() }
     }
 
     pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
@@ -459,7 +459,7 @@ impl Store {
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
     transaction: DBTransaction,
-    storage: Arc<dyn Database>,
+    store: Store,
 }
 
 impl StoreUpdateAdapter for StoreUpdate {
@@ -618,7 +618,10 @@ impl StoreUpdate {
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        assert!(core::ptr::addr_eq(Arc::as_ptr(&self.storage), Arc::as_ptr(&other.storage)));
+        assert!(core::ptr::addr_eq(
+            Arc::as_ptr(&self.store.storage),
+            Arc::as_ptr(&other.store.storage)
+        ));
         self.transaction.merge(other.transaction)
     }
 
@@ -735,8 +738,7 @@ impl StoreUpdate {
                 }
             }
         }
-        // TODO(reshardingV3) Map shard_uid for ops referencing State column.
-        self.storage.write(self.transaction)
+        self.store.storage.write(self.transaction)
     }
 }
 
