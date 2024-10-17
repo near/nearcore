@@ -4034,6 +4034,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "time",
+ "tokio",
  "tracing",
 ]
 
