@@ -2,7 +2,7 @@ use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
-use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
+use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures, MaybeNew};
 pub use crate::block_header::*;
 use crate::challenge::Challenges;
 use crate::checked_feature;
@@ -621,6 +621,17 @@ impl Block {
         }
     }
 
+    pub fn chunks_v2(&self) -> ChunksCollection {
+        match self {
+            Block::BlockV1(block) => ChunksCollection::V1(
+                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
+            ),
+            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
+            Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
+            Block::BlockV4(block) => ChunksCollection::V3(&block.body.chunks()),
+        }
+    }
+
     #[inline]
     pub fn challenges(&self) -> &Challenges {
         match self {
@@ -750,6 +761,7 @@ pub enum ChunksCollection<'a> {
     V2(&'a [ShardChunkHeader]),
 }
 
+// Make generic for ShardChunkHeader and MaybeNew<ShardChunkHeader>
 pub struct VersionedChunksIter<'a> {
     chunks: &'a [ShardChunkHeader],
     curr_index: usize,
@@ -803,6 +815,13 @@ impl<'a> ChunksCollection<'a> {
     }
 
     pub fn iter(&'a self) -> VersionedChunksIter<'a> {
+        match self {
+            ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
+            ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
+        }
+    }
+
+    pub fn iter_v2(&'a self) -> VersionedChunksIter_v2<'a> {
         match self {
             ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
