@@ -11,6 +11,10 @@ use crate::{DBCol, KeyForStateChanges, Store, StoreUpdate, TrieChanges, STATE_SN
 
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 
+/// Accesses to State column should use mapped ShardUId (either itself or ancestor in the resharding tree),
+/// according to State mapping strategy introduced in Resharding V3.
+pub struct MappedShardUId(ShardUId);
+
 #[derive(Clone)]
 pub struct TrieStoreAdapter {
     store: Store,
@@ -31,23 +35,10 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
-    /// Reads shard_uid mapping for given shard.
-    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
-    pub(crate) fn read_shard_uid_mapping_from_db(
-        &self,
-        shard_uid: ShardUId,
-    ) -> Result<ShardUId, StorageError> {
-        let mapped_shard_uid =
-            self.store.get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes());
-        let mapped_shard_uid = mapped_shard_uid
-            .map_err(|err| StorageError::StorageInconsistentState(err.to_string()))?;
-        Ok(mapped_shard_uid.unwrap_or(shard_uid))
-    }
-
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
     /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let mapped_shard_uid = self.read_shard_uid_mapping_from_db(shard_uid)?;
+        let mapped_shard_uid = read_shard_uid_mapping_from_db(&self.store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         let val = self
             .store
@@ -100,16 +91,6 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
-    /// Reads shard_uid mapping for given shard.
-    /// If the mapping does not exist, it means that `shard_uid` maps to itself.
-    fn read_shard_uid_mapping_from_db(
-        &self,
-        shard_uid: ShardUId,
-    ) -> Result<ShardUId, StorageError> {
-        let store = TrieStoreAdapter::new(Store::new(self.store_update.storage.clone()));
-        store.read_shard_uid_mapping_from_db(shard_uid)
-    }
-
     pub fn decrement_refcount_by(
         &mut self,
         shard_uid: ShardUId,
@@ -117,14 +98,14 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         decrement: NonZero<u32>,
     ) {
         let mapped_shard_uid =
-            self.read_shard_uid_mapping_from_db(shard_uid).expect("decrement_refcount_by failed");
+            read_shard_uid_mapping_from_db(&self.store_update().store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
     }
 
     pub fn decrement_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash) {
         let mapped_shard_uid =
-            self.read_shard_uid_mapping_from_db(shard_uid).expect("decrement_refcount failed");
+            read_shard_uid_mapping_from_db(&self.store_update().store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount(DBCol::State, key.as_ref());
     }
@@ -137,7 +118,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         increment: NonZero<u32>,
     ) {
         let mapped_shard_uid =
-            self.read_shard_uid_mapping_from_db(shard_uid).expect("increment_refcount_by failed");
+            read_shard_uid_mapping_from_db(&self.store_update().store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
     }
@@ -188,9 +169,18 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     }
 }
 
-pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
+/// Reads shard_uid mapping for given shard.
+/// If the mapping does not exist, it means that `shard_uid` maps to itself
+pub fn read_shard_uid_mapping_from_db(store: &Store, shard_uid: ShardUId) -> MappedShardUId {
+    let mapped_shard_uid = store
+        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
+        .expect("read_shard_uid_mapping_from_db() failed");
+    MappedShardUId(mapped_shard_uid.unwrap_or(shard_uid))
+}
+
+pub fn get_key_from_shard_uid_and_hash(shard_uid: MappedShardUId, hash: &CryptoHash) -> [u8; 40] {
     let mut key = [0; 40];
-    key[0..8].copy_from_slice(&shard_uid.to_bytes());
+    key[0..8].copy_from_slice(&shard_uid.0.to_bytes());
     key[8..].copy_from_slice(hash.as_ref());
     key
 }
@@ -254,7 +244,7 @@ mod tests {
             store_update.increment_refcount_by(parent_shard, &dummy_hash, &[0], ONE);
             store_update.commit().unwrap();
         }
-        // The data is not visible by child shard, because the mapping has not been set yet.
+        // The data is not yet visible to child shard, because the mapping has not been set yet.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
             Err(StorageError::MissingTrieValue(_, _))
@@ -265,7 +255,7 @@ mod tests {
             store_update.set_shard_uid_mapping(child_shard, parent_shard);
             store_update.commit().unwrap();
         }
-        // The data is now visible at both `parent_shard` and `child_shard`.
+        // The data is now visible to both `parent_shard` and `child_shard`.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
         assert_eq!(*store.get(parent_shard, &dummy_hash).unwrap(), [0]);
         // Remove the data using `parent_shard` UId.
@@ -274,7 +264,7 @@ mod tests {
             store_update.decrement_refcount(parent_shard, &dummy_hash);
             store_update.commit().unwrap();
         }
-        // The data is now not visible at any shard.
+        // The data is now not visible to any shard.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
             Err(StorageError::MissingTrieValue(_, _))
@@ -289,8 +279,19 @@ mod tests {
             store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
             store_update.commit().unwrap();
         }
-        // The data is now visible at both shards again.
+        // The data is now visible to both shards again.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
         assert_eq!(*store.get(parent_shard, &dummy_hash).unwrap(), [0]);
+        // Remove the data using `child_shard` UId.
+        {
+            let mut store_update = store.store_update();
+            store_update.decrement_refcount_by(child_shard, &dummy_hash, ONE);
+            store_update.commit().unwrap();
+        }
+        // The data is not visible to any shard again.
+        assert_matches!(
+            store.get(child_shard, &dummy_hash),
+            Err(StorageError::MissingTrieValue(_, _))
+        );
     }
 }
