@@ -22,7 +22,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
@@ -254,7 +254,6 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-        let num_shards = all_shard_uids.len();
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
@@ -273,10 +272,10 @@ impl ForkNetworkCommand {
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
-        let state_roots: Vec<StateRoot> = (0..num_shards)
+        let state_roots: Vec<StateRoot> = shard_layout
+            .shard_ids()
             .map(|shard_id| {
-                let shard_uid =
-                    epoch_manager.shard_id_to_uid(shard_id as ShardId, epoch_id).unwrap();
+                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
@@ -332,10 +331,8 @@ impl ForkNetworkCommand {
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let num_shards = prev_state_roots.len();
-        let all_shard_uids: Vec<ShardUId> = (0..num_shards)
-            .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
-            .collect();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let all_shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;

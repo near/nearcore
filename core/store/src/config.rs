@@ -152,16 +152,6 @@ impl Mode {
     pub const fn must_create(self) -> bool {
         matches!(self, Mode::Create)
     }
-
-    /// Returns variant of the mode which prohibits creation of the database or
-    /// `None` if the mode requires creation of a new database.
-    pub const fn but_cannot_create(self) -> Option<Self> {
-        match self {
-            Self::ReadOnly | Self::ReadWriteExisting => Some(self),
-            Self::ReadWrite => Some(Self::ReadWriteExisting),
-            Self::Create => None,
-        }
-    }
 }
 
 impl StoreConfig {

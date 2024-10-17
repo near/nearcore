@@ -11,7 +11,7 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardUIdAndIndex};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -459,12 +459,33 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
+    fn account_id_to_shard_info(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUIdAndIndex, EpochError> {
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_id = account_id_to_shard_id(account_id, self.num_shards);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        Ok(ShardUIdAndIndex { shard_uid, shard_index })
+    }
+
     fn shard_id_to_uid(
         &self,
         shard_id: ShardId,
         _epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError> {
         Ok(ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) })
+    }
+
+    fn shard_id_to_index(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardIndex, EpochError> {
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        Ok(shard_layout.get_shard_index(shard_id))
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {

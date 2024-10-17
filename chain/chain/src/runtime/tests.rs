@@ -43,6 +43,7 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 use super::*;
 
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -1648,6 +1649,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
 
