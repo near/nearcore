@@ -5,9 +5,13 @@ use near_schema_checker_lib::ProtocolSchema;
 
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
-// TODO(#11099): Make this a versioned structure.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct StoredChunkStateTransitionData {
+pub enum StoredChunkStateTransitionData {
+    V1(StoredChunkStateTransitionDataV1),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+struct StoredChunkStateTransitionDataV1 {
     /// The partial state that is needed to apply the state transition,
     /// whether it is a new chunk state transition or a implicit missing chunk
     /// state transition.
@@ -17,7 +21,6 @@ pub struct StoredChunkStateTransitionData {
     /// but is used to validate against `StateChunkWitness::exact_receipts_hash`
     /// to ease debugging of why a state witness may be incorrect.
     pub receipts_hash: CryptoHash,
-    /// The hashes of contract code that are accessed during the state transition.
-    // TODO(#11099): Implement DB migration to add this to the database.
-    pub contract_accesses: Vec<super::contract_distribution::CodeHash>,
+    /// The code-hashes of the contracts that are accessed (called) during the state transition.
+    pub contract_accesses: Vec<CodeHash>,
 }
