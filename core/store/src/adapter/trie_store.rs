@@ -2,6 +2,7 @@ use std::io;
 use std::num::NonZero;
 use std::sync::Arc;
 
+use borsh::BorshDeserialize;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -10,10 +11,6 @@ use near_primitives::types::RawStateChangesWithTrieKey;
 use crate::{DBCol, KeyForStateChanges, Store, StoreUpdate, TrieChanges, STATE_SNAPSHOT_KEY};
 
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
-
-/// Accesses to the State column should use the mapped ShardUId (either itself or ancestor in the resharding tree),
-/// according to the State mapping strategy introduced in Resharding V3.
-pub struct MappedShardUId(ShardUId);
 
 #[derive(Clone)]
 pub struct TrieStoreAdapter {
@@ -35,17 +32,47 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
+    /// Constructs db key to be used to access the State column.
+    /// First, it consults the `StateShardUIdMapping` column to map the `shard_uid` prefix
+    /// to its ancestor in the resharding tree (according to Resharding V3)
+    /// or map to itself if the mapping does not exist.
+    ///
+    /// Please note that the mapped shard uid is read from db each time which may seem slow.
+    /// In practice the `StateShardUIdMapping` is very small and should always be stored in the RocksDB cache.
+    /// The deserialization of ShardUId is also very cheap.
+    fn get_key_from_shard_uid_and_hash(&self, shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
+        let mapped_shard_uid = self
+            .store
+            .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
+            .expect("get_key_from_shard_uid_and_hash() failed")
+            .unwrap_or(shard_uid);
+        let mut key = [0; 40];
+        key[0..8].copy_from_slice(&mapped_shard_uid.to_bytes());
+        key[8..].copy_from_slice(hash.as_ref());
+        key
+    }
+
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
     /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
+    ///
+    /// For more details, see `get_key_from_shard_uid_and_hash()` docs.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let mapped_shard_uid = get_mapped_shard_uid(&self.store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
         let val = self
             .store
             .get(DBCol::State, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?
             .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
         Ok(val.into())
+    }
+
+    pub fn get_ser<T: BorshDeserialize>(
+        &self,
+        shard_uid: ShardUId,
+        hash: &CryptoHash,
+    ) -> Result<T, StorageError> {
+        let bytes = self.get(shard_uid, hash)?;
+        T::try_from_slice(&bytes).map_err(|e| StorageError::StorageInconsistentState(e.to_string()))
     }
 
     pub fn get_state_snapshot_hash(&self) -> Result<CryptoHash, StorageError> {
@@ -91,20 +118,22 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
+    fn get_key_from_shard_uid_and_hash(&self, shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
+        self.store_update.store.trie_store().get_key_from_shard_uid_and_hash(shard_uid, hash)
+    }
+
     pub fn decrement_refcount_by(
         &mut self,
         shard_uid: ShardUId,
         hash: &CryptoHash,
         decrement: NonZero<u32>,
     ) {
-        let mapped_shard_uid = get_mapped_shard_uid(&self.store_update().store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
         self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
     }
 
     pub fn decrement_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash) {
-        let mapped_shard_uid = get_mapped_shard_uid(&self.store_update().store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
         self.store_update.decrement_refcount(DBCol::State, key.as_ref());
     }
 
@@ -115,8 +144,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         data: &[u8],
         increment: NonZero<u32>,
     ) {
-        let mapped_shard_uid = get_mapped_shard_uid(&self.store_update().store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
+        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
         self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
     }
 
@@ -164,22 +192,6 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     pub fn delete_all_state(&mut self) {
         self.store_update.delete_all(DBCol::State)
     }
-}
-
-/// Reads shard_uid mapping for given shard.
-/// If the mapping does not exist, it means that `shard_uid` maps to itself
-pub fn get_mapped_shard_uid(store: &Store, shard_uid: ShardUId) -> MappedShardUId {
-    let mapped_shard_uid = store
-        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
-        .expect("get_mapped_shard_uid() failed");
-    MappedShardUId(mapped_shard_uid.unwrap_or(shard_uid))
-}
-
-pub fn get_key_from_shard_uid_and_hash(shard_uid: MappedShardUId, hash: &CryptoHash) -> [u8; 40] {
-    let mut key = [0; 40];
-    key[0..8].copy_from_slice(&shard_uid.0.to_bytes());
-    key[8..].copy_from_slice(hash.as_ref());
-    key
 }
 
 #[cfg(test)]

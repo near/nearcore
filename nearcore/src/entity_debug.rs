@@ -33,7 +33,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
 use near_store::adapter::flat_store::encode_flat_state_db_key;
-use near_store::adapter::trie_store::{get_key_from_shard_uid_and_hash, get_mapped_shard_uid};
+use near_store::adapter::StoreAdapter;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
@@ -248,11 +248,10 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
             }
             EntityQuery::RawTrieNodeByHash { trie_node_hash, shard_uid } => {
-                let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
-                let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, &trie_node_hash);
                 let node = store
-                    .get_ser::<RawTrieNodeWithSize>(DBCol::State, &key)?
-                    .ok_or_else(|| anyhow!("Trie node not found"))?;
+                    .trie_store()
+                    .get_ser::<RawTrieNodeWithSize>(shard_uid, &trie_node_hash)
+                    .map_err(|e| anyhow!("Trie node not found: {e}"))?;
                 Ok(serialize_raw_trie_node(node))
             }
             EntityQuery::RawTrieRootByChunkHash { chunk_hash } => {
@@ -268,21 +267,18 @@ impl EntityDebugHandlerImpl {
                     .shard_uids()
                     .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
-                let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
-                let key =
-                    get_key_from_shard_uid_and_hash(mapped_shard_uid, &chunk.prev_state_root());
                 let node = store
-                    .get_ser::<RawTrieNodeWithSize>(DBCol::State, &key)?
-                    .ok_or_else(|| anyhow!("State root not found"))?;
+                    .trie_store()
+                    .get_ser::<RawTrieNodeWithSize>(shard_uid, &chunk.prev_state_root())
+                    .map_err(|e| anyhow!("State root not found: {e}"))?;
                 Ok(serialize_raw_trie_node(node))
             }
             EntityQuery::RawTrieValueByHash { trie_value_hash, shard_uid } => {
-                let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
-                let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, &trie_value_hash);
                 let value = store
-                    .get(DBCol::State, &key)?
-                    .ok_or_else(|| anyhow!("Trie value not found"))?;
-                Ok(serialize_entity(&hex::encode(value.as_slice())))
+                    .trie_store()
+                    .get(shard_uid, &trie_value_hash)
+                    .map_err(|e| anyhow!("Trie value not found: {e}"))?;
+                Ok(serialize_entity(&hex::encode(value)))
             }
             EntityQuery::ReceiptById { receipt_id } => {
                 let receipt = store
@@ -457,11 +453,11 @@ impl EntityDebugHandlerImpl {
         state: FlatStateValue,
         shard_uid: ShardUId,
     ) -> anyhow::Result<Vec<u8>> {
-        let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
         Ok(match state {
             FlatStateValue::Ref(value) => store
-                .get(DBCol::State, &get_key_from_shard_uid_and_hash(mapped_shard_uid, &value.hash))?
-                .ok_or_else(|| anyhow!("ValueRef could not be dereferenced"))?
+                .trie_store()
+                .get(shard_uid, &value.hash)
+                .map_err(|e| anyhow!("ValueRef could not be dereferenced: {e}"))?
                 .to_vec(),
             FlatStateValue::Inlined(data) => data,
         })
