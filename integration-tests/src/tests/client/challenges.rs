@@ -376,7 +376,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         Trie::EMPTY_ROOT,
         CryptoHash::default(),
         last_block.header().height() + 1,
-        new_shard_id_tmp(0),
+        0.into(),
         0,
         1_000,
         0,

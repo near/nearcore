@@ -75,8 +75,8 @@ fn init_test_staking(
         // And they are not needed in these tests.
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
-            config.config.tracked_shards = vec![new_shard_id_tmp(0)];
-            config.client_config.tracked_shards = vec![new_shard_id_tmp(0)];
+            config.config.tracked_shards = vec![0.into()];
+            config.client_config.tracked_shards = vec![0.into()];
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =

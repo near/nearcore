@@ -138,12 +138,12 @@ mod tests {
         let block = CryptoHash::hash_bytes(&[1]);
         let prev_block = CryptoHash::hash_bytes(&[2]);
 
-        let s0 = new_shard_id_tmp(0);
-        let s1 = new_shard_id_tmp(1);
-        let s2 = new_shard_id_tmp(2);
-        let s3 = new_shard_id_tmp(3);
-        let s4 = new_shard_id_tmp(4);
-        let s5 = new_shard_id_tmp(5);
+        let s0 = 0.into();
+        let s1 = 1.into();
+        let s2 = 2.into();
+        let s3 = 3.into();
+        let s4 = 4.into();
+        let s5 = 5.into();
 
         // Shard layouts V0 and V1 are rejected.
         assert!(ReshardingEventType::from_shard_layout(

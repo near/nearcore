@@ -189,7 +189,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
                 height, shard_id
             );
 
-            if shard_id == new_shard_id_tmp(1)
+            if shard_id == 1.into()
                 && check_congested_protocol_upgrade
                 && !check_congested_protocol_upgrade_done
             {

@@ -37,7 +37,7 @@ fn run_test(
         HashSet::from_iter(
             migration_data
                 .restored_receipts
-                .get(&new_shard_id_tmp(0))
+                .get(&0.into())
                 .cloned()
                 .unwrap_or_default()
                 .iter()

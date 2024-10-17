@@ -309,7 +309,7 @@ fn run_state_sync_with_dumped_parts(
             )
             .unwrap());
         store_update.commit().unwrap();
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = 0.into();
         for part_id in 0..num_parts {
             let path = root_dir.path().join(external_storage_location(
                 &config.chain_id,

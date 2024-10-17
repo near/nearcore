@@ -82,7 +82,7 @@ impl StandaloneRuntime {
         });
         let writers = std::sync::atomic::AtomicUsize::new(0);
         let shard_uid =
-            ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &genesis.config.shard_layout);
+            ShardUId::from_shard_id_and_layout(0.into(), &genesis.config.shard_layout);
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),

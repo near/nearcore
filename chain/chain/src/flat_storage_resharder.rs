@@ -551,11 +551,8 @@ mod tests {
     use near_epoch_manager::{shard_tracker::ShardTracker, EpochManager};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
-        hash::CryptoHash,
-        shard_layout::ShardLayout,
-        state::FlatStateValue,
-        trie_key::TrieKey,
-        types::{new_shard_id_tmp, AccountId},
+        hash::CryptoHash, shard_layout::ShardLayout, state::FlatStateValue, trie_key::TrieKey,
+        types::AccountId,
     };
     use near_store::{
         flat::{BlockInfo, FlatStorageReadyStatus},
@@ -609,18 +606,18 @@ mod tests {
 
     /// Simple shard layout with two shards.
     fn simple_shard_layout() -> ShardLayout {
-        let s0 = new_shard_id_tmp(0);
-        let s1 = new_shard_id_tmp(1);
+        let s0 = 0.into();
+        let s1 = 1.into();
         let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s1])]);
         ShardLayout::v2(vec![account!("ff")], vec![s0, s1], Some(shards_split_map))
     }
 
     /// Derived from [simple_shard_layout] by splitting the second shard.
     fn shard_layout_after_split() -> ShardLayout {
-        let s0 = new_shard_id_tmp(0);
-        let s1 = new_shard_id_tmp(1);
-        let s2 = new_shard_id_tmp(2);
-        let s3 = new_shard_id_tmp(3);
+        let s0 = 0.into();
+        let s1 = 1.into();
+        let s2 = 2.into();
+        let s3 = 3.into();
 
         let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s2, s3])]);
         ShardLayout::v2(
@@ -1162,7 +1159,7 @@ mod tests {
             buffered_receipt_indices_value.clone(),
         );
 
-        let receiving_shard = new_shard_id_tmp(0);
+        let receiving_shard = 0.into();
         let buffered_receipt_key = TrieKey::BufferedReceipt { receiving_shard, index: 0 }.to_vec();
         let buffered_receipt_value = Some(FlatStateValue::Inlined(vec![1]));
         store_update.set(

@@ -156,7 +156,7 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         // TODO(congestion_control) - Set shard id somehow.
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = 0.into();
         // TODO(congestion_control) - Set other shard ids somehow.
         let all_shard_ids = new_shard_id_vec_tmp(&[0, 1, 2, 3, 4, 5]);
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
@@ -295,7 +295,7 @@ impl User for RuntimeUser {
         args: &[u8],
     ) -> Result<CallResult, String> {
         // TODO(congestion_control) - Set shard id somehow.
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = 0.into();
 
         let apply_state = self.apply_state();
         let client = self.client.read().expect(POISONED_LOCK_ERR);

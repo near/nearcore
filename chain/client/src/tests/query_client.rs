@@ -210,7 +210,7 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap()
                 .unwrap();
             assert_eq!(execution_outcomes_in_block.len(), 1);
-            let outcomes = execution_outcomes_in_block.remove(&new_shard_id_tmp(0)).unwrap();
+            let outcomes = execution_outcomes_in_block.remove(&0.into()).unwrap();
             assert_eq!(outcomes[0].id, tx_hash);
             System::current().stop();
         });
@@ -249,7 +249,7 @@ fn test_state_request() {
             for _ in 0..30 {
                 let res = view_client
                     .send(
-                        StateRequestHeader { shard_id: new_shard_id_tmp(0), sync_hash: block_hash }
+                        StateRequestHeader { shard_id: 0.into(), sync_hash: block_hash }
                             .with_span_context(),
                     )
                     .await
@@ -258,7 +258,7 @@ fn test_state_request() {
             }
 
             // immediately query again, should be rejected
-            let shard_id = new_shard_id_tmp(0);
+            let shard_id = 0.into();
             let res = view_client
                 .send(StateRequestHeader { shard_id, sync_hash: block_hash }.with_span_context())
                 .await

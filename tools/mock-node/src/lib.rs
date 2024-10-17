@@ -181,7 +181,7 @@ impl IncomingRequests {
                                 PartialEncodedChunkRequestMsg {
                                     chunk_hash,
                                     part_ords: vec![0],
-                                    tracking_shards: [new_shard_id_tmp(0)]
+                                    tracking_shards: [0.into()]
                                         .into_iter()
                                         .collect::<HashSet<_>>(),
                                 },

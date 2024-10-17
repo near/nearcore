@@ -79,7 +79,7 @@ fn test_bad_shard_id() {
         chunk.encoded_merkle_root(),
         chunk.encoded_length(),
         2,
-        new_shard_id_tmp(1),
+        1.into(),
         chunk.prev_gas_used(),
         chunk.gas_limit(),
         chunk.prev_balance_burnt(),
@@ -104,7 +104,7 @@ fn test_bad_shard_id() {
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
         .unwrap_err();
     if let near_chain::Error::InvalidShardId(shard_id) = err {
-        assert!(shard_id == new_shard_id_tmp(1));
+        assert!(shard_id == 1.into());
     } else {
         panic!("Expected InvalidShardId error, got {:?}", err);
     }

@@ -599,7 +599,7 @@ mod tests {
     fn test_prefetch_staging_area_blocking_get_after_update() {
         let key = CryptoHash::hash_bytes(&[1, 2, 3]);
         let value: std::sync::Arc<[u8]> = vec![4, 5, 6].into();
-        let prefetch_staging_area = PrefetchStagingArea::new(new_shard_id_tmp(0));
+        let prefetch_staging_area = PrefetchStagingArea::new(0.into());
         assert!(matches!(
             prefetch_staging_area.get_or_set_fetching(key),
             PrefetcherResult::SlotReserved

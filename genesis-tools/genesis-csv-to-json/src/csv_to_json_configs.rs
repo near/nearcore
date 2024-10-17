@@ -15,14 +15,14 @@ use std::path::Path;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
 const SHARDS: &'static [ShardId] = &[
-    new_shard_id_tmp(0),
-    new_shard_id_tmp(1),
-    new_shard_id_tmp(2),
-    new_shard_id_tmp(3),
-    new_shard_id_tmp(4),
-    new_shard_id_tmp(5),
-    new_shard_id_tmp(6),
-    new_shard_id_tmp(7),
+    ShardId::new(0),
+    ShardId::new(1),
+    ShardId::new(2),
+    ShardId::new(3),
+    ShardId::new(4),
+    ShardId::new(5),
+    ShardId::new(6),
+    ShardId::new(7),
 ];
 
 fn verify_total_supply(total_supply: Balance, chain_id: &str) {

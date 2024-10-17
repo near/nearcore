@@ -40,7 +40,7 @@ fn process_blocks_with_storage_usage_fix(
             .state_root();
         let trie = env.clients[0]
             .runtime_adapter
-            .get_trie_for_shard(new_shard_id_tmp(0), block.hash(), root, true)
+            .get_trie_for_shard(0.into(), block.hash(), root, true)
             .unwrap();
         let state_update = TrieUpdate::new(trie);
         use near_primitives::account::Account;
