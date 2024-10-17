@@ -65,6 +65,9 @@ impl PrintCmd {
         let head = chain_store.head().unwrap();
         let mut block = chain_store.get_block(&head.last_block_hash).unwrap();
 
+        let max_gas = 20_000_000_000_000_000;
+        let max_size = 1_000_000_000;
+
         for _ in 0..self.block_count {
             for chunk_header in block.chunks().iter() {
                 if let Some(shard_id) = self.shard_id {
@@ -72,13 +75,26 @@ impl PrintCmd {
                         continue;
                     }
                 }
-                let congestion_info = chunk_header.congestion_info();
+                let Some(congestion_info) = chunk_header.congestion_info() else {
+                    println!(
+                        "#{} - {:?} - {:?} - None",
+                        block.header().height(),
+                        chunk_header.shard_id(),
+                        chunk_header.prev_state_root(),
+                    );
+                    continue;
+                };
+
+                let gas_congestion = 100 * congestion_info.delayed_receipts_gas() / max_gas;
+                let size_congestion = 100 * congestion_info.receipt_bytes() / max_size;
+
                 println!(
-                    "#{} - {:?} - {:?} - {:?}",
+                    "#{} - {:?} - {:?} - gas congestion {:?} - size congestion {:?}",
                     block.header().height(),
                     chunk_header.shard_id(),
                     chunk_header.prev_state_root(),
-                    congestion_info
+                    gas_congestion,
+                    size_congestion
                 );
             }
             block = chain_store.get_block(&block.header().prev_hash()).unwrap();
