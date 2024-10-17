@@ -79,13 +79,16 @@ impl ContractStorage {
         guard.as_mut().expect("must not be called after finalize").insert(code_hash.into());
     }
 
+    /// Stores the contract code as an uncommitted deploy.
+    ///
+    /// Subsequent calls to `get` will return the code that was stored here.
     pub fn store(&self, code: ContractCode) {
         let mut guard = self.uncommitted_deploys.write().expect("no panics");
         let deploys = guard.as_mut().expect("must not be called after finalized");
         deploys.insert(CodeHash(*code.hash()), code);
     }
 
-    /// Rolls back the previous recording of accesses and deployments.
+    /// Rolls back the previous recording of contract accesses and deployments.
     pub(crate) fn rollback(&mut self) {
         {
             let mut guard = self.uncommitted_accesses.lock().expect("no panics");
@@ -98,10 +101,9 @@ impl ContractStorage {
     }
 
     /// Destructs the ContractStorage and returns the list of contract deployments and accesses.
-    /// This serves as the commit operation, so there is no other explicit commit method.
+    ///
+    /// Note: This also serves as the commit operation, so there is no other explicit commit method.
     pub(crate) fn finalize(self) -> ContractStorageResult {
-        // TODO(#11099): Change `replace` to `take` after investigating why `get` is called after the TrieUpdate
-        // is finalizing in the yield-resume tests.
         let contract_accesses = {
             let mut guard = self.uncommitted_accesses.lock().expect("no panics");
             guard.take().unwrap().into_iter().collect()
