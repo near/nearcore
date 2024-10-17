@@ -85,7 +85,7 @@ fn test_view_requests_to_archival_node() {
         .build();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts).unwrap();
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();

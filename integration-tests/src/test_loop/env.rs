@@ -137,6 +137,7 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
     }
 }
 
+#[derive(Clone)]
 pub struct TestData {
     pub account_id: AccountId,
     pub peer_id: PeerId,

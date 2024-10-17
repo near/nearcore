@@ -35,16 +35,11 @@ class EpochSyncTest(unittest.TestCase):
         node_config['epoch_sync'] = {
             "enabled": True,
             "epoch_sync_horizon": EPOCH_LENGTH * 3,
-            "epoch_sync_accept_proof_max_horizon": EPOCH_LENGTH * 3,
             "timeout_for_epoch_sync": {
                 "secs": 5,
                 "nanos": 0
             }
         }
-
-        # Make sure that state sync targets an epoch *later* than the epoch sync target epoch.
-        node_config["consensus.block_fetch_horizon"] = 3
-        node_config["consensus.block_header_fetch_horizon"] = EPOCH_LENGTH
 
         self.near_root, self.node_dirs = init_cluster(
             num_nodes=2,
@@ -52,7 +47,11 @@ class EpochSyncTest(unittest.TestCase):
             num_shards=1,
             config=self.config,
             genesis_config_changes=[["min_gas_price", 0],
-                                    ["epoch_length", EPOCH_LENGTH]],
+                                    ["epoch_length", EPOCH_LENGTH],
+                                    [
+                                        "transaction_validity_period",
+                                        2 * EPOCH_LENGTH
+                                    ]],
             client_config_changes={x: node_config for x in range(3)})
 
     def test(self):
