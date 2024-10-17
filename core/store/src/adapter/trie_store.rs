@@ -38,7 +38,7 @@ impl TrieStoreAdapter {
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
     /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let mapped_shard_uid = read_shard_uid_mapping_from_db(&self.store, shard_uid);
+        let mapped_shard_uid = get_mapped_shard_uid(&self.store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         let val = self
             .store
@@ -97,15 +97,13 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         hash: &CryptoHash,
         decrement: NonZero<u32>,
     ) {
-        let mapped_shard_uid =
-            read_shard_uid_mapping_from_db(&self.store_update().store, shard_uid);
+        let mapped_shard_uid = get_mapped_shard_uid(&self.store_update().store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
     }
 
     pub fn decrement_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash) {
-        let mapped_shard_uid =
-            read_shard_uid_mapping_from_db(&self.store_update().store, shard_uid);
+        let mapped_shard_uid = get_mapped_shard_uid(&self.store_update().store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.decrement_refcount(DBCol::State, key.as_ref());
     }
@@ -117,8 +115,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         data: &[u8],
         increment: NonZero<u32>,
     ) {
-        let mapped_shard_uid =
-            read_shard_uid_mapping_from_db(&self.store_update().store, shard_uid);
+        let mapped_shard_uid = get_mapped_shard_uid(&self.store_update().store, shard_uid);
         let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
     }
@@ -171,10 +168,10 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
 
 /// Reads shard_uid mapping for given shard.
 /// If the mapping does not exist, it means that `shard_uid` maps to itself
-pub fn read_shard_uid_mapping_from_db(store: &Store, shard_uid: ShardUId) -> MappedShardUId {
+pub fn get_mapped_shard_uid(store: &Store, shard_uid: ShardUId) -> MappedShardUId {
     let mapped_shard_uid = store
         .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
-        .expect("read_shard_uid_mapping_from_db() failed");
+        .expect("get_mapped_shard_uid() failed");
     MappedShardUId(mapped_shard_uid.unwrap_or(shard_uid))
 }
 
