@@ -10,7 +10,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
+use near_client::{start_client, PartialWitnessActor, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
@@ -36,7 +36,7 @@ use std::future::Future;
 use std::iter::Iterator;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tracing::debug;
 
 pub(crate) type ControlFlow = std::ops::ControlFlow<()>;
@@ -94,11 +94,6 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
     let client_actor = start_client(
         Clock::real(),
         client_config.clone(),
@@ -107,7 +102,6 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        state_sync_adapter,
         Arc::new(ActixFutureSpawner),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),

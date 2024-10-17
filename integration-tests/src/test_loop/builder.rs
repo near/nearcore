@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
@@ -20,8 +20,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
-use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
+use near_client::{Client, PartialWitnessActor, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
@@ -487,11 +486,6 @@ impl TestLoopBuilder {
         let shard_tracker =
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
-        let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-            client_adapter.as_sender(),
-            network_adapter.as_sender(),
-            test_loop_sync_actor_maker(idx, self.test_loop.sender().for_index(idx)),
-        )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache");
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -542,7 +536,6 @@ impl TestLoopBuilder {
             chain_genesis.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            state_sync_adapter,
             runtime_adapter.clone(),
             network_adapter.as_multi_sender(),
             client_to_shards_manager_sender.as_sender(),
