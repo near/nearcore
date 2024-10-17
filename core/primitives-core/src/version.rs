@@ -174,6 +174,10 @@ pub enum ProtocolFeature {
     StateStoredReceipt,
     /// Resharding V3
     SimpleNightshadeV4,
+
+    /// Enables preparation V3. Note that this feature is not supported at all with Wasmer0 and
+    /// Wasmer2 runtimes.
+    PreparationV3,
 }
 
 impl ProtocolFeature {
@@ -232,6 +236,8 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementV2
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
+
+            ProtocolFeature::PreparationV3 => 73,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later

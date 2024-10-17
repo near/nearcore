@@ -165,6 +165,7 @@ pub fn ext_used_gas() {
             crate::logic::ContractPrepareVersion::V0 => [111, 10, 200, 15, 0, 0, 0, 0],
             crate::logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
             crate::logic::ContractPrepareVersion::V2 => [27, 180, 237, 15, 0, 0, 0, 0],
+            crate::logic::ContractPrepareVersion::V3 => [27, 180, 237, 15, 0, 0, 0, 0],
         };
         run_test_ext(Arc::clone(&config), "ext_used_gas", &expected, &[], vec![], vm_kind)
     })

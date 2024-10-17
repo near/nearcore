@@ -35,13 +35,9 @@ impl Features {
     pub fn new() -> Self {
         Self {
             threads: false,
-            // Reference types should be on by default
             reference_types: true,
-            // SIMD should be on by default
             simd: true,
-            // Bulk Memory should be on by default
             bulk_memory: true,
-            // Multivalue should be on by default
             multi_value: true,
             tail_call: false,
             multi_memory: false,

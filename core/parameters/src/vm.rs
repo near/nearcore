@@ -267,6 +267,9 @@ pub enum ContractPrepareVersion {
     V1,
     /// finite-wasm 0.3.0 based contract preparation code.
     V2,
+    /// finite-wasm 0.3.0 based contract preparation code with multi-value and reference-types
+    /// enabled.
+    V3,
 }
 
 impl ContractPrepareVersion {

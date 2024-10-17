@@ -284,6 +284,13 @@ impl<'a> FuncGen<'a> {
         let return_types: SmallVec<[WpType; 1]> =
             sig.results().iter().cloned().map(type_to_wp_type).collect();
 
+        if return_types.len() > 1 {
+            return Err(CodegenError {
+                message: "Call: multi-value returns not yet implemented"
+                    .to_string(),
+            })
+        }
+
         let params: SmallVec<[_; 8]> =
             self.value_stack.drain(self.value_stack.len() - param_types.len()..).collect();
         self.machine.release_locations_only_regs(&params);
@@ -1698,6 +1705,12 @@ impl<'a> FuncGen<'a> {
         let func_index = module.func_index(local_func_index);
         let sig_index = module.functions[func_index];
         let signature = module.signatures[sig_index].clone();
+        if signature.results().len() > 1 {
+            return Err(CodegenError {
+                message: "FunctionPrologue: multi-value returns not yet implemented"
+                    .to_string(),
+            })
+        }
 
         let special_labels = SpecialLabelSet {
             integer_division_by_zero: assembler.get_label(),
@@ -4684,6 +4697,12 @@ impl<'a> FuncGen<'a> {
                     sig.params().iter().cloned().map(type_to_wp_type).collect();
                 let return_types: SmallVec<[WpType; 1]> =
                     sig.results().iter().cloned().map(type_to_wp_type).collect();
+                if return_types.len() > 1 {
+                    return Err(CodegenError {
+                        message: "CallIndirect: multi-value returns not yet implemented"
+                            .to_string(),
+                    })
+                }
 
                 let func_index = self.pop_value_released();
 

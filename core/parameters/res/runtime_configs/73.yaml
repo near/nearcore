@@ -1,1 +1,2 @@
 wasm_yield_resume_byte: { old: 1_195_627_285_210 , new: 47_683_715 }
+contract_prepare_version: { old: 2, new: 3 }

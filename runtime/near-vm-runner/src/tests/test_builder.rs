@@ -202,6 +202,13 @@ impl TestBuilder {
                 if self.skip.contains(&vm_kind) {
                     continue;
                 }
+                if ProtocolFeature::PreparationV3.enabled(protocol_version) {
+                    if let VMKind::Wasmer0 | VMKind::Wasmer2 = vm_kind {
+                        // These runtimes cannot support multi-value or reference-types enabled
+                        // starting with this protocol version.
+                        continue;
+                    }
+                }
 
                 let runtime_config = runtime_config_store.get_config(protocol_version);
 
