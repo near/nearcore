@@ -22,7 +22,8 @@ use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
     PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
 };
 use crate::stats::metrics;
@@ -802,6 +803,18 @@ impl NetworkState {
                         }),
                     });
                 }
+                None
+            }
+            RoutedMessageBody::ChunkContractAccesses(accesses) => {
+                self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                None
+            }
+            RoutedMessageBody::ContractCodeRequest(request) => {
+                self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                None
+            }
+            RoutedMessageBody::ContractCodeResponse(response) => {
+                self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
                 None
             }
             body => {
