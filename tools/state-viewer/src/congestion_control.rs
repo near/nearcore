@@ -74,7 +74,8 @@ impl PrintCmd {
                 }
                 let congestion_info = chunk_header.congestion_info();
                 println!(
-                    "{:?} - {:?} - {:?}",
+                    "#{} - {:?} - {:?} - {:?}",
+                    block.header().height(),
                     chunk_header.shard_id(),
                     chunk_header.prev_state_root(),
                     congestion_info
