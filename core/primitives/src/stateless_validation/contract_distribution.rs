@@ -242,6 +242,12 @@ impl
 )]
 pub struct CodeHash(pub CryptoHash);
 
+impl From<CryptoHash> for CodeHash {
+    fn from(crypto_hash: CryptoHash) -> Self {
+        Self(crypto_hash)
+    }
+}
+
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct CodeBytes(Vec<u8>);

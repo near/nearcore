@@ -50,6 +50,12 @@ impl ContractStorage {
         }
     }
 
+    /// Retrieves the contract code by its hash.
+    ///
+    /// This is called when preparing (eg. compiling) the contract for execution optimistically, and
+    /// the function call for the returned contract may not be included in the currently applied chunk.
+    /// Thus, the `record_access` method should also be called to indicate that the calling the contract
+    /// is actually included in the chunk application.
     pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         {
             let guard = self.uncommitted_deploys.read().expect("no panics");
@@ -59,17 +65,18 @@ impl ContractStorage {
             }
         }
 
-        let contract_code = match self.storage.retrieve_raw_bytes(&code_hash) {
+        match self.storage.retrieve_raw_bytes(&code_hash) {
             Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
             Err(_) => None,
-        };
-
-        if contract_code.is_some() {
-            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            guard.as_mut().expect("must not be called after finalize").insert(CodeHash(code_hash));
         }
+    }
 
-        contract_code
+    /// Records a call to a contract by code-hash.
+    ///
+    /// This is used to capture the contracts that are called when applying a chunk.
+    pub fn record_call(&self, code_hash: CryptoHash) {
+        let mut guard = self.uncommitted_accesses.lock().expect("no panics");
+        guard.as_mut().expect("must not be called after finalize").insert(code_hash.into());
     }
 
     pub fn store(&self, code: ContractCode) {
@@ -82,7 +89,7 @@ impl ContractStorage {
     pub(crate) fn rollback(&mut self) {
         {
             let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            let _discarded_reads = guard.replace(BTreeSet::new());
+            let _discarded_accesses = guard.replace(BTreeSet::new());
         }
         {
             let mut guard = self.uncommitted_deploys.write().expect("no panics");
@@ -93,15 +100,15 @@ impl ContractStorage {
     /// Destructs the ContractStorage and returns the list of contract deployments and accesses.
     /// This serves as the commit operation, so there is no other explicit commit method.
     pub(crate) fn finalize(self) -> ContractStorageResult {
-        let contract_accesses = {
-            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            guard.replace(BTreeSet::new()).unwrap().into_iter().collect()
-        };
         // TODO(#11099): Change `replace` to `take` after investigating why `get` is called after the TrieUpdate
         // is finalizing in the yield-resume tests.
+        let contract_accesses = {
+            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
+            guard.take().unwrap().into_iter().collect()
+        };
         let contract_deploys = {
             let mut guard = self.uncommitted_deploys.write().expect("no panics");
-            guard.replace(BTreeMap::new()).unwrap().into_keys().collect()
+            guard.take().unwrap().into_keys().collect()
         };
         ContractStorageResult { contract_deploys, contract_accesses }
     }

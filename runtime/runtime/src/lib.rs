@@ -465,6 +465,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
+                    account.code_hash(),
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,

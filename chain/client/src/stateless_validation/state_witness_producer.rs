@@ -70,8 +70,6 @@ impl Client {
             transactions_storage_proof,
         )?;
 
-        tracing::debug!(target: "client", ?contract_accesses, ?contract_deploys, "Contract accesses and deploys while sending state witness");
-
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
@@ -92,15 +90,18 @@ impl Client {
             );
         }
 
-        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version)
-            && !contract_accesses.is_empty()
-        {
-            self.send_contract_accesses_to_chunk_validators(
-                epoch_id,
-                &chunk_header,
-                contract_accesses,
-                my_signer.as_ref(),
-            );
+        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
+            // TODO(#11099): Currently we consume contract_deploys only for the following log message. Distribute it to validators
+            // that will not validate the current witness so that they can follow-up with requesting the contract code.
+            tracing::debug!(target: "client", ?contract_accesses, ?contract_deploys, "Contract accesses and deploys while sending state witness");
+            if !contract_accesses.is_empty() {
+                self.send_contract_accesses_to_chunk_validators(
+                    epoch_id,
+                    &chunk_header,
+                    contract_accesses,
+                    my_signer.as_ref(),
+                );
+            }
         }
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {

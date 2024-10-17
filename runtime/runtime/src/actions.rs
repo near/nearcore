@@ -172,6 +172,7 @@ pub(crate) fn action_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
+    code_hash: CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
@@ -183,9 +184,11 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness
+    if ProtocolFeature::ExcludeContractCodeFromStateWitness
         .enabled(apply_state.current_protocol_version)
     {
+        state_update.contract_storage.record_call(code_hash);
+    } else {
         state_update.trie.request_code_recording(account_id.clone());
     }
     #[cfg(feature = "test_features")]
