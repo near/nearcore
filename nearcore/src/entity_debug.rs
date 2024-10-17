@@ -33,9 +33,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
 use near_store::adapter::flat_store::encode_flat_state_db_key;
-use near_store::adapter::trie_store::{
-    get_key_from_shard_uid_and_hash, read_shard_uid_mapping_from_db,
-};
+use near_store::adapter::trie_store::{get_key_from_shard_uid_and_hash, get_mapped_shard_uid};
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
@@ -250,7 +248,7 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
             }
             EntityQuery::RawTrieNodeByHash { trie_node_hash, shard_uid } => {
-                let mapped_shard_uid = read_shard_uid_mapping_from_db(&store, shard_uid);
+                let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
                 let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, &trie_node_hash);
                 let node = store
                     .get_ser::<RawTrieNodeWithSize>(DBCol::State, &key)?
@@ -270,7 +268,7 @@ impl EntityDebugHandlerImpl {
                     .shard_uids()
                     .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
-                let mapped_shard_uid = read_shard_uid_mapping_from_db(&store, shard_uid);
+                let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
                 let key =
                     get_key_from_shard_uid_and_hash(mapped_shard_uid, &chunk.prev_state_root());
                 let node = store
@@ -279,7 +277,7 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_raw_trie_node(node))
             }
             EntityQuery::RawTrieValueByHash { trie_value_hash, shard_uid } => {
-                let mapped_shard_uid = read_shard_uid_mapping_from_db(&store, shard_uid);
+                let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
                 let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, &trie_value_hash);
                 let value = store
                     .get(DBCol::State, &key)?
@@ -459,7 +457,7 @@ impl EntityDebugHandlerImpl {
         state: FlatStateValue,
         shard_uid: ShardUId,
     ) -> anyhow::Result<Vec<u8>> {
-        let mapped_shard_uid = read_shard_uid_mapping_from_db(&store, shard_uid);
+        let mapped_shard_uid = get_mapped_shard_uid(&store, shard_uid);
         Ok(match state {
             FlatStateValue::Ref(value) => store
                 .get(DBCol::State, &get_key_from_shard_uid_and_hash(mapped_shard_uid, &value.hash))?
