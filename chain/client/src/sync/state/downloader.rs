@@ -156,7 +156,7 @@ impl StateSyncDownloader {
             let i = AtomicUsize::new(0); // for easier Rust async capture
             let attempt = || async {
                 let source = if i.load(Ordering::Relaxed) < num_attempts_before_fallback
-                    && fallback_source.is_some()
+                    || fallback_source.is_none()
                 {
                     preferred_source.as_ref()
                 } else {
