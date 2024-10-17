@@ -106,7 +106,7 @@ struct StateSyncExternal {
     semaphore: Arc<tokio::sync::Semaphore>,
     /// A node with external storage configured first tries to obtain state parts from peers.
     /// For each part, it will make this many attempts before getting it from external storage.
-    peer_attempts_threshold: u64,
+    _peer_attempts_threshold: u64,
     /// Connection to the external storage.
     external: ExternalConnection,
 }
@@ -186,7 +186,7 @@ impl StateSync {
                 Some(StateSyncExternal {
                     chain_id: chain_id.to_string(),
                     semaphore: Arc::new(tokio::sync::Semaphore::new(num_permits)),
-                    peer_attempts_threshold: *external_storage_fallback_threshold,
+                    _peer_attempts_threshold: *external_storage_fallback_threshold,
                     external,
                 })
             }
@@ -592,10 +592,10 @@ impl StateSync {
         let mut peer_requests_sent = 0;
         let mut state_root_and_part_count: Option<(CryptoHash, u64)> = None;
         for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
-            if self
-                .external
-                .as_ref()
-                .is_some_and(|ext| download.state_requests_count >= ext.peer_attempts_threshold)
+            if self.external.is_some()
+            // TODO(saketh): enable after p2p state sync is ready
+            //.as_ref()
+            //.is_some_and(|ext| download.state_requests_count >= ext.peer_attempts_threshold)
             {
                 // TODO(saketh): After we have sufficient confidence that requesting state parts
                 // from peers is working well, we will eliminate the external storage entirely.
