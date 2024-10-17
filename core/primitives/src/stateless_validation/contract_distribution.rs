@@ -185,19 +185,15 @@ impl ContractCodeResponseV1 {
 pub struct ContractCodeResponseInner {
     /// Code for the contracts.
     compressed_contracts: CompressedContractCode,
-    /// Total size (in number of bytes) of the "uncompressed" form of contracts.
-    /// Used to limit the output while uncompressing it.
-    total_size: usize,
     signature_differentiator: SignatureDifferentiator,
 }
 
 impl ContractCodeResponseInner {
     fn new(contracts: &Vec<CodeBytes>) -> Self {
-        let (compressed_contracts, total_size) =
+        let (compressed_contracts, _size) =
             CompressedContractCode::encode(&contracts).unwrap();
         Self {
             compressed_contracts,
-            total_size,
             signature_differentiator: "ContractCodeResponseInner".to_owned(),
         }
     }

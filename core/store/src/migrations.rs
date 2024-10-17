@@ -376,7 +376,6 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
     let _span =
         tracing::info_span!(target: "migrations", "Replacing StoredChunkStateTransitionData with its enum version V1").entered();
     let mut update = store.store_update();
-    update.delete_all(DBCol::StateTransitionData);
     for result in store.iter(DBCol::StateTransitionData) {
         let (key, old_value) = result?;
         let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
