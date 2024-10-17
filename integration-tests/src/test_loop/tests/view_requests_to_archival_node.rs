@@ -15,8 +15,8 @@ use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference,
-    Finality, SyncCheckpoint,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
+    SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{

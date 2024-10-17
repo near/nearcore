@@ -413,7 +413,7 @@ mod test {
         ExternalConnection, StateFileType,
     };
     use near_o11y::testonly::init_test_logger;
-    
+
     use rand::distributions::{Alphanumeric, DistString};
 
     fn random_string(rand_len: usize) -> String {
