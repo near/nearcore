@@ -157,6 +157,7 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
+                        apply_result.contract_accesses,
                     );
                 }
             }
@@ -186,6 +187,7 @@ impl<'a> ChainUpdate<'a> {
                         shard_uid.shard_id(),
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
+                        apply_result.contract_accesses,
                     );
                 }
             }

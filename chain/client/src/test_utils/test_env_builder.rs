@@ -4,7 +4,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::{IntoMultiSender, IntoSender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -619,6 +619,7 @@ impl TestEnvBuilder {
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signer,
+                        noop().into_multi_sender(),
                     )
                 })
                 .collect();

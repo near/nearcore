@@ -152,7 +152,7 @@ impl InfoHelper {
         let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
             let tracked =
-                client.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+                client.shard_tracker.care_about_shard(me, &head.prev_block_hash, shard_id, true);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {
@@ -955,7 +955,7 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoSender};
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
@@ -1017,6 +1017,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             validator.clone(),
+            noop().into_multi_sender(),
         )
         .unwrap();
 

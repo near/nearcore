@@ -174,6 +174,8 @@ pub enum ProtocolFeature {
     StateStoredReceipt,
     /// Resharding V3
     SimpleNightshadeV4,
+    /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
+    ExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
     BandwidthScheduler,
 }
@@ -254,6 +256,11 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::SimpleNightshadeV4 => 145,
             ProtocolFeature::BandwidthScheduler => 146,
+
+            // Features that are not yet in Nightly.
+
+            // TODO(#11099): Move this feature to Nightly.
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 147,
         }
     }
 
