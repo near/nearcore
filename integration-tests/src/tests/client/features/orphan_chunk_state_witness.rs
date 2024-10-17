@@ -89,7 +89,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
     let block1_producer = env.get_block_producer_at_offset(&tip, 1);
     let block2_producer = env.get_block_producer_at_offset(&tip, 2);
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = 0.into();
     let block2_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, shard_id);
 
     // The excluded validator shouldn't produce any blocks or chunks in the next two blocks.

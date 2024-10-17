@@ -454,7 +454,7 @@ fn test_invalid_transactions() {
     for tx in invalid_transactions {
         for height in start_height..start_height + 3 {
             let tip = env.clients[0].chain.head().unwrap();
-            let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, new_shard_id_tmp(0));
+            let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, 0.into());
             let block_producer = env.get_block_producer_at_offset(&tip, 1);
 
             let client = env.client(&chunk_producer);
