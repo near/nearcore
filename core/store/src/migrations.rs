@@ -1,10 +1,14 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
@@ -375,10 +379,10 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
     update.delete_all(DBCol::StateTransitionData);
     for result in store.iter(DBCol::StateTransitionData) {
         let (key, old_value) = result?;
-        let DeprecatedStoredChunkStateTransitionData { base_state, receipt_hash } =
+        let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
             DeprecatedStoredChunkStateTransitionData::try_from_slice(&old_value)?;
         let new_value =
-            borsh::to_vec(StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+            borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                 base_state,
                 receipts_hash,
                 contract_accesses: vec![],

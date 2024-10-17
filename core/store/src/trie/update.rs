@@ -187,8 +187,6 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        // TODO(#11099): Retrieve the correct list of code hashes accessed while applying the chunk
-        // from ContractStorage and set in the following.
         let contract_accesses = contract_storage.finalize().contract_accesses;
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses })
     }

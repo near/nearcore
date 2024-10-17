@@ -295,7 +295,7 @@ pub enum NetworkRequests {
     /// Response to an epoch sync request
     EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts
-    /// accessed by applying the last chunk before creating the state-witness of the new chunk.
+    /// accessed for the main state transition in the witness.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
     /// Message from chunk validator to chunk producer to request missing contract code.
     /// This message is currently sent as a result of receiving the ChunkContractAccesses message

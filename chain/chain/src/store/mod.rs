@@ -24,7 +24,9 @@ use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
@@ -2019,11 +2021,11 @@ impl<'a> ChainStoreUpdate<'a> {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     contract_accesses: contract_accesses,
-                },
+                }),
             );
         }
     }

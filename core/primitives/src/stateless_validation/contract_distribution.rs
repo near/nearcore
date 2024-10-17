@@ -56,6 +56,7 @@ impl ChunkContractAccessesV1 {
         Self { inner, signature }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkContractAccessesInner {
     /// Production metadata of the chunk created after the chunk the accesses belong to.

@@ -17,7 +17,9 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness,
 };
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -182,7 +184,7 @@ impl Client {
         let (base_state, receipts_hash, contract_accesses) = if prev_chunk_header.is_genesis() {
             (Default::default(), hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()), vec![])
         } else {
-            let StoredChunkStateTransitionData { base_state, receipts_hash, contract_accesses } = store
+            let state_transition = store
                 .get_ser(
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(main_block, shard_id),
@@ -196,7 +198,13 @@ impl Client {
                     }
                     Error::Other(message)
                 })?;
-            (base_state, receipts_hash, contract_accesses)
+            match state_transition {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                }) => (base_state, receipts_hash, contract_accesses),
+            }
         };
         let main_transition = ChunkStateTransition {
             block_hash: *main_block,
@@ -206,7 +214,7 @@ impl Client {
 
         let mut implicit_transitions = vec![];
         for block_hash in implicit_blocks {
-            let StoredChunkStateTransitionData { base_state, .. } = store
+            let state_transition = store
                 .get_ser(
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(block_hash, shard_id),
@@ -220,11 +228,21 @@ impl Client {
                     }
                     Error::Other(message)
                 })?;
-            implicit_transitions.push(ChunkStateTransition {
-                block_hash: *block_hash,
-                base_state,
-                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
-            });
+            match state_transition {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                    base_state,
+                    ..
+                }) => {
+                    implicit_transitions.push(ChunkStateTransition {
+                        block_hash: *block_hash,
+                        base_state,
+                        post_state_root: *self
+                            .chain
+                            .get_chunk_extra(block_hash, &shard_uid)?
+                            .state_root(),
+                    });
+                }
+            }
         }
 
         Ok(StateTransitionData {
@@ -320,7 +338,6 @@ impl Client {
     }
 
     /// Sends the contract access to the same chunk validators that will receive the state witness for the chunk.
-    #[allow(unused)]
     fn send_contract_accesses_to_chunk_validators(
         &self,
         epoch_id: &EpochId,
