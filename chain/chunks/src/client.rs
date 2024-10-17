@@ -204,8 +204,7 @@ mod tests {
         shard_id_to_accounts.insert(1.into(), vec!["aurora"]);
         shard_id_to_accounts.insert(2.into(), vec!["aurora-0", "bob", "kkk"]);
         // this shard is split, make sure there are accounts for both shards 3' and 4'
-        shard_id_to_accounts
-            .insert(3.into(), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
+        shard_id_to_accounts.insert(3.into(), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
         let deposit = 222;
 

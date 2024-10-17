@@ -81,8 +81,7 @@ impl StandaloneRuntime {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
         let writers = std::sync::atomic::AtomicUsize::new(0);
-        let shard_uid =
-            ShardUId::from_shard_id_and_layout(0.into(), &genesis.config.shard_layout);
+        let shard_uid = ShardUId::from_shard_id_and_layout(0.into(), &genesis.config.shard_layout);
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),

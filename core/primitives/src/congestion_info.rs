@@ -579,10 +579,7 @@ mod tests {
         assert_eq!(0.0, congestion_control.congestion_level());
 
         assert!(
-            config
-                .max_outgoing_gas
-                .abs_diff(congestion_control.outgoing_gas_limit(0.into()))
-                <= 1
+            config.max_outgoing_gas.abs_diff(congestion_control.outgoing_gas_limit(0.into())) <= 1
         );
 
         assert!(config.max_tx_gas.abs_diff(congestion_control.process_tx_limit()) <= 1);

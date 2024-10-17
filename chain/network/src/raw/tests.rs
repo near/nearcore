@@ -111,13 +111,9 @@ async fn test_raw_conn_state_parts() {
     // But the fake node simply ignores the block hash.
     let block_hash = CryptoHash::new();
     for part_id in 0..num_parts {
-        conn.send_message(raw::DirectMessage::StateRequestPart(
-            0.into(),
-            block_hash,
-            part_id,
-        ))
-        .await
-        .unwrap();
+        conn.send_message(raw::DirectMessage::StateRequestPart(0.into(), block_hash, part_id))
+            .await
+            .unwrap();
     }
 
     let mut part_id_received = -1i64;

@@ -880,14 +880,10 @@ mod tests {
             assert!(shard_id_as_u64(shard_id) < num_shards);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
-        let expected_distribution: HashMap<ShardId, _> = [
-            (0.into(), 247),
-            (1.into(), 268),
-            (2.into(), 233),
-            (3.into(), 252),
-        ]
-        .into_iter()
-        .collect();
+        let expected_distribution: HashMap<ShardId, _> =
+            [(0.into(), 247), (1.into(), 268), (2.into(), 233), (3.into(), 252)]
+                .into_iter()
+                .collect();
         assert_eq!(shard_id_distribution, expected_distribution);
     }
 

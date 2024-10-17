@@ -706,10 +706,9 @@ mod tests {
 
                 // create buffer with already a receipt in it, but a different balance
                 let mut indices = BufferedReceiptIndices::default();
-                indices.shard_buffers.insert(
-                    0.into(),
-                    TrieQueueIndices { first_index: 0, next_available_index: 1 },
-                );
+                indices
+                    .shard_buffers
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 1 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
@@ -728,10 +727,9 @@ mod tests {
 
                 // store receipt with the balance in the receipt buffer
                 let mut indices = BufferedReceiptIndices::default();
-                indices.shard_buffers.insert(
-                    0.into(),
-                    TrieQueueIndices { first_index: 0, next_available_index: 2 },
-                );
+                indices
+                    .shard_buffers
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 2 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
@@ -778,10 +776,9 @@ mod tests {
             |trie_update| {
                 // store 2 receipts with balance in the receipt buffer
                 let mut indices = BufferedReceiptIndices::default();
-                indices.shard_buffers.insert(
-                    0.into(),
-                    TrieQueueIndices { first_index: 0, next_available_index: 2 },
-                );
+                indices
+                    .shard_buffers
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 2 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
@@ -798,16 +795,13 @@ mod tests {
             |trie_update| {
                 // remove 1 receipt at index 0
                 let mut indices = BufferedReceiptIndices::default();
-                indices.shard_buffers.insert(
-                    0.into(),
-                    TrieQueueIndices { first_index: 1, next_available_index: 2 },
-                );
+                indices
+                    .shard_buffers
+                    .insert(0.into(), TrieQueueIndices { first_index: 1, next_available_index: 2 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
-                trie_update.remove(TrieKey::BufferedReceipt {
-                    receiving_shard: 0.into(),
-                    index: 0,
-                });
+                trie_update
+                    .remove(TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 });
             },
         );
 
@@ -841,10 +835,9 @@ mod tests {
             |trie_update| {
                 // store receipt0 with balance in the receipt buffer
                 let mut indices = BufferedReceiptIndices::default();
-                indices.shard_buffers.insert(
-                    0.into(),
-                    TrieQueueIndices { first_index: 0, next_available_index: 1 },
-                );
+                indices
+                    .shard_buffers
+                    .insert(0.into(), TrieQueueIndices { first_index: 0, next_available_index: 1 });
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
@@ -856,10 +849,9 @@ mod tests {
             |trie_update| {
                 // pop receipt0 and push receipt1 with a different balance
                 let mut indices = BufferedReceiptIndices::default();
-                indices.shard_buffers.insert(
-                    0.into(),
-                    TrieQueueIndices { first_index: 1, next_available_index: 2 },
-                );
+                indices
+                    .shard_buffers
+                    .insert(0.into(), TrieQueueIndices { first_index: 1, next_available_index: 2 });
 
                 set(
                     trie_update,
@@ -867,10 +859,8 @@ mod tests {
                     &receipt1,
                 );
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
-                trie_update.remove(TrieKey::BufferedReceipt {
-                    receiving_shard: 0.into(),
-                    index: 0,
-                });
+                trie_update
+                    .remove(TrieKey::BufferedReceipt { receiving_shard: 0.into(), index: 0 });
             },
         );
 

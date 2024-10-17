@@ -622,8 +622,7 @@ mod trie_cache_tests {
     fn test_size_limit() {
         let value_size_sum = 5;
         let memory_overhead = 2 * TrieCacheInner::PER_ENTRY_OVERHEAD;
-        let mut cache =
-            TrieCacheInner::new(100, value_size_sum + memory_overhead, 0.into(), false);
+        let mut cache = TrieCacheInner::new(100, value_size_sum + memory_overhead, 0.into(), false);
         // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.current_total_size(), 2 + TrieCacheInner::PER_ENTRY_OVERHEAD);
