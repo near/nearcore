@@ -211,7 +211,7 @@ mod tests {
                     contract_accesses: vec![],
                     // TODO(#11099): Revisit this.
                     contract_deploys: vec![],
-                },
+                }),
             )
             .unwrap();
         store_update

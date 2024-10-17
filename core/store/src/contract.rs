@@ -34,10 +34,10 @@ pub struct ContractStorage {
 
 /// Result of finalizing the contract storage.
 pub struct ContractStorageResult {
-    /// List of code-hashes for the contracts deployed while applying the chunk.
-    pub contract_deploys: Vec<CodeHash>,
     /// List of code-hashes for the contracts retrieved from the storage while applying the chunk.
     pub contract_accesses: Vec<CodeHash>,
+    /// List of code-hashes for the contracts deployed while applying the chunk.
+    pub contract_deploys: Vec<CodeHash>,
 }
 
 // TODO(#11099): Implement commit and rollback.
@@ -65,7 +65,7 @@ impl ContractStorage {
         };
 
         if contract_code.is_some() {
-            let mut guard = self.storage_reads.lock().expect("no panics");
+            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
             guard.as_mut().expect("must not be called after finalize").insert(CodeHash(code_hash));
         }
 
@@ -81,23 +81,28 @@ impl ContractStorage {
     /// Rolls back the previous recording of accesses and deployments.
     pub(crate) fn rollback(&mut self) {
         {
-            let mut guard = self.uncommitted_deploys.write().expect("no panics");
-            let _discarded_deploys = guard.replace(BTreeMap::new());
-        }
-        {
             let mut guard = self.uncommitted_accesses.lock().expect("no panics");
             let _discarded_reads = guard.replace(BTreeSet::new());
+        }
+        {
+            let mut guard = self.uncommitted_deploys.write().expect("no panics");
+            let _discarded_deploys = guard.replace(BTreeMap::new());
         }
     }
 
     /// Destructs the ContractStorage and returns the list of contract deployments and accesses.
     /// This serves as the commit operation, so there is no other explicit commit method.
     pub(crate) fn finalize(self) -> ContractStorageResult {
-        let mut guard = self.storage_reads.lock().expect("no panics");
+        let contract_accesses = {
+            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
+            guard.replace(BTreeSet::new()).unwrap().into_iter().collect()
+        };
         // TODO(#11099): Change `replace` to `take` after investigating why `get` is called after the TrieUpdate
         // is finalizing in the yield-resume tests.
-        ContractStorageResult {
-            contract_accesses: guard.replace(HashSet::new()).unwrap().into_iter().collect(),
-        }
+        let contract_deploys = {
+            let mut guard = self.uncommitted_deploys.write().expect("no panics");
+            guard.replace(BTreeMap::new()).unwrap().into_keys().collect()
+        };
+        ContractStorageResult { contract_deploys, contract_accesses }
     }
 }

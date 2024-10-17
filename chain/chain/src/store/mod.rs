@@ -2027,7 +2027,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     receipts_hash: applied_receipts_hash,
                     contract_accesses,
                     contract_deploys,
-                },
+                }),
             );
         }
     }

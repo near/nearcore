@@ -70,7 +70,7 @@ impl Client {
             transactions_storage_proof,
         )?;
 
-        tracing::debug!(target: "client", ?_contract_accesses, ?_contract_deploys, "Contract accesses and deploys while sending state witness");
+        tracing::debug!(target: "client", ?contract_accesses, ?contract_deploys, "Contract accesses and deploys while sending state witness");
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
@@ -209,7 +209,8 @@ impl Client {
                     base_state,
                     receipts_hash,
                     contract_accesses,
-                }) => (base_state, receipts_hash, contract_accesses),
+                    contract_deploys,
+                }) => (base_state, receipts_hash, contract_accesses, contract_deploys),
             }
         };
         let main_transition = ChunkStateTransition {
