@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use near_chain_configs::ReshardingHandle;
 use near_chain_primitives::Error;
 
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use crate::resharding::types::FlatStorageSplitShardRequest;
@@ -30,7 +30,6 @@ use near_store::flat::{
 };
 use near_store::{ShardUId, StorageError};
 use std::fmt::{Debug, Formatter};
-use std::time::Instant;
 
 /// `FlatStorageResharder` takes care of updating flat storage when a resharding event happens.
 ///
@@ -273,7 +272,11 @@ impl FlatStorageResharder {
         let mut batches_done = 0;
 
         loop {
-            let timer = Instant::now();
+            let _span = tracing::debug_span!(
+                target: "resharding",
+                "split_shard_task_impl/batch",
+                batch_id = ?batches_done)
+            .entered();
             let mut store_update = flat_store.store_update();
 
             // Process a `BATCH_SIZE` worth of key value pairs.
@@ -304,9 +307,7 @@ impl FlatStorageResharder {
                 return FlatStorageReshardingTaskStatus::Failed;
             }
 
-            let time = timer.elapsed();
             batches_done += 1;
-            debug!(target: "resharding", ?time, ?batches_done, "flat storage resharding split shard batch processed");
 
             // If `iter`` is exhausted we can exit after the store commit.
             if iter_exhausted {
