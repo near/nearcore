@@ -1,3 +1,4 @@
+use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
@@ -145,6 +146,8 @@ fn genesis_chunk(
     state_root: CryptoHash,
     congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
+    use crate::bandwidth_scheduler::BandwidthRequests;
+
     let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
         CryptoHash::default(),
         state_root,
@@ -161,6 +164,7 @@ fn genesis_chunk(
         &[],
         CryptoHash::default(),
         congestion_info,
+        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &crate::validator_signer::EmptyValidatorSigner::default().into(),
         genesis_protocol_version,
     )
@@ -678,6 +682,20 @@ impl Block {
             }
         }
         BlockCongestionInfo::new(result)
+    }
+
+    pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.chunks().iter() {
+            let shard_id = chunk.shard_id();
+
+            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
+                result.insert(shard_id, bandwidth_requests.clone());
+            }
+        }
+
+        BlockBandwidthRequests { shards_bandwidth_requests: result }
     }
 
     pub fn hash(&self) -> &CryptoHash {

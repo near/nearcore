@@ -9,6 +9,8 @@ pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
@@ -104,6 +106,11 @@ pub struct ApplyChunkResult {
     pub congestion_info: Option<CongestionInfo>,
     /// Hashes of the contracts accessed while applying the chunk.
     pub contract_accesses: Vec<CodeHash>,
+    /// Requests for bandwidth to send receipts to other shards.
+    /// Will be None for protocol versions that don't have the BandwidthScheduler feature enabled.
+    pub bandwidth_requests: Option<BandwidthRequests>,
+    /// Used only for a sanity check.
+    pub bandwidth_scheduler_state_hash: CryptoHash,
 }
 
 impl ApplyChunkResult {
@@ -298,6 +305,7 @@ pub struct ApplyChunkBlockContext {
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
+    pub bandwidth_requests: BlockBandwidthRequests,
 }
 
 impl ApplyChunkBlockContext {
@@ -305,6 +313,7 @@ impl ApplyChunkBlockContext {
         header: &BlockHeader,
         gas_price: Balance,
         congestion_info: BlockCongestionInfo,
+        bandwidth_requests: BlockBandwidthRequests,
     ) -> Self {
         Self {
             height: header.height(),
@@ -315,6 +324,7 @@ impl ApplyChunkBlockContext {
             challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
+            bandwidth_requests,
         }
     }
 }

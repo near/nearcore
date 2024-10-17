@@ -9,6 +9,7 @@ pub use near_primitives_core::num_rational;
 pub use near_primitives_core::serialize;
 
 pub mod action;
+pub mod bandwidth_scheduler;
 pub mod block;
 pub mod block_body;
 pub mod block_header;
