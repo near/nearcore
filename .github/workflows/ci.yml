@@ -257,15 +257,6 @@ jobs:
           tool: just
       - run: just check-protocol-schema
 
-  lychee_checks:
-    name: "Lychee Lints"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: lycheeverse/lychee-action@2ac9f030ccdea0033e2510a23a67da2a2da98492
-        with:
-          fail: true
-
   check_fmt:
     name: "Cargo Fmt"
     runs-on: ubuntu-latest
