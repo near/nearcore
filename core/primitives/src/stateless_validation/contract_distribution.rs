@@ -233,4 +233,4 @@ pub struct CodeHash(pub CryptoHash);
 
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct CodeBytes(Vec<u8>);
+pub struct CodeBytes(pub Vec<u8>);

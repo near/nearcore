@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -7,7 +8,9 @@ use near_async::time::Instant;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::log_assert_fail;
+use near_primitives::challenge::PartialState;
+use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
@@ -32,11 +35,21 @@ const WITNESS_PARTS_CACHE_SIZE: usize = 40;
 /// so we don't have to worry much about memory usage here.
 const PROCESSED_WITNESSES_CACHE_SIZE: usize = 200;
 
+pub type DecodePartialWitnessResult = std::io::Result<(EncodedChunkStateWitness, Vec<CodeBytes>)>;
+
+enum AccessedContractsState {
+    Unknown,
+    Pending(Vec<CodeHash>),
+    Received(Vec<CodeBytes>),
+}
+
 struct CacheEntry {
     pub created_at: Instant,
     pub data_parts_present: usize,
     pub parts: Vec<WitnessPart>,
     pub encoder: Arc<WitnessEncoder>,
+    pub encoded_length: Option<usize>,
+    pub accessed_contracts: AccessedContractsState,
     pub total_parts_size: usize,
 }
 
@@ -47,6 +60,8 @@ impl CacheEntry {
             data_parts_present: 0,
             parts: vec![None; encoder.total_parts()],
             total_parts_size: 0,
+            encoded_length: None,
+            accessed_contracts: AccessedContractsState::Unknown,
             encoder,
         }
     }
@@ -60,15 +75,27 @@ impl CacheEntry {
     pub fn insert_in_cache_entry(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
-    ) -> Option<std::io::Result<EncodedChunkStateWitness>> {
+    ) -> Option<DecodePartialWitnessResult> {
         let ChunkProductionKey { shard_id, height_created, .. } =
             partial_witness.chunk_production_key();
         let (part_ord, part, encoded_length) = partial_witness.decompose();
 
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
-            log_assert_fail!("Received duplicate or redundant partial state witness part. shard_id={shard_id:?}, height_created={height_created:?}, part_ord={part_ord:?}");
+            tracing::warn!("Received duplicate or redundant partial state witness part. shard_id={shard_id:?}, height_created={height_created:?}, part_ord={part_ord:?}");
             return None;
+        }
+
+        match self.encoded_length {
+            Some(current_encoded_length) => {
+                if current_encoded_length != encoded_length {
+                    tracing::warn!("Partial encoded witness length field doesn't match, expected {current_encoded_length}, got {encoded_length}");
+                    return None;
+                }
+            }
+            None => {
+                self.encoded_length = Some(encoded_length);
+            }
         }
 
         // Increment the count of data parts present even if the part has been decoded before.
@@ -77,13 +104,61 @@ impl CacheEntry {
         self.total_parts_size += part.len();
         self.parts[part_ord] = Some(part);
 
-        // If we have enough parts, try to decode the state witness.
+        self.decode_if_ready()
+    }
+
+    pub fn set_pending_contracts(&mut self, contract_hashes: Vec<CodeHash>) {
+        match &self.accessed_contracts {
+            AccessedContractsState::Unknown => {
+                self.accessed_contracts = AccessedContractsState::Pending(contract_hashes);
+            }
+            AccessedContractsState::Pending(_) | AccessedContractsState::Received(_) => {
+                todo!("warn")
+            }
+        }
+    }
+
+    pub fn set_received_contracts(
+        &mut self,
+        contract_code: Vec<CodeBytes>,
+    ) -> Option<DecodePartialWitnessResult> {
+        match &self.accessed_contracts {
+            AccessedContractsState::Pending(hashes) => {
+                let actual = HashSet::<CryptoHash>::from_iter(
+                    contract_code.iter().map(|code| CryptoHash::hash_bytes(&code.0)),
+                );
+                let expected = HashSet::from_iter(hashes.iter().map(|hash| hash.0));
+                if actual == expected {
+                    self.accessed_contracts = AccessedContractsState::Received(contract_code);
+                    self.decode_if_ready()
+                } else {
+                    todo!("warn")
+                }
+            }
+            AccessedContractsState::Unknown | AccessedContractsState::Received(_) => todo!("warn"),
+        }
+    }
+
+    fn decode_if_ready(&mut self) -> Option<DecodePartialWitnessResult> {
         if self.data_parts_present < self.data_parts_required() {
             return None;
         }
+        let encoded_length = self
+            .encoded_length
+            .expect("Expect encoded length to be set here since we proccessed at least one part");
+        let contracts: Vec<CodeBytes> = match &mut self.accessed_contracts {
+            AccessedContractsState::Unknown => vec![],
+            AccessedContractsState::Pending(_) => {
+                return None;
+            }
+            AccessedContractsState::Received(contracts) => {
+                // TODO: this is ugly
+                std::mem::take(contracts)
+            }
+        };
 
         let decode_result = self.encoder.decode(&mut self.parts, encoded_length);
-        Some(decode_result)
+        Some(decode_result.map(|decode_result| (decode_result, contracts)))
     }
 }
 
@@ -150,8 +225,8 @@ impl PartialEncodedStateWitnessTracker {
             self.parts_cache.pop(&key);
             self.processed_witnesses.push(key.clone(), ());
 
-            let encoded_witness = match decode_result {
-                Ok(encoded_chunk_state_witness) => encoded_chunk_state_witness,
+            let (encoded_witness, accessed_contracts) = match decode_result {
+                Ok(data) => data,
                 Err(err) => {
                     // We ideally never expect the decoding to fail. In case it does, we received a bad part
                     // from the chunk producer.
@@ -168,7 +243,7 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -176,6 +251,9 @@ impl PartialEncodedStateWitnessTracker {
                     key,
                 )));
             }
+
+            let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+            values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
             self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
