@@ -11,5 +11,5 @@ max_congestion_incoming_gas: {
 # 0.7
 reject_tx_congestion_threshold: {
   old : { numerator: 50, denominator: 100 },
-  new : { numerator: 70, denominator: 100 }
+  new : { numerator: 80, denominator: 100 }
 }
