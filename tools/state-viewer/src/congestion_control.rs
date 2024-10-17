@@ -46,7 +46,14 @@ impl CongestionControlCmd {
 }
 
 #[derive(clap::Parser)]
-pub struct PrintCmd {}
+pub struct PrintCmd {
+    // The shard id to print the congestion info for.
+    #[arg(long)]
+    shard_id: Option<ShardId>,
+    // The state root to print the congestion info for.
+    #[arg(long, default_value = "1")]
+    block_count: u64,
+}
 
 impl PrintCmd {
     pub(crate) fn run(&self, near_config: &NearConfig, store: Store) {
@@ -56,16 +63,24 @@ impl PrintCmd {
             near_config.client_config.save_trie_changes,
         );
         let head = chain_store.head().unwrap();
-        let block = chain_store.get_block(&head.last_block_hash).unwrap();
+        let mut block = chain_store.get_block(&head.last_block_hash).unwrap();
 
-        for chunk_header in block.chunks().iter() {
-            let congestion_info = chunk_header.congestion_info();
-            println!(
-                "{:?} - {:?} - {:?}",
-                chunk_header.shard_id(),
-                chunk_header.prev_state_root(),
-                congestion_info
-            );
+        for _ in 0..self.block_count {
+            for chunk_header in block.chunks().iter() {
+                if let Some(shard_id) = self.shard_id {
+                    if shard_id != chunk_header.shard_id() {
+                        continue;
+                    }
+                }
+                let congestion_info = chunk_header.congestion_info();
+                println!(
+                    "{:?} - {:?} - {:?}",
+                    chunk_header.shard_id(),
+                    chunk_header.prev_state_root(),
+                    congestion_info
+                );
+            }
+            block = chain_store.get_block(&block.header().prev_hash()).unwrap();
         }
     }
 }
