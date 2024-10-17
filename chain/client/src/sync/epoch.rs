@@ -436,6 +436,8 @@ impl EpochSync {
             .choose(&mut rand::thread_rng())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
 
+        tracing::info!(peer_id=?peer.peer_info.id, "Bootstrapping node via epoch sync");
+
         *status = SyncStatus::EpochSync(EpochSyncStatus {
             source_peer_id: peer.peer_info.id.clone(),
             source_peer_height: peer.highest_block_height,
@@ -545,6 +547,7 @@ impl EpochSync {
         update.commit()?;
 
         *status = SyncStatus::EpochSyncDone;
+        tracing::info!(epoch_id=?last_header.epoch_id(), "Bootstrapped from epoch sync");
 
         Ok(())
     }
