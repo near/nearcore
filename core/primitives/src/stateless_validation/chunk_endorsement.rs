@@ -50,6 +50,13 @@ impl ChunkEndorsement {
             ChunkEndorsement::V2(v2) => &v2.metadata.account_id,
         }
     }
+
+    pub fn chunk_hash(&self) -> &ChunkHash {
+        match self {
+            ChunkEndorsement::V1(e) => e.chunk_hash(),
+            ChunkEndorsement::V2(e) => e.chunk_hash(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
