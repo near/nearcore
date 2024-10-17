@@ -53,7 +53,7 @@ fn setup_test_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
 
-    let mut config = RuntimeConfig::test();
+    let mut config = RuntimeConfig::test_protocol_version(protocol_version);
     adjust_runtime_config(&mut config);
     let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
 
@@ -515,11 +515,16 @@ fn submit_n_cheap_fns(
 /// with remote traffic.
 #[test]
 fn test_transaction_limit_for_local_congestion() {
+    init_test_logger();
+
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
     let runtime_config_store = RuntimeConfigStore::new(None);
-    let config = runtime_config_store.get_config(PROTOCOL_VERSION);
+
+    // Fix the initial configuration of congestion control for the tests.
+    let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    let config = runtime_config_store.get_config(protocol_version);
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
 
@@ -528,7 +533,7 @@ fn test_transaction_limit_for_local_congestion() {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let sender_id = contract_id.clone();
     let dummy_receiver: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_test_runtime("test0".parse().unwrap(), PROTOCOL_VERSION);
+    let env = setup_test_runtime("test0".parse().unwrap(), protocol_version);
 
     let (
         remote_tx_included_without_congestion,
