@@ -55,6 +55,7 @@ pub enum BlockBody {
     V2(BlockBodyV2),
 }
 
+#[derive(Clone)]
 pub enum MaybeNew<'a, T> {
     New(&'a T),
     Old(&'a T),
@@ -108,16 +109,6 @@ impl BlockBody {
             })
             .collect()
     }
-
-    // #[inline]
-    // pub fn chunks<'a>(&self) -> &[MaybeNew<'a, ShardChunkHeader>] {
-    //     let chunks = match self {
-    //         BlockBody::V1(body) => &body.chunks,
-    //         BlockBody::V2(body) => &body.chunks,
-    //     };
-
-    //     chunks
-    // }
 
     #[inline]
     pub fn challenges(&self) -> &Challenges {
