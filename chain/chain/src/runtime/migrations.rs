@@ -57,7 +57,7 @@ mod tests {
         );
         let mainnet_migration_data = load_migration_data(near_primitives::chains::MAINNET);
         assert_eq!(
-            mainnet_migration_data.restored_receipts.get(&new_shard_id_tmp(0)).unwrap().len(),
+            mainnet_migration_data.restored_receipts.get(&ShardId::new(0)).unwrap().len(),
             383
         );
         let testnet_migration_data = load_migration_data(near_primitives::chains::TESTNET);

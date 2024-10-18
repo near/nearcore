@@ -62,7 +62,7 @@ fn change_shard_id_to_invalid() {
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
 
     // 1. Corrupt chunks
-    let bad_shard_id = new_shard_id_tmp(100);
+    let bad_shard_id = ShardId::new(100);
     let mut new_chunks = vec![];
     for chunk in block.chunks().iter() {
         let mut new_chunk = chunk.clone();

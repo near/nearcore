@@ -449,7 +449,7 @@ impl TestLoopBuilder {
         if is_validator && !self.track_all_shards {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![new_shard_id_tmp(666)];
+            client_config.tracked_shards = vec![ShardId::new(666)];
         }
 
         if let Some(config_modifier) = &self.config_modifier {

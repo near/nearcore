@@ -177,7 +177,7 @@ fn create_shard_chunk(
 ) -> ShardChunk {
     ShardChunk::V2(ShardChunkV2 {
         chunk_hash: chunk_hash.clone(),
-        header: create_chunk_header(0, new_shard_id_tmp(0)),
+        header: create_chunk_header(0, ShardId::new(0)),
         transactions,
         prev_outgoing_receipts: receipts,
     })
@@ -198,7 +198,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        new_shard_id_tmp(0),
+        ShardId::new(0),
         Default::default(),
         Default::default(),
         Default::default(),

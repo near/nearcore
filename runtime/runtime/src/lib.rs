@@ -1355,7 +1355,7 @@ impl Runtime {
         {
             // Note that receipts are restored only on mainnet so restored_receipts will be empty on
             // other chains.
-            migration_data.restored_receipts.get(&new_shard_id_tmp(0)).cloned().unwrap_or_default()
+            migration_data.restored_receipts.get(&ShardId::new(0)).cloned().unwrap_or_default()
         } else {
             vec![]
         };

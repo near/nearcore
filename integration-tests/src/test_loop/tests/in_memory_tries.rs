@@ -79,7 +79,7 @@ fn test_load_memtrie_after_empty_chunks() {
             .enumerate()
             .find_map(
                 |(idx, shards)| {
-                    if shards.contains(&new_shard_id_tmp(0)) {
+                    if shards.contains(&ShardId::new(0)) {
                         Some(idx)
                     } else {
                         None
@@ -95,12 +95,12 @@ fn test_load_memtrie_after_empty_chunks() {
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &shard_layout));
+        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout));
     clients[idx]
         .runtime_adapter
         .get_tries()
         .load_mem_trie(
-            &ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &shard_layout),
+            &ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout),
             None,
             true,
         )

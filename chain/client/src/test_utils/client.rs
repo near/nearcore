@@ -158,7 +158,7 @@ fn create_chunk_on_height_for_shard(
 }
 
 pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> ProduceChunkResult {
-    create_chunk_on_height_for_shard(client, next_height, new_shard_id_tmp(0))
+    create_chunk_on_height_for_shard(client, next_height, ShardId::new(0))
 }
 
 pub fn create_chunk_with_transactions(
@@ -189,7 +189,7 @@ pub fn create_chunk(
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
-            new_shard_id_tmp(0),
+            ShardId::new(0),
             signer.as_ref(),
         )
         .unwrap()

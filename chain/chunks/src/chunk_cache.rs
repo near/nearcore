@@ -304,8 +304,8 @@ mod tests {
     #[test]
     fn test_incomplete_chunks() {
         let mut cache = EncodedChunksCache::new();
-        let header0 = create_chunk_header(1, new_shard_id_tmp(0));
-        let header1 = create_chunk_header(1, new_shard_id_tmp(1));
+        let header0 = create_chunk_header(1, ShardId::new(0));
+        let header1 = create_chunk_header(1, ShardId::new(1));
         cache.get_or_insert_from_header(&header0);
         cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
             header: header1.clone(),
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
-        let header = create_chunk_header(1, new_shard_id_tmp(0));
+        let header = create_chunk_header(1, ShardId::new(0));
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header, parts: vec![], prev_outgoing_receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);

@@ -91,7 +91,7 @@ fn test_block_query() {
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk = client
-            .chunk(ChunkId::BlockShardId(BlockId::Height(0), new_shard_id_tmp(0)))
+            .chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(0)))
             .await
             .unwrap();
         assert_eq!(chunk.author, "test1");
@@ -107,7 +107,7 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
         assert_eq!(chunk.header.rent_paid, 0);
-        assert_eq!(chunk.header.shard_id, new_shard_id_tmp(0));
+        assert_eq!(chunk.header.shard_id, ShardId::new(0));
         assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);
@@ -122,7 +122,7 @@ fn test_chunk_by_hash() {
 fn test_chunk_invalid_shard_id() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk =
-            client.chunk(ChunkId::BlockShardId(BlockId::Height(0), new_shard_id_tmp(100))).await;
+            client.chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::new(100))).await;
         match chunk {
             Ok(_) => panic!("should result in an error"),
             Err(e) => {
@@ -653,7 +653,7 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
         assert_eq!(chunk.header.rent_paid, 0);
-        assert_eq!(chunk.header.shard_id, new_shard_id_tmp(0));
+        assert_eq!(chunk.header.shard_id, ShardId::new(0));
         assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);

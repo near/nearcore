@@ -1013,7 +1013,7 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         _account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
-        Ok(new_shard_id_tmp(0))
+        Ok(ShardId::new(0))
     }
 }
 

@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn initial_state_transition_data_gc() {
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = ShardId::new(0);
         let block_at_1 = hash(&[1]);
         let block_at_2 = hash(&[2]);
         let block_at_3 = hash(&[3]);
@@ -148,7 +148,7 @@ mod tests {
     }
     #[test]
     fn multiple_state_transition_data_gc() {
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = ShardId::new(0);
         let store = create_test_store();
         let chain_store = create_chain_store(&store);
         save_state_transition_data(&store, hash(&[1]), 1, shard_id);

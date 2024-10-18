@@ -2322,7 +2322,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: new_shard_id_tmp(0),
+                shard_id: ShardId::new(0),
                 added,
                 last_requested: added,
             },
