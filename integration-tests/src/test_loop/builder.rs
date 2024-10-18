@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 use near_async::futures::FutureSpawner;
@@ -28,13 +28,15 @@ use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerAct
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{new_shard_id_tmp, AccountId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
-use near_store::{Store, StoreConfig, TrieConfig};
+use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
+use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
@@ -42,6 +44,17 @@ use tempfile::TempDir;
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
 use near_chain::resharding::resharding_actor::ReshardingActor;
+
+enum DropConditionKind {
+    /// Whether test loop should drop all chunks validated by the given account.
+    /// Works if number of nodes is significant enough (at least three?).
+    ChunksValidatedBy(AccountId),
+    /// Whether test loop should drop all endorsements from the given account.
+    EndorsementsFrom(AccountId),
+    /// Whether test loop should drop all chunks in the given range of heights
+    /// relative to first block height where protocol version changes.
+    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
+}
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
@@ -61,10 +74,8 @@ pub(crate) struct TestLoopBuilder {
     archival_clients: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    /// Whether test loop should drop all chunks validated by the given account.
-    drop_chunks_validated_by: Option<AccountId>,
-    /// Whether test loop should drop all endorsements from the given account.
-    drop_endorsements_from: Option<AccountId>,
+    /// Conditions under which chunks/endorsements are dropped.
+    drop_condition_kinds: Vec<DropConditionKind>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
@@ -75,6 +86,142 @@ pub(crate) struct TestLoopBuilder {
     warmup: bool,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
+}
+
+/// Checks whether chunk is validated by the given account.
+fn is_chunk_validated_by(
+    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
+    chunk: ShardChunkHeader,
+    account_id: AccountId,
+) -> bool {
+    let prev_block_hash = chunk.prev_block_hash();
+    let shard_id = chunk.shard_id();
+    let height_created = chunk.height_created();
+    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+
+    let chunk_validators = epoch_manager_adapter
+        .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
+        .unwrap();
+    return chunk_validators.contains(&account_id);
+}
+
+/// Returns true if the chunk should be dropped based on the
+/// `DropCondition::ProtocolUpgradeChunkRange`.
+fn should_drop_chunk_for_protocol_upgrade(
+    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
+    chunk: ShardChunkHeader,
+    version_of_protocol_upgrade: ProtocolVersion,
+    chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+) -> bool {
+    let prev_block_hash = chunk.prev_block_hash();
+    let shard_id = chunk.shard_id();
+    let height_created = chunk.height_created();
+    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+    let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
+    let chunk_shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    // If there is no condition for the shard, all chunks
+    // pass through.
+    let Some(range) = chunk_ranges.get(&chunk_shard_uid) else {
+        return false;
+    };
+
+    let epoch_protocol_version =
+        epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
+    // Drop condition for the first epoch with new protocol version.
+    if epoch_protocol_version == version_of_protocol_upgrade {
+        let prev_epoch_id =
+            epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
+        let prev_epoch_protocol_version =
+            epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
+        // If this is not the first epoch with new protocol version,
+        // all chunks go through.
+        if prev_epoch_protocol_version == version_of_protocol_upgrade {
+            return false;
+        }
+
+        // Check the first block height in the epoch separately,
+        // because the block itself is not created yet.
+        // Its relative height is 0.
+        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap() {
+            return range.contains(&0);
+        }
+
+        // Otherwise we can get start height of the epoch by
+        // the previous hash.
+        let epoch_start_height =
+            epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
+        range.contains(&(height_created as i64 - epoch_start_height as i64))
+    } else if epoch_protocol_version + 1 == version_of_protocol_upgrade {
+        // Drop condition for the last epoch with old protocol version.
+        let maybe_upgrade_height = epoch_manager_adapter
+            .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
+            .unwrap();
+
+        // The protocol upgrade height is known if and only if
+        // protocol upgrade happens in the next epoch.
+        let Some(upgrade_height) = maybe_upgrade_height else {
+            return false;
+        };
+        let next_epoch_id =
+            epoch_manager_adapter.get_next_epoch_id_from_prev_block(prev_block_hash).unwrap();
+        let next_epoch_protocol_version =
+            epoch_manager_adapter.get_epoch_protocol_version(&next_epoch_id).unwrap();
+        assert!(epoch_protocol_version < next_epoch_protocol_version);
+        range.contains(&(height_created as i64 - upgrade_height as i64))
+    } else {
+        false
+    }
+}
+
+/// Registers condition to drop certain message received by the peer manager actor.
+fn register_drop_condition(
+    peer_manager_actor: &mut TestLoopPeerManagerActor,
+    chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
+    condition: &DropConditionKind,
+) {
+    match condition {
+        DropConditionKind::ChunksValidatedBy(account_id) => {
+            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
+            let account_id = account_id.clone();
+            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
+                is_chunk_validated_by(
+                    inner_epoch_manager_adapter.clone(),
+                    chunk,
+                    account_id.clone(),
+                )
+            });
+
+            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+                chunks_storage,
+                epoch_manager_adapter.clone(),
+                drop_chunks_condition,
+            ));
+        }
+        DropConditionKind::EndorsementsFrom(account_id) => {
+            peer_manager_actor
+                .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
+        }
+        DropConditionKind::ProtocolUpgradeChunkRange((protocol_version, chunk_ranges)) => {
+            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
+            let protocol_version = *protocol_version;
+            let chunk_ranges = chunk_ranges.clone();
+
+            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
+                should_drop_chunk_for_protocol_upgrade(
+                    inner_epoch_manager_adapter.clone(),
+                    chunk,
+                    protocol_version,
+                    chunk_ranges.clone(),
+                )
+            });
+            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+                chunks_storage,
+                epoch_manager_adapter.clone(),
+                drop_chunks_condition,
+            ));
+        }
+    }
 }
 
 impl TestLoopBuilder {
@@ -88,8 +235,7 @@ impl TestLoopBuilder {
             test_loop_data_dir: None,
             archival_clients: HashSet::new(),
             chunks_storage: Default::default(),
-            drop_chunks_validated_by: None,
-            drop_endorsements_from: None,
+            drop_condition_kinds: vec![],
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
@@ -141,12 +287,28 @@ impl TestLoopBuilder {
     }
 
     pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
-        self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
+        self.drop_condition_kinds
+            .push(DropConditionKind::ChunksValidatedBy(account_id.parse().unwrap()));
         self
     }
 
     pub(crate) fn drop_endorsements_from(mut self, account_id: &str) -> Self {
-        self.drop_endorsements_from = Some(account_id.parse().unwrap());
+        self.drop_condition_kinds
+            .push(DropConditionKind::EndorsementsFrom(account_id.parse().unwrap()));
+        self
+    }
+
+    pub(crate) fn drop_protocol_upgrade_chunks(
+        mut self,
+        protocol_version: ProtocolVersion,
+        chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+    ) -> Self {
+        if !chunk_ranges.is_empty() {
+            self.drop_condition_kinds.push(DropConditionKind::ProtocolUpgradeChunkRange((
+                protocol_version,
+                chunk_ranges,
+            )));
+        }
         self
     }
 
@@ -560,17 +722,13 @@ impl TestLoopBuilder {
                 Arc::new(self.test_loop.future_spawner()),
             );
 
-            if let Some(account_id) = &self.drop_chunks_validated_by {
-                peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            for condition in &self.drop_condition_kinds {
+                register_drop_condition(
+                    &mut peer_manager_actor,
                     self.chunks_storage.clone(),
                     epoch_manager_adapters[idx].clone(),
-                    account_id.clone(),
-                ));
-            }
-
-            if let Some(account_id) = &self.drop_endorsements_from {
-                peer_manager_actor
-                    .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
+                    condition,
+                );
             }
 
             self.test_loop.register_actor_for_index(
