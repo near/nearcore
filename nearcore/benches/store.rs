@@ -6,7 +6,7 @@ use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::types::{new_shard_id_tmp, ShardId, ShardIndex, StateRoot};
+use near_primitives::types::{ShardId, ShardIndex, StateRoot};
 use near_store::Mode;
 use nearcore::{get_default_home, load_config, NightshadeRuntime, NightshadeRuntimeExt};
 use std::time::{Duration, Instant};
@@ -80,13 +80,13 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
 
 /// Read first 10k trie items from shard 0.
 fn read_trie_items_10k(bench: &mut Bencher) {
-    read_trie_items(bench, 0, new_shard_id_tmp(0), Mode::ReadWrite);
+    read_trie_items(bench, 0, ShardId::new(0), Mode::ReadWrite);
 }
 
 /// Read first 10k trie items from shard 0 in read-only mode.
 fn read_trie_items_10k_read_only(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
-    read_trie_items(bench, 0, new_shard_id_tmp(0), Mode::ReadOnly);
+    read_trie_items(bench, 0, ShardId::new(0), Mode::ReadOnly);
 }
 
 benchmark_group!(benches, read_trie_items_10k, read_trie_items_10k_read_only);

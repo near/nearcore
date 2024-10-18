@@ -612,7 +612,7 @@ mod trie_cache_tests {
     use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::{new_shard_id_tmp, shard_id_as_u32, ShardId};
+    use near_primitives::types::{shard_id_as_u32, ShardId};
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());
@@ -623,7 +623,7 @@ mod trie_cache_tests {
         let value_size_sum = 5;
         let memory_overhead = 2 * TrieCacheInner::PER_ENTRY_OVERHEAD;
         let mut cache =
-            TrieCacheInner::new(100, value_size_sum + memory_overhead, new_shard_id_tmp(0), false);
+            TrieCacheInner::new(100, value_size_sum + memory_overhead, ShardId::new(0), false);
         // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.current_total_size(), 2 + TrieCacheInner::PER_ENTRY_OVERHEAD);
@@ -641,7 +641,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_deletions_queue() {
-        let mut cache = TrieCacheInner::new(2, 1000, new_shard_id_tmp(0), false);
+        let mut cache = TrieCacheInner::new(2, 1000, ShardId::new(0), false);
         // Add two values to the cache.
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
@@ -660,7 +660,7 @@ mod trie_cache_tests {
     fn test_cache_capacity() {
         let capacity = 2;
         let total_size_limit = TrieCacheInner::PER_ENTRY_OVERHEAD * capacity;
-        let mut cache = TrieCacheInner::new(100, total_size_limit, new_shard_id_tmp(0), false);
+        let mut cache = TrieCacheInner::new(100, total_size_limit, ShardId::new(0), false);
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[2]);
         put_value(&mut cache, &[3]);
@@ -673,7 +673,7 @@ mod trie_cache_tests {
     #[test]
     fn test_small_memory_limit() {
         let total_size_limit = 1;
-        let mut cache = TrieCacheInner::new(100, total_size_limit, new_shard_id_tmp(0), false);
+        let mut cache = TrieCacheInner::new(100, total_size_limit, ShardId::new(0), false);
         put_value(&mut cache, &[1, 2, 3]);
         put_value(&mut cache, &[2, 3, 4]);
         put_value(&mut cache, &[3, 4, 5]);
@@ -700,10 +700,10 @@ mod trie_cache_tests {
         store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
         let trie_config = TrieConfig::from_store_config(&store_config);
 
-        check_cache_size(&trie_config, new_shard_id_tmp(1), false, DEFAULT_SIZE);
-        check_cache_size(&trie_config, new_shard_id_tmp(0), false, S0_SIZE);
-        check_cache_size(&trie_config, new_shard_id_tmp(1), true, DEFAULT_VIEW_SIZE);
-        check_cache_size(&trie_config, new_shard_id_tmp(0), true, S0_VIEW_SIZE);
+        check_cache_size(&trie_config, ShardId::new(1), false, DEFAULT_SIZE);
+        check_cache_size(&trie_config, ShardId::new(0), false, S0_SIZE);
+        check_cache_size(&trie_config, ShardId::new(1), true, DEFAULT_VIEW_SIZE);
+        check_cache_size(&trie_config, ShardId::new(0), true, S0_VIEW_SIZE);
     }
 
     #[track_caller]

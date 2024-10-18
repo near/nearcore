@@ -881,10 +881,10 @@ mod tests {
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
         let expected_distribution: HashMap<ShardId, _> = [
-            (new_shard_id_tmp(0), 247),
-            (new_shard_id_tmp(1), 268),
-            (new_shard_id_tmp(2), 233),
-            (new_shard_id_tmp(3), 252),
+            (ShardId::new(0), 247),
+            (ShardId::new(1), 268),
+            (ShardId::new(2), 233),
+            (ShardId::new(3), 252),
         ]
         .into_iter()
         .collect();
@@ -902,11 +902,11 @@ mod tests {
             1,
         );
         assert_eq!(
-            shard_layout.get_children_shards_uids(new_shard_id_tmp(0)).unwrap(),
+            shard_layout.get_children_shards_uids(ShardId::new(0)).unwrap(),
             (0..3).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         assert_eq!(
-            shard_layout.get_children_shards_uids(new_shard_id_tmp(1)).unwrap(),
+            shard_layout.get_children_shards_uids(ShardId::new(1)).unwrap(),
             (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..3 {
@@ -984,22 +984,22 @@ mod tests {
         assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(3), u(8), u(4), u(7)]);
 
         // check parent
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(3)).unwrap(), sid(3));
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(8)).unwrap(), sid(1));
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(4)).unwrap(), sid(4));
-        assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(7)).unwrap(), sid(1));
+        assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(3)).unwrap(), sid(3));
+        assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(8)).unwrap(), sid(1));
+        assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(4)).unwrap(), sid(4));
+        assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(7)).unwrap(), sid(1));
 
         // check child
         assert_eq!(
-            shard_layout.get_children_shards_ids(new_shard_id_tmp(1)).unwrap(),
+            shard_layout.get_children_shards_ids(ShardId::new(1)).unwrap(),
             new_shard_ids_vec(vec![7, 8])
         );
         assert_eq!(
-            shard_layout.get_children_shards_ids(new_shard_id_tmp(3)).unwrap(),
+            shard_layout.get_children_shards_ids(ShardId::new(3)).unwrap(),
             new_shard_ids_vec(vec![3])
         );
         assert_eq!(
-            shard_layout.get_children_shards_ids(new_shard_id_tmp(4)).unwrap(),
+            shard_layout.get_children_shards_ids(ShardId::new(4)).unwrap(),
             new_shard_ids_vec(vec![4])
         );
     }

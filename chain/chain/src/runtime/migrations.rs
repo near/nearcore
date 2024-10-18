@@ -33,7 +33,8 @@ mod tests {
     use near_mainnet_res::mainnet_restored_receipts;
     use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
-    use near_primitives::types::new_shard_id_tmp;
+
+    use near_primitives::types::ShardId;
 
     #[test]
     fn test_migration_data() {
@@ -57,7 +58,7 @@ mod tests {
         );
         let mainnet_migration_data = load_migration_data(near_primitives::chains::MAINNET);
         assert_eq!(
-            mainnet_migration_data.restored_receipts.get(&new_shard_id_tmp(0)).unwrap().len(),
+            mainnet_migration_data.restored_receipts.get(&ShardId::new(0)).unwrap().len(),
             383
         );
         let testnet_migration_data = load_migration_data(near_primitives::chains::TESTNET);

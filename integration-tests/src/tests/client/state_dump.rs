@@ -15,7 +15,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{new_shard_id_tmp, BlockHeight};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -303,7 +303,7 @@ fn run_state_sync_with_dumped_parts(
         )
         .unwrap());
     store_update.commit().unwrap();
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = ShardId::new(0);
     for part_id in 0..num_parts {
         let path = root_dir.path().join(external_storage_location(
             &config.chain_id,

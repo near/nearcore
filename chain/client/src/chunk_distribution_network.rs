@@ -226,7 +226,6 @@ mod tests {
             PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderInnerV3,
             ShardChunkHeaderV3,
         },
-        types::new_shard_id_tmp,
         validator_signer::EmptyValidatorSigner,
     };
     use std::{collections::HashMap, convert::Infallible, future::Future};
@@ -310,8 +309,8 @@ mod tests {
 
         // When chunks are known by the client, the shards manager
         // is told to process the chunk directly
-        let known_chunk_1 = mock_shard_chunk(1, new_shard_id_tmp(0));
-        let known_chunk_2 = mock_shard_chunk(2, new_shard_id_tmp(0));
+        let known_chunk_1 = mock_shard_chunk(1, ShardId::new(0));
+        let known_chunk_2 = mock_shard_chunk(2, ShardId::new(0));
         client.publish_chunk(&known_chunk_1).now_or_never();
         client.publish_chunk(&known_chunk_2).now_or_never();
         let blocks_missing_chunks = vec![BlockMissingChunks {

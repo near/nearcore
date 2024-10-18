@@ -11,7 +11,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{new_shard_id_tmp, shard_id_as_u64, AccountId};
+use near_primitives::types::{shard_id_as_u64, AccountId, ShardId};
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
@@ -312,7 +312,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         let trie = env.clients[0]
             .chain
             .runtime_adapter
-            .get_trie_for_shard(new_shard_id_tmp(0), &block_hash, state_root, true)
+            .get_trie_for_shard(ShardId::new(0), &block_hash, state_root, true)
             .unwrap();
         (0..NUM_PARTS)
             .map(|part_id| {
@@ -372,7 +372,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         let trie = env.clients[0]
             .chain
             .runtime_adapter
-            .get_trie_for_shard(new_shard_id_tmp(0), &block_hash, state_root, true)
+            .get_trie_for_shard(ShardId::new(0), &block_hash, state_root, true)
             .unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
@@ -525,7 +525,7 @@ fn test_not_supported_block() {
             .chain
             .get_chunk_extra(
                 &block_hash,
-                &ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &shard_layout),
+                &ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout),
             )
             .unwrap()
             .state_root();
