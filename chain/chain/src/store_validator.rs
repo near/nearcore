@@ -10,6 +10,7 @@ use near_primitives::borsh;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
@@ -75,6 +76,9 @@ pub struct StoreValidator {
     timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
+    // If present, the node was bootstrapped with epoch sync, and this block height
+    // represents the first block of the target epoch that we epoch synced to.
+    epoch_sync_boundary: Option<BlockHeight>,
 
     pub errors: Vec<ErrorMessage>,
     tests: u64,
@@ -90,6 +94,12 @@ impl StoreValidator {
         store: Store,
         is_archival: bool,
     ) -> Self {
+        let epoch_sync_boundary = store
+            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
+            .expect("Store IO error when getting EpochSyncProof")
+            .map(|epoch_sync_proof| {
+                epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
+            });
         StoreValidator {
             me,
             config,
@@ -101,6 +111,7 @@ impl StoreValidator {
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
+            epoch_sync_boundary,
             errors: vec![],
             tests: 0,
         }
