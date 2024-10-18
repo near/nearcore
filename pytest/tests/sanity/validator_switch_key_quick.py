@@ -64,7 +64,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             epoch_start_height = info['result']['epoch_start_height']
             if epoch_start_height > latest_epoch_start_height:
                 latest_epoch_start_height = epoch_start_height
-                logger.info(f"Epoch height: {epoch_start_height}")
+                logger.info(f"Epoch start height: {epoch_start_height}")
                 logger.info(f"Validators: {info['result']['current_validators']}")
 
             next_validators = info['result']['next_validators']
