@@ -57,7 +57,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    new_shard_id_tmp, shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion,
+    shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion,
     ShardId,
 };
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};

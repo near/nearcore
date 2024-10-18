@@ -497,7 +497,7 @@ mod test {
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{
-        new_shard_id_tmp, BlockHeight, BlockHeightDelta, NumBlocks, ShardId,
+        BlockHeight, BlockHeightDelta, NumBlocks, ShardId,
     };
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;

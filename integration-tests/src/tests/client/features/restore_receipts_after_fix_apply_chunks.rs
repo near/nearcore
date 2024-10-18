@@ -6,7 +6,7 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
-use near_primitives::types::{new_shard_id_tmp, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;

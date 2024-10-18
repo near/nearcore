@@ -8,7 +8,7 @@ use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{
-    new_shard_id_tmp, BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId,
+    BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId,
 };
 use nearcore::{load_test_config, start_with_config};
 

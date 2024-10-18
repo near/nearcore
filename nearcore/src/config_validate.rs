@@ -171,7 +171,7 @@ impl<'a> ConfigValidator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::types::{new_shard_id_tmp, ShardId};
+    use near_primitives::types::ShardId;
 
     use super::*;
 

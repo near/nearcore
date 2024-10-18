@@ -3,7 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_store::ShardUId;
 
 use crate::test_loop::builder::TestLoopBuilder;

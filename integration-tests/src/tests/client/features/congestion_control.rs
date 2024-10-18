@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{new_shard_id_tmp, ShardId};
+use near_primitives::types::ShardId;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;

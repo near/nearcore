@@ -30,7 +30,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
