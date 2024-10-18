@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -7,7 +8,9 @@ use near_async::time::Instant;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::log_assert_fail;
+use near_primitives::challenge::PartialState;
+use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
@@ -32,21 +35,29 @@ const WITNESS_PARTS_CACHE_SIZE: usize = 40;
 /// so we don't have to worry much about memory usage here.
 const PROCESSED_WITNESSES_CACHE_SIZE: usize = 200;
 
-struct CacheEntry {
-    pub created_at: Instant,
-    pub data_parts_present: usize,
-    pub parts: Vec<WitnessPart>,
-    pub encoder: Arc<WitnessEncoder>,
-    pub total_parts_size: usize,
+pub type DecodePartialWitnessResult = std::io::Result<(EncodedChunkStateWitness, Vec<CodeBytes>)>;
+
+enum AccessedContractsState {
+    Unknown,
+    Pending(Vec<CodeHash>),
+    Received(Vec<CodeBytes>),
 }
 
-impl CacheEntry {
-    pub fn new(encoder: Arc<WitnessEncoder>) -> Self {
+struct WitnessParts {
+    parts: Vec<WitnessPart>,
+    encoded_length: usize,
+    data_parts_present: usize,
+    encoder: Arc<WitnessEncoder>,
+    total_parts_size: usize,
+}
+
+impl WitnessParts {
+    fn new(encoder: Arc<WitnessEncoder>, encoded_length: usize) -> Self {
         Self {
-            created_at: Instant::now(),
             data_parts_present: 0,
             parts: vec![None; encoder.total_parts()],
             total_parts_size: 0,
+            encoded_length,
             encoder,
         }
     }
@@ -55,20 +66,30 @@ impl CacheEntry {
         self.encoder.data_parts()
     }
 
-    // Function to insert a part into the cache entry for the chunk hash. Additionally, it tries to
-    // decode and return the state witness if all parts are present.
-    pub fn insert_in_cache_entry(
-        &mut self,
-        partial_witness: PartialEncodedStateWitness,
-    ) -> Option<std::io::Result<EncodedChunkStateWitness>> {
+    fn has_enough_parts(&self) -> bool {
+        self.data_parts_present < self.data_parts_required()
+    }
+
+    fn insert_part(&mut self, partial_witness: PartialEncodedStateWitness) {
         let ChunkProductionKey { shard_id, height_created, .. } =
             partial_witness.chunk_production_key();
-        let (part_ord, part, encoded_length) = partial_witness.decompose();
+        let part_ord = partial_witness.part_ord();
+        let encoded_length = partial_witness.encoded_length();
+        let part = partial_witness.take_part();
 
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
-            log_assert_fail!("Received duplicate or redundant partial state witness part. shard_id={shard_id:?}, height_created={height_created:?}, part_ord={part_ord:?}");
-            return None;
+            tracing::warn!("Received duplicate or redundant partial state witness part. shard_id={shard_id:?}, height_created={height_created:?}, part_ord={part_ord:?}");
+            return;
+        }
+
+        if self.encoded_length != encoded_length {
+            tracing::warn!(
+                "Partial encoded witness length field doesn't match, expected {}, got {}",
+                self.encoded_length,
+                encoded_length
+            );
+            return;
         }
 
         // Increment the count of data parts present even if the part has been decoded before.
@@ -76,14 +97,120 @@ impl CacheEntry {
         self.data_parts_present += 1;
         self.total_parts_size += part.len();
         self.parts[part_ord] = Some(part);
+    }
 
-        // If we have enough parts, try to decode the state witness.
-        if self.data_parts_present < self.data_parts_required() {
+    fn decode(&mut self) -> Result<EncodedChunkStateWitness, std::io::Error> {
+        self.encoder.decode(&mut self.parts, self.encoded_length)
+    }
+}
+
+struct CacheEntry {
+    pub created_at: Instant,
+    pub parts: Option<WitnessParts>,
+    pub accessed_contracts: AccessedContractsState,
+}
+
+enum CacheUpdate {
+    WitnessPart(PartialEncodedStateWitness, Arc<WitnessEncoder>),
+    ContractHashes(Vec<CodeHash>),
+    ContractCodes(Vec<CodeBytes>),
+}
+
+impl CacheEntry {
+    pub fn new() -> Self {
+        Self {
+            created_at: Instant::now(),
+            parts: None,
+            accessed_contracts: AccessedContractsState::Unknown,
+        }
+    }
+
+    pub fn data_parts_required(&self) -> Option<usize> {
+        self.parts.as_ref().map(|parts| parts.data_parts_required())
+    }
+
+    pub fn data_parts_present(&self) -> usize {
+        self.parts.as_ref().map_or(0, |parts| parts.data_parts_present)
+    }
+
+    pub fn total_size(&self) -> usize {
+        let parts_size = self.parts.as_ref().map_or(0, |parts| parts.total_parts_size);
+        let contracts_size = match &self.accessed_contracts {
+            AccessedContractsState::Unknown | AccessedContractsState::Pending(_) => 0,
+            AccessedContractsState::Received(contracts) => {
+                contracts.iter().map(|code| code.0.len()).sum()
+            }
+        };
+        parts_size + contracts_size
+    }
+
+    // Function to insert a part into the cache entry for the chunk hash. Additionally, it tries to
+    // decode and return the state witness if all parts are present.
+    pub fn update(&mut self, update: CacheUpdate) -> Option<DecodePartialWitnessResult> {
+        match update {
+            CacheUpdate::WitnessPart(partial_witness, encoder) => {
+                self.parts
+                    .get_or_insert_with(|| {
+                        WitnessParts::new(encoder, partial_witness.encoded_length())
+                    })
+                    .insert_part(partial_witness);
+            }
+            CacheUpdate::ContractHashes(hashes) => {
+                self.set_pending_contracts(hashes);
+            }
+            CacheUpdate::ContractCodes(codes) => self.set_received_contracts(codes),
+        }
+        self.decode_if_ready()
+    }
+
+    fn set_pending_contracts(&mut self, contract_hashes: Vec<CodeHash>) {
+        match &self.accessed_contracts {
+            AccessedContractsState::Unknown => {
+                self.accessed_contracts = AccessedContractsState::Pending(contract_hashes);
+            }
+            AccessedContractsState::Pending(_) | AccessedContractsState::Received(_) => {
+                todo!("warn")
+            }
+        }
+    }
+
+    fn set_received_contracts(&mut self, contract_code: Vec<CodeBytes>) {
+        match &self.accessed_contracts {
+            AccessedContractsState::Pending(hashes) => {
+                let actual = HashSet::<CryptoHash>::from_iter(
+                    contract_code.iter().map(|code| CryptoHash::hash_bytes(&code.0)),
+                );
+                let expected = HashSet::from_iter(hashes.iter().map(|hash| hash.0));
+                if actual == expected {
+                    self.accessed_contracts = AccessedContractsState::Received(contract_code);
+                } else {
+                    todo!("warn")
+                }
+            }
+            AccessedContractsState::Unknown | AccessedContractsState::Received(_) => todo!("warn"),
+        }
+    }
+
+    fn decode_if_ready(&mut self) -> Option<DecodePartialWitnessResult> {
+        let Some(ref mut parts) = self.parts else {
+            return None;
+        };
+        if !parts.has_enough_parts() {
             return None;
         }
+        let contracts: Vec<CodeBytes> = match &mut self.accessed_contracts {
+            AccessedContractsState::Unknown => vec![],
+            AccessedContractsState::Pending(_) => {
+                return None;
+            }
+            AccessedContractsState::Received(contracts) => {
+                // TODO: this is ugly
+                std::mem::take(contracts)
+            }
+        };
 
-        let decode_result = self.encoder.decode(&mut self.parts, encoded_length);
-        Some(decode_result)
+        let decode_result = parts.decode();
+        Some(decode_result.map(|decode_result| (decode_result, contracts)))
     }
 }
 
@@ -126,21 +253,54 @@ impl PartialEncodedStateWitnessTracker {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
-
         let key = partial_witness.chunk_production_key();
+        let encoder = self.get_encoder(&key)?;
+        let update = CacheUpdate::WitnessPart(partial_witness, encoder);
+        self.process_update(key, true, update)
+    }
+
+    pub fn store_accessed_contract_hashes(
+        &mut self,
+        key: ChunkProductionKey,
+        hashes: Vec<CodeHash>,
+    ) -> Result<(), Error> {
+        tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
+        let update = CacheUpdate::ContractHashes(hashes);
+        self.process_update(key, true, update)
+    }
+
+    pub fn store_accessed_contract_codes(
+        &mut self,
+        key: ChunkProductionKey,
+        codes: Vec<CodeBytes>,
+    ) -> Result<(), Error> {
+        tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");
+        let update = CacheUpdate::ContractCodes(codes);
+        self.process_update(key, false, update)
+    }
+
+    fn process_update(
+        &mut self,
+        key: ChunkProductionKey,
+        create_if_not_exists: bool,
+        update: CacheUpdate,
+    ) -> Result<(), Error> {
         if self.processed_witnesses.contains(&key) {
             tracing::debug!(
                 target: "client",
-                ?partial_witness,
+                ?key,
                 "Received redundant part for already processed witness"
             );
             return Ok(());
         }
 
-        self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
-        let entry = self.parts_cache.get_mut(&key).unwrap();
-
-        if let Some(decode_result) = entry.insert_in_cache_entry(partial_witness) {
+        if create_if_not_exists {
+            self.maybe_insert_new_entry_in_parts_cache(&key);
+        }
+        let Some(entry) = self.parts_cache.get_mut(&key) else {
+            return Ok(());
+        };
+        if let Some(decode_result) = entry.update(update) {
             // Record the time taken from receiving first part to decoding partial witness.
             let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
             metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
@@ -150,8 +310,8 @@ impl PartialEncodedStateWitnessTracker {
             self.parts_cache.pop(&key);
             self.processed_witnesses.push(key.clone(), ());
 
-            let encoded_witness = match decode_result {
-                Ok(encoded_chunk_state_witness) => encoded_chunk_state_witness,
+            let (encoded_witness, accessed_contracts) = match decode_result {
+                Ok(data) => data,
                 Err(err) => {
                     // We ideally never expect the decoding to fail. In case it does, we received a bad part
                     // from the chunk producer.
@@ -168,7 +328,7 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -177,6 +337,9 @@ impl PartialEncodedStateWitnessTracker {
                 )));
             }
 
+            let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+            values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
             self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
         }
@@ -184,44 +347,35 @@ impl PartialEncodedStateWitnessTracker {
         Ok(())
     }
 
-    fn get_num_parts(&self, partial_witness: &PartialEncodedStateWitness) -> Result<usize, Error> {
+    fn get_encoder(&mut self, key: &ChunkProductionKey) -> Result<Arc<WitnessEncoder>, Error> {
         // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            partial_witness.chunk_production_key();
-        Ok(self
+        let num_parts = self
             .epoch_manager
-            .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?
-            .len())
+            .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)?
+            .len();
+        Ok(self.encoders.entry(num_parts))
     }
 
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
     // We additionally check if an evicted entry has been fully decoded and processed.
-    fn maybe_insert_new_entry_in_parts_cache(
-        &mut self,
-        partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<(), Error> {
-        // Insert a new entry into the cache for the chunk hash.
-        let key = partial_witness.chunk_production_key();
-        if self.parts_cache.contains(&key) {
-            return Ok(());
+    fn maybe_insert_new_entry_in_parts_cache(&mut self, key: &ChunkProductionKey) {
+        if !self.parts_cache.contains(key) {
+            if let Some((evicted_key, evicted_entry)) =
+                self.parts_cache.push(key.clone(), CacheEntry::new())
+            {
+                tracing::warn!(
+                    target: "client",
+                    ?evicted_key,
+                    data_parts_present = ?evicted_entry.data_parts_present(),
+                    data_parts_required = ?evicted_entry.data_parts_required(),
+                    "Evicted unprocessed partial state witness."
+                );
+            }
         }
-        let num_parts = self.get_num_parts(&partial_witness)?;
-        let new_entry = CacheEntry::new(self.encoders.entry(num_parts));
-        if let Some((evicted_key, evicted_entry)) = self.parts_cache.push(key, new_entry) {
-            tracing::warn!(
-                target: "client",
-                ?evicted_key,
-                data_parts_present = ?evicted_entry.data_parts_present,
-                data_parts_required = ?evicted_entry.data_parts_required(),
-                "Evicted unprocessed partial state witness."
-            );
-        }
-        Ok(())
     }
 
     fn record_total_parts_cache_size_metric(&self) {
-        let total_size: usize =
-            self.parts_cache.iter().map(|(_, entry)| entry.total_parts_size).sum();
+        let total_size: usize = self.parts_cache.iter().map(|(_, entry)| entry.total_size()).sum();
         metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
     }
 
