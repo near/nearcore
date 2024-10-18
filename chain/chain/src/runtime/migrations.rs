@@ -33,7 +33,7 @@ mod tests {
     use near_mainnet_res::mainnet_restored_receipts;
     use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
-    
+
     use near_primitives::types::ShardId;
 
     #[test]
