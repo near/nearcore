@@ -1,4 +1,3 @@
-pub mod bandwidth_scheduler_protocol_upgrade;
 mod chunk_validator_kickout;
 pub mod congestion_control;
 pub mod congestion_control_genesis_bootstrap;
