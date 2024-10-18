@@ -120,6 +120,7 @@ fn setup_network_node(
         noop().into_multi_sender(),
         true,
         None,
+        noop().into_multi_sender(),
     )
     .client_actor;
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(

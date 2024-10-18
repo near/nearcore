@@ -4034,6 +4034,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "time",
+ "tokio",
  "tracing",
 ]
 
@@ -7444,6 +7445,7 @@ version = "0.0.0"
 dependencies = [
  "borsh 1.2.0",
  "clap",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",

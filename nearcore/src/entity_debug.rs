@@ -22,7 +22,9 @@ use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_sync::StateSyncDumpProgress;
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
@@ -31,7 +33,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
 use near_store::adapter::flat_store::encode_flat_state_db_key;
-use near_store::adapter::trie_store::get_key_from_shard_uid_and_hash;
+use near_store::adapter::StoreAdapter;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
@@ -247,11 +249,9 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::RawTrieNodeByHash { trie_node_hash, shard_uid } => {
                 let node = store
-                    .get_ser::<RawTrieNodeWithSize>(
-                        DBCol::State,
-                        &get_key_from_shard_uid_and_hash(shard_uid, &trie_node_hash),
-                    )?
-                    .ok_or_else(|| anyhow!("Trie node not found"))?;
+                    .trie_store()
+                    .get_ser::<RawTrieNodeWithSize>(shard_uid, &trie_node_hash)
+                    .map_err(|e| anyhow!("Trie node not found: {e}"))?;
                 Ok(serialize_raw_trie_node(node))
             }
             EntityQuery::RawTrieRootByChunkHash { chunk_hash } => {
@@ -268,21 +268,17 @@ impl EntityDebugHandlerImpl {
                     .nth(shard_index)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
                 let node = store
-                    .get_ser::<RawTrieNodeWithSize>(
-                        DBCol::State,
-                        &get_key_from_shard_uid_and_hash(shard_uid, &chunk.prev_state_root()),
-                    )?
-                    .ok_or_else(|| anyhow!("State root not found"))?;
+                    .trie_store()
+                    .get_ser::<RawTrieNodeWithSize>(shard_uid, &chunk.prev_state_root())
+                    .map_err(|e| anyhow!("State root not found: {e}"))?;
                 Ok(serialize_raw_trie_node(node))
             }
             EntityQuery::RawTrieValueByHash { trie_value_hash, shard_uid } => {
                 let value = store
-                    .get(
-                        DBCol::State,
-                        &get_key_from_shard_uid_and_hash(shard_uid, &trie_value_hash),
-                    )?
-                    .ok_or_else(|| anyhow!("Trie value not found"))?;
-                Ok(serialize_entity(&hex::encode(value.as_slice())))
+                    .trie_store()
+                    .get(shard_uid, &trie_value_hash)
+                    .map_err(|e| anyhow!("Trie value not found: {e}"))?;
+                Ok(serialize_entity(&hex::encode(value)))
             }
             EntityQuery::ReceiptById { receipt_id } => {
                 let receipt = store
@@ -324,17 +320,24 @@ impl EntityDebugHandlerImpl {
                             &get_block_shard_id(&block_hash, shard_id),
                         )?
                         .ok_or_else(|| anyhow!("State transition not found"))?;
-                    let mut serialized = EntityDataStruct::new();
-                    serialized.add(
-                        "base_state",
-                        PartialStateParser::parse_and_serialize_partial_state(
-                            state_transition.base_state,
-                        ),
-                    );
-                    serialized
-                        .add("receipts_hash", serialize_entity(&state_transition.receipts_hash));
-                    state_transitions
-                        .add(&shard_id.to_string(), EntityDataValue::Struct(serialized.into()));
+                    match state_transition {
+                        StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                            base_state,
+                            receipts_hash,
+                            ..
+                        }) => {
+                            let mut serialized = EntityDataStruct::new();
+                            serialized.add(
+                                "base_state",
+                                PartialStateParser::parse_and_serialize_partial_state(base_state),
+                            );
+                            serialized.add("receipts_hash", serialize_entity(&receipts_hash));
+                            state_transitions.add(
+                                &shard_id.to_string(),
+                                EntityDataValue::Struct(serialized.into()),
+                            );
+                        }
+                    }
                 }
                 Ok(EntityDataValue::Struct(state_transitions.into()))
             }
@@ -452,8 +455,9 @@ impl EntityDebugHandlerImpl {
     ) -> anyhow::Result<Vec<u8>> {
         Ok(match state {
             FlatStateValue::Ref(value) => store
-                .get(DBCol::State, &get_key_from_shard_uid_and_hash(shard_uid, &value.hash))?
-                .ok_or_else(|| anyhow!("ValueRef could not be dereferenced"))?
+                .trie_store()
+                .get(shard_uid, &value.hash)
+                .map_err(|e| anyhow!("ValueRef could not be dereferenced: {e}"))?
                 .to_vec(),
             FlatStateValue::Inlined(data) => data,
         })

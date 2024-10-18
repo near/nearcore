@@ -174,6 +174,8 @@ pub enum ProtocolFeature {
     StateStoredReceipt,
     /// Resharding V3
     SimpleNightshadeV4,
+    /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
+    ExcludeContractCodeFromStateWitness,
 }
 
 impl ProtocolFeature {
@@ -251,6 +253,11 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::SimpleNightshadeV4 => 145,
+
+            // Features that are not yet in Nightly.
+
+            // TODO(#11099): Move this feature to Nightly.
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
         }
     }
 

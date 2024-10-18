@@ -1,10 +1,14 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
@@ -355,6 +359,35 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
         tracing::info_span!(target: "migrations", "Deleting contents of deprecated _ReceiptIdToShardId column").entered();
     let mut update = store.store_update();
     update.delete_all(DBCol::_ReceiptIdToShardId);
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 39 to 40.
+///
+/// The migraton replaces non-enum StoredChunkStateTransitionData struct with its enum version.
+pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshDeserialize)]
+    pub struct DeprecatedStoredChunkStateTransitionData {
+        pub base_state: PartialState,
+        pub receipts_hash: CryptoHash,
+    }
+
+    let _span =
+        tracing::info_span!(target: "migrations", "Replacing StoredChunkStateTransitionData with its enum version V1").entered();
+    let mut update = store.store_update();
+    for result in store.iter(DBCol::StateTransitionData) {
+        let (key, old_value) = result?;
+        let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
+            DeprecatedStoredChunkStateTransitionData::try_from_slice(&old_value)?;
+        let new_value =
+            borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                base_state,
+                receipts_hash,
+                contract_accesses: vec![],
+            }))?;
+        update.set(DBCol::StateTransitionData, &key, &new_value);
+    }
     update.commit()?;
     Ok(())
 }

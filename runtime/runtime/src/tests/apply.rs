@@ -73,7 +73,7 @@ fn setup_runtime_for_shard(
     set_account(&mut initial_state, account_id.clone(), &initial_account);
     set_access_key(&mut initial_state, account_id, signer.public_key(), &AccessKey::full_access());
     initial_state.commit(StateChangeCause::InitialState);
-    let trie_changes = initial_state.finalize().unwrap().1;
+    let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
@@ -865,7 +865,7 @@ fn test_delete_key_underflow() {
     initial_account_state.set_storage_usage(10);
     set_account(&mut state_update, alice_account(), &initial_account_state);
     state_update.commit(StateChangeCause::InitialState);
-    let trie_changes = state_update.finalize().unwrap().1;
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
