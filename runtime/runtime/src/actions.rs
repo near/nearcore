@@ -183,7 +183,11 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-    state_update.trie.request_code_recording(account_id.clone());
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness
+        .enabled(apply_state.current_protocol_version)
+    {
+        state_update.trie.request_code_recording(account_id.clone());
+    }
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
 
@@ -1436,7 +1440,7 @@ mod tests {
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().1;
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();

@@ -23,7 +23,10 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
-use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
@@ -53,7 +56,9 @@ use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
 mod latest_witnesses;
+mod merkle_proof;
 pub use latest_witnesses::LatestWitnessesInfo;
+pub use merkle_proof::MerkleProofAccess;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -327,14 +332,6 @@ pub trait ChainStoreAccess {
     ) -> Result<Arc<PartialMerkleTree>, Error>;
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
-
-    fn get_block_merkle_tree_from_ordinal(
-        &self,
-        block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
-        let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
-        self.get_block_merkle_tree(&block_hash)
-    }
 
     fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
 
@@ -2013,14 +2010,16 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
+        contract_accesses: Vec<CodeHash>,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
-                },
+                    contract_accesses: contract_accesses,
+                }),
             );
         }
     }

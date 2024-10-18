@@ -1,5 +1,6 @@
 use crate::block_processing_utils::{
-    ApplyChunksDoneTracker, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
+    ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
+    BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
@@ -17,7 +18,7 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
     StorageDataSource,
@@ -46,7 +47,6 @@ use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
@@ -58,9 +58,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{
-    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
-};
+use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
@@ -78,6 +76,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, ShardId, StateRoot,
@@ -294,8 +293,9 @@ type UpdateShardJob =
     (ShardId, Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>);
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
-/// to update shards, the second element is BlockPreprocessInfo
-type PreprocessBlockResult = (Vec<UpdateShardJob>, BlockPreprocessInfo);
+/// to update shards, the second element is BlockPreprocessInfo, and the third element shall be
+/// dropped when the chunks finish applying.
+type PreprocessBlockResult = (Vec<UpdateShardJob>, BlockPreprocessInfo, ApplyChunksStillApplying);
 
 // Used only for verify_block_hash_and_signature. See that method.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -585,13 +585,20 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = epoch_manager.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
+        let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect_vec();
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
+        Self::compute_bp_hash_from_validator_stakes(&validator_stakes, protocol_version)
+    }
+
+    pub fn compute_bp_hash_from_validator_stakes(
+        validator_stakes: &Vec<ValidatorStake>,
+        protocol_version: ProtocolVersion,
+    ) -> Result<CryptoHash, Error> {
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
             Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1());
-            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
+            let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
+            Ok(CryptoHash::hash_borsh_iter(stakes))
         }
     }
 
@@ -1520,6 +1527,16 @@ impl Chain {
         (accepted_blocks, errors)
     }
 
+    fn chain_update(&mut self) -> ChainUpdate {
+        ChainUpdate::new(
+            &mut self.chain_store,
+            self.epoch_manager.clone(),
+            self.runtime_adapter.clone(),
+            self.doomslug_threshold_mode,
+            self.transaction_validity_period,
+        )
+    }
+
     /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
@@ -1820,7 +1837,7 @@ impl Chain {
                 return Err(e);
             }
         };
-        let (apply_chunk_work, block_preprocess_info) = preprocess_res;
+        let (apply_chunk_work, block_preprocess_info, apply_chunks_still_applying) = preprocess_res;
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
@@ -1835,7 +1852,6 @@ impl Chain {
         let block = block.into_inner();
         let block_hash = *block.hash();
         let block_height = block.header().height();
-        let apply_chunks_done_tracker = block_preprocess_info.apply_chunks_done_tracker.clone();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 3) schedule apply chunks, which will be executed in the rayon thread pool.
@@ -1843,7 +1859,7 @@ impl Chain {
             block_hash,
             block_height,
             apply_chunk_work,
-            apply_chunks_done_tracker,
+            apply_chunks_still_applying,
             apply_chunks_done_sender,
         );
 
@@ -1858,7 +1874,7 @@ impl Chain {
         block_hash: CryptoHash,
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
-        mut apply_chunks_done_tracker: ApplyChunksDoneTracker,
+        apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
@@ -1868,10 +1884,7 @@ impl Chain {
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             sc.send((block_hash, res)).unwrap();
-            if let Err(_) = apply_chunks_done_tracker.set_done() {
-                // This should never happen, if it does, it means there is a bug in our code.
-                log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
-            }
+            drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
                 sender.send(ApplyChunksDoneMessage {});
             }
@@ -2296,6 +2309,8 @@ impl Chain {
             invalid_chunks,
         )?;
 
+        let (apply_chunks_done_waiter, apply_chunks_still_applying) = ApplyChunksDoneWaiter::new();
+
         Ok((
             apply_chunk_work,
             BlockPreprocessInfo {
@@ -2305,9 +2320,10 @@ impl Chain {
                 challenges_result,
                 challenged_blocks,
                 provenance: provenance.clone(),
-                apply_chunks_done_tracker: ApplyChunksDoneTracker::new(),
+                apply_chunks_done_waiter,
                 block_start_processing_time: block_received_time,
             },
+            apply_chunks_still_applying,
         ))
     }
 
@@ -3979,186 +3995,16 @@ fn get_should_apply_chunk(
     }
 }
 
-/// Implement block merkle proof retrieval.
-impl Chain {
-    fn combine_maybe_hashes(
-        hash1: Option<MerkleHash>,
-        hash2: Option<MerkleHash>,
-    ) -> Option<MerkleHash> {
-        match (hash1, hash2) {
-            (Some(h1), Some(h2)) => Some(combine_hash(&h1, &h2)),
-            (Some(h1), None) => Some(h1),
-            (None, Some(_)) => {
-                debug_assert!(false, "Inconsistent state in merkle proof computation: left node is None but right node exists");
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn chain_update(&mut self) -> ChainUpdate {
-        ChainUpdate::new(
-            &mut self.chain_store,
-            self.epoch_manager.clone(),
-            self.runtime_adapter.clone(),
-            self.doomslug_threshold_mode,
-            self.transaction_validity_period,
-        )
-    }
-
-    /// Get node at given position (index, level). If the node does not exist, return `None`.
-    fn get_merkle_tree_node(
-        &self,
-        index: u64,
-        level: u64,
-        counter: u64,
-        tree_size: u64,
-        tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
-    ) -> Result<Option<MerkleHash>, Error> {
-        if let Some(hash) = tree_nodes.get(&(index, level)) {
-            Ok(*hash)
-        } else {
-            if level == 0 {
-                let maybe_hash = if index >= tree_size {
-                    None
-                } else {
-                    Some(self.chain_store().get_block_hash_from_ordinal(index)?)
-                };
-                tree_nodes.insert((index, level), maybe_hash);
-                Ok(maybe_hash)
-            } else {
-                let cur_tree_size = (index + 1) * counter;
-                let maybe_hash = if cur_tree_size > tree_size {
-                    if index * counter <= tree_size {
-                        let left_hash = self.get_merkle_tree_node(
-                            index * 2,
-                            level - 1,
-                            counter / 2,
-                            tree_size,
-                            tree_nodes,
-                        )?;
-                        let right_hash = self.reconstruct_merkle_tree_node(
-                            index * 2 + 1,
-                            level - 1,
-                            counter / 2,
-                            tree_size,
-                            tree_nodes,
-                        )?;
-                        Self::combine_maybe_hashes(left_hash, right_hash)
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(
-                        *self
-                            .chain_store()
-                            .get_block_merkle_tree_from_ordinal(cur_tree_size)?
-                            .get_path()
-                            .last()
-                            .ok_or_else(|| Error::Other("Merkle tree node missing".to_string()))?,
-                    )
-                };
-                tree_nodes.insert((index, level), maybe_hash);
-                Ok(maybe_hash)
-            }
-        }
-    }
-
-    /// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
-    fn reconstruct_merkle_tree_node(
-        &self,
-        index: u64,
-        level: u64,
-        counter: u64,
-        tree_size: u64,
-        tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
-    ) -> Result<Option<MerkleHash>, Error> {
-        if let Some(hash) = tree_nodes.get(&(index, level)) {
-            Ok(*hash)
-        } else {
-            if level == 0 {
-                let maybe_hash = if index >= tree_size {
-                    None
-                } else {
-                    Some(self.chain_store().get_block_hash_from_ordinal(index)?)
-                };
-                tree_nodes.insert((index, level), maybe_hash);
-                Ok(maybe_hash)
-            } else {
-                let left_hash = self.get_merkle_tree_node(
-                    index * 2,
-                    level - 1,
-                    counter / 2,
-                    tree_size,
-                    tree_nodes,
-                )?;
-                let right_hash = self.reconstruct_merkle_tree_node(
-                    index * 2 + 1,
-                    level - 1,
-                    counter / 2,
-                    tree_size,
-                    tree_nodes,
-                )?;
-                let maybe_hash = Self::combine_maybe_hashes(left_hash, right_hash);
-                tree_nodes.insert((index, level), maybe_hash);
-
-                Ok(maybe_hash)
-            }
-        }
-    }
-
-    /// Get merkle proof for block with hash `block_hash` in the merkle tree of `head_block_hash`.
-    pub fn get_block_proof(
+impl MerkleProofAccess for Chain {
+    fn get_block_merkle_tree(
         &self,
         block_hash: &CryptoHash,
-        head_block_hash: &CryptoHash,
-    ) -> Result<MerklePath, Error> {
-        let leaf_index = self.chain_store().get_block_merkle_tree(block_hash)?.size();
-        let tree_size = self.chain_store().get_block_merkle_tree(head_block_hash)?.size();
-        if leaf_index >= tree_size {
-            if block_hash == head_block_hash {
-                // special case if the block to prove is the same as head
-                return Ok(vec![]);
-            }
-            return Err(Error::Other(format!(
-                "block {} is ahead of head block {}",
-                block_hash, head_block_hash
-            )));
-        }
-        let mut level = 0;
-        let mut counter = 1;
-        let mut cur_index = leaf_index;
-        let mut path = vec![];
-        let mut tree_nodes = HashMap::new();
-        let mut iter = tree_size;
-        while iter > 1 {
-            if cur_index % 2 == 0 {
-                cur_index += 1
-            } else {
-                cur_index -= 1;
-            }
-            let direction = if cur_index % 2 == 0 { Direction::Left } else { Direction::Right };
-            let maybe_hash = if cur_index % 2 == 1 {
-                // node not immediately available. Needs to be reconstructed
-                self.reconstruct_merkle_tree_node(
-                    cur_index,
-                    level,
-                    counter,
-                    tree_size,
-                    &mut tree_nodes,
-                )?
-            } else {
-                self.get_merkle_tree_node(cur_index, level, counter, tree_size, &mut tree_nodes)?
-            };
-            if let Some(hash) = maybe_hash {
-                path.push(MerklePathItem { hash, direction });
-            }
-            cur_index /= 2;
-            iter = (iter + 1) / 2;
-            level += 1;
-            counter *= 2;
-        }
-        Ok(path)
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
+        ChainStoreAccess::get_block_merkle_tree(self.chain_store(), block_hash)
+    }
+
+    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
+        ChainStoreAccess::get_block_hash_from_ordinal(self.chain_store(), block_ordinal)
     }
 }
 
