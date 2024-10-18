@@ -279,14 +279,14 @@ impl FlatStorageResharder {
         // Prepare the store object for commits and the iterator over parent's flat storage.
         let flat_store = self.runtime.store().flat_store();
         let mut iter = flat_store.iter(parent_shard);
-        let mut batches_done: usize = 0;
+        let mut num_batches_done: usize = 0;
         let mut iter_exhausted = false;
 
         loop {
             let _span = tracing::debug_span!(
                 target: "resharding",
                 "split_shard_task_impl/batch",
-                batch_id = ?batches_done)
+                batch_id = ?num_batches_done)
             .entered();
             let mut store_update = flat_store.store_update();
             let mut processed_size = 0;
@@ -319,7 +319,7 @@ impl FlatStorageResharder {
                 return FlatStorageReshardingTaskStatus::Failed;
             }
 
-            batches_done += 1;
+            num_batches_done += 1;
 
             // If `iter`` is exhausted we can exit after the store commit.
             if iter_exhausted {
@@ -333,7 +333,7 @@ impl FlatStorageResharder {
             // regular node operation.
             std::thread::sleep(batch_delay);
         }
-        FlatStorageReshardingTaskStatus::Successful { batches_done }
+        FlatStorageReshardingTaskStatus::Successful { num_batches_done }
     }
 
     /// Performs post-processing of shard splitting after all key-values have been moved from parent to
@@ -543,7 +543,7 @@ pub enum FlatStorageReshardingEventStatus {
 /// Status of a flat storage resharding task.
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
 pub enum FlatStorageReshardingTaskStatus {
-    Successful { batches_done: usize },
+    Successful { num_batches_done: usize },
     Failed,
     Cancelled,
 }
@@ -917,13 +917,13 @@ mod tests {
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
 
         // Check that more than one batch has been processed.
-        let FlatStorageReshardingTaskStatus::Successful { batches_done } =
+        let FlatStorageReshardingTaskStatus::Successful { num_batches_done } =
             scheduler.call_split_shard_task()
         else {
             assert!(false);
             return;
         };
-        assert!(batches_done > 1);
+        assert!(num_batches_done > 1);
     }
 
     #[test]
