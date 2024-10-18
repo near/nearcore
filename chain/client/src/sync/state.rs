@@ -33,7 +33,7 @@ use near_chain::chain::{ApplyStatePartsRequest, LoadMemtrieRequest};
 use near_chain::near_chain_primitives;
 use near_chain::types::RuntimeAdapter;
 use near_chain::Chain;
-use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig, SyncConfig};
 use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
 };
@@ -56,7 +56,7 @@ use rand::thread_rng;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{Semaphore, TryAcquireError};
 use tracing::info;
 
@@ -121,6 +121,9 @@ pub struct StateSync {
     /// Is used for communication with the peers.
     network_adapter: PeerManagerAdapter,
 
+    /// Counter used to restrict simultaneous requests to peers
+    p2p_semaphore: Arc<Mutex<usize>>,
+
     /// Timeout (set in config - by default to 60 seconds) is used to figure out how long we should wait
     /// for the answer from the other node before giving up.
     timeout: Duration,
@@ -146,10 +149,10 @@ impl StateSync {
         network_adapter: PeerManagerAdapter,
         timeout: Duration,
         chain_id: &str,
-        sync_config: &SyncConfig,
+        config: &StateSyncConfig,
         catchup: bool,
     ) -> Self {
-        let external = match sync_config {
+        let external = match &config.sync {
             SyncConfig::Peers => None,
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
@@ -191,11 +194,17 @@ impl StateSync {
                 })
             }
         };
+        let num_p2p_permits = if catchup {
+            config.num_concurrent_p2p_requests_during_catchup
+        } else {
+            config.num_concurrent_p2p_requests
+        } as usize;
         let (tx, rx) = channel::<StateSyncGetFileResult>();
         StateSync {
             clock,
             external,
             network_adapter,
+            p2p_semaphore: Arc::new(Mutex::new(num_p2p_permits)),
             timeout,
             state_parts_apply_results: HashMap::new(),
             load_memtrie_results: HashMap::new(),
@@ -412,6 +421,7 @@ impl StateSync {
                     file_type,
                     download_result,
                     provenance,
+                    self.p2p_semaphore.clone(),
                 );
             }
         }
@@ -589,7 +599,6 @@ impl StateSync {
     ) {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
-        let mut peer_requests_sent = 0;
         let mut state_root_and_part_count: Option<(CryptoHash, u64)> = None;
         for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
             if self.external.is_some()
@@ -637,9 +646,12 @@ impl StateSync {
                     self.state_parts_mpsc_tx.clone(),
                 );
             } else {
-                if peer_requests_sent >= MAX_STATE_PART_REQUEST {
+                let mut p2p_permits = self.p2p_semaphore.lock().unwrap();
+                if *p2p_permits == 0 {
                     continue;
                 }
+                info!(target: "sync", "decremented p2p_permit sending req {}", *p2p_permits);
+                *p2p_permits -= 1;
 
                 // The request sent to the network adapater needs to include the sync_prev_prev_hash
                 // so that a peer hosting the correct snapshot can be selected.
@@ -658,9 +670,8 @@ impl StateSync {
                             *sync_prev_prev_hash,
                             &self.network_adapter,
                             state_parts_future_spawner,
+                            self.p2p_semaphore.clone(),
                         );
-
-                        peer_requests_sent += 1;
                     }
                     Ok(Err(err)) => {
                         tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "could not get prev header");
@@ -894,6 +905,8 @@ impl StateSync {
                         metrics::STATE_SYNC_RETRY_PART
                             .with_label_values(&[&shard_id.to_string()])
                             .inc();
+                        info!(target: "sync", "incremented p2p_permit on timeout/error");
+                        *self.p2p_semaphore.lock().unwrap() += 1;
                         part_download.run_me.store(true, Ordering::SeqCst);
                         part_download.error = false;
                         part_download.prev_update_time = now;
@@ -1261,6 +1274,7 @@ fn request_part_from_peers(
     sync_prev_prev_hash: CryptoHash,
     network_adapter: &PeerManagerAdapter,
     state_parts_future_spawner: &dyn FutureSpawner,
+    p2p_semaphore: Arc<Mutex<usize>>,
 ) {
     download.run_me.store(false, Ordering::SeqCst);
     download.state_requests_count += 1;
@@ -1269,22 +1283,24 @@ fn request_part_from_peers(
     state_parts_future_spawner.spawn(
         "StateSync",
         network_adapter
-            .send_async(PeerManagerMessageRequest::NetworkRequests(
+        .send_async(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::StateRequestPart {
                     shard_id,
                     sync_hash,
                     sync_prev_prev_hash,
                     part_id,
                 },
-            ))
-            .then(move |result| {
-                if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
-                {
-                    // Send a StateRequestPart on the next iteration
-                    run_me.store(true, Ordering::SeqCst);
-                }
-                future::ready(())
-            }),
+        ))
+        .then(move |result| {
+            if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
+            {
+                // Send a StateRequestPart on the next iteration
+                run_me.store(true, Ordering::SeqCst);
+                info!(target: "sync", "incremented p2p_permits due to RouteNotFound");
+                *p2p_semaphore.lock().unwrap() += 1;
+            }
+            future::ready(())
+        }),
     );
 }
 
@@ -1325,6 +1341,7 @@ fn process_download_response(
     file_type: String,
     download_result: Result<u64, String>,
     provenance: PartProvenance,
+    p2p_semaphore: Arc<Mutex<usize>>,
 ) {
     match download_result {
         Ok(data_len) => {
@@ -1336,6 +1353,9 @@ fn process_download_response(
                 metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
                     .with_label_values(&[&shard_id.to_string(), &file_type])
                     .inc_by(data_len);
+            } else {
+                info!(target: "sync", "successful response incremented p2p_permit");
+                *p2p_semaphore.lock().unwrap() += 1;
             }
             download.map(|download| download.done = true);
         }
@@ -1375,13 +1395,19 @@ mod test {
     #[test]
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
+        let config = StateSyncConfig {
+            dump: None,
+            sync: SyncConfig::Peers,
+            num_concurrent_p2p_requests: 0,
+            num_concurrent_p2p_requests_during_catchup: 0,
+        };
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
             Clock::real(),
             mock_peer_manager.as_multi_sender(),
             Duration::seconds(1),
             "chain_id",
-            &SyncConfig::Peers,
+            &config,
             false,
         );
         let mut new_shard_sync = HashMap::new();
