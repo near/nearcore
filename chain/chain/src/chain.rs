@@ -828,8 +828,6 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
-        use near_primitives::block_body::MaybeNew;
-
         for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             if chunk_header.height_created() == genesis_block.header().height() {

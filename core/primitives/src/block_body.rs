@@ -5,7 +5,7 @@ use near_crypto::vrf::{Proof, Value};
 use near_crypto::Signature;
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{BlockHeight, ProtocolVersion};
+use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -55,12 +55,6 @@ pub enum BlockBody {
     V2(BlockBodyV2),
 }
 
-#[derive(Clone)]
-pub enum MaybeNew<'a, T> {
-    New(&'a T),
-    Old(&'a T),
-}
-
 impl BlockBody {
     pub fn new(
         protocol_version: ProtocolVersion,
@@ -89,27 +83,6 @@ impl BlockBody {
             BlockBody::V1(body) => &body.chunks,
             BlockBody::V2(body) => &body.chunks,
         }
-    }
-
-    /// Annotates the headers with `MaybeNew::Old` if the header
-    /// is from the previous block, `MaybeNew::New` otherwise.
-    #[inline]
-    pub fn chunks_annotated(&self, height: BlockHeight) -> Vec<MaybeNew<ShardChunkHeader>> {
-        let chunks = match self {
-            BlockBody::V1(body) => &body.chunks,
-            BlockBody::V2(body) => &body.chunks,
-        };
-
-        chunks
-            .iter()
-            .map(|chunk| {
-                if chunk.is_new_chunk(height) {
-                    MaybeNew::New(chunk)
-                } else {
-                    MaybeNew::Old(chunk)
-                }
-            })
-            .collect()
     }
 
     #[inline]

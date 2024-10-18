@@ -2,7 +2,7 @@ use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
-use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures, MaybeNew};
+use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::Challenges;
 use crate::checked_feature;
@@ -611,67 +611,7 @@ impl Block {
     }
 
     pub fn chunks(&self) -> Chunks {
-        // match self {
-        //     Block::BlockV1(block) => ChunksCollection::V1(
-        //         block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
-        //     ),
-        //     Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
-        //     Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
-        //     Block::BlockV4(block) => ChunksCollection::V2(&block.body.chunks()),
-        // }
         Chunks::new(&self)
-    }
-
-    /// Annotates the headers with `MaybeNew::Old` if the header
-    /// is from the previous block, `MaybeNew::New` otherwise.
-    pub fn chunks_annotated(&self) -> ChunksCollection {
-        match self {
-            Block::BlockV1(block) => ChunksCollection::V1(
-                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
-                // doesn't work
-                // block
-                //     .chunks
-                //     .iter()
-                //     .map(|chunk| {
-                //         if chunk.height_included == block.header.height() {
-                //             MaybeNew::New(ShardChunkHeader::V1(*chunk))
-                //         } else {
-                //             MaybeNew::Old(ShardChunkHeader::V1(*chunk))
-                //         }
-                //     })
-                //     .collect(),
-            ),
-            Block::BlockV2(block) => ChunksCollection::V3(
-                block
-                    .chunks
-                    .iter()
-                    .map(|chunk| {
-                        if chunk.is_new_chunk(block.header.height()) {
-                            MaybeNew::New(chunk)
-                        } else {
-                            MaybeNew::Old(chunk)
-                        }
-                    })
-                    .collect(),
-            ),
-            Block::BlockV3(block) => ChunksCollection::V3(
-                block
-                    .body
-                    .chunks
-                    .iter()
-                    .map(|chunk| {
-                        if chunk.is_new_chunk(block.header.height()) {
-                            MaybeNew::New(chunk)
-                        } else {
-                            MaybeNew::Old(chunk)
-                        }
-                    })
-                    .collect(),
-            ),
-            Block::BlockV4(block) => {
-                ChunksCollection::V3(block.body.chunks_annotated(block.header.height()))
-            }
-        }
     }
 
     #[inline]
@@ -798,10 +738,26 @@ impl Block {
     }
 }
 
+#[derive(Clone)]
+pub enum MaybeNew<'a, T> {
+    New(&'a T),
+    Old(&'a T),
+}
+
+fn annotate_chunk(
+    chunk: &ShardChunkHeader,
+    block_height: BlockHeight,
+) -> MaybeNew<ShardChunkHeader> {
+    if chunk.is_new_chunk(block_height) {
+        MaybeNew::New(chunk)
+    } else {
+        MaybeNew::Old(chunk)
+    }
+}
+
 pub enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
-    V3(Vec<MaybeNew<'a, ShardChunkHeader>>),
 }
 
 pub struct Chunks<'a> {
@@ -817,13 +773,6 @@ impl<'a> Index<ShardIndex> for Chunks<'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => &chunks[index],
             ChunksCollection::V2(chunks) => &chunks[index],
-            ChunksCollection::V3(chunks) => {
-                let chunk = &chunks[index];
-                match chunk {
-                    MaybeNew::New(chunk) => chunk,
-                    MaybeNew::Old(chunk) => chunk,
-                }
-            }
         }
     }
 }
@@ -846,7 +795,6 @@ impl<'a> Chunks<'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.len(),
             ChunksCollection::V2(chunks) => chunks.len(),
-            ChunksCollection::V3(chunks) => chunks.len(),
         }
     }
 
@@ -854,12 +802,6 @@ impl<'a> Chunks<'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
             ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
-            ChunksCollection::V3(chunks) => {
-                Box::new(chunks.iter().map(|maybe_new| match maybe_new {
-                    MaybeNew::New(chunk) => *chunk,
-                    MaybeNew::Old(chunk) => *chunk,
-                }))
-            }
         }
     }
 
@@ -867,21 +809,12 @@ impl<'a> Chunks<'a> {
         &'a self,
     ) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
         match &self.chunks {
-            ChunksCollection::V1(chunks) => Box::new(chunks.iter().map(|chunk| {
-                if chunk.is_new_chunk(self.block_height) {
-                    MaybeNew::New(chunk)
-                } else {
-                    MaybeNew::Old(chunk)
-                }
-            })),
-            ChunksCollection::V2(chunks) => Box::new(chunks.iter().map(|chunk| {
-                if chunk.is_new_chunk(self.block_height) {
-                    MaybeNew::New(chunk)
-                } else {
-                    MaybeNew::Old(chunk)
-                }
-            })),
-            ChunksCollection::V3(chunks) => Box::new(chunks.iter().cloned()),
+            ChunksCollection::V1(chunks) => {
+                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+            }
+            ChunksCollection::V2(chunks) => {
+                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+            }
         }
     }
 
@@ -889,8 +822,15 @@ impl<'a> Chunks<'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
-            ChunksCollection::V3(_chunks) => todo!(),
         }
+    }
+
+    pub fn get_annotated(&self, index: ShardIndex) -> Option<MaybeNew<ShardChunkHeader>> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => chunks.get(index),
+            ChunksCollection::V2(chunks) => chunks.get(index),
+        }
+        .map(|chunk| annotate_chunk(chunk, self.block_height))
     }
 }
 
