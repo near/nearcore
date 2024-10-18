@@ -24,29 +24,26 @@ pub struct ContractStorage {
     /// The State this field should be removed, and the `Storage::store` function should be
     /// adjusted to write out the contract into the relevant part of the database immediately
     /// (without going through transactional storage operations and such).
-    uncommitted_deploys: Arc<RwLock<Option<BTreeMap<CodeHash, ContractCode>>>>,
+    uncommitted_deploys: Arc<RwLock<BTreeMap<CodeHash, ContractCode>>>,
 
-    /// List of code-hashes for the contracts retrieved from the storage.
-    /// This does not include the contracts deployed and then read.
-    // TODO(#11099): For collecting deployed code, consolidate this with uncommitted_deploys.
-    uncommitted_accesses: Arc<Mutex<Option<BTreeSet<CodeHash>>>>,
+    /// List of code-hashes for the contracts called.
+    uncommitted_calls: Arc<Mutex<BTreeSet<CodeHash>>>,
 }
 
 /// Result of finalizing the contract storage.
 pub struct ContractStorageResult {
-    /// List of code-hashes for the contracts retrieved from the storage while applying the chunk.
-    pub contract_accesses: Vec<CodeHash>,
+    /// List of code-hashes for the contracts called while applying the chunk.
+    pub contract_calls: Vec<CodeHash>,
     /// List of code-hashes for the contracts deployed while applying the chunk.
     pub contract_deploys: Vec<CodeHash>,
 }
 
-// TODO(#11099): Implement commit and rollback.
 impl ContractStorage {
     pub fn new(storage: Arc<dyn TrieStorage>) -> Self {
         Self {
             storage,
-            uncommitted_deploys: Arc::new(RwLock::new(Some(BTreeMap::new()))),
-            uncommitted_accesses: Arc::new(Mutex::new(Some(BTreeSet::new()))),
+            uncommitted_calls: Arc::new(Mutex::new(BTreeSet::new())),
+            uncommitted_deploys: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -54,13 +51,12 @@ impl ContractStorage {
     ///
     /// This is called when preparing (eg. compiling) the contract for execution optimistically, and
     /// the function call for the returned contract may not be included in the currently applied chunk.
-    /// Thus, the `record_access` method should also be called to indicate that the calling the contract
+    /// Thus, the `record_call` method should also be called to indicate that the calling the contract
     /// is actually included in the chunk application.
     pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         {
             let guard = self.uncommitted_deploys.read().expect("no panics");
-            let deploys = guard.as_ref().expect("must not be called after finalized");
-            if let Some(v) = deploys.get(&CodeHash(code_hash)) {
+            if let Some(v) = guard.get(&CodeHash(code_hash)) {
                 return Some(ContractCode::new(v.code().to_vec(), Some(code_hash)));
             }
         }
@@ -76,8 +72,8 @@ impl ContractStorage {
     /// This is used to capture the contracts that are called when applying a chunk.
     /// Calling `rollback` clears this recording.
     pub fn record_call(&self, code_hash: CryptoHash) {
-        let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-        guard.as_mut().expect("must not be called after finalize").insert(code_hash.into());
+        let mut guard = self.uncommitted_calls.lock().expect("no panics");
+        guard.insert(code_hash.into());
     }
 
     /// Stores the contract code as an uncommitted deploy.
@@ -86,34 +82,36 @@ impl ContractStorage {
     /// Calling `rollback` clears this uncommitted deploy.
     pub fn store(&self, code: ContractCode) {
         let mut guard = self.uncommitted_deploys.write().expect("no panics");
-        let deploys = guard.as_mut().expect("must not be called after finalized");
-        deploys.insert(CodeHash(*code.hash()), code);
+        guard.insert(CodeHash(*code.hash()), code);
     }
 
-    /// Rolls back the previous recording of contract accesses and deployments.
+    /// Rolls back the previous recording of contract calls and deployments.
     pub(crate) fn rollback(&mut self) {
         {
-            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            let _discarded_accesses = guard.replace(BTreeSet::new());
+            let mut guard = self.uncommitted_calls.lock().expect("no panics");
+            guard.clear();
         }
         {
             let mut guard = self.uncommitted_deploys.write().expect("no panics");
-            let _discarded_deploys = guard.replace(BTreeMap::new());
+            guard.clear();
         }
     }
 
-    /// Destructs the ContractStorage and returns the list of contract deployments and accesses.
+    /// Returns the list of contract calls and deployments collected so far.
     ///
+    /// This should be called when there will be no further deployments or calls to contracts.
     /// Note: This also serves as the commit operation, so there is no other explicit commit method.
     pub(crate) fn finalize(self) -> ContractStorageResult {
-        let contract_accesses = {
-            let mut guard = self.uncommitted_accesses.lock().expect("no panics");
-            guard.take().unwrap().into_iter().collect()
+        let contract_calls = {
+            let guard = self.uncommitted_calls.lock().expect("no panics");
+            guard.iter().cloned().collect()
         };
+        // NOTE: We do not destruct the `uncommitted_deploys` here, since other copies of this storage may still
+        // be used by contract preparation pipeline (possibly running in separate thread) after this call.
         let contract_deploys = {
-            let mut guard = self.uncommitted_deploys.write().expect("no panics");
-            guard.take().unwrap().into_keys().collect()
+            let guard = self.uncommitted_deploys.write().expect("no panics");
+            guard.keys().cloned().collect()
         };
-        ContractStorageResult { contract_deploys, contract_accesses }
+        ContractStorageResult { contract_deploys, contract_calls }
     }
 }

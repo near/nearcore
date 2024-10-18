@@ -191,13 +191,13 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        let ContractStorageResult { contract_accesses, contract_deploys } =
+        let ContractStorageResult { contract_calls, contract_deploys } =
             contract_storage.finalize();
         Ok(TrieUpdateResult {
             trie,
             trie_changes,
             state_changes,
-            contract_accesses,
+            contract_accesses: contract_calls,
             contract_deploys,
         })
     }
