@@ -40,9 +40,11 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         ] = start_cluster(2, 1, 3, None,
                           [["epoch_length", EPOCH_LENGTH],
                            ["block_producer_kickout_threshold", 10],
-                           ["chunk_producer_kickout_threshold", 10]
-                        #    ["records", 0, "Account", "account", "locked", "50000000000000000000000000000000"],
-                        #    ["records", 2, "Account", "account", "locked", "45000000000000000000000000000000"]
+                           ["chunk_producer_kickout_threshold", 10],
+                           ["validators", 0, "amount", "50000000000000000000000000000000"],
+                           ["validators", 1, "amount", "45000000000000000000000000000000"],
+                           ["records", 2, "Account", "account", "locked", "45000000000000000000000000000000"],
+                           ["records", 0, "Account", "account", "locked", "50000000000000000000000000000000"]
      ],
                           config_map)
         wait_for_blocks(old_validator, count=5)
