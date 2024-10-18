@@ -1073,6 +1073,27 @@ impl EpochManager {
         })
     }
 
+    /// Returns AccountIds of chunk producers that are assigned to a given shard-id in a given epoch.
+    pub fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        Ok(chunk_producers
+            .iter()
+            .map(|index| epoch_info.validator_account_id(*index).clone())
+            .collect())
+    }
+
     /// Returns the list of chunk_validators for the given shard_id and height and set of account ids.
     /// Generation of chunk_validators and their order is deterministic for given shard_id and height.
     /// We cache the generated chunk_validators.
