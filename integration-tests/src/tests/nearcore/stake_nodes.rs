@@ -19,9 +19,7 @@ use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId,
-};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{load_test_config, start_with_config, NearConfig};
 

@@ -7,9 +7,7 @@ use near_client::{ClientActor, ViewClientActor};
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::types::{
-    BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId,
-};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use nearcore::{load_test_config, start_with_config};
 
 use crate::tests::test_helpers::heavy_test;
