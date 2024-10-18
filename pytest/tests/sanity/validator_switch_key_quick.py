@@ -54,12 +54,19 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         max_height = block.height + 4 * EPOCH_LENGTH
         target_height = max_height - EPOCH_LENGTH // 2
         start_time = time.time()
+        latest_epoch_height = 0
 
         while True:
             self.assertLess(time.time() - start_time, TIMEOUT,
                             'Validators got stuck')
 
             info = old_validator.json_rpc('validators', 'latest')
+            epoch_height = info['result']['epoch_height']
+            if epoch_height > latest_epoch_height:
+                latest_epoch_height = epoch_height
+                logger.info(f"Epoch height: {epoch_height}")
+                logger.info(f"Validators: {info['result']['current_validators']}")
+
             next_validators = info['result']['next_validators']
             account_ids = [v['account_id'] for v in next_validators]
             # We copied over 'test0' validator key, along with validator account ID.
