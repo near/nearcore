@@ -44,6 +44,7 @@ impl ReshardingManager {
             runtime_adapter,
             resharding_sender.into_sender(),
             FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
+            resharding_config.clone(),
         );
         Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
