@@ -5,7 +5,7 @@ use near_crypto::vrf::{Proof, Value};
 use near_crypto::Signature;
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{BlockHeight, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -55,6 +55,11 @@ pub enum BlockBody {
     V2(BlockBodyV2),
 }
 
+pub enum MaybeNew<'a, T> {
+    New(&'a T),
+    Old(&'a T),
+}
+
 impl BlockBody {
     pub fn new(
         protocol_version: ProtocolVersion,
@@ -84,6 +89,35 @@ impl BlockBody {
             BlockBody::V2(body) => &body.chunks,
         }
     }
+
+    #[inline]
+    pub fn chunks_v2(&self, height: BlockHeight) -> Vec<MaybeNew<ShardChunkHeader>> {
+        let chunks = match self {
+            BlockBody::V1(body) => &body.chunks,
+            BlockBody::V2(body) => &body.chunks,
+        };
+
+        chunks
+            .iter()
+            .map(|chunk| {
+                if chunk.is_new_chunk(height) {
+                    MaybeNew::New(chunk)
+                } else {
+                    MaybeNew::Old(chunk)
+                }
+            })
+            .collect()
+    }
+
+    // #[inline]
+    // pub fn chunks<'a>(&self) -> &[MaybeNew<'a, ShardChunkHeader>] {
+    //     let chunks = match self {
+    //         BlockBody::V1(body) => &body.chunks,
+    //         BlockBody::V2(body) => &body.chunks,
+    //     };
+
+    //     chunks
+    // }
 
     #[inline]
     pub fn challenges(&self) -> &Challenges {

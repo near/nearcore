@@ -2,7 +2,7 @@ use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
-use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
+use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures, MaybeNew};
 pub use crate::block_header::*;
 use crate::challenge::Challenges;
 use crate::checked_feature;
@@ -621,6 +621,19 @@ impl Block {
         }
     }
 
+    pub fn chunks_v2(&self) -> ChunksCollection {
+        match self {
+            Block::BlockV1(block) => ChunksCollection::V1(
+                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
+            ),
+            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
+            Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
+            Block::BlockV4(block) => {
+                ChunksCollection::V3(block.body.chunks_v2(block.header.height()))
+            }
+        }
+    }
+
     #[inline]
     pub fn challenges(&self) -> &Challenges {
         match self {
@@ -748,22 +761,23 @@ impl Block {
 pub enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
+    V3(Vec<MaybeNew<'a, ShardChunkHeader>>),
 }
 
-pub struct VersionedChunksIter<'a> {
-    chunks: &'a [ShardChunkHeader],
+pub struct VersionedChunksIter<'a, T> {
+    chunks: &'a [T],
     curr_index: usize,
     len: usize,
 }
 
-impl<'a> VersionedChunksIter<'a> {
-    fn new(chunks: &'a [ShardChunkHeader]) -> Self {
+impl<'a, T> VersionedChunksIter<'a, T> {
+    fn new(chunks: &'a [T]) -> Self {
         Self { chunks, curr_index: 0, len: chunks.len() }
     }
 }
 
-impl<'a> Iterator for VersionedChunksIter<'a> {
-    type Item = &'a ShardChunkHeader;
+impl<'a, T> Iterator for VersionedChunksIter<'a, T> {
+    type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr_index < self.len {
@@ -776,7 +790,7 @@ impl<'a> Iterator for VersionedChunksIter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
+impl<'a, T> ExactSizeIterator for VersionedChunksIter<'a, T> {
     fn len(&self) -> usize {
         self.len - self.curr_index
     }
@@ -790,6 +804,7 @@ impl<'a> Index<ShardIndex> for ChunksCollection<'a> {
         match self {
             ChunksCollection::V1(chunks) => &chunks[index],
             ChunksCollection::V2(chunks) => &chunks[index],
+            ChunksCollection::V3(_chunks) => todo!(),
         }
     }
 }
@@ -799,20 +814,55 @@ impl<'a> ChunksCollection<'a> {
         match self {
             ChunksCollection::V1(chunks) => chunks.len(),
             ChunksCollection::V2(chunks) => chunks.len(),
+            ChunksCollection::V3(chunks) => chunks.len(),
         }
     }
 
-    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
+    pub fn iter(&'a self) -> VersionedChunksIter<'a, ShardChunkHeader> {
         match self {
             ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
+            ChunksCollection::V3(_chunks) => todo!(),
         }
     }
+
+    pub fn iter_v2(&'a self) -> VersionedChunksIter<'a, MaybeNew<'a, ShardChunkHeader>> {
+        match self {
+            ChunksCollection::V1(_chunks) => todo!(),
+            ChunksCollection::V2(_chunks) => todo!(),
+            // ChunksCollection::V3(chunks) => panic!(),
+            ChunksCollection::V3(chunks) => VersionedChunksIter::new(chunks),
+        }
+    }
+
+    // pub fn iter_v3(
+    //     &'a self,
+    //     height: BlockHeight,
+    // ) -> VersionedChunksIter<'a, MaybeNew<'a, ShardChunkHeader>> {
+    //     let chunks = match self {
+    //         ChunksCollection::V1(chunks) => &chunks[..],
+    //         ChunksCollection::V2(chunks) => chunks,
+    //         ChunksCollection::V3(chunks) => panic!(),
+    //         // ChunksCollection::V3(chunks) => VersionedChunksIter::new(chunks),
+    //     };
+    //     let thing: Vec<MaybeNew<'a, ShardChunkHeader>> = chunks
+    //         .iter()
+    //         .map(|chunk| {
+    //             if chunk.is_new_chunk(height) {
+    //                 MaybeNew::New(chunk)
+    //             } else {
+    //                 MaybeNew::Old(chunk)
+    //             }
+    //         })
+    //         .collect();
+    //     VersionedChunksIter::new(thing)
+    // }
 
     pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
         match self {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
+            ChunksCollection::V3(_chunks) => todo!(),
         }
     }
 }
