@@ -2,6 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -123,6 +124,7 @@ impl StandaloneRuntime {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
             congestion_info,
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         };
 
         Self {

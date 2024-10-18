@@ -5,6 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+use crate::bandwidth_scheduler::{BandwidthRequest, BandwidthRequests, BandwidthRequestsV1};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
@@ -15,6 +16,7 @@ use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
 use crate::serialize::dec_format;
+use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
@@ -943,6 +945,7 @@ pub struct ChunkHeaderView {
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub congestion_info: Option<CongestionInfoView>,
+    pub bandwidth_requests: Option<BandwidthRequestsView>,
     pub signature: Signature,
 }
 
@@ -971,6 +974,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: inner.congestion_info().map(Into::into),
+            bandwidth_requests: inner.bandwidth_requests().map(Into::into),
             signature,
         }
     }
@@ -978,61 +982,94 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        if let Some(congestion_info) = view.congestion_info {
-            let mut header = ShardChunkHeaderV3 {
-                inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                    prev_block_hash: view.prev_block_hash,
-                    prev_state_root: view.prev_state_root,
-                    prev_outcome_root: view.outcome_root,
-                    encoded_merkle_root: view.encoded_merkle_root,
-                    encoded_length: view.encoded_length,
-                    height_created: view.height_created,
-                    shard_id: view.shard_id,
-                    prev_gas_used: view.gas_used,
-                    gas_limit: view.gas_limit,
-                    prev_balance_burnt: view.balance_burnt,
-                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                    tx_root: view.tx_root,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    congestion_info: congestion_info.into(),
-                }),
-                height_included: view.height_included,
-                signature: view.signature,
-                hash: ChunkHash::default(),
-            };
-            header.init();
-            ShardChunkHeader::V3(header)
-        } else {
-            let mut header = ShardChunkHeaderV3 {
-                inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                    prev_block_hash: view.prev_block_hash,
-                    prev_state_root: view.prev_state_root,
-                    prev_outcome_root: view.outcome_root,
-                    encoded_merkle_root: view.encoded_merkle_root,
-                    encoded_length: view.encoded_length,
-                    height_created: view.height_created,
-                    shard_id: view.shard_id,
-                    prev_gas_used: view.gas_used,
-                    gas_limit: view.gas_limit,
-                    prev_balance_burnt: view.balance_burnt,
-                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                    tx_root: view.tx_root,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                }),
-                height_included: view.height_included,
-                signature: view.signature,
-                hash: ChunkHash::default(),
-            };
-            header.init();
-            ShardChunkHeader::V3(header)
+        match (view.bandwidth_requests, view.congestion_info) {
+            (Some(bandwidth_requests), Some(congestion_info)) => {
+                let mut header = ShardChunkHeaderV3 {
+                    inner: ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                        prev_block_hash: view.prev_block_hash,
+                        prev_state_root: view.prev_state_root,
+                        prev_outcome_root: view.outcome_root,
+                        encoded_merkle_root: view.encoded_merkle_root,
+                        encoded_length: view.encoded_length,
+                        height_created: view.height_created,
+                        shard_id: view.shard_id,
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
+                        prev_balance_burnt: view.balance_burnt,
+                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                        tx_root: view.tx_root,
+                        prev_validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        congestion_info: congestion_info.into(),
+                        bandwidth_requests: bandwidth_requests.into(),
+                    }),
+                    height_included: view.height_included,
+                    signature: view.signature,
+                    hash: ChunkHash::default(),
+                };
+                header.init();
+                ShardChunkHeader::V3(header)
+            }
+            (None, Some(congestion_info)) => {
+                let mut header = ShardChunkHeaderV3 {
+                    inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                        prev_block_hash: view.prev_block_hash,
+                        prev_state_root: view.prev_state_root,
+                        prev_outcome_root: view.outcome_root,
+                        encoded_merkle_root: view.encoded_merkle_root,
+                        encoded_length: view.encoded_length,
+                        height_created: view.height_created,
+                        shard_id: view.shard_id,
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
+                        prev_balance_burnt: view.balance_burnt,
+                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                        tx_root: view.tx_root,
+                        prev_validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        congestion_info: congestion_info.into(),
+                    }),
+                    height_included: view.height_included,
+                    signature: view.signature,
+                    hash: ChunkHash::default(),
+                };
+                header.init();
+                ShardChunkHeader::V3(header)
+            }
+            _ => {
+                let mut header = ShardChunkHeaderV3 {
+                    inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                        prev_block_hash: view.prev_block_hash,
+                        prev_state_root: view.prev_state_root,
+                        prev_outcome_root: view.outcome_root,
+                        encoded_merkle_root: view.encoded_merkle_root,
+                        encoded_length: view.encoded_length,
+                        height_created: view.height_created,
+                        shard_id: view.shard_id,
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
+                        prev_balance_burnt: view.balance_burnt,
+                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                        tx_root: view.tx_root,
+                        prev_validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                    }),
+                    height_included: view.height_included,
+                    signature: view.signature,
+                    hash: ChunkHash::default(),
+                };
+                header.init();
+                ShardChunkHeader::V3(header)
+            }
         }
     }
 }
@@ -2215,6 +2252,7 @@ pub enum StateChangeCauseView {
     ValidatorAccountsUpdate,
     Migration,
     ReshardingV2,
+    BandwidthSchedulerStateUpdate,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -2241,6 +2279,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
             StateChangeCause::ReshardingV2 => Self::ReshardingV2,
+            StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
         }
     }
 }
@@ -2399,6 +2438,62 @@ impl CongestionInfoView {
         // misleading to call it congestion, as it is not a problem with too
         // much traffic.
         CongestionInfo::from(self.clone()).localized_congestion_level(&congestion_config)
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum BandwidthRequestsView {
+    V1(BandwidthRequestsV1View),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BandwidthRequestsV1View {
+    pub requests: Vec<BandwidthRequestView>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BandwidthRequestView {
+    pub to_shard: u8,
+    // TODO(bandwidth_scheduler) - include requested values in the view.
+}
+
+impl From<&BandwidthRequests> for BandwidthRequestsView {
+    fn from(bandwidth_requests: &BandwidthRequests) -> BandwidthRequestsView {
+        match bandwidth_requests {
+            BandwidthRequests::V1(bandwidth_requests) => {
+                BandwidthRequestsView::V1(BandwidthRequestsV1View {
+                    requests: bandwidth_requests.requests.iter().map(Into::into).collect(),
+                })
+            }
+        }
+    }
+}
+
+impl From<&BandwidthRequest> for BandwidthRequestView {
+    fn from(request: &BandwidthRequest) -> BandwidthRequestView {
+        BandwidthRequestView { to_shard: request.to_shard }
+    }
+}
+
+impl From<BandwidthRequestsView> for BandwidthRequests {
+    fn from(bandwidth_requests: BandwidthRequestsView) -> BandwidthRequests {
+        match bandwidth_requests {
+            BandwidthRequestsView::V1(bandwidth_requests_view) => {
+                BandwidthRequests::V1(BandwidthRequestsV1 {
+                    requests: bandwidth_requests_view
+                        .requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                })
+            }
+        }
+    }
+}
+
+impl From<BandwidthRequestView> for BandwidthRequest {
+    fn from(request_view: BandwidthRequestView) -> BandwidthRequest {
+        BandwidthRequest { to_shard: request_view.to_shard }
     }
 }
 

@@ -285,6 +285,7 @@ mod trie_recording_tests {
     use crate::trie::TrieNodesCount;
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::challenge::PartialState;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::{hash, CryptoHash};
@@ -361,6 +362,7 @@ mod trie_recording_tests {
             0,
             0,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra

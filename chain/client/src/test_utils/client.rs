@@ -227,6 +227,7 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
+            header.bandwidth_requests().cloned(),
             &*signer,
             PROTOCOL_VERSION,
         )

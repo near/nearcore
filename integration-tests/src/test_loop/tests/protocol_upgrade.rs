@@ -34,7 +34,7 @@ fn assert_shard_layout(shard_layout: &ShardLayout) {
 /// Test upgrading the blockchain to another protocol version.
 /// Optionally make some chunks around epoch boundary missing.
 /// Uses a hardcoded shard layout, it doesn't change during the test.
-fn test_protocol_upgrade(
+pub(crate) fn test_protocol_upgrade(
     old_protocol: ProtocolVersion,
     new_protocol: ProtocolVersion,
     missing_chunk_ranges: HashMap<ShardId, std::ops::Range<i64>>,

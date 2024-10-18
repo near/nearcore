@@ -6,6 +6,7 @@ use crate::ApplyState;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
@@ -223,6 +224,7 @@ impl TrieViewer {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
             congestion_info: Default::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),

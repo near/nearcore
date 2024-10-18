@@ -8,6 +8,7 @@ use near_client::test_utils::{create_chunk, create_chunk_with_transactions, Test
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
     TrieValue,
@@ -386,6 +387,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
         congestion_info,
+        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         &validator_signer,
         &rs,
         PROTOCOL_VERSION,
