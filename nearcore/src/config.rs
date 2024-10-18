@@ -1522,7 +1522,7 @@ mod tests {
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
     use near_primitives::shard_layout::account_id_to_shard_id;
-    use near_primitives::types::{new_shard_id_tmp, AccountId, NumShards};
+    use near_primitives::types::{new_shard_id_tmp, AccountId, NumShards, ShardId};
     use tempfile::tempdir;
 
     use crate::config::{

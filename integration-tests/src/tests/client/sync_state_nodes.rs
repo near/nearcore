@@ -21,6 +21,7 @@ use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     new_shard_id_tmp, new_shard_id_vec_tmp, BlockId, BlockReference, EpochId, EpochReference,
+    ShardId,
 };
 use near_primitives::utils::MaybeValidated;
 use near_store::adapter::StoreUpdateAdapter;

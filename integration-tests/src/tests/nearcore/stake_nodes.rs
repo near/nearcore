@@ -20,7 +20,7 @@ use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    new_shard_id_tmp, AccountId, BlockHeightDelta, BlockReference, NumSeats,
+    new_shard_id_tmp, AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId,
 };
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{load_test_config, start_with_config, NearConfig};

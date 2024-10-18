@@ -10,7 +10,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{new_shard_id_tmp, AccountId, AccountInfo, Balance};
+use near_primitives::types::{new_shard_id_tmp, AccountId, AccountInfo, Balance, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::genesis::GenesisStateApplier;
