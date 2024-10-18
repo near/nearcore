@@ -14,7 +14,6 @@ pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor, StartClientResult};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
-pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
 pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,

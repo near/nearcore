@@ -9,7 +9,7 @@ use crate::stateless_validation::partial_witness::partial_witness_actor::{
     PartialWitnessActor, PartialWitnessSenderForClient,
 };
 use crate::{
-    start_client, Client, ClientActor, StartClientResult, SyncAdapter, SyncStatus, ViewClientActor,
+    start_client, Client, ClientActor, StartClientResult, SyncStatus, ViewClientActor,
     ViewClientActorInner,
 };
 use actix::{Actor, Addr, Context};
@@ -157,12 +157,6 @@ pub fn setup(
         adv.clone(),
     );
 
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
-
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
@@ -186,7 +180,6 @@ pub fn setup(
         shard_tracker.clone(),
         runtime,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        state_sync_adapter,
         Arc::new(ActixFutureSpawner),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
@@ -1068,18 +1061,12 @@ pub fn setup_client_with_runtime(
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
     let mut client = Client::new(
         clock,
         config,
         chain_genesis,
         epoch_manager,
         shard_tracker,
-        state_sync_adapter,
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),

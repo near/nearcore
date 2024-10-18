@@ -1,19 +1,10 @@
-use std::sync::{Arc, Mutex};
-
-use near_async::messaging::{IntoSender, LateBoundSender, Sender};
-use near_async::test_loop::data::TestLoopData;
-use near_async::test_loop::pending_events_sender::PendingEventsSender;
-use near_network::types::PeerManagerMessageRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
     FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_store::ShardUId;
 
-use crate::sync::adapter::SyncActorHandler;
-use crate::sync::sync_actor::SyncActor;
-use crate::{Client, SyncMessage};
+use crate::Client;
 
 // TODO: This would be a good starting point for turning this into a test util.
 pub trait ClientQueries {
@@ -135,32 +126,4 @@ where
         }
         ret
     }
-}
-
-pub fn test_loop_sync_actor_maker(
-    index: usize,
-    sender: PendingEventsSender,
-) -> Arc<
-    dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
-        + Send
-        + Sync,
-> {
-    // This is a closure that will be called by SyncAdapter to create SyncActor.
-    // Since we don't have too much control over when the closure is called, we need to use the CallbackEvent
-    // to register the SyncActor in the TestLoopData.
-    // TestLoop and TestLoopData can not cross the closure boundary and be moved while the PendingEventsSender can.
-    Arc::new(move |shard_uid, client_sender, network_sender| {
-        let sync_actor = SyncActor::new(shard_uid, client_sender, network_sender);
-        let sync_actor_adapter = LateBoundSender::new();
-        let sync_actor_adapter_clone = sync_actor_adapter.clone();
-        let callback = move |data: &mut TestLoopData| {
-            data.register_actor_for_index(index, sync_actor, Some(sync_actor_adapter));
-        };
-        sender.send(format!("Register SyncActor {:?}", shard_uid), Box::new(callback));
-        SyncActorHandler {
-            client_sender: sync_actor_adapter_clone.as_sender(),
-            network_sender: sync_actor_adapter_clone.as_sender(),
-            shutdown: Mutex::new(Box::new(move || {})),
-        }
-    })
 }
