@@ -191,6 +191,7 @@ fn run_state_sync_with_dumped_parts(
             account_creation_at_epoch_height * epoch_length + 1
         };
 
+        let mut sync_hash = None;
         let signer: Signer = signer.into();
         for i in 1..=dump_node_head_height {
             if i == account_creation_at_height {
@@ -209,7 +210,21 @@ fn run_state_sync_with_dumped_parts(
             blocks.push(block.clone());
             env.process_block(0, block.clone(), Provenance::PRODUCED);
             env.process_block(1, block.clone(), Provenance::NONE);
+
+            if block.header().epoch_id() != &Default::default() {
+                let final_header = env.clients[0]
+                    .chain
+                    .get_block_header(block.header().last_final_block())
+                    .unwrap();
+                if block.header().epoch_id() == final_header.epoch_id() {
+                    if let Some(current_sync_hash) = env.clients[0].find_sync_hash().unwrap() {
+                        sync_hash = Some(current_sync_hash);
+                    }
+                }
+            }
         }
+        // We must have seen at least one block that was two ahead of the epoch start
+        let sync_hash = sync_hash.unwrap();
 
         // check that the new account exists
         let head = env.clients[0].chain.head().unwrap();
@@ -250,14 +265,6 @@ fn run_state_sync_with_dumped_parts(
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let epoch_height = epoch_info.epoch_height();
 
-        let sync_block_height = (epoch_length * epoch_height + 1) as usize;
-        let sync_hash = *blocks[sync_block_height - 1].hash();
-
-        // the block at sync_block_height should be the start of an epoch
-        assert_ne!(
-            blocks[sync_block_height - 1].header().epoch_id(),
-            blocks[sync_block_height - 2].header().epoch_id()
-        );
         assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
@@ -380,7 +387,7 @@ fn run_state_sync_with_dumped_parts(
 }
 
 #[test]
-/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous to the dumping node's final block.
+/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous (or current) to the dumping node's final block.
 /// Specifically, it tests that the above holds true in both conditions:
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
