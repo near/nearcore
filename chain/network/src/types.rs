@@ -293,7 +293,7 @@ pub enum NetworkRequests {
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
-    EpochSyncResponse { route_back: CryptoHash, proof: CompressedEpochSyncProof },
+    EpochSyncResponse { peer_id: PeerId, proof: CompressedEpochSyncProof },
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts
     /// accessed for the main state transition in the witness.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
