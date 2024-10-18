@@ -152,7 +152,7 @@ extern "C" {
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn number_from_input() {
     input(0);
     let value = [0u8; size_of::<u64>()];
@@ -160,7 +160,7 @@ pub unsafe fn number_from_input() {
     value_return(value.len() as u64, &value as *const u8 as u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn count_sum() {
     input(0);
     let data = [0u8; size_of::<u64>()];
@@ -185,7 +185,7 @@ pub unsafe fn count_sum() {
     value_return(value.len() as u64, &value as *const u8 as u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sum_of_numbers() {
     input(0);
     let data = [0u8; size_of::<u64>()];
@@ -244,10 +244,10 @@ pub unsafe fn sum_of_numbers() {
 }
 
 // Function that does not do anything at all.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn noop() {}
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_producer() {
     input(0);
     let data = [0u8; size_of::<u64>()];
@@ -258,7 +258,7 @@ pub unsafe fn data_producer() {
     value_return(data.len() as _, data.as_ptr() as _);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_receipt_with_size() {
     input(0);
     let data = [0u8; size_of::<u64>()];
