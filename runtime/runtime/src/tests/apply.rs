@@ -26,7 +26,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    new_shard_id_tmp, shard_id_as_u32, Balance, Compute, EpochInfoProvider, Gas, MerkleHash,
+    shard_id_as_u32, Balance, Compute, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;

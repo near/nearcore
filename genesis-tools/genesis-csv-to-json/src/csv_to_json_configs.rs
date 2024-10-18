@@ -5,7 +5,7 @@ use near_chain_configs::{
     MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
-use near_primitives::types::{new_shard_id_tmp, Balance, NumShards, ShardId};
+use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{Config, CONFIG_FILENAME, NODE_KEY_FILE};

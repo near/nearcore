@@ -20,7 +20,7 @@ use near_primitives::transaction::{
     SignedTransaction, StakeAction, Transaction,
 };
 use near_primitives::types::{
-    new_shard_id_tmp, AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,

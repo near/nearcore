@@ -2263,7 +2263,7 @@ mod test {
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{new_shard_id_tmp, EpochId};
+    use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;

@@ -26,7 +26,7 @@ use near_primitives::stateless_validation::partial_witness::PartialEncodedStateW
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
-use near_primitives::types::{new_shard_id_tmp, ShardIndex};
+use near_primitives::types::ShardIndex;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;

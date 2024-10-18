@@ -30,7 +30,7 @@ use near_primitives::sharding::{
     ShardChunkV2, ShardProof,
 };
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;

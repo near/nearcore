@@ -21,7 +21,7 @@ use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutio
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::types::{
-    new_shard_id_tmp, BlockHeight, MerkleHash, ProtocolVersion, ShardId,
+    BlockHeight, MerkleHash, ProtocolVersion, ShardId,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
