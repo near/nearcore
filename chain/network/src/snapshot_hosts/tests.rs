@@ -11,7 +11,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
-use near_primitives::types::{new_shard_id_tmp, EpochHeight};
+use near_primitives::types::EpochHeight;
 use rand::Rng;
 use std::collections::HashSet;
 use std::sync::Arc;

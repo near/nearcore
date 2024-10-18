@@ -121,7 +121,7 @@ impl ReshardingEventType {
 mod tests {
     use super::*;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::{new_shard_id_tmp, new_shard_id_vec_tmp, AccountId, ShardId};
+    use near_primitives::types::{new_shard_id_vec_tmp, AccountId, ShardId};
     use near_store::ShardUId;
     use std::collections::BTreeMap;
 

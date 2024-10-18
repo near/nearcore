@@ -589,7 +589,7 @@ mod tests {
         shard_layout::ShardLayout,
         state::FlatStateValue,
         trie_key::TrieKey,
-        types::{new_shard_id_tmp, AccountId, ShardId},
+        types::{AccountId, ShardId},
     };
     use near_store::{
         flat::{BlockInfo, FlatStorageReadyStatus},

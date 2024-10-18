@@ -30,7 +30,7 @@ use near_primitives::block::Tip;
 use near_primitives::challenge::{ChallengesResult, PartialState, SlashedValidator};
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::types::{
-    new_shard_id_tmp, BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier,
+    BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason,
 };
 use near_primitives::validator_signer::ValidatorSigner;

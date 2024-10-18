@@ -593,7 +593,7 @@ mod tests_utils {
 mod tests {
     use super::{PrefetchStagingArea, PrefetcherResult};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::types::{new_shard_id_tmp, ShardId};
+    use near_primitives::types::ShardId;
 
     #[test]
     fn test_prefetch_staging_area_blocking_get_after_update() {

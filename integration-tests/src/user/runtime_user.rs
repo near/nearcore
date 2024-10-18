@@ -14,7 +14,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    new_shard_id_tmp, new_shard_id_vec_tmp, AccountId, BlockHeightDelta, MerkleHash, ShardId,
+    new_shard_id_vec_tmp, AccountId, BlockHeightDelta, MerkleHash, ShardId,
 };
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{

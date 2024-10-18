@@ -7,7 +7,7 @@ use near_chain_configs::Genesis;
 use near_parameters::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
-use near_primitives::types::{new_shard_id_tmp, AccountId};
+use near_primitives::types::AccountId;
 use near_primitives::types::{ShardId, StateRoot};
 use near_primitives_core::types::NumShards;
 use near_store::genesis::GenesisStateApplier;

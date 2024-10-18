@@ -118,7 +118,7 @@ mod tests {
     use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
         StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
     };
-    use near_primitives::types::{new_shard_id_tmp, BlockHeight, EpochId, ShardId};
+    use near_primitives::types::{BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
     use near_store::test_utils::create_test_store;
