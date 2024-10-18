@@ -42,7 +42,7 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
+use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -192,7 +192,7 @@ fn register_drop_condition(
                 )
             });
 
-            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
                 chunks_storage,
                 epoch_manager_adapter.clone(),
                 drop_chunks_condition,
@@ -215,7 +215,7 @@ fn register_drop_condition(
                     chunk_ranges.clone(),
                 )
             });
-            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
                 chunks_storage,
                 epoch_manager_adapter.clone(),
                 drop_chunks_condition,
