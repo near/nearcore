@@ -3,11 +3,22 @@
 ## [unreleased]
 
 ### Protocol Changes
+
+* Fixing invalid cost used for wasm_yield_resume_byte. #12192
+* Relaxing Congestion Control to allow accepting and buffering more transactions. #12241
+
+### Non-protocol Changes
+**No Changes**
+
+## [2.3.0]
+
+### Protocol Changes
 * Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
 
 ### Non-protocol Changes
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
+* Decentralized state sync: Before, nodes that needed to download state (either because they're several epochs behind the chain or because they're going to start producing chunks for a shard they don't currently track) would download them from a centralized GCS bucket. Now, nodes will attempt to download pieces of the state from peers in the network, and only fallback to downloading from GCS if that fails. Please note that in order to participate in providing state parts to peers, your node may generate snapshots of the state. These snapshots should not take too much space, since they're hard links to database files that get cleaned up on every epoch.
 
 ### 2.2.0
 

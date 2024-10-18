@@ -174,7 +174,7 @@ expression: "&view"
       "yield_create_base": 153411779276,
       "yield_create_byte": 15643988,
       "yield_resume_base": 1195627285210,
-      "yield_resume_byte": 1195627285210,
+      "yield_resume_byte": 47683715,
       "bls12381_p1_sum_base": 16500000000,
       "bls12381_p1_sum_element": 6000000000,
       "bls12381_p2_sum_base": 18600000000,
@@ -246,7 +246,7 @@ expression: "&view"
     "registrar_account_id": "registrar"
   },
   "congestion_control_config": {
-    "max_congestion_incoming_gas": 20000000000000000,
+    "max_congestion_incoming_gas": 40000000000000000,
     "max_congestion_outgoing_gas": 10000000000000000,
     "max_congestion_memory_consumption": 1000000000,
     "max_congestion_missed_chunks": 5,
@@ -255,7 +255,7 @@ expression: "&view"
     "allowed_shard_outgoing_gas": 1000000000000000,
     "max_tx_gas": 500000000000000,
     "min_tx_gas": 20000000000000,
-    "reject_tx_congestion_threshold": 0.5,
+    "reject_tx_congestion_threshold": 0.8,
     "outgoing_receipts_usual_size_limit": 102400,
     "outgoing_receipts_big_size_limit": 4718592
   },
