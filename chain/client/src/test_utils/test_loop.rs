@@ -1,4 +1,3 @@
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
