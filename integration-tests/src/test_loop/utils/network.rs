@@ -9,7 +9,7 @@ type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool>;
 
 /// Handler to drop all endorsement messages relevant to chunk body, based on
 /// `drop_chunks_condition` result.
-pub fn missing_chunks_endorsement_dropper(
+pub fn chunk_endorsement_dropper_by_hash(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     drop_chunk_condition: DropChunkCondition,
