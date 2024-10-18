@@ -77,10 +77,7 @@ fn test_protocol_upgrade(
         .protocol_version(old_protocol)
         .genesis_time_from_clock(&builder.clock())
         .genesis_height(10000)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
         .shard_layout(shard_layout.clone())
-        .transaction_validity_period(1000)
         .epoch_length(epoch_length)
         .validators_desired_roles(&producers, &validators);
     for account in accounts {
