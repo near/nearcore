@@ -818,6 +818,13 @@ impl<'a> Chunks<'a> {
         }
     }
 
+    pub fn iter_new_chunks(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+        Box::new(self.iter_annotated().filter_map(|chunk| match chunk {
+            MaybeNew::New(chunk) => Some(chunk),
+            _ => None,
+        }))
+    }
+
     pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.get(index),

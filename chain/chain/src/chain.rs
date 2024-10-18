@@ -1260,8 +1260,7 @@ impl Chain {
         let block_height = block.header().height();
         for pair in block
             .chunks()
-            .iter()
-            .filter(|chunk| chunk.is_new_chunk(block_height))
+            .iter_new_chunks()
             .flat_map(|chunk| chunk.prev_validator_proposals())
             .zip_longest(block.header().prev_validator_proposals())
         {
