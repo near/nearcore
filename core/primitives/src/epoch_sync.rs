@@ -111,11 +111,12 @@ pub struct EpochSyncProofCurrentEpochData {
     pub first_block_header_in_epoch: BlockHeader,
     // The last two block headers are also needed for various purposes after epoch sync.
     // TODO(#11931): do we really need these?
+    // TODO(#12259) These 2 fields are currently unverified.
     pub last_block_header_in_prev_epoch: BlockHeader,
     pub second_last_block_header_in_prev_epoch: BlockHeader,
     // Used to prove the block against the merkle root
     // included in the final block in this next epoch (included in LastEpochData).
-    // TODO(#11932) This field is currently ungenerated and unverified.
+    // TODO(#12255) This field is currently ungenerated and unverified.
     pub merkle_proof_for_first_block: Vec<MerklePathItem>,
     // Partial merkle tree for the first block in this next epoch.
     // It is necessary and sufficient to calculate next blocks merkle roots.

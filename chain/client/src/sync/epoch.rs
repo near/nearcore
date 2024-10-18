@@ -245,7 +245,7 @@ impl EpochSync {
             )?
             .ok_or_else(|| Error::Other("Could not find first block of next epoch".to_string()))?;
 
-        // TODO(#11932) That currently does not work because we might need some old block hashes
+        // TODO(#12255) That currently does not work because we might need some old block hashes
         // in order to build the merkle proof.
         // let merkle_proof_for_first_block_of_current_epoch = store
         //     .compute_past_block_proof_in_merkle_tree_of_later_block(
@@ -624,7 +624,7 @@ impl EpochSync {
     ) -> Result<(), Error> {
         // Verify first_block_header_in_epoch
         let first_block_header = &current_epoch.first_block_header_in_epoch;
-        // TODO(#11932) Uncomment the check below when `merkle_proof_for_first_block` is generated.
+        // TODO(#12255) Uncomment the check below when `merkle_proof_for_first_block` is generated.
         // if !merkle::verify_hash(
         //     *final_block_header.block_merkle_root(),
         //     &current_epoch.merkle_proof_for_first_block,
@@ -643,7 +643,7 @@ impl EpochSync {
                 "invalid path in partial_merkle_tree_for_first_block".to_string(),
             ));
         }
-        // TODO(#11932) Investigate why "+1" was needed here, looks like it should not be there.
+        // TODO(#12256) Investigate why "+1" was needed here, looks like it should not be there.
         if current_epoch.partial_merkle_tree_for_first_block.size() + 1
             != first_block_header.block_ordinal()
         {
@@ -669,7 +669,7 @@ impl EpochSync {
             &last_epoch.next_epoch_info,
             &last_epoch.next_next_epoch_info,
         ));
-        // TODO(#11932) This currently fails because `epoch_sync_data_hash` is missing in `final_block_header_in_next_epoch`.
+        // TODO(#12258) This currently fails because `epoch_sync_data_hash` is missing in `final_block_header_in_next_epoch`.
         // let expected_epoch_sync_data_hash = last_epoch
         //     .final_block_header_in_next_epoch
         //     .epoch_sync_data_hash()
