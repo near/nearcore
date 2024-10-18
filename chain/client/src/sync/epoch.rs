@@ -6,7 +6,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
@@ -23,7 +23,7 @@ use near_primitives::epoch_sync::{
     EpochSyncProofLastEpochData, EpochSyncProofPastEpochData,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{self, PartialMerkleTree};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
@@ -245,11 +245,14 @@ impl EpochSync {
             )?
             .ok_or_else(|| Error::Other("Could not find first block of next epoch".to_string()))?;
 
-        let merkle_proof_for_first_block_of_current_epoch = store
-            .compute_past_block_proof_in_merkle_tree_of_later_block(
-                first_block_of_current_epoch.hash(),
-                final_block_header_in_current_epoch.hash(),
-            )?;
+        // TODO(#11932) That currently does not work because we might need some old block hashes
+        // in order to build the merkle proof.
+        // let merkle_proof_for_first_block_of_current_epoch = store
+        //     .compute_past_block_proof_in_merkle_tree_of_later_block(
+        //         first_block_of_current_epoch.hash(),
+        //         final_block_header_in_current_epoch.hash(),
+        //     )?;
+        let merkle_proof_for_first_block_of_current_epoch = Default::default();
 
         let partial_merkle_tree_for_first_block_of_current_epoch = store
             .get_ser::<PartialMerkleTree>(
@@ -617,19 +620,20 @@ impl EpochSync {
 
     fn verify_current_epoch_data(
         current_epoch: &EpochSyncProofCurrentEpochData,
-        final_block_header: &BlockHeader,
+        _final_block_header: &BlockHeader,
     ) -> Result<(), Error> {
         // Verify first_block_header_in_epoch
         let first_block_header = &current_epoch.first_block_header_in_epoch;
-        if !merkle::verify_hash(
-            *final_block_header.block_merkle_root(),
-            &current_epoch.merkle_proof_for_first_block,
-            *first_block_header.hash(),
-        ) {
-            return Err(Error::InvalidEpochSyncProof(
-                "invalid merkle_proof_for_first_block".to_string(),
-            ));
-        }
+        // TODO(#11932) Uncomment the check below when `merkle_proof_for_first_block` is generated.
+        // if !merkle::verify_hash(
+        //     *final_block_header.block_merkle_root(),
+        //     &current_epoch.merkle_proof_for_first_block,
+        //     *first_block_header.hash(),
+        // ) {
+        //     return Err(Error::InvalidEpochSyncProof(
+        //         "invalid merkle_proof_for_first_block".to_string(),
+        //     ));
+        // }
 
         // Verify partial_merkle_tree_for_first_block
         if current_epoch.partial_merkle_tree_for_first_block.root()
