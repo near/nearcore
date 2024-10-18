@@ -589,7 +589,10 @@ mod tests {
         shard_layout::ShardLayout,
         state::FlatStateValue,
         trie_key::TrieKey,
-        types::{new_shard_id_tmp, AccountId},
+        types::{
+            new_shard_id_tmp, AccountId, RawStateChange, RawStateChangesWithTrieKey, ShardId,
+            StateChangeCause,
+        },
     };
     use near_store::{
         flat::{BlockInfo, FlatStorageReadyStatus},
@@ -980,11 +983,189 @@ mod tests {
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());
     }
 
-    /// Verify that a shard can be split correctly even if its flat head is lagging behind the expected
-    /// block height.
+    /// Verify the correctness of a shard split in the presence of flat storage deltas in the parent
+    /// shard.
     #[test]
-    fn split_shard_parent_flat_store_lagging_behind() {
-        // TODO(Trisfald): implement
+    fn split_shard_parent_flat_store_with_deltas() {
+        init_test_logger();
+        let sender = TestScheduler::default().into_multi_sender();
+        let (chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let manager = chain.runtime_adapter.get_flat_storage_manager();
+
+        // Manually add deltas on top of parent's flat storage.
+        // Pick different kind of keys and operations in order to maximize test coverage.
+        // List of all keys and their values:
+        let account_vv_key = TrieKey::Account { account_id: account!("vv") };
+        let account_vv_value = Some("vv-update".as_bytes().to_vec());
+        let account_oo_key = TrieKey::Account { account_id: account!("oo") };
+        let account_oo_value = Some("oo".as_bytes().to_vec());
+        let account_mm_key = TrieKey::Account { account_id: account!("mm") };
+        let delayed_receipt_0_key = TrieKey::DelayedReceipt { index: 0 };
+        let delayed_receipt_0_value_0 = Some("delayed0-0".as_bytes().to_vec());
+        let delayed_receipt_0_value_1 = Some("delayed0-1".as_bytes().to_vec());
+        let delayed_receipt_1_key = TrieKey::DelayedReceipt { index: 1 };
+        let delayed_receipt_1_value = Some("delayed1".as_bytes().to_vec());
+        let buffered_receipt_0_key =
+            TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 0 };
+        let buffered_receipt_0_value_0 = Some("buffered0-0".as_bytes().to_vec());
+        let buffered_receipt_0_value_1 = Some("buffered0-1".as_bytes().to_vec());
+        let buffered_receipt_1_key =
+            TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 1 };
+        let buffered_receipt_1_value = Some("buffered1".as_bytes().to_vec());
+
+        // First set of deltas.
+        let next_height = chain.head().unwrap().height + 1;
+        let prev_hash = chain.head().unwrap().last_block_hash;
+        let block_hash = CryptoHash::hash_bytes(&[42]);
+        let state_changes = vec![
+            // Change: add account.
+            RawStateChangesWithTrieKey {
+                trie_key: account_oo_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: account_oo_value.clone(),
+                }],
+            },
+            // Change: update account.
+            RawStateChangesWithTrieKey {
+                trie_key: account_vv_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: account_vv_value.clone(),
+                }],
+            },
+            // Change: add two delayed receipts.
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: delayed_receipt_0_value_0,
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_1_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: delayed_receipt_1_value,
+                }],
+            },
+            // Change: update delayed receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: delayed_receipt_0_value_1.clone(),
+                }],
+            },
+            // Change: add two buffered receipts.
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: buffered_receipt_0_value_0,
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_1_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: buffered_receipt_1_value,
+                }],
+            },
+            // Change: update buffered receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: buffered_receipt_0_value_1.clone(),
+                }],
+            },
+        ];
+        manager
+            .save_flat_state_changes(
+                block_hash,
+                prev_hash,
+                next_height,
+                parent_shard,
+                &state_changes,
+            )
+            .unwrap();
+
+        // Second set of deltas.
+        let next_height = next_height + 1;
+        let prev_hash = block_hash;
+        let block_hash = CryptoHash::hash_bytes(&[24]);
+        let state_changes = vec![
+            // Change: remove account.
+            RawStateChangesWithTrieKey {
+                trie_key: account_mm_key,
+                changes: vec![RawStateChange { cause: StateChangeCause::InitialState, data: None }],
+            },
+            // Change: remove delayed receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_1_key.clone(),
+                changes: vec![RawStateChange { cause: StateChangeCause::InitialState, data: None }],
+            },
+            // Change: remove buffered receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_1_key.clone(),
+                changes: vec![RawStateChange { cause: StateChangeCause::InitialState, data: None }],
+            },
+        ];
+        manager
+            .save_flat_state_changes(
+                block_hash,
+                prev_hash,
+                next_height,
+                parent_shard,
+                &state_changes,
+            )
+            .unwrap();
+
+        // Do resharding.
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+
+        // Validate integrity of children shards.
+        let flat_store = resharder.runtime.store().flat_store();
+        // Account 'oo' should exist only in the left child.
+        assert_eq!(
+            flat_store.get(left_child_shard, &account_oo_key.to_vec()),
+            Ok(account_oo_value.map(|val| FlatStateValue::inlined(&val)))
+        );
+        assert_eq!(flat_store.get(right_child_shard, &account_oo_key.to_vec()), Ok(None));
+        // Account 'vv' should exist with updated value only in the right child.
+        assert_eq!(flat_store.get(left_child_shard, &account_vv_key.to_vec()), Ok(None));
+        assert_eq!(
+            flat_store.get(right_child_shard, &account_vv_key.to_vec()),
+            Ok(account_vv_value.map(|val| FlatStateValue::inlined(&val)))
+        );
+        // Delayed receipt '1' shouldn't exist.
+        // Delayed receipt '0' should exist with updated value in both children.
+        for child in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                flat_store.get(child, &delayed_receipt_0_key.to_vec()),
+                Ok(delayed_receipt_0_value_1.clone().map(|val| FlatStateValue::inlined(&val)))
+            );
+
+            assert_eq!(flat_store.get(child, &delayed_receipt_1_key.to_vec()), Ok(None));
+        }
+        // Buffered receipt '0' should exist with updated value only in the left child.
+        assert_eq!(
+            flat_store.get(left_child_shard, &buffered_receipt_0_key.to_vec()),
+            Ok(buffered_receipt_0_value_1.map(|val| FlatStateValue::inlined(&val)))
+        );
+        assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_0_key.to_vec()), Ok(None));
+        // Buffered receipt '1' shouldn't exist.
+        for child in [left_child_shard, right_child_shard] {
+            assert_eq!(flat_store.get(child, &buffered_receipt_1_key.to_vec()), Ok(None));
+        }
     }
 
     /// Tests the split of "account-id based" keys that are not covered in [simple_split_shard].
