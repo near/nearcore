@@ -238,6 +238,9 @@ pub enum Error {
     /// Resharding error.
     #[error("Resharding Error: {0}")]
     ReshardingError(String),
+    /// EpochSyncProof validation error.
+    #[error("EpochSyncProof Validation Error: {0}")]
+    InvalidEpochSyncProof(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -303,6 +306,7 @@ impl Error {
             | Error::MaliciousChallenge
             | Error::IncorrectNumberOfChunkHeaders
             | Error::InvalidEpochHash
+            | Error::InvalidEpochSyncProof(_)
             | Error::InvalidNextBPHash
             | Error::NotEnoughApprovals
             | Error::InvalidFinalityInfo
@@ -381,6 +385,7 @@ impl Error {
             Error::MaliciousChallenge => "malicious_challenge",
             Error::IncorrectNumberOfChunkHeaders => "incorrect_number_of_chunk_headers",
             Error::InvalidEpochHash => "invalid_epoch_hash",
+            Error::InvalidEpochSyncProof(_) => "invalid_epoch_sync_proof",
             Error::InvalidNextBPHash => "invalid_next_bp_hash",
             Error::NotEnoughApprovals => "not_enough_approvals",
             Error::InvalidFinalityInfo => "invalid_finality_info",
