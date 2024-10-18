@@ -209,6 +209,8 @@ mod tests {
                     receipts_hash: Default::default(),
                     // TODO(#11099): Revisit this.
                     contract_accesses: vec![],
+                    // TODO(#11099): Revisit this.
+                    contract_deploys: vec![],
                 }),
             )
             .unwrap();

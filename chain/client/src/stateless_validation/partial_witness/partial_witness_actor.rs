@@ -8,15 +8,15 @@ use near_chain::Error;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage,
+    ChunkContractAccessesMessage, ChunkContractDeploymentsMessage, ChunkStateWitnessAckMessage,
+    ContractCodeRequestMessage, ContractCodeResponseMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, ChunkContractDeployments, ContractCodeRequest, ContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -107,6 +107,14 @@ impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
         if let Err(err) = self.handle_chunk_contract_accesses(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle ChunkContractAccessesMessage");
+        }
+    }
+}
+
+impl Handler<ChunkContractDeploymentsMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: ChunkContractDeploymentsMessage) {
+        if let Err(err) = self.handle_chunk_contract_deployments(msg.0) {
+            tracing::error!(target: "client", ?err, "Failed to handle ChunkContractDeploymentsMessage");
         }
     }
 }
@@ -357,6 +365,18 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         // TODO(#11099): Implement this and remove debug message.
         tracing::debug!(target: "client", next_chunk=?_accesses.chunk_production_key(), contracts=?_accesses.contracts(), "handle_chunk_contract_accesses");
+        unimplemented!()
+    }
+
+    /// Handles contract code deployments message from chunk producer.
+    /// This is sent in parallel to a chunk state witness and contains the code-hashes
+    /// of the contracts deployed when applying the previous chunk of the witness.
+    pub fn handle_chunk_contract_deployments(
+        &mut self,
+        _deploys: ChunkContractDeployments,
+    ) -> Result<(), Error> {
+        // TODO(#11099): Implement this and remove debug message.
+        tracing::debug!(target: "client", next_chunk=?_deploys.chunk_production_key(), contracts=?_deploys.contracts(), "handle_chunk_contract_deployments");
         unimplemented!()
     }
 
