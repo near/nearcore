@@ -1198,6 +1198,16 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ChunkContractDeployments(chunk_validators, deploys) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::ChunkContractDeployments(deploys.clone()),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::ContractCodeRequest(target, request) => {
                 self.state.send_message_to_account(
                     &self.clock,

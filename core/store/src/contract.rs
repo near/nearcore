@@ -56,7 +56,7 @@ impl ContractStorage {
     pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         {
             let guard = self.uncommitted_deploys.read().expect("no panics");
-            if let Some(v) = guard.get(&CodeHash(code_hash)) {
+            if let Some(v) = guard.get(&code_hash.into()) {
                 return Some(ContractCode::new(v.code().to_vec(), Some(code_hash)));
             }
         }
@@ -82,7 +82,7 @@ impl ContractStorage {
     /// Calling `rollback` clears this uncommitted deploy.
     pub fn store(&self, code: ContractCode) {
         let mut guard = self.uncommitted_deploys.write().expect("no panics");
-        guard.insert(CodeHash(*code.hash()), code);
+        guard.insert((*code.hash()).into(), code);
     }
 
     /// Rolls back the previous recording of contract calls and deployments.
