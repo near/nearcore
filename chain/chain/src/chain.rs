@@ -1244,7 +1244,7 @@ impl Chain {
                         )));
                     }
                 }
-                MayveBew::Old(chunk_header) => {
+                MaybeNew::Old(chunk_header) => {
                     if prev_chunk_header != chunk_header {
                         return Err(Error::InvalidChunk(format!(
                             "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
