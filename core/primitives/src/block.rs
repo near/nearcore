@@ -621,7 +621,9 @@ impl Block {
         }
     }
 
-    pub fn chunks_v2(&self) -> ChunksCollection {
+    /// Annotates the headers with `MaybeNew::Old` if the header
+    /// is from the previous block, `MaybeNew::New` otherwise.
+    pub fn chunks_annotated(&self) -> ChunksCollection {
         match self {
             Block::BlockV1(block) => ChunksCollection::V1(
                 block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
@@ -666,7 +668,7 @@ impl Block {
                     .collect(),
             ),
             Block::BlockV4(block) => {
-                ChunksCollection::V3(block.body.chunks_v2(block.header.height()))
+                ChunksCollection::V3(block.body.chunks_annotated(block.header.height()))
             }
         }
     }
@@ -836,8 +838,10 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    // think about how to handle V1 and V2
-    pub fn iter_v2(&'a self) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
+    pub fn iter_annotated(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
+        // think about how to handle V1 and V2
         match self {
             ChunksCollection::V1(chunks) => {
                 Box::new(chunks.iter().map(|chunk| MaybeNew::New(chunk)))

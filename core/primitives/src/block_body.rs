@@ -91,8 +91,10 @@ impl BlockBody {
         }
     }
 
+    /// Annotates the headers with `MaybeNew::Old` if the header
+    /// is from the previous block, `MaybeNew::New` otherwise.
     #[inline]
-    pub fn chunks_v2(&self, height: BlockHeight) -> Vec<MaybeNew<ShardChunkHeader>> {
+    pub fn chunks_annotated(&self, height: BlockHeight) -> Vec<MaybeNew<ShardChunkHeader>> {
         let chunks = match self {
             BlockBody::V1(body) => &body.chunks,
             BlockBody::V2(body) => &body.chunks,
