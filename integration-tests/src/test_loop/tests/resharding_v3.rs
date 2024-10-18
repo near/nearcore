@@ -184,12 +184,12 @@ fn test_resharding_v3_drop_chunks() {
     let chunk_ranges_to_drop = HashMap::from([
         // TODO(resharding): doesn't work because of "Missing main transition
         // state proof"
-        // (ShardUId { shard_id: 1, version: 3 }, -2..0),
+        (ShardUId { shard_id: 1, version: 3 }, -2..0),
         // TODO(resharding): hangs. Something is wrong with skipping the first
         // chunk for non-split shard.
         // (ShardUId { shard_id: 0, version: 3 }, -2..2),
         // TODO(resharding): for some reason, leads to skipped blocks as well.
-        (ShardUId { shard_id: 2, version: 3 }, 0..2),
+        // (ShardUId { shard_id: 2, version: 3 }, 0..2),
     ]);
     test_resharding_v3_base(chunk_ranges_to_drop);
 }
