@@ -50,18 +50,26 @@ ALL_ACCOUNTS_PREFIXES = [
 
 class StateSyncValidatorShardSwap(unittest.TestCase):
 
-    def _prepare_cluster(self, with_rpc=False, shuffle_shard_assignment=False):
+    def _prepare_cluster(self,
+                         with_rpc=False,
+                         shuffle_shard_assignment=False,
+                         centralized_state_sync=False,
+                         decentralized_state_sync=False):
         (node_config_dump,
          node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
              tracked_shards=None)
 
-        # State snapshot is disabled for dumper. We only want to dump the headers.
-        node_config_dump["store.state_snapshot_enabled"] = False
+        # State snapshot is enabled for dumper if we test centralized state sync.
+        # We want to dump the headers either way.
         node_config_dump[
-            "store.state_snapshot_config.state_snapshot_type"] = "ForReshardingOnly"
+            "store.state_snapshot_enabled"] = True if centralized_state_sync else False
+        node_config_dump[
+            "store.state_snapshot_config.state_snapshot_type"] = "EveryEpoch" if centralized_state_sync else "ForReshardingOnly"
 
-        # State snapshot is enabled for validators. They will share parts of the state.
-        node_config_sync["store.state_snapshot_enabled"] = True
+        # State snapshot is enabled for validators if we test decentralized state sync.
+        # They will share parts of the state.
+        node_config_sync[
+            "store.state_snapshot_enabled"] = True if decentralized_state_sync else False
         node_config_sync["tracked_shards"] = []
 
         # Validators
@@ -143,12 +151,8 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
                              stake, nonce, hash_)
         res = self.rpc_node.send_tx_and_wait(tx, timeout=15)
 
-    def test_state_sync_with_restaking(self):
-        # Dumper node will not track any shard. So we need a dedicated RPC node.
-        # TODO: enable shuffle_shard_assignment after decentralized state sync is implemented.
-        self._prepare_cluster(with_rpc=True, shuffle_shard_assignment=False)
-        self._prepare_simple_transfers()
-
+    # Test that validators can sync up after restaking.
+    def _run_test_state_sync_with_restaking(self):
         validator = self.validators[int(self._get_extra_validator()[-1])]
 
         self.send_stake_tx(validator, 0)
@@ -158,8 +162,52 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
         target_height = 9 * EPOCH_LENGTH
         # Wait for all nodes to reach epoch 9.
         for n in self.validators:
-            wait_for_blocks(n, target=target_height)
+            logger.info(
+                f"Waiting for node {n.ordinal} to reach target height {target_height}"
+            )
+            try:
+                wait_for_blocks(n, target=target_height)
+            except Exception as e:
+                logger.error(e)
+                assert False, f"Node {n.ordinal} did not reach target height {target_height} in time"
         logger.info("Test ended")
+
+    def test_state_sync_with_restaking_decentralized_only(self):
+        try:
+            self._prepare_cluster(
+                with_rpc=True,
+                shuffle_shard_assignment=False,
+                decentralized_state_sync=True,
+            )
+            self._prepare_simple_transfers()
+            self._run_test_state_sync_with_restaking()
+        except Exception as e:
+            assert False, f"Test failed: {e}"
+
+    def test_state_sync_with_restaking_centralized_only(self):
+        try:
+            self._prepare_cluster(
+                with_rpc=True,
+                shuffle_shard_assignment=False,
+                centralized_state_sync=True,
+            )
+            self._prepare_simple_transfers()
+            self._run_test_state_sync_with_restaking()
+        except Exception as e:
+            assert False, f"Test failed: {e}"
+
+    def test_state_sync_with_restaking_both_dss_and_css(self):
+        try:
+            self._prepare_cluster(
+                with_rpc=True,
+                shuffle_shard_assignment=False,
+                decentralized_state_sync=True,
+                centralized_state_sync=True,
+            )
+            self._prepare_simple_transfers()
+            self._run_test_state_sync_with_restaking()
+        except Exception as e:
+            assert False, f"Test failed: {e}"
 
     def tearDown(self):
         self._clear_cluster()
