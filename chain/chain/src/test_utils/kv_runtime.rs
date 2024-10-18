@@ -947,6 +947,17 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn verify_approval_with_approvers_info(
+        &self,
+        _prev_block_hash: &CryptoHash,
+        _prev_block_height: BlockHeight,
+        _block_height: BlockHeight,
+        _approvals: &[Option<Box<Signature>>],
+        _info: Vec<(ApprovalStake, bool)>,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,
@@ -1343,6 +1354,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
+            // Since all actions are transfer actions, there is no contracts accessed.
+            contract_accesses: vec![],
         })
     }
 
