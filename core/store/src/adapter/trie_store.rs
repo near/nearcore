@@ -32,32 +32,12 @@ impl TrieStoreAdapter {
         TrieStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
-    /// Constructs db key to be used to access the State column.
-    /// First, it consults the `StateShardUIdMapping` column to map the `shard_uid` prefix
-    /// to its ancestor in the resharding tree (according to Resharding V3)
-    /// or map to itself if the mapping does not exist.
-    ///
-    /// Please note that the mapped shard uid is read from db each time which may seem slow.
-    /// In practice the `StateShardUIdMapping` is very small and should always be stored in the RocksDB cache.
-    /// The deserialization of ShardUId is also very cheap.
-    fn get_key_from_shard_uid_and_hash(&self, shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
-        let mapped_shard_uid = self
-            .store
-            .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
-            .expect("get_key_from_shard_uid_and_hash() failed")
-            .unwrap_or(shard_uid);
-        let mut key = [0; 40];
-        key[0..8].copy_from_slice(&mapped_shard_uid.to_bytes());
-        key[8..].copy_from_slice(hash.as_ref());
-        key
-    }
-
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
     /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     ///
     /// For more details, see `get_key_from_shard_uid_and_hash()` docs.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
+        let key = get_key_from_shard_uid_and_hash(&self.store, shard_uid, hash);
         let val = self
             .store
             .get(DBCol::State, key.as_ref())
@@ -119,7 +99,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     }
 
     fn get_key_from_shard_uid_and_hash(&self, shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
-        self.store_update.store.trie_store().get_key_from_shard_uid_and_hash(shard_uid, hash)
+        get_key_from_shard_uid_and_hash(&self.store_update.store, shard_uid, hash)
     }
 
     pub fn decrement_refcount_by(
@@ -192,6 +172,29 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     pub fn delete_all_state(&mut self) {
         self.store_update.delete_all(DBCol::State)
     }
+}
+
+/// Constructs db key to be used to access the State column.
+/// First, it consults the `StateShardUIdMapping` column to map the `shard_uid` prefix
+/// to its ancestor in the resharding tree (according to Resharding V3)
+/// or map to itself if the mapping does not exist.
+///
+/// Please note that the mapped shard uid is read from db each time which may seem slow.
+/// In practice the `StateShardUIdMapping` is very small and should always be stored in the RocksDB cache.
+/// The deserialization of ShardUId is also very cheap.
+fn get_key_from_shard_uid_and_hash(
+    store: &Store,
+    shard_uid: ShardUId,
+    hash: &CryptoHash,
+) -> [u8; 40] {
+    let mapped_shard_uid = store
+        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
+        .expect("get_key_from_shard_uid_and_hash() failed")
+        .unwrap_or(shard_uid);
+    let mut key = [0; 40];
+    key[0..8].copy_from_slice(&mapped_shard_uid.to_bytes());
+    key[8..].copy_from_slice(hash.as_ref());
+    key
 }
 
 #[cfg(test)]
