@@ -17,7 +17,7 @@ use near_primitives::sharding::{
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
-use near_primitives::types::{new_shard_id_tmp, AccountId};
+use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 struct OrphanWitnessTestEnv {

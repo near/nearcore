@@ -34,6 +34,7 @@ mod tests {
     use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
     use near_primitives::types::new_shard_id_tmp;
+    use near_primitives::types::ShardId;
 
     #[test]
     fn test_migration_data() {

@@ -8,7 +8,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::new_shard_id_tmp;
+use near_primitives::types::{new_shard_id_tmp, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;

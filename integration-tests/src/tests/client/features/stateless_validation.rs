@@ -24,7 +24,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{new_shard_id_tmp, AccountInfo, EpochId};
+use near_primitives::types::{new_shard_id_tmp, AccountInfo, EpochId, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;

@@ -153,7 +153,7 @@ mod state_witness_tracker_tests {
     use near_async::time::{Duration, FakeClock, Utc};
     use near_primitives::hash::hash;
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-    use near_primitives::types::new_shard_id_tmp;
+    use near_primitives::types::{new_shard_id_tmp, ShardId};
 
     const NUM_VALIDATORS: usize = 3;
 

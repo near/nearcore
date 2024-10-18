@@ -9,6 +9,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::new_shard_id_tmp;
+use near_primitives::types::ShardId;
 use std::sync::Arc;
 
 #[tokio::test]

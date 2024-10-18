@@ -413,7 +413,7 @@ mod test {
         ExternalConnection, StateFileType,
     };
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::types::new_shard_id_tmp;
+    use near_primitives::types::{new_shard_id_tmp, ShardId};
     use rand::distributions::{Alphanumeric, DistString};
 
     fn random_string(rand_len: usize) -> String {
@@ -464,8 +464,8 @@ mod test {
         let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
-        let files = rt
-            .block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
+        let files =
+            rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
         tracing::debug!("Files before upload: {:?}", files);
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 0);
 
@@ -478,8 +478,8 @@ mod test {
         });
 
         // After uploading we should see filename in the list of files.
-        let files = rt
-            .block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
+        let files =
+            rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
         tracing::debug!("Files after upload: {:?}", files);
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 1);
 
