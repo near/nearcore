@@ -62,7 +62,6 @@ use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
-use near_primitives::checked_feature;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -2557,7 +2556,7 @@ impl Client {
         let header_head = self.chain.header_head()?;
         let header = self.chain.get_block_header(&header_head.last_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        let sync_hash = if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+        let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
             match self.chain.get_current_epoch_sync_hash(&header)? {
                 Some(h) => h,
                 None => return Ok(None),

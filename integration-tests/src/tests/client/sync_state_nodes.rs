@@ -16,7 +16,6 @@ use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
-use near_primitives::checked_feature;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{CachedParts, StatePartKey};
@@ -24,7 +23,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -586,7 +585,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             // Note that the height to skip here refers to the height at which not to produce chunks for the next block, so really
             // one before the block height that will have no chunks. The sync_height is the height of the sync_hash block.
             let (start_skipping_chunks, sync_height) =
-                if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+                if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
                     // At the beginning of the epoch, produce one block with chunks and then start skipping chunks.
                     let start_skipping_chunks = next_epoch_start + 1;
                     // Then we will skip `num_chunks_missing` chunks, and produce one more with chunks, which will be the sync height.
@@ -828,13 +827,13 @@ fn test_state_sync_headers() {
                 };
                 tracing::info!(epoch_start_height, "got epoch_start_height");
 
-                let sync_height =
-                    if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
-                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                        epoch_start_height + 2
-                    } else {
-                        epoch_start_height
-                    };
+                let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION)
+                {
+                    // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                    epoch_start_height + 2
+                } else {
+                    epoch_start_height
+                };
                 let sync_hash_and_num_shards = match view_client1
                     .send(
                         GetBlock(BlockReference::BlockId(BlockId::Height(sync_height)))
@@ -1051,13 +1050,13 @@ fn test_state_sync_headers_no_tracked_shards() {
                     return ControlFlow::Continue(());
                 }
 
-                let sync_height =
-                    if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
-                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                        epoch_start_height + 2
-                    } else {
-                        epoch_start_height
-                    };
+                let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION)
+                {
+                    // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                    epoch_start_height + 2
+                } else {
+                    epoch_start_height
+                };
                 let sync_hash_and_num_shards = match view_client2
                     .send(
                         GetBlock(BlockReference::BlockId(BlockId::Height(sync_height)))

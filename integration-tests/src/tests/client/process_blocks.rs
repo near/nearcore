@@ -39,7 +39,6 @@ use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::checked_feature;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -3673,7 +3672,7 @@ mod contract_precompilation_tests {
             start_height,
         );
 
-        let sync_height = if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks.
             produce_blocks_from_height(&mut env, 2, height) - 1
         } else {
@@ -3783,7 +3782,7 @@ mod contract_precompilation_tests {
             height,
         );
 
-        let sync_height = if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks.
             produce_blocks_from_height(&mut env, 2, height) - 1
         } else {
@@ -3866,7 +3865,7 @@ mod contract_precompilation_tests {
         // to get to produce the first block of the next epoch. If we want to state sync the new
         // way, we produce two more than that
         let num_new_blocks_in_epoch =
-            if checked_feature!("stable", StateSyncHashUpdate, PROTOCOL_VERSION) { 3 } else { 1 };
+            if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) { 3 } else { 1 };
         height =
             produce_blocks_from_height(&mut env, EPOCH_LENGTH + num_new_blocks_in_epoch, height);
 

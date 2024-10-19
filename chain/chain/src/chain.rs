@@ -784,7 +784,7 @@ impl Chain {
 
             let protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-            let sync_hash = if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+            let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
                 None
             } else {
                 Some(*block.header().hash())
@@ -3944,7 +3944,7 @@ impl Chain {
         let next_block_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
         let next_block_is_sync_block =
-            if !checked_feature!("stable", StateSyncHashUpdate, next_block_protocol_version) {
+            if !ProtocolFeature::StateSyncHashUpdate.enabled(next_block_protocol_version) {
                 is_epoch_boundary
             } else {
                 // FIXME: this needs to be fixed. can't be iterating over the whole chain inside of preprocess
@@ -4536,7 +4536,7 @@ impl Chain {
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(sync_block.header().epoch_id())?;
 
-        if checked_feature!("stable", StateSyncHashUpdate, protocol_version) {
+        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
             // TODO(current_epoch_state_sync): replace this with a more efficient lookup
             match self.get_current_epoch_sync_hash(sync_block.header())? {
                 Some(h) => Ok(*sync_hash == h),
