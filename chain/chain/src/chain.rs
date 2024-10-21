@@ -2439,26 +2439,9 @@ impl Chain {
 
     // TODO(current_epoch_state_sync): move state sync related code to state sync files
     // when this is no longer needed in this file after we more efficiently
-    // implement should_make_or_delete_snapshot(). Also, the logic in this function can probably
-    // be made simpler, as we shouldn't need to iterate over all blocks just to find the epoch start.
-    /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
-    pub fn get_epoch_start_sync_hash(&self, sync_hash: &CryptoHash) -> Result<CryptoHash, Error> {
-        let header = self.get_block_header(sync_hash)?;
-        let mut epoch_id = *header.epoch_id();
-        let mut hash = *header.hash();
-        let mut prev_hash = *header.prev_hash();
-        loop {
-            if prev_hash == CryptoHash::default() {
-                return Ok(hash);
-            }
-            let header = self.get_block_header(&prev_hash)?;
-            if &epoch_id != header.epoch_id() {
-                return Ok(hash);
-            }
-            epoch_id = *header.epoch_id();
-            hash = *header.hash();
-            prev_hash = *header.prev_hash();
-        }
+    // implement should_make_or_delete_snapshot().
+    pub fn get_epoch_start_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block())
     }
 
     // Returns the first block for which at least two new chunks have been produced for every shard in the epoch
