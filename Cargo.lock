@@ -7501,6 +7501,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
+ "near-jsonrpc",
  "near-network",
  "near-o11y",
  "near-primitives",
