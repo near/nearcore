@@ -757,9 +757,9 @@ impl Chain {
     fn get_state_sync_info(
         &self,
         me: &Option<AccountId>,
-        block: &Block,
+        epoch_first_block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
-        let prev_hash = *block.header().prev_hash();
+        let prev_hash = *epoch_first_block.header().prev_hash();
         let shards_to_state_sync = Chain::get_shards_to_state_sync(
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
@@ -768,7 +768,9 @@ impl Chain {
         )?;
         let prev_block = self.get_block(&prev_hash)?;
 
-        if prev_block.chunks().len() != block.chunks().len() && !shards_to_state_sync.is_empty() {
+        if prev_block.chunks().len() != epoch_first_block.chunks().len()
+            && !shards_to_state_sync.is_empty()
+        {
             // Currently, the state sync algorithm assumes that the number of chunks do not change
             // between the epoch being synced to and the last epoch.
             // For example, if shard layout changes at the beginning of epoch T, validators
@@ -780,7 +782,7 @@ impl Chain {
             // the validator will not have the states ready so it will halt.
             error!(
                 "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
-                block.header().epoch_id(),
+                epoch_first_block.header().epoch_id(),
                 me
             );
             debug_assert!(false);
@@ -790,15 +792,18 @@ impl Chain {
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
 
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+            let protocol_version = self
+                .epoch_manager
+                .get_epoch_protocol_version(epoch_first_block.header().epoch_id())?;
             let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
                 None
             } else {
-                Some(*block.header().hash())
+                Some(*epoch_first_block.header().hash())
             };
+            // This block is the first block in an epoch because this function is only called in get_catchup_and_state_sync_infos()
+            // when that is the case.
             let state_sync_info = StateSyncInfo::V0(StateSyncInfoV0 {
-                epoch_first_block: *block.header().hash(),
+                epoch_first_block: *epoch_first_block.header().hash(),
                 sync_hash,
                 shards: shards_to_state_sync
                     .iter()
