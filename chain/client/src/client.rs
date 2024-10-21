@@ -117,7 +117,7 @@ pub struct CatchupState {
     /// Manages downloading the state.
     pub state_sync: StateSync,
     /// Keeps track of state downloads, and gets passed to `state_sync`.
-    pub state_downloads: HashMap<u64, ShardSyncDownload>,
+    pub state_downloads: HashMap<ShardId, ShardSyncDownload>,
     /// Manages going back to apply chunks after state has been downloaded.
     pub catchup: BlocksCatchUpState,
 }
