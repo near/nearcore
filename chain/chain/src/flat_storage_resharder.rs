@@ -7,12 +7,14 @@ use std::sync::{Arc, Mutex};
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use crate::resharding::types::FlatStorageSplitShardRequest;
 use crate::types::RuntimeAdapter;
+use itertools::Itertools;
 use near_async::messaging::Sender;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self, ALL_COLUMNS_WITH_NAMES};
@@ -25,11 +27,12 @@ use near_primitives::types::AccountId;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
-    BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
-    SplittingParentStatus,
+    BlockInfo, FlatStorageError, FlatStorageReadyStatus, FlatStorageReshardingStatus,
+    FlatStorageStatus, SplittingParentStatus,
 };
 use near_store::{ShardUId, StorageError};
 use std::fmt::{Debug, Formatter};
+use std::iter;
 
 /// `FlatStorageResharder` takes care of updating flat storage when a resharding event happens.
 ///
@@ -270,15 +273,20 @@ impl FlatStorageResharder {
             .expect("flat storage resharding event must be Split!");
         info!(target: "resharding", ?parent_shard, ?status, ?batch_delay, ?batch_size, "flat storage shard split task: starting key-values copy");
 
-        // Parent shard flat storage head must be on block height just before the new shard layout kicks
-        // in. This guarantees that all deltas have been applied and thus the state of all key-values is
-        // up to date.
-        // TODO(trisfald): do this check, maybe call update_flat_storage_for_shard
-        let _parent_flat_head = status.flat_head;
-
         // Prepare the store object for commits and the iterator over parent's flat storage.
         let flat_store = self.runtime.store().flat_store();
-        let mut iter = flat_store.iter(parent_shard);
+        let mut iter = match self.flat_storage_iterator(
+            &flat_store,
+            &parent_shard,
+            &status.block_hash,
+        ) {
+            Ok(iter) => iter,
+            Err(err) => {
+                error!(target: "resharding", ?parent_shard, block_hash=?status.block_hash, ?err, "failed to build flat storage iterator");
+                return FlatStorageReshardingTaskStatus::Failed;
+            }
+        };
+
         let mut num_batches_done: usize = 0;
         let mut iter_exhausted = false;
 
@@ -294,8 +302,10 @@ impl FlatStorageResharder {
             // Process a `batch_size` worth of key value pairs.
             while processed_size < batch_size && !iter_exhausted {
                 match iter.next() {
-                    Some(Ok((key, value))) => {
-                        processed_size += key.len() + value.size();
+                    // Stop iterating and commit the batch.
+                    Some(FlatStorageAndDeltaIterItem::CommitPoint) => break,
+                    Some(FlatStorageAndDeltaIterItem::Entry(Ok((key, value)))) => {
+                        processed_size += key.len() + value.as_ref().map_or(0, |v| v.size());
                         if let Err(err) =
                             shard_split_handle_key_value(key, value, &mut store_update, &status)
                         {
@@ -303,7 +313,7 @@ impl FlatStorageResharder {
                             return FlatStorageReshardingTaskStatus::Failed;
                         }
                     }
-                    Some(Err(err)) => {
+                    Some(FlatStorageAndDeltaIterItem::Entry(Err(err))) => {
                         error!(target: "resharding", ?err, "failed to read flat storage value from parent shard");
                         return FlatStorageReshardingTaskStatus::Failed;
                     }
@@ -323,7 +333,7 @@ impl FlatStorageResharder {
 
             // If `iter`` is exhausted we can exit after the store commit.
             if iter_exhausted {
-                break;
+                return FlatStorageReshardingTaskStatus::Successful { num_batches_done };
             }
             if self.controller.is_cancelled() {
                 return FlatStorageReshardingTaskStatus::Cancelled;
@@ -333,7 +343,6 @@ impl FlatStorageResharder {
             // regular node operation.
             std::thread::sleep(batch_delay);
         }
-        FlatStorageReshardingTaskStatus::Successful { num_batches_done }
     }
 
     /// Performs post-processing of shard splitting after all key-values have been moved from parent to
@@ -396,7 +405,73 @@ impl FlatStorageResharder {
         // Terminate the resharding event.
         *self.resharding_event.lock().unwrap() = None;
     }
+
+    /// Returns an iterator over a shard's flat storage at the given block hash. This
+    /// iterator contains both flat storage values and deltas.
+    fn flat_storage_iterator<'a>(
+        &self,
+        flat_store: &'a FlatStoreAdapter,
+        shard_uid: &ShardUId,
+        block_hash: &CryptoHash,
+    ) -> Result<Box<FlatStorageAndDeltaIter<'a>>, Error> {
+        let mut iter: Box<FlatStorageAndDeltaIter<'a>> = Box::new(
+            flat_store
+                .iter(*shard_uid)
+                // Get the flat storage iter and wrap the value in Optional::Some to
+                // match the delta iterator so that they can be chained.
+                .map_ok(|(key, value)| (key, Some(value)))
+                // Wrap the iterator's item into an Entry.
+                .map(|entry| FlatStorageAndDeltaIterItem::Entry(entry)),
+        );
+
+        // Get all the blocks from flat head to the wanted block hash.
+        let flat_storage = self
+            .runtime
+            .get_flat_storage_manager()
+            .get_flat_storage_for_shard(*shard_uid)
+            .expect("the flat storage undergoing resharding must exist!");
+        // Must reverse the result because we want ascending block heights.
+        let mut blocks_to_head = flat_storage.get_blocks_to_head(block_hash).map_err(|err| {
+            StorageError::StorageInconsistentState(format!(
+                "failed to find path of blocks to flat storage head ({err})"
+            ))
+        })?;
+        blocks_to_head.reverse();
+        debug!(target = "resharding", "flat storage blocks to head len = {}", blocks_to_head.len());
+
+        // Get all the delta iterators and wrap the items in Result to match the flat
+        // storage iter so that they can be chained.
+        for block in blocks_to_head {
+            let deltas = flat_store.get_delta(*shard_uid, block).map_err(|err| {
+                StorageError::StorageInconsistentState(format!(
+                    "can't retrieve deltas for flat storage at {block}/{shard_uid:?}({err})"
+                ))
+            })?;
+            let Some(deltas) = deltas else {
+                continue;
+            };
+            // Chain the iterators effectively adding a block worth of deltas.
+            // Before doing so insert a commit point to separate changes to the same key in different transactions.
+            iter = Box::new(iter.chain(iter::once(FlatStorageAndDeltaIterItem::CommitPoint)));
+            let deltas_iter = deltas.0.into_iter();
+            let deltas_iter = deltas_iter.map(|item| FlatStorageAndDeltaIterItem::Entry(Ok(item)));
+            iter = Box::new(iter.chain(deltas_iter));
+        }
+
+        Ok(iter)
+    }
 }
+
+/// Enum used to wrap the `Item` of iterators over flat storage contents or flat storage deltas. Its
+/// purpose is to insert a marker to force store commits during iteration over all entries. This is
+/// necessary because otherwise deltas might set again the value of a flat storage entry inside the
+/// same transaction.
+enum FlatStorageAndDeltaIterItem {
+    Entry(Result<(Vec<u8>, Option<FlatStateValue>), FlatStorageError>),
+    CommitPoint,
+}
+
+type FlatStorageAndDeltaIter<'a> = dyn Iterator<Item = FlatStorageAndDeltaIterItem> + 'a;
 
 impl Debug for FlatStorageResharder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -424,7 +499,7 @@ fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result
 /// Handles the inheritance of a key-value pair from parent shard to children shards.
 fn shard_split_handle_key_value(
     key: Vec<u8>,
-    value: FlatStateValue,
+    value: Option<FlatStateValue>,
     store_update: &mut FlatStoreUpdateAdapter,
     status: &SplittingParentStatus,
 ) -> Result<(), Error> {
@@ -490,7 +565,7 @@ fn shard_split_handle_key_value(
 fn copy_kv_to_child(
     status: &SplittingParentStatus,
     key: Vec<u8>,
-    value: FlatStateValue,
+    value: Option<FlatStateValue>,
     store_update: &mut FlatStoreUpdateAdapter,
     account_id_parser: impl FnOnce(&[u8]) -> Result<AccountId, std::io::Error>,
 ) -> Result<(), Error> {
@@ -507,7 +582,7 @@ fn copy_kv_to_child(
         return Err(Error::ReshardingError(err_msg.to_string()));
     }
     // Add the new flat store entry.
-    store_update.set(new_shard_uid, key, Some(value));
+    store_update.set(new_shard_uid, key, value);
     Ok(())
 }
 
@@ -515,21 +590,21 @@ fn copy_kv_to_child(
 fn copy_kv_to_all_children(
     status: &SplittingParentStatus,
     key: Vec<u8>,
-    value: FlatStateValue,
+    value: Option<FlatStateValue>,
     store_update: &mut FlatStoreUpdateAdapter,
 ) {
-    store_update.set(status.left_child_shard, key.clone(), Some(value.clone()));
-    store_update.set(status.right_child_shard, key, Some(value));
+    store_update.set(status.left_child_shard, key.clone(), value.clone());
+    store_update.set(status.right_child_shard, key, value);
 }
 
 /// Copies a key-value pair to the child on the left of the account boundary (also called 'first child').
 fn copy_kv_to_left_child(
     status: &SplittingParentStatus,
     key: Vec<u8>,
-    value: FlatStateValue,
+    value: Option<FlatStateValue>,
     store_update: &mut FlatStoreUpdateAdapter,
 ) {
-    store_update.set(status.left_child_shard, key, Some(value));
+    store_update.set(status.left_child_shard, key, value);
 }
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
@@ -588,8 +663,9 @@ mod tests {
         hash::CryptoHash,
         shard_layout::ShardLayout,
         state::FlatStateValue,
+        test_utils::{create_test_signer, TestBlockBuilder},
         trie_key::TrieKey,
-        types::{AccountId, ShardId},
+        types::{AccountId, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause},
     };
     use near_store::{
         flat::{BlockInfo, FlatStorageReadyStatus},
@@ -674,7 +750,7 @@ mod tests {
             vec![account!("aa"), account!("mm"), account!("vv")],
             1,
             vec![1; num_shards],
-            shard_layout,
+            shard_layout.clone(),
         );
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
@@ -698,6 +774,13 @@ mod tests {
             resharding_sender,
         )
         .unwrap();
+        for shard_uid in shard_layout.shard_uids() {
+            chain
+                .runtime_adapter
+                .get_flat_storage_manager()
+                .create_flat_storage_for_shard(shard_uid)
+                .unwrap();
+        }
         let resharder = chain.resharding_manager.flat_storage_resharder.clone();
         (chain, resharder)
     }
@@ -980,11 +1063,193 @@ mod tests {
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());
     }
 
-    /// Verify that a shard can be split correctly even if its flat head is lagging behind the expected
-    /// block height.
+    /// Verify the correctness of a shard split in the presence of flat storage deltas in the parent
+    /// shard.
     #[test]
-    fn split_shard_parent_flat_store_lagging_behind() {
-        // TODO(Trisfald): implement
+    fn split_shard_parent_flat_store_with_deltas() {
+        init_test_logger();
+        let sender = TestScheduler::default().into_multi_sender();
+        let (mut chain, resharder) = create_chain_and_resharder(simple_shard_layout(), sender);
+        let new_shard_layout = shard_layout_after_split();
+
+        // In order to have flat state deltas we must bring the chain forward by adding blocks.
+        let signer = Arc::new(create_test_signer("aa"));
+        for height in 1..3 {
+            let prev_block = chain.get_block_by_height(height - 1).unwrap();
+            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
+                .height(height)
+                .build();
+            chain.process_block_test(&None, block).unwrap();
+        }
+        assert_eq!(chain.head().unwrap().height, 2);
+
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let manager = chain.runtime_adapter.get_flat_storage_manager();
+
+        // Manually add deltas on top of parent's flat storage.
+        // Pick different kind of keys and operations in order to maximize test coverage.
+        // List of all keys and their values:
+        let account_vv_key = TrieKey::Account { account_id: account!("vv") };
+        let account_vv_value = Some("vv-update".as_bytes().to_vec());
+        let account_oo_key = TrieKey::Account { account_id: account!("oo") };
+        let account_oo_value = Some("oo".as_bytes().to_vec());
+        let account_mm_key = TrieKey::Account { account_id: account!("mm") };
+        let delayed_receipt_0_key = TrieKey::DelayedReceipt { index: 0 };
+        let delayed_receipt_0_value_0 = Some("delayed0-0".as_bytes().to_vec());
+        let delayed_receipt_0_value_1 = Some("delayed0-1".as_bytes().to_vec());
+        let delayed_receipt_1_key = TrieKey::DelayedReceipt { index: 1 };
+        let delayed_receipt_1_value = Some("delayed1".as_bytes().to_vec());
+        let buffered_receipt_0_key =
+            TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 0 };
+        let buffered_receipt_0_value_0 = Some("buffered0-0".as_bytes().to_vec());
+        let buffered_receipt_0_value_1 = Some("buffered0-1".as_bytes().to_vec());
+        let buffered_receipt_1_key =
+            TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 1 };
+        let buffered_receipt_1_value = Some("buffered1".as_bytes().to_vec());
+
+        // First set of deltas.
+        let height = 1;
+        let prev_hash = *chain.get_block_by_height(height).unwrap().header().prev_hash();
+        let block_hash = *chain.get_block_by_height(height).unwrap().hash();
+        let state_changes = vec![
+            // Change: add account.
+            RawStateChangesWithTrieKey {
+                trie_key: account_oo_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: account_oo_value.clone(),
+                }],
+            },
+            // Change: update account.
+            RawStateChangesWithTrieKey {
+                trie_key: account_vv_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: account_vv_value.clone(),
+                }],
+            },
+            // Change: add two delayed receipts.
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: delayed_receipt_0_value_0,
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_1_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: delayed_receipt_1_value,
+                }],
+            },
+            // Change: update delayed receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: delayed_receipt_0_value_1.clone(),
+                }],
+            },
+            // Change: add two buffered receipts.
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: buffered_receipt_0_value_0,
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_1_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: buffered_receipt_1_value,
+                }],
+            },
+            // Change: update buffered receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_0_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: buffered_receipt_0_value_1.clone(),
+                }],
+            },
+        ];
+        manager
+            .save_flat_state_changes(block_hash, prev_hash, height, parent_shard, &state_changes)
+            .unwrap()
+            .commit()
+            .unwrap();
+
+        // Second set of deltas.
+        let height = 2;
+        let prev_hash = *chain.get_block_by_height(height).unwrap().header().prev_hash();
+        let block_hash = *chain.get_block_by_height(height).unwrap().hash();
+        let state_changes = vec![
+            // Change: remove account.
+            RawStateChangesWithTrieKey {
+                trie_key: account_mm_key,
+                changes: vec![RawStateChange { cause: StateChangeCause::InitialState, data: None }],
+            },
+            // Change: remove delayed receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_1_key.clone(),
+                changes: vec![RawStateChange { cause: StateChangeCause::InitialState, data: None }],
+            },
+            // Change: remove buffered receipt.
+            RawStateChangesWithTrieKey {
+                trie_key: buffered_receipt_1_key.clone(),
+                changes: vec![RawStateChange { cause: StateChangeCause::InitialState, data: None }],
+            },
+        ];
+        manager
+            .save_flat_state_changes(block_hash, prev_hash, height, parent_shard, &state_changes)
+            .unwrap()
+            .commit()
+            .unwrap();
+
+        // Do resharding.
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+
+        // Validate integrity of children shards.
+        let flat_store = resharder.runtime.store().flat_store();
+        // Account 'oo' should exist only in the left child.
+        assert_eq!(
+            flat_store.get(left_child_shard, &account_oo_key.to_vec()),
+            Ok(account_oo_value.map(|val| FlatStateValue::inlined(&val)))
+        );
+        assert_eq!(flat_store.get(right_child_shard, &account_oo_key.to_vec()), Ok(None));
+        // Account 'vv' should exist with updated value only in the right child.
+        assert_eq!(flat_store.get(left_child_shard, &account_vv_key.to_vec()), Ok(None));
+        assert_eq!(
+            flat_store.get(right_child_shard, &account_vv_key.to_vec()),
+            Ok(account_vv_value.map(|val| FlatStateValue::inlined(&val)))
+        );
+        // Delayed receipt '1' shouldn't exist.
+        // Delayed receipt '0' should exist with updated value in both children.
+        for child in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                flat_store.get(child, &delayed_receipt_0_key.to_vec()),
+                Ok(delayed_receipt_0_value_1.clone().map(|val| FlatStateValue::inlined(&val)))
+            );
+
+            assert_eq!(flat_store.get(child, &delayed_receipt_1_key.to_vec()), Ok(None));
+        }
+        // Buffered receipt '0' should exist with updated value only in the left child.
+        assert_eq!(
+            flat_store.get(left_child_shard, &buffered_receipt_0_key.to_vec()),
+            Ok(buffered_receipt_0_value_1.map(|val| FlatStateValue::inlined(&val)))
+        );
+        assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_0_key.to_vec()), Ok(None));
+        // Buffered receipt '1' shouldn't exist.
+        for child in [left_child_shard, right_child_shard] {
+            assert_eq!(flat_store.get(child, &buffered_receipt_1_key.to_vec()), Ok(None));
+        }
     }
 
     /// Tests the split of "account-id based" keys that are not covered in [simple_split_shard].
