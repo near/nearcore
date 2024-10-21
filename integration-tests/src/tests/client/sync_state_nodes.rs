@@ -20,7 +20,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    new_shard_id_tmp, new_shard_id_vec_tmp, BlockId, BlockReference, EpochId, EpochReference,
+    new_shard_id_vec_tmp, BlockId, BlockReference, EpochId, EpochReference, ShardId,
 };
 use near_primitives::utils::MaybeValidated;
 use near_store::adapter::StoreUpdateAdapter;
@@ -467,7 +467,7 @@ fn sync_state_dump() {
             // An epoch passes in about 9 seconds.
             near1.client_config.min_block_production_delay = Duration::milliseconds(300);
             near1.client_config.max_block_production_delay = Duration::milliseconds(600);
-            near1.client_config.tracked_shards = vec![new_shard_id_tmp(0)]; // Track all shards.
+            near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
 
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
@@ -511,7 +511,7 @@ fn sync_state_dump() {
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
-                                near2.client_config.tracked_shards = vec![new_shard_id_tmp(0)]; // Track all shards.
+                                near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
                                 near2.client_config.state_sync_enabled = true;
                                 near2.client_config.state_sync_timeout = Duration::seconds(2);
                                 near2.client_config.state_sync.sync =
@@ -580,7 +580,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
         let epoch_length = 10;
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = ShardId::new(0);
 
         for num_last_chunks_missing in 0..6 {
             assert!(num_last_chunks_missing < epoch_length);
@@ -780,7 +780,7 @@ fn test_state_sync_headers() {
             let mut near1 =
                 load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.tracked_shards = vec![new_shard_id_tmp(0)]; // Track all shards.
+            near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
             near1.config.store.state_snapshot_enabled = true;
 
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -941,7 +941,7 @@ fn test_state_sync_headers_no_tracked_shards() {
             let port1 = tcp::ListenerAddr::reserve_for_test();
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.tracked_shards = vec![new_shard_id_tmp(0)]; // Track all shards, it is a validator.
+            near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards, it is a validator.
             near1.config.store.state_snapshot_enabled = false;
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;

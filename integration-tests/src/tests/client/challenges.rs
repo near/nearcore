@@ -22,7 +22,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -376,7 +376,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         Trie::EMPTY_ROOT,
         CryptoHash::default(),
         last_block.header().height() + 1,
-        new_shard_id_tmp(0),
+        ShardId::new(0),
         0,
         1_000,
         0,

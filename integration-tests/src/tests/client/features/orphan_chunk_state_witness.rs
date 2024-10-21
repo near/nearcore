@@ -17,7 +17,7 @@ use near_primitives::sharding::{
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
-use near_primitives::types::{new_shard_id_tmp, AccountId};
+use near_primitives::types::{AccountId, ShardId};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 struct OrphanWitnessTestEnv {
@@ -89,7 +89,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
     let block1_producer = env.get_block_producer_at_offset(&tip, 1);
     let block2_producer = env.get_block_producer_at_offset(&tip, 2);
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = ShardId::new(0);
     let block2_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, shard_id);
 
     // The excluded validator shouldn't produce any blocks or chunks in the next two blocks.
@@ -296,8 +296,8 @@ fn test_orphan_witness_not_fully_validated() {
         ReceiptProof(
             vec![],
             ShardProof {
-                from_shard_id: new_shard_id_tmp(100230230),
-                to_shard_id: new_shard_id_tmp(383939),
+                from_shard_id: ShardId::new(100230230),
+                to_shard_id: ShardId::new(383939),
                 proof: vec![],
             },
         ),

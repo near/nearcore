@@ -845,7 +845,7 @@ pub fn init_configs(
     let mut config = Config::default();
     // Make sure node tracks all shards, see
     // https://github.com/near/nearcore/issues/7388
-    config.tracked_shards = vec![new_shard_id_tmp(0)];
+    config.tracked_shards = vec![ShardId::new(0)];
     // If a config gets generated, block production times may need to be updated.
     set_block_production_delay(&chain_id, fast, &mut config);
 
@@ -1522,7 +1522,7 @@ mod tests {
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
     use near_primitives::shard_layout::account_id_to_shard_id;
-    use near_primitives::types::{new_shard_id_tmp, AccountId, NumShards};
+    use near_primitives::types::{new_shard_id_tmp, AccountId, NumShards, ShardId};
     use tempfile::tempdir;
 
     use crate::config::{
@@ -1562,21 +1562,21 @@ mod tests {
                 &AccountId::from_str("foobar.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
-            new_shard_id_tmp(0)
+            ShardId::new(0)
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard1.test.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
-            new_shard_id_tmp(1)
+            ShardId::new(1)
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard2.test.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
-            new_shard_id_tmp(2)
+            ShardId::new(2)
         );
     }
 
@@ -1787,7 +1787,7 @@ mod tests {
         let prefix = "node";
 
         // Validators will track 2 shards and non-validators will track all shards.
-        let tracked_shards = vec![new_shard_id_tmp(1), new_shard_id_tmp(3)];
+        let tracked_shards = vec![ShardId::new(1), ShardId::new(3)];
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_localnet_configs(

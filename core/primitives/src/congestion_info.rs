@@ -583,7 +583,7 @@ mod tests {
         assert!(
             config
                 .max_outgoing_gas
-                .abs_diff(congestion_control.outgoing_gas_limit(new_shard_id_tmp(0)))
+                .abs_diff(congestion_control.outgoing_gas_limit(ShardId::new(0)))
                 <= 1
         );
 
@@ -608,7 +608,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
-            assert_eq!(0, control.outgoing_gas_limit(new_shard_id_tmp(1)));
+            assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
             assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is not restricted by memory congestion
             assert_eq!(config.max_tx_gas, control.process_tx_limit());
@@ -622,7 +622,7 @@ mod tests {
             assert_eq!(
                 (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64)
                     as u64,
-                control.outgoing_gas_limit(new_shard_id_tmp(1))
+                control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 50%, still no new transactions are allowed
             assert!(control.shard_accepts_transactions().is_no());
@@ -636,7 +636,7 @@ mod tests {
             assert_eq!(
                 (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
                     as u64,
-                control.outgoing_gas_limit(new_shard_id_tmp(1))
+                control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
             assert!(control.shard_accepts_transactions().is_yes());
@@ -660,7 +660,7 @@ mod tests {
             let control = CongestionControl::new(config, info, 0);
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
-            assert_eq!(0, control.outgoing_gas_limit(new_shard_id_tmp(1)));
+            assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
             assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is restricted by own incoming congestion
             assert_eq!(config.min_tx_gas, control.process_tx_limit());
@@ -674,7 +674,7 @@ mod tests {
             assert_eq!(
                 (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64)
                     as u64,
-                control.outgoing_gas_limit(new_shard_id_tmp(1))
+                control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 50%, still no new transactions to us are allowed
             assert!(control.shard_accepts_transactions().is_no());
@@ -693,7 +693,7 @@ mod tests {
             assert_eq!(
                 (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
                     as u64,
-                control.outgoing_gas_limit(new_shard_id_tmp(1))
+                control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
             assert!(control.shard_accepts_transactions().is_yes());
@@ -720,7 +720,7 @@ mod tests {
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(1.0, control.congestion_level());
         // fully congested, no more forwarding allowed
-        assert_eq!(0, control.outgoing_gas_limit(new_shard_id_tmp(1)));
+        assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
         assert!(control.shard_accepts_transactions().is_no());
         // processing to other shards is not restricted by own outgoing congestion
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
@@ -731,7 +731,7 @@ mod tests {
         assert_eq!(0.5, control.congestion_level());
         assert_eq!(
             (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64) as u64,
-            control.outgoing_gas_limit(new_shard_id_tmp(1))
+            control.outgoing_gas_limit(ShardId::new(1))
         );
         // at 50%, still no new transactions to us are allowed
         assert!(control.shard_accepts_transactions().is_no());
@@ -743,7 +743,7 @@ mod tests {
         assert_eq!(
             (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
                 as u64,
-            control.outgoing_gas_limit(new_shard_id_tmp(1))
+            control.outgoing_gas_limit(ShardId::new(1))
         );
         // at 12.5%, new transactions are allowed (threshold is 0.25)
         assert!(control.shard_accepts_transactions().is_yes());
@@ -811,7 +811,7 @@ mod tests {
         let mut info = CongestionInfo::default();
         info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
 
-        let shard = new_shard_id_tmp(2);
+        let shard = ShardId::new(2);
         let all_shards = [0, 1, 2, 3, 4].into_iter().map(new_shard_id_tmp).collect_vec();
 
         // Test without missed chunks congestion.
