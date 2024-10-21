@@ -22,7 +22,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, ChunkContractDeployments, ContractCodeRequest, ContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
@@ -298,6 +298,9 @@ pub enum NetworkRequests {
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts
     /// accessed for the main state transition in the witness.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
+    /// Message from chunk producer to other validators containing the code-hashes of contracts
+    /// deployed for the main state transition in the witness.
+    ChunkContractDeployments(Vec<AccountId>, ChunkContractDeployments),
     /// Message from chunk validator to chunk producer to request missing contract code.
     /// This message is currently sent as a result of receiving the ChunkContractAccesses message
     /// and failing to find the corresponding code for the hashes received.

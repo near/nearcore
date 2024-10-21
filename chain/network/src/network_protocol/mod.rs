@@ -10,6 +10,7 @@ pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::ChunkContractDeployments;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
@@ -562,6 +563,7 @@ pub enum RoutedMessageBody {
     _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
     ChunkContractAccesses(ChunkContractAccesses),
+    ChunkContractDeployments(ChunkContractDeployments),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
 }
@@ -591,6 +593,8 @@ impl RoutedMessageBody {
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
             // TODO(#11099): Remove this when we filter the targets of message at the sender side.
             | RoutedMessageBody::ChunkContractAccesses(_)
+            // TODO(#11099): Remove this when we filter the targets of message at the sender side.
+            | RoutedMessageBody::ChunkContractDeployments(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -662,6 +666,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
             // TODO(#11099): Add more details to debug message.
             RoutedMessageBody::ChunkContractAccesses(_) => write!(f, "ChunkContractAccesses"),
+            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ChunkContractDeployments(_) => write!(f, "ChunkContractDeployments"),
             // TODO(#11099): Add more details to debug message.
             RoutedMessageBody::ContractCodeRequest(_) => write!(f, "ContractCodeRequest"),
             // TODO(#11099): Add more details to debug message.

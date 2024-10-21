@@ -13,7 +13,8 @@ use crate::stateless_validation::chunk_endorsement::{
     ChunkEndorsementInner, ChunkEndorsementMetadata,
 };
 use crate::stateless_validation::contract_distribution::{
-    ChunkContractAccessesInner, ContractCodeRequestInner, ContractCodeResponseInner,
+    ChunkContractAccessesInner, ChunkContractDeploymentsInner, ContractCodeRequestInner,
+    ContractCodeResponseInner,
 };
 use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
 use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
@@ -154,6 +155,17 @@ impl ValidatorSigner {
         match self {
             ValidatorSigner::Empty(signer) => signer.sign_chunk_contract_accesses(inner),
             ValidatorSigner::InMemory(signer) => signer.sign_chunk_contract_accesses(inner),
+        }
+    }
+
+    /// Signs the inner contents of a ChunkContractDeployments message.
+    pub fn sign_chunk_contract_deployments(
+        &self,
+        inner: &ChunkContractDeploymentsInner,
+    ) -> Signature {
+        match self {
+            ValidatorSigner::Empty(signer) => signer.sign_chunk_contract_deployments(inner),
+            ValidatorSigner::InMemory(signer) => signer.sign_chunk_contract_deployments(inner),
         }
     }
 
@@ -305,6 +317,10 @@ impl EmptyValidatorSigner {
         Signature::default()
     }
 
+    fn sign_chunk_contract_deployments(&self, _inner: &ChunkContractDeploymentsInner) -> Signature {
+        Signature::default()
+    }
+
     fn sign_contract_code_request(&self, _inner: &ContractCodeRequestInner) -> Signature {
         Signature::default()
     }
@@ -418,6 +434,10 @@ impl InMemoryValidatorSigner {
     }
 
     fn sign_chunk_contract_accesses(&self, inner: &ChunkContractAccessesInner) -> Signature {
+        self.signer.sign(&borsh::to_vec(inner).unwrap())
+    }
+
+    fn sign_chunk_contract_deployments(&self, inner: &ChunkContractDeploymentsInner) -> Signature {
         self.signer.sign(&borsh::to_vec(inner).unwrap())
     }
 
