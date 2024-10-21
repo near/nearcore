@@ -16,7 +16,8 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, CodeBytes, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, ChunkContractDeployments, CodeBytes, ContractCodeRequest,
+    ContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -374,6 +375,17 @@ impl PartialWitnessActor {
             NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
         ));
         Ok(())
+    }
+
+    /// Handles new contract deployments message from chunk producer.
+    /// This is sent in parallel to a chunk state witness and contains the code-hashes
+    /// of the contracts deployed when applying the previous chunk of the witness.
+    fn handle_chunk_contract_deployments(
+        &mut self,
+        _deploys: ChunkContractDeployments,
+    ) -> Result<(), Error> {
+        // TODO(#11099): Implement the handling of this message.
+        unreachable!("code for sending message is not implemented yet")
     }
 
     /// Handles contract code requests message from chunk validators.
