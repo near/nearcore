@@ -102,4 +102,11 @@ impl FlatStateValue {
             Self::Inlined(value) => value.len(),
         }
     }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Ref(_) => size_of::<Self>(),
+            Self::Inlined(value) => size_of::<Self>() + value.capacity(),
+        }
+    }
 }

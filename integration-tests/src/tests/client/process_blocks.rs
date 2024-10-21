@@ -12,8 +12,8 @@ use near_async::time::{Clock, Duration};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::ChainStore;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
+use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
 use near_client::test_utils::{
@@ -2064,7 +2064,10 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
         }
     }
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
+        let proof = env.clients[0]
+            .chain
+            .compute_past_block_proof_in_merkle_tree_of_later_block(block.hash(), head.hash())
+            .unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -2081,8 +2084,13 @@ fn test_block_merkle_proof() {
 fn test_block_merkle_proof_same_hash() {
     let env = TestEnv::default_builder().mock_epoch_managers().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let proof =
-        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
+    let proof = env.clients[0]
+        .chain
+        .compute_past_block_proof_in_merkle_tree_of_later_block(
+            genesis_block.hash(),
+            genesis_block.hash(),
+        )
+        .unwrap();
     assert!(proof.is_empty());
 }
 

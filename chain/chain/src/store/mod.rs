@@ -56,7 +56,9 @@ use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
 mod latest_witnesses;
+mod merkle_proof;
 pub use latest_witnesses::LatestWitnessesInfo;
+pub use merkle_proof::MerkleProofAccess;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -330,14 +332,6 @@ pub trait ChainStoreAccess {
     ) -> Result<Arc<PartialMerkleTree>, Error>;
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
-
-    fn get_block_merkle_tree_from_ordinal(
-        &self,
-        block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
-        let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
-        self.get_block_merkle_tree(&block_hash)
-    }
 
     fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
 
