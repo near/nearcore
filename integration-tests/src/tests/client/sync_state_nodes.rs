@@ -19,9 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    new_shard_id_vec_tmp, BlockId, BlockReference, EpochId, EpochReference, ShardId,
-};
+use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
@@ -367,8 +365,7 @@ fn sync_empty_state() {
                                             block_header_fetch_horizon;
                                         near2.client_config.block_fetch_horizon =
                                             block_fetch_horizon;
-                                        near2.client_config.tracked_shards =
-                                            new_shard_id_vec_tmp(&[0, 1, 2, 3]);
+                                        near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
 
                                         let nearcore::NearNode {
                                             view_client: view_client2,

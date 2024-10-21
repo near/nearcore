@@ -121,7 +121,7 @@ impl ReshardingEventType {
 mod tests {
     use super::*;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::{new_shard_id_vec_tmp, AccountId, ShardId};
+    use near_primitives::types::{AccountId, ShardId};
     use near_store::ShardUId;
     use std::collections::BTreeMap;
 
@@ -187,7 +187,7 @@ mod tests {
         let shards_split_map = BTreeMap::from([(s0, vec![s2, s3]), (s1, vec![s4, s5])]);
         let layout = ShardLayout::v2(
             vec![account!("ff"), account!("pp"), account!("ss")],
-            new_shard_id_vec_tmp(&[2, 3, 4, 5]),
+            vec![s2, s3, s4, s5],
             Some(shards_split_map),
         );
         assert!(ReshardingEventType::from_shard_layout(&layout, block, prev_block).is_err());

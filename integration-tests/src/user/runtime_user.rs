@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+use itertools::Itertools;
 use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
@@ -13,9 +14,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    new_shard_id_vec_tmp, AccountId, BlockHeightDelta, MerkleHash, ShardId,
-};
+use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
@@ -158,7 +157,7 @@ impl RuntimeUser {
         // TODO(congestion_control) - Set shard id somehow.
         let shard_id = ShardId::new(0);
         // TODO(congestion_control) - Set other shard ids somehow.
-        let all_shard_ids = new_shard_id_vec_tmp(&[0, 1, 2, 3, 4, 5]);
+        let all_shard_ids = [0, 1, 2, 3, 4, 5].into_iter().map(ShardId::new).collect_vec();
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
         } else {
