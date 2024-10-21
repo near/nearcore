@@ -315,7 +315,7 @@ fn sanity_check_epoch_sync_proof(
         (final_head_height - genesis_config.genesis_height - 1) / genesis_config.epoch_length + 1;
     let expected_current_epoch_height = epoch_height_of_final_block - 1;
     assert_eq!(
-        proof.current_epoch.first_block_info_in_epoch.height(),
+        proof.current_epoch.first_block_header_in_epoch.height(),
         genesis_config.genesis_height
             + (expected_current_epoch_height - 1) * genesis_config.epoch_length
             + 1
