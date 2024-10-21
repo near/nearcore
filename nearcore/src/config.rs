@@ -40,8 +40,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    new_shard_id_tmp, AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas,
-    NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -1204,7 +1204,7 @@ fn create_localnet_config(
     // Make non-validator archival and RPC nodes track all shards.
     // Note that validator nodes may track all or some of the shards.
     config.tracked_shards = if !params.is_validator && (params.is_archival || params.is_rpc) {
-        (0..num_shards).map(new_shard_id_tmp).collect()
+        (0..num_shards).map(ShardId::new).collect()
     } else {
         tracked_shards.clone()
     };
@@ -1522,7 +1522,7 @@ mod tests {
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
     use near_primitives::shard_layout::account_id_to_shard_id;
-    use near_primitives::types::{new_shard_id_tmp, AccountId, NumShards, ShardId};
+    use near_primitives::types::{AccountId, NumShards, ShardId};
     use tempfile::tempdir;
 
     use crate::config::{
@@ -1748,7 +1748,7 @@ mod tests {
             );
             assert_eq!(
                 config.tracked_shards,
-                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
             );
         }
 
@@ -1760,7 +1760,7 @@ mod tests {
             assert!(config.split_storage.is_none());
             assert_eq!(
                 config.tracked_shards,
-                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
             );
         }
 
@@ -1831,7 +1831,7 @@ mod tests {
             );
             assert_eq!(
                 config.tracked_shards,
-                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
             );
         }
 
@@ -1843,7 +1843,7 @@ mod tests {
             assert!(config.split_storage.is_none());
             assert_eq!(
                 config.tracked_shards,
-                (0..num_shards).map(new_shard_id_tmp).collect::<Vec<_>>()
+                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
             );
         }
 

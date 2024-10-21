@@ -501,7 +501,6 @@ impl ShardAcceptsTransactions {
 mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
-    use near_primitives_core::types::new_shard_id_tmp;
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 
     use super::*;
@@ -812,7 +811,7 @@ mod tests {
         info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
 
         let shard = ShardId::new(2);
-        let all_shards = [0, 1, 2, 3, 4].into_iter().map(new_shard_id_tmp).collect_vec();
+        let all_shards = [0, 1, 2, 3, 4].into_iter().map(ShardId::new).collect_vec();
 
         // Test without missed chunks congestion.
 
