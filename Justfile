@@ -6,7 +6,7 @@ with_macos_excludes := if os() == "macos" {
 } else {
     ""
 }
-# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that. 
+# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
 # See https://github.com/dtolnay/inventory/issues/52.
 with_macos_incremental := if os() == "macos" {
     "CARGO_INCREMENTAL=0"
@@ -146,10 +146,13 @@ python-style-checks:
     python3 scripts/fix_nightly_feature_flags.py
     ./scripts/formatting --check
 
-# verify there is no unused dependency specified in a Cargo.toml
-check-cargo-udeps:
+install-rustc-nightly:
     rustup toolchain install nightly
     rustup target add wasm32-unknown-unknown --toolchain nightly
+    rustup component add rust-src --toolchain nightly
+
+# verify there is no unused dependency specified in a Cargo.toml
+check-cargo-udeps: install-rustc-nightly
     env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
 
 # lychee-based url validity checks
@@ -161,17 +164,14 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
-check-protocol-schema:
-    rustup toolchain install nightly
-    rustup target add wasm32-unknown-unknown --toolchain nightly
-
+check-protocol-schema: install-rustc-nightly
     # Below, we *should* have been used `cargo +nightly ...` instead of
     # `RUSTC_BOOTSTRAP=1`. However, the env var appears to be more stable.
     # `nightly` builds are updated daily and may be broken sometimes, e.g.
     # https://github.com/rust-lang/rust/issues/130769.
     #
     # If there is an issue with the env var, fall back to `cargo +nightly ...`.
-    
+
     # Test that checker is not broken
     RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
         cargo test -p protocol-schema-check --profile dev-artifacts

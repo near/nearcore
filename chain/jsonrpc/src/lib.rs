@@ -120,6 +120,7 @@ impl RpcConfig {
 /// Serialises response of a query into JSON to be sent to the client.
 ///
 /// Returns an internal server error if the value fails to serialise.
+#[allow(clippy::result_large_err)]
 fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|err| RpcError::serialization_error(err.to_string()))
 }
@@ -159,6 +160,7 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
 
 /// This function processes response from query method to introduce
 /// backward compatible response in case of specific errors
+#[allow(clippy::result_large_err)]
 fn process_query_response(
     query_response: Result<
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
