@@ -18,6 +18,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
+use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -30,7 +31,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::checked_feature;
 use near_store::PartialStorage;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -270,11 +270,11 @@ pub fn pre_validate_chunk_state_witness(
                 Ok(result) => {
                     if result.transactions.len() != new_transactions.len() {
                         return Err(Error::InvalidChunkStateWitness(format!(
-                        "New transactions validation failed. \
+                            "New transactions validation failed. \
                          {} transactions out of {} proposed transactions were valid.",
-                        result.transactions.len(),
-                        new_transactions.len(),
-                    )));
+                            result.transactions.len(),
+                            new_transactions.len(),
+                        )));
                     }
                 }
                 Err(error) => {
