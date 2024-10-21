@@ -442,6 +442,12 @@ message SyncSnapshotHosts {
   repeated SnapshotHostInfo hosts = 1;
 }
 
+message EpochSyncRequest {}
+
+message EpochSyncResponse {
+  bytes compressed_proof = 1;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -496,5 +502,8 @@ message PeerMessage {
     StateRequestPart state_request_part = 30;
     StateResponse state_response = 31;
     SyncSnapshotHosts sync_snapshot_hosts = 32;
+
+    EpochSyncRequest epoch_sync_request = 34;
+    EpochSyncResponse epoch_sync_response = 35;
   }
 }

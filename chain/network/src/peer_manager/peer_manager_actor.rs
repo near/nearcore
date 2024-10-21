@@ -111,6 +111,7 @@ pub struct PeerManagerActor {
 /// we are at that stage, feel free to add any events that you need to observe.
 /// In particular prefer emitting a new event to polling for a state change.
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     PeerManagerStarted,
     ServerStarted,
@@ -1151,42 +1152,48 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {
-                if self.state.send_message_to_peer(
-                    &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage {
-                            target: PeerIdOrHash::PeerId(peer_id),
-                            body: RoutedMessageBody::EpochSyncRequest,
-                        },
-                    ),
-                ) {
+                if self.state.tier2.send_message(peer_id, PeerMessage::EpochSyncRequest.into()) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::EpochSyncResponse { route_back, proof } => {
-                if self.state.send_message_to_peer(
-                    &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage {
-                            target: PeerIdOrHash::Hash(route_back),
-                            body: RoutedMessageBody::EpochSyncResponse(proof),
-                        },
-                    ),
-                ) {
+            NetworkRequests::EpochSyncResponse { peer_id, proof } => {
+                if self
+                    .state
+                    .tier2
+                    .send_message(peer_id, PeerMessage::EpochSyncResponse(proof).into())
+                {
                     NetworkResponses::NoResponse
                 } else {
-                    tracing::info!(
-                        "Failed to send EpochSyncResponse to {}, route not found",
-                        route_back
-                    );
                     NetworkResponses::RouteNotFound
                 }
+            }
+            NetworkRequests::ChunkContractAccesses(chunk_validators, accesses) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::ChunkContractAccesses(accesses.clone()),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ContractCodeRequest(target, request) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ContractCodeRequest(request),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ContractCodeResponse(target, response) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ContractCodeResponse(response),
+                );
+                NetworkResponses::NoResponse
             }
         }
     }

@@ -74,7 +74,7 @@ impl Client {
             ));
         };
 
-        let witness = self.create_state_witness(
+        let (witness, _contract_accesses) = self.create_state_witness(
             // Setting arbitrary chunk producer is OK for shadow validation
             "alice.near".parse().unwrap(),
             prev_block_header,

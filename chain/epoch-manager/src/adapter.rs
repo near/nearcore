@@ -215,6 +215,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
+    fn get_random_chunk_producer_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, EpochError>;
+
     /// Returns all validators for a given epoch.
     fn get_epoch_all_validators(
         &self,
@@ -421,6 +427,16 @@ pub trait EpochManagerAdapter: Send + Sync {
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
         approvals: &[Option<Box<Signature>>],
+    ) -> Result<bool, Error>;
+
+    /// Verify aggregated bls signature given block approvers info
+    fn verify_approval_with_approvers_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Box<Signature>>],
+        info: Vec<(ApprovalStake, bool)>,
     ) -> Result<bool, Error>;
 
     /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
@@ -766,6 +782,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
+    fn get_random_chunk_producer_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_random_chunk_producer_for_shard(epoch_id, shard_id)
+    }
+
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
@@ -1022,6 +1047,23 @@ impl EpochManagerAdapter for EpochManagerHandle {
             let epoch_manager = self.read();
             epoch_manager.get_all_block_approvers_ordered(prev_block_hash)?
         };
+        self.verify_approval_with_approvers_info(
+            prev_block_hash,
+            prev_block_height,
+            block_height,
+            approvals,
+            info,
+        )
+    }
+
+    fn verify_approval_with_approvers_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Box<Signature>>],
+        info: Vec<(ApprovalStake, bool)>,
+    ) -> Result<bool, Error> {
         if approvals.len() > info.len() {
             return Ok(false);
         }

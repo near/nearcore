@@ -47,6 +47,7 @@ impl tcp::Tier {
         }
     }
 
+    // TODO(#11099): Revisit here for contract code distribution messages.
     pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
         match body {
             RoutedMessageBody::BlockApproval(..)

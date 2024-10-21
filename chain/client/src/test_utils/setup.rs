@@ -9,7 +9,7 @@ use crate::stateless_validation::partial_witness::partial_witness_actor::{
     PartialWitnessActor, PartialWitnessSenderForClient,
 };
 use crate::{
-    start_client, Client, ClientActor, StartClientResult, SyncAdapter, SyncStatus, ViewClientActor,
+    start_client, Client, ClientActor, StartClientResult, SyncStatus, ViewClientActor,
     ViewClientActorInner,
 };
 use actix::{Actor, Addr, Context};
@@ -45,6 +45,7 @@ use near_network::client::{
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
+    ChunkContractAccessesMessage, ContractCodeRequestMessage, ContractCodeResponseMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
     PartialWitnessSenderForNetwork,
 };
@@ -156,12 +157,6 @@ pub fn setup(
         adv.clone(),
     );
 
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
-
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
@@ -185,7 +180,6 @@ pub fn setup(
         shard_tracker.clone(),
         runtime,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        state_sync_adapter,
         Arc::new(ActixFutureSpawner),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
@@ -787,6 +781,35 @@ fn process_peer_manager_message_default(
                 }
             }
         }
+        NetworkRequests::ChunkContractAccesses(accounts, accesses) => {
+            for account in accounts {
+                for (i, name) in validators.iter().enumerate() {
+                    if name == account {
+                        connectors[i]
+                            .partial_witness_sender
+                            .send(ChunkContractAccessesMessage(accesses.clone()));
+                    }
+                }
+            }
+        }
+        NetworkRequests::ContractCodeRequest(account, request) => {
+            for (i, name) in validators.iter().enumerate() {
+                if name == account {
+                    connectors[i]
+                        .partial_witness_sender
+                        .send(ContractCodeRequestMessage(request.clone()));
+                }
+            }
+        }
+        NetworkRequests::ContractCodeResponse(account, response) => {
+            for (i, name) in validators.iter().enumerate() {
+                if name == account {
+                    connectors[i]
+                        .partial_witness_sender
+                        .send(ContractCodeResponseMessage(response.clone()));
+                }
+            }
+        }
         NetworkRequests::ForwardTx(_, _)
         | NetworkRequests::BanPeer { .. }
         | NetworkRequests::TxStatus(_, _, _)
@@ -1038,18 +1061,12 @@ pub fn setup_client_with_runtime(
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
     let mut client = Client::new(
         clock,
         config,
         chain_genesis,
         epoch_manager,
         shard_tracker,
-        state_sync_adapter,
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
