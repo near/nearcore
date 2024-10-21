@@ -370,6 +370,7 @@ impl Client {
             height_created: chunk_header.height_created(),
         };
         // TODO(#11099): Optimize the set of receivers by excluding self and chunk producers etc.
+        // TODO(#11099): Exclude new deployments from the list of contract accesses.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 chunk_validators,
