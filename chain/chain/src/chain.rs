@@ -2438,15 +2438,23 @@ impl Chain {
     }
 
     // TODO(current_epoch_state_sync): move state sync related code to state sync files
-    // when this is no longer needed in this file after we more efficiently
-    // implement should_make_or_delete_snapshot().
-    pub fn get_epoch_start_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+    pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
+        let header = self.get_block_header(block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+            self.get_current_epoch_sync_hash(block_hash)
+        } else {
+            self.get_epoch_start_sync_hash(block_hash).map(Some)
+        }
+    }
+
+    fn get_epoch_start_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
         Ok(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block())
     }
 
     // Returns the first block for which at least two new chunks have been produced for every shard in the epoch
     // `next_header` is the next block header that is being processed in start_process_block_impl()
-    pub fn get_current_epoch_sync_hash(
+    fn get_current_epoch_sync_hash(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Option<CryptoHash>, Error> {
@@ -4532,26 +4540,16 @@ impl Chain {
         self.invalid_blocks.contains(hash)
     }
 
-    /// Check that sync_hash is the first block of an epoch.
+    /// Check that sync_hash matches the one we expect for the epoch containing that block.
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header()`.
-        let sync_block = self.get_block(sync_hash)?;
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(sync_block.header().epoch_id())?;
+        let _sync_block = self.get_block(sync_hash)?;
 
-        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-            // TODO(current_epoch_state_sync): replace this with a more efficient lookup
-            match self.get_current_epoch_sync_hash(sync_hash)? {
-                Some(h) => Ok(*sync_hash == h),
-                None => Ok(false),
-            }
-        } else {
-            let prev_hash = *sync_block.header().prev_hash();
-            let is_first_block_of_epoch = self.epoch_manager.is_next_block_epoch_start(&prev_hash);
-            // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            Ok(is_first_block_of_epoch?)
-        }
+        // TODO(current_epoch_state_sync): replace this with a more efficient lookup. In the case
+        // we're syncing to the current epoch, this iterates over blocks in the epoch
+        let good_sync_hash = self.get_sync_hash(sync_hash)?;
+        Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
 
     /// Get transaction result for given hash of transaction or receipt id

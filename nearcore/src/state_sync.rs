@@ -22,7 +22,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
-use near_primitives::version::ProtocolFeature;
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
@@ -674,11 +673,7 @@ fn get_latest_epoch(
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
     let epoch_height = epoch_info.epoch_height();
 
-    let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(epoch_info.protocol_version()) {
-        chain.get_current_epoch_sync_hash(final_hash)?
-    } else {
-        Some(chain.get_epoch_start_sync_hash(final_hash)?)
-    };
+    let sync_hash = chain.get_sync_hash(final_hash)?;
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");
 
     Ok(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash })

@@ -2557,15 +2557,9 @@ impl Client {
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
     pub fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
         let header_head = self.chain.header_head()?;
-        let header = self.chain.get_block_header(&header_head.last_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-            match self.chain.get_current_epoch_sync_hash(&header_head.last_block_hash)? {
-                Some(h) => h,
-                None => return Ok(None),
-            }
-        } else {
-            self.chain.get_epoch_start_sync_hash(&header_head.last_block_hash)?
+        let sync_hash = match self.chain.get_sync_hash(&header_head.last_block_hash)? {
+            Some(h) => h,
+            None => return Ok(None),
         };
 
         let genesis_hash = self.chain.genesis().hash();

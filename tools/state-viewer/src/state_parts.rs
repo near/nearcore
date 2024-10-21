@@ -338,7 +338,13 @@ async fn load_state_parts(
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
             let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-            let sync_hash = chain.get_epoch_start_sync_hash(&sync_hash).unwrap();
+            let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
+                Some(h) => h,
+                None => {
+                    tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+                    return;
+                }
+            };
 
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
@@ -439,7 +445,13 @@ async fn dump_state_parts(
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = chain.get_epoch_start_sync_hash(&sync_hash).unwrap();
+    let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
+        Some(h) => h,
+        None => {
+            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+            return;
+        }
+    };
     let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
     let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
@@ -541,7 +553,13 @@ fn read_state_header(
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = chain.get_epoch_start_sync_hash(&sync_hash).unwrap();
+    let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
+        Some(h) => h,
+        None => {
+            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+            return;
+        }
+    };
 
     let state_header = chain.chain_store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
