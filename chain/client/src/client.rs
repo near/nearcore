@@ -242,8 +242,8 @@ pub struct ProduceChunkResult {
     pub transactions_storage_proof: Option<PartialState>,
 }
 
-/// This keeps track of the numbef of new chunks seen in each shard since the block that was passed to new()
-/// This whole thing could be replaced with a much simpler function that just computes the numbef of new chunks
+/// This keeps track of the number of new chunks seen in each shard since the block that was passed to new()
+/// This whole thing could be replaced with a much simpler function that just computes the number of new chunks
 /// in each shard from scratch every time we call it, but in the unlikely and unfortunate case where a shard
 /// hasn't had any chunks for a very long time, it would end up being a nontrivial inefficiency to do that
 /// every time run_catchup() is called
@@ -268,6 +268,9 @@ impl NewChunkTracker {
         }
     }
 
+    // TODO(current_epoch_sync_hash): refactor this and use the same logic in get_current_epoch_sync_hash(). Ideally
+    // that function should go away (at least as it is now) in favor of a more efficient approach that we can call on
+    // every new block application
     fn record_new_chunks(&mut self, header: &BlockHeader) -> Result<bool, Error> {
         let mut done = true;
         for (shard_id, num_new_chunks) in self.num_new_chunks.iter_mut() {
