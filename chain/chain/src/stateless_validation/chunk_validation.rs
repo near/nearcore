@@ -215,6 +215,7 @@ pub fn pre_validate_chunk_state_witness(
     }
 
     let receipts_to_apply = validate_source_receipt_proofs(
+        epoch_manager,
         &state_witness.source_receipt_proofs,
         &blocks_after_last_last_chunk,
         last_chunk_shard_id,
@@ -341,6 +342,7 @@ pub fn pre_validate_chunk_state_witness(
 /// a resharding boundary, we should first validate the proof using the pre-resharding
 /// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
 fn validate_source_receipt_proofs(
+    epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
     receipt_source_blocks: &[Block],
     target_chunk_shard_id: ShardId,
@@ -362,6 +364,7 @@ fn validate_source_receipt_proofs(
 
     let mut receipts_to_apply = Vec::new();
     let mut expected_proofs_len = 0;
+    let mut current_target_shard_id = target_chunk_shard_id;
 
     // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
     // from the newest blocks to the oldest.
@@ -381,7 +384,7 @@ fn validate_source_receipt_proofs(
                     chunk.chunk_hash()
                 )));
             };
-            validate_receipt_proof(receipt_proof, chunk, target_chunk_shard_id)?;
+            validate_receipt_proof(receipt_proof, chunk, current_target_shard_id)?;
 
             expected_proofs_len += 1;
             block_receipt_proofs.push(receipt_proof);
@@ -392,6 +395,9 @@ fn validate_source_receipt_proofs(
         for proof in block_receipt_proofs {
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
+
+        current_target_shard_id =
+            epoch_manager.get_prev_shard_id(block.header().prev_hash(), current_target_shard_id)?.0;
     }
 
     // Check that there are no extraneous proofs in source_receipt_proofs.
