@@ -1579,6 +1579,29 @@ impl ClientActorInner {
         // Sync loop will be started by check_triggers.
     }
 
+    /// Select the block hash we are using to sync state. It will sync with the state before applying the
+    /// content of such block.
+    ///
+    /// The selected block will always be the first block on a new epoch:
+    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
+    pub fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
+        let header_head = self.client.chain.header_head()?;
+        let sync_hash = match self.client.chain.get_sync_hash(&header_head.last_block_hash)? {
+            Some(h) => h,
+            None => return Ok(None),
+        };
+
+        let genesis_hash = self.client.chain.genesis().hash();
+        tracing::debug!(
+            target: "sync",
+            ?header_head,
+            ?sync_hash,
+            ?genesis_hash,
+            "find_sync_hash");
+        assert_ne!(&sync_hash, genesis_hash);
+        Ok(Some(sync_hash))
+    }
+
     /// Runs catchup on repeat, if this client is a validator.
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
@@ -1916,7 +1939,7 @@ impl ClientActorInner {
             return Ok(());
         }
 
-        let sync_hash = if let Some(sync_hash) = self.client.find_sync_hash()? {
+        let sync_hash = if let Some(sync_hash) = self.find_sync_hash()? {
             sync_hash
         } else {
             return Ok(());

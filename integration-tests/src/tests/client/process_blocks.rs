@@ -2400,7 +2400,8 @@ fn test_catchup_gas_price_change() {
 
     // Simulate state sync
 
-    let sync_hash = env.clients[0].find_sync_hash().unwrap().unwrap();
+    let sync_hash =
+        env.clients[0].chain.get_sync_hash(blocks.last().unwrap().hash()).unwrap().unwrap();
     let sync_block_idx = blocks
         .iter()
         .position(|b| *b.hash() == sync_hash)

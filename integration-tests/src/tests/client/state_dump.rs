@@ -191,7 +191,6 @@ fn run_state_sync_with_dumped_parts(
             account_creation_at_epoch_height * epoch_length + 1
         };
 
-        let mut sync_hash = None;
         let signer: Signer = signer.into();
         for i in 1..=dump_node_head_height {
             if i == account_creation_at_height {
@@ -210,21 +209,7 @@ fn run_state_sync_with_dumped_parts(
             blocks.push(block.clone());
             env.process_block(0, block.clone(), Provenance::PRODUCED);
             env.process_block(1, block.clone(), Provenance::NONE);
-
-            if block.header().epoch_id() != &Default::default() {
-                let final_header = env.clients[0]
-                    .chain
-                    .get_block_header(block.header().last_final_block())
-                    .unwrap();
-                if block.header().epoch_id() == final_header.epoch_id() {
-                    if let Some(current_sync_hash) = env.clients[0].find_sync_hash().unwrap() {
-                        sync_hash = Some(current_sync_hash);
-                    }
-                }
-            }
         }
-        // We must have seen at least one block that was two ahead of the epoch start
-        let sync_hash = sync_hash.unwrap();
 
         // check that the new account exists
         let head = env.clients[0].chain.head().unwrap();
@@ -265,6 +250,7 @@ fn run_state_sync_with_dumped_parts(
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let epoch_height = epoch_info.epoch_height();
 
+        let sync_hash = env.clients[0].chain.get_sync_hash(final_block_hash).unwrap().unwrap();
         assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
