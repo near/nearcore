@@ -57,6 +57,7 @@ pub(crate) struct OutgoingLimit {
     pub size: u64,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum ReceiptForwarding {
     Forwarded,
     NotForwarded(Receipt),
