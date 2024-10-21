@@ -119,7 +119,8 @@ def find_epoch_for_timestamp(future_epochs, voting_timestamp):
     return len(future_epochs)
 
 
-def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
+def find_best_voting_hour(voting_date_str, future_epochs):
+    # Working hours during which there are available NEAR engineers
     WORKING_HOURS_START = 8  # 8:00 UTC
     WORKING_HOURS_END = 22  # 22:00 UTC
 
@@ -129,7 +130,7 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
         # Construct datetime for each hour of the voting date
         voting_datetime = datetime.strptime(
             f"{voting_date_str} {hour:02d}:00:00", '%Y-%m-%d %H:%M:%S')
-        voting_datetime = target_timezone.localize(voting_datetime)
+        voting_datetime = pytz.utc.localize(voting_datetime)
         voting_timestamp = voting_datetime.timestamp()
 
         # Find the epoch T in which the voting date falls
@@ -156,7 +157,7 @@ def find_best_voting_hour(voting_date_str, future_epochs, target_timezone):
 
     if valid_hours:
         print(
-            f"\nVoting hours on {voting_date_str} {target_timezone} that result in upgrade during working hours (UTC {WORKING_HOURS_START}:00-{WORKING_HOURS_END}:00):"
+            f"\nVoting hours on {voting_date_str} UTC that result in upgrade during working hours (UTC {WORKING_HOURS_START}:00-{WORKING_HOURS_END}:00):"
         )
         for (hour, epoch) in valid_hours:
             print(f"- {hour:02d}:00, Upgrade Epoch: {epoch}")
@@ -226,8 +227,7 @@ def main(args):
         find_protocol_upgrade_time(args.voting_date, future_epochs,
                                    args.timezone)
     elif args.voting_date_day:
-        find_best_voting_hour(args.voting_date_day, future_epochs,
-                              args.timezone)
+        find_best_voting_hour(args.voting_date_day, future_epochs)
 
 
 # Custom action to set the URL based on chain_id
