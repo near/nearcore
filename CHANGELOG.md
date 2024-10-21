@@ -20,6 +20,23 @@
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
 * Decentralized state sync: Before, nodes that needed to download state (either because they're several epochs behind the chain or because they're going to start producing chunks for a shard they don't currently track) would download them from a centralized GCS bucket. Now, nodes will attempt to download pieces of the state from peers in the network, and only fallback to downloading from GCS if that fails. Please note that in order to participate in providing state parts to peers, your node may generate snapshots of the state. These snapshots should not take too much space, since they're hard links to database files that get cleaned up on every epoch.
 
+### 2.2.1
+
+This release patches a bug found in the 2.2.0 release
+
+# Non-protocol changes
+There was a bug in the integration between ethereum implicit accounts and the compiled contract cache which sometimes caused the nodes to get stuck. This would most often happen during state sync, but could also happen by itself. Please update your nodes to avoid getting stuck.
+
+A node that hits this bug will print an error about an `InvalidStateRoot` in the logs and then it'll be unable to sync.
+It's possible to recover a stalled node by clearing the compiled contract cache and rolling back one block:
+1. Stop the neard process
+2. Download the new version of neard
+3. Clear the compiled contract cache: rm -rf ~/.near/data/contracts
+4. Undo the last block: ./neard undo-block
+5. Start neard
+
+After that the node should be able to recover and sync with the rest of the network.
+
 ### 2.2.0
 
 ### Protocol Changes
