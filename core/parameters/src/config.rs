@@ -4,7 +4,7 @@ use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
-use near_primitives_core::types::{Balance, Gas};
+use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
@@ -49,8 +49,12 @@ impl RuntimeConfig {
     }
 
     pub fn test() -> Self {
+        Self::test_protocol_version(PROTOCOL_VERSION)
+    }
+
+    pub fn test_protocol_version(protocol_version: ProtocolVersion) -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
+        let runtime_config = config_store.get_config(protocol_version);
 
         let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);
         // Lower the yield timeout length so that we can observe timeouts in integration tests.

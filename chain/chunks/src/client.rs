@@ -174,10 +174,10 @@ mod tests {
 
     #[test]
     fn test_random_seed_with_shard_id() {
-        let seed0 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(0));
-        let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(10));
-        let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(256));
-        let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1000));
+        let seed0 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(0));
+        let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(10));
+        let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(256));
+        let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(1000));
         let seed1000000 =
             ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1_000_000));
         assert_ne!(seed0, seed10);
@@ -201,12 +201,12 @@ mod tests {
         let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
 
         let mut shard_id_to_accounts: HashMap<ShardId, _> = HashMap::new();
-        shard_id_to_accounts.insert(new_shard_id_tmp(0), vec!["aaa", "abcd", "a-a-a-a-a"]);
-        shard_id_to_accounts.insert(new_shard_id_tmp(1), vec!["aurora"]);
-        shard_id_to_accounts.insert(new_shard_id_tmp(2), vec!["aurora-0", "bob", "kkk"]);
+        shard_id_to_accounts.insert(ShardId::new(0), vec!["aaa", "abcd", "a-a-a-a-a"]);
+        shard_id_to_accounts.insert(ShardId::new(1), vec!["aurora"]);
+        shard_id_to_accounts.insert(ShardId::new(2), vec!["aurora-0", "bob", "kkk"]);
         // this shard is split, make sure there are accounts for both shards 3' and 4'
         shard_id_to_accounts
-            .insert(new_shard_id_tmp(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
+            .insert(ShardId::new(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
         let deposit = 222;
 

@@ -29,7 +29,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{new_shard_id_tmp, AccountId};
+use near_primitives::types::{AccountId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
@@ -448,7 +448,7 @@ impl TestLoopBuilder {
         if is_validator && !self.track_all_shards {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![new_shard_id_tmp(666)];
+            client_config.tracked_shards = vec![ShardId::new(666)];
         }
 
         if let Some(config_modifier) = &self.config_modifier {
