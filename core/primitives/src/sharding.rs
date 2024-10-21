@@ -88,6 +88,15 @@ pub enum StateSyncInfo {
     V0(StateSyncInfoV0),
 }
 
+impl StateSyncInfo {
+    /// Block hash that identifies this state sync struct on disk
+    pub fn block_hash(&self) -> &CryptoHash {
+        match self {
+            Self::V0(info) => &info.epoch_first_block,
+        }
+    }
+}
+
 pub mod shard_chunk_header_inner;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,

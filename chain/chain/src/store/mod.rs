@@ -1383,7 +1383,7 @@ pub struct ChainStoreUpdate<'a> {
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A prev_hash to be removed with all the hashes associated with it
     remove_prev_blocks_to_catchup: Vec<CryptoHash>,
-    add_state_sync_infos: Vec<(CryptoHash, StateSyncInfo)>,
+    add_state_sync_infos: Vec<StateSyncInfo>,
     remove_state_sync_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
@@ -2028,8 +2028,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.remove_prev_blocks_to_catchup.push(hash);
     }
 
-    pub fn add_state_sync_info(&mut self, block_hash: CryptoHash, info: StateSyncInfo) {
-        self.add_state_sync_infos.push((block_hash, info));
+    pub fn add_state_sync_info(&mut self, info: StateSyncInfo) {
+        self.add_state_sync_infos.push(info);
     }
 
     pub fn remove_state_sync_info(&mut self, hash: CryptoHash) {
@@ -2548,8 +2548,12 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        for (block_hash, state_sync_info) in self.add_state_sync_infos.drain(..) {
-            store_update.set_ser(DBCol::StateDlInfos, block_hash.as_ref(), &state_sync_info)?;
+        for state_sync_info in self.add_state_sync_infos.drain(..) {
+            store_update.set_ser(
+                DBCol::StateDlInfos,
+                state_sync_info.block_hash().as_ref(),
+                &state_sync_info,
+            )?;
         }
         for hash in self.remove_state_sync_infos.drain(..) {
             store_update.delete(DBCol::StateDlInfos, hash.as_ref());

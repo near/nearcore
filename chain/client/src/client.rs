@@ -2644,10 +2644,7 @@ impl Client {
                     let mut update = self.chain.mut_chain_store().store_update();
                     // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
                     // actually writing to the DB while actively iterating this column
-                    update.add_state_sync_info(
-                        epoch_first_block,
-                        StateSyncInfo::V0(state_sync_info.clone()),
-                    );
+                    update.add_state_sync_info(StateSyncInfo::V0(state_sync_info.clone()));
                     // TODO: would be nice to be able to propagate context up the call stack so we can just log
                     // once at the top with all the info. Otherwise this error will look very cryptic
                     update.commit()?;
