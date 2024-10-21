@@ -790,7 +790,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
     }
-    
+
     fn get_random_chunk_producer_for_shard(
         &self,
         epoch_id: &EpochId,

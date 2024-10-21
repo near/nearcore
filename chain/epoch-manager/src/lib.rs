@@ -1093,7 +1093,7 @@ impl EpochManager {
             .iter()
             .map(|index| epoch_info.validator_account_id(*index).clone())
             .collect())
-        }
+    }
 
     pub fn get_random_chunk_producer_for_shard(
         &self,
