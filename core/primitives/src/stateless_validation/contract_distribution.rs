@@ -2,6 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
@@ -25,7 +26,7 @@ impl ChunkContractAccesses {
         Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, signer))
     }
 
-    pub fn contracts(&self) -> &Vec<CodeHash> {
+    pub fn contracts(&self) -> &[CodeHash] {
         match self {
             Self::V1(accesses) => &accesses.inner.contracts,
         }
@@ -98,7 +99,13 @@ impl ContractCodeRequest {
         Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, signer))
     }
 
-    pub fn contracts(&self) -> &Vec<CodeHash> {
+    pub fn requester(&self) -> &AccountId {
+        match self {
+            Self::V1(request) => &request.inner.requester,
+        }
+    }
+
+    pub fn contracts(&self) -> &[CodeHash] {
         match self {
             Self::V1(request) => &request.inner.contracts,
         }
@@ -124,7 +131,8 @@ impl ContractCodeRequestV1 {
         contracts: Vec<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = ContractCodeRequestInner::new(next_chunk, contracts);
+        let inner =
+            ContractCodeRequestInner::new(signer.validator_id().clone(), next_chunk, contracts);
         let signature = signer.sign_contract_code_request(&inner);
         Self { inner, signature }
     }
@@ -132,6 +140,9 @@ impl ContractCodeRequestV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeRequestInner {
+    /// Account of the node requesting the contracts. Used for signature verification and
+    /// to identify the node to send the response to.
+    requester: AccountId,
     /// Production metadata of the chunk created after the chunk the accesses belong to.
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
@@ -144,8 +155,9 @@ pub struct ContractCodeRequestInner {
 }
 
 impl ContractCodeRequestInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+    fn new(requester: AccountId, next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
         Self {
+            requester,
             next_chunk,
             contracts,
             signature_differentiator: "ContractCodeRequestInner".to_owned(),
@@ -161,8 +173,25 @@ pub enum ContractCodeResponse {
 }
 
 impl ContractCodeResponse {
-    pub fn new(contracts: &Vec<CodeBytes>, signer: &ValidatorSigner) -> Self {
-        Self::V1(ContractCodeResponseV1::new(contracts, signer))
+    pub fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: &Vec<CodeBytes>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(ContractCodeResponseV1::new(next_chunk, contracts, signer))
+    }
+
+    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
+        match self {
+            Self::V1(v1) => &v1.inner.next_chunk,
+        }
+    }
+
+    pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
+        let compressed_contracts = match self {
+            Self::V1(v1) => &v1.inner.compressed_contracts,
+        };
+        compressed_contracts.decode().map(|(data, _size)| data)
     }
 }
 
@@ -174,8 +203,12 @@ pub struct ContractCodeResponseV1 {
 }
 
 impl ContractCodeResponseV1 {
-    fn new(contracts: &Vec<CodeBytes>, signer: &ValidatorSigner) -> Self {
-        let inner = ContractCodeResponseInner::new(contracts);
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: &Vec<CodeBytes>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ContractCodeResponseInner::new(next_chunk, contracts);
         let signature = signer.sign_contract_code_response(&inner);
         Self { inner, signature }
     }
@@ -183,15 +216,18 @@ impl ContractCodeResponseV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeResponseInner {
+    // The same as `next_chunk` in `ContractCodeRequest`
+    next_chunk: ChunkProductionKey,
     /// Code for the contracts.
     compressed_contracts: CompressedContractCode,
     signature_differentiator: SignatureDifferentiator,
 }
 
 impl ContractCodeResponseInner {
-    fn new(contracts: &Vec<CodeBytes>) -> Self {
+    fn new(next_chunk: ChunkProductionKey, contracts: &Vec<CodeBytes>) -> Self {
         let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts).unwrap();
         Self {
+            next_chunk,
             compressed_contracts,
             signature_differentiator: "ContractCodeResponseInner".to_owned(),
         }
@@ -233,4 +269,4 @@ pub struct CodeHash(pub CryptoHash);
 
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct CodeBytes(Vec<u8>);
+pub struct CodeBytes(pub std::sync::Arc<[u8]>);
