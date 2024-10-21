@@ -2381,9 +2381,9 @@ fn test_catchup_gas_price_change() {
 
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    // We go up to height 8 because height 6 is the first block of the new epoch, and we want at least
-    // two more blocks if syncing to the current epoch's state
-    for i in 3..=8 {
+    // We go up to height 9 because height 6 is the first block of the new epoch, and we want at least
+    // two more blocks (plus one more for nodes to create snapshots) if syncing to the current epoch's state
+    for i in 3..=9 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -3673,8 +3673,9 @@ mod contract_precompilation_tests {
         );
 
         let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
-            // `height` is one more than the start of the epoch. Produce two more blocks with chunks.
-            produce_blocks_from_height(&mut env, 2, height) - 1
+            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+            // and then one more than that so the node will generate the neede snapshot.
+            produce_blocks_from_height(&mut env, 3, height) - 2
         } else {
             height - 1
         };
@@ -3783,8 +3784,9 @@ mod contract_precompilation_tests {
         );
 
         let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
-            // `height` is one more than the start of the epoch. Produce two more blocks with chunks.
-            produce_blocks_from_height(&mut env, 2, height) - 1
+            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+            // and then one more than that so the node will generate the neede snapshot.
+            produce_blocks_from_height(&mut env, 3, height) - 2
         } else {
             height - 1
         };
@@ -3863,17 +3865,18 @@ mod contract_precompilation_tests {
         // `height` is the first block of a new epoch (which has not been produced yet),
         // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
         // to get to produce the first block of the next epoch. If we want to state sync the new
-        // way, we produce two more than that
-        let num_new_blocks_in_epoch =
-            if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) { 3 } else { 1 };
-        height =
-            produce_blocks_from_height(&mut env, EPOCH_LENGTH + num_new_blocks_in_epoch, height);
+        // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
+        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 4, height) - 2
+        } else {
+            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1
+        };
 
         // Perform state sync for the second client.
-        state_sync_on_height(&mut env, height - 1);
+        state_sync_on_height(&mut env, sync_height);
 
         let epoch_id =
-            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+            *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
             *ContractCode::new(wasm_code.clone(), None).hash(),

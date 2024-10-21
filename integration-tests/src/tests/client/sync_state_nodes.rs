@@ -604,7 +604,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             assert!(sync_height < 2 * epoch_length + 1);
 
-            for i in 1..=sync_height {
+            // Produce blocks up to sync_height + 1 to give nodes a chance to create the necessary state snapshot
+            for i in 1..=sync_height + 1 {
                 tracing::info!(
                     target: "test",
                     height=i,

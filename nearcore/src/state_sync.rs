@@ -675,7 +675,7 @@ fn get_latest_epoch(
     let epoch_height = epoch_info.epoch_height();
 
     let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(epoch_info.protocol_version()) {
-        chain.get_current_epoch_sync_hash(&final_block_header)?
+        chain.get_current_epoch_sync_hash()?
     } else {
         Some(chain.get_epoch_start_sync_hash(final_hash)?)
     };
