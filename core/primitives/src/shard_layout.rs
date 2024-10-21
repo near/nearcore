@@ -3,7 +3,7 @@ use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{
-    new_shard_id_tmp, shard_id_as_u32, shard_id_as_u64, shard_id_as_usize, ShardId, ShardIndex,
+    shard_id_as_u32, shard_id_as_u64, shard_id_as_usize, ShardId, ShardIndex,
 };
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
@@ -263,7 +263,7 @@ impl ShardLayout {
             let mut to_parent_shard_map = BTreeMap::new();
             let num_shards = (boundary_accounts.len() + 1) as NumShards;
             for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
-                let parent_shard_id = new_shard_id_tmp(parent_shard_id as u64);
+                let parent_shard_id = ShardId::new(parent_shard_id as u64);
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
@@ -562,8 +562,8 @@ impl ShardLayout {
     /// identify the shard and starting from the ShardLayoutV2 it is unique.
     pub fn get_shard_id(&self, shard_index: ShardIndex) -> ShardId {
         match self {
-            Self::V0(_) => new_shard_id_tmp(shard_index as u64),
-            Self::V1(_) => new_shard_id_tmp(shard_index as u64),
+            Self::V0(_) => ShardId::new(shard_index as u64),
+            Self::V1(_) => ShardId::new(shard_index as u64),
             Self::V2(v2) => v2.index_to_id_map[&shard_index],
         }
     }
@@ -800,7 +800,7 @@ mod tests {
         ShardLayoutV1, ShardUId,
     };
     use itertools::Itertools;
-    use near_primitives_core::types::{new_shard_id_tmp, shard_id_as_u64, ProtocolVersion};
+    use near_primitives_core::types::{shard_id_as_u64, ProtocolVersion};
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
@@ -894,7 +894,7 @@ mod tests {
     #[test]
     fn test_shard_layout_v1() {
         let aid = |s: &str| s.parse().unwrap();
-        let sid = |s: u64| new_shard_id_tmp(s);
+        let sid = |s: u64| ShardId::new(s);
 
         let shard_layout = ShardLayout::v1(
             parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
@@ -910,8 +910,8 @@ mod tests {
             (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..3 {
-            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x)).unwrap(), sid(0));
-            assert_eq!(shard_layout.get_parent_shard_id(new_shard_id_tmp(x + 3)).unwrap(), sid(1));
+            assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(x)).unwrap(), sid(0));
+            assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(x + 3)).unwrap(), sid(1));
         }
 
         assert_eq!(account_id_to_shard_id(&aid("aurora"), &shard_layout), sid(1));
@@ -961,7 +961,7 @@ mod tests {
 
     #[test]
     fn test_shard_layout_v2() {
-        let sid = |s: u64| new_shard_id_tmp(s);
+        let sid = |s: u64| ShardId::new(s);
         let shard_layout = get_test_shard_layout_v2();
 
         // check accounts mapping in the middle of each range

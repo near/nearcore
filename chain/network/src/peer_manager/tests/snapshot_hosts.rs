@@ -17,7 +17,6 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::new_shard_id_tmp;
 use near_primitives::types::shard_id_as_u64;
 use near_primitives::types::shard_id_max;
 use near_primitives::types::EpochHeight;
@@ -39,7 +38,7 @@ fn make_snapshot_host_info(
     let max_shard_id = 32;
     let shards_num: usize = rng.gen_range(1..16);
     let shards = (0..max_shard_id).choose_multiple(rng, shards_num);
-    let shards = shards.into_iter().sorted().map(new_shard_id_tmp).collect();
+    let shards = shards.into_iter().sorted().map(ShardId::new).collect();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -375,7 +374,7 @@ async fn large_shard_id_in_cache() {
     tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
     let max_shard_id = shard_id_max();
     let max_shard_id_minus_one = shard_id_as_u64(max_shard_id) - 1;
-    let max_shard_id_minus_one = new_shard_id_tmp(max_shard_id_minus_one);
+    let max_shard_id_minus_one = ShardId::new(max_shard_id_minus_one);
     let big_shard_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(1234_u64),

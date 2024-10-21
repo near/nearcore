@@ -58,15 +58,8 @@ pub type ShardIndex = usize;
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
-pub const fn new_shard_id_tmp(id: u64) -> ShardId {
-    return ShardId::new(id);
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
 pub fn new_shard_id_vec_tmp(vec: &[u64]) -> Vec<ShardId> {
-    vec.iter().copied().map(new_shard_id_tmp).collect()
+    vec.iter().copied().map(ShardId::new).collect()
 }
 
 pub fn shard_id_max() -> ShardId {
