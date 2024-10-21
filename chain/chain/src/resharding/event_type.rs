@@ -121,7 +121,7 @@ impl ReshardingEventType {
 mod tests {
     use super::*;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::{new_shard_id_tmp, new_shard_id_vec_tmp, AccountId};
+    use near_primitives::types::{new_shard_id_vec_tmp, AccountId, ShardId};
     use near_store::ShardUId;
     use std::collections::BTreeMap;
 
@@ -138,12 +138,12 @@ mod tests {
         let block = CryptoHash::hash_bytes(&[1]);
         let prev_block = CryptoHash::hash_bytes(&[2]);
 
-        let s0 = new_shard_id_tmp(0);
-        let s1 = new_shard_id_tmp(1);
-        let s2 = new_shard_id_tmp(2);
-        let s3 = new_shard_id_tmp(3);
-        let s4 = new_shard_id_tmp(4);
-        let s5 = new_shard_id_tmp(5);
+        let s0 = ShardId::new(0);
+        let s1 = ShardId::new(1);
+        let s2 = ShardId::new(2);
+        let s3 = ShardId::new(3);
+        let s4 = ShardId::new(4);
+        let s5 = ShardId::new(5);
 
         // Shard layouts V0 and V1 are rejected.
         assert!(ReshardingEventType::from_shard_layout(

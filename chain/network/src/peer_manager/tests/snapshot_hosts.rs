@@ -380,7 +380,7 @@ async fn large_shard_id_in_cache() {
         peer1_config.node_id(),
         CryptoHash::hash_borsh(1234_u64),
         1234,
-        vec![new_shard_id_tmp(0), new_shard_id_tmp(1232232), max_shard_id_minus_one, max_shard_id]
+        vec![ShardId::new(0), ShardId::new(1232232), max_shard_id_minus_one, max_shard_id]
             .into_iter()
             .collect(),
         &peer1_config.node_key,

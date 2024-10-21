@@ -8,7 +8,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::new_shard_id_tmp;
+use near_primitives::types::ShardId;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
@@ -31,7 +31,7 @@ fn track_shards() {
         wait_or_timeout(100, 30000, || async {
             let bh = *last_block_hash.read().unwrap();
             if let Some(block_hash) = bh {
-                let msg = GetChunk::BlockHash(block_hash, new_shard_id_tmp(3));
+                let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
                 let res = view_client.send(msg.with_span_context()).await;
                 match &res {
                     Ok(Ok(_)) => {
