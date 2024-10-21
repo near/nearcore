@@ -215,6 +215,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError>;
+
     fn get_random_chunk_producer_for_shard(
         &self,
         epoch_id: &EpochId,
@@ -780,6 +786,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
+    }
+
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
     }
 
     fn get_random_chunk_producer_for_shard(
