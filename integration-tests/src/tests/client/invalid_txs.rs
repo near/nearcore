@@ -1,8 +1,7 @@
-use near_chain::{Chain, ChainStoreAccess as _, Provenance};
+use near_chain::{Chain, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
-use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -150,7 +149,8 @@ fn test_invalid_transactions_no_panic() {
 #[test]
 #[cfg(feature = "nightly")]
 fn test_invalid_transactions_dont_invalidate_chunk() {
-    init_test_logger();
+    use near_chain::ChainStoreAccess as _;
+    near_o11y::testonly::init_test_logger();
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let signers: Vec<_> = accounts

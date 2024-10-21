@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
+use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
+use crate::Client;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
@@ -24,11 +24,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
-
-use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::Client;
-
-use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Result of collecting state transition data from the database to generate a state witness.
 /// Keep this private to this file.
