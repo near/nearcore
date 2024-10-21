@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::Arc;
 
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
@@ -13,7 +14,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_store::adapter::StoreUpdateAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::trie::mem::resharding::RetainMode;
 use near_store::{DBCol, PartialStorage, ShardTries, ShardUId, Store};
 
@@ -94,6 +95,10 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        // Reshard state by setting shard UId mapping from children to parent.
+        self.set_state_shard_uid_mapping(&split_shard_event)?;
+
+        // Create temporary children memtries by freezing parent memtrie and referencing it.
         self.process_memtrie_resharding_storage_update(
             chain_store_update,
             block,
@@ -111,13 +116,31 @@ impl ReshardingManager {
         Ok(())
     }
 
+    /// Store in the database the mapping of shard UId from children to the parent shard,
+    /// so that subsequent accesses to the State will use the parent shard's UId as a prefix for the database key.
+    fn set_state_shard_uid_mapping(
+        &mut self,
+        split_shard_event: &ReshardingSplitShardParams,
+    ) -> io::Result<()> {
+        let mut store_update = self.store.trie_store().store_update();
+        let parent_shard_uid = split_shard_event.parent_shard;
+        // TODO(reshardingV3) Leave tracked shards only?
+        let children_shard_uids =
+            [split_shard_event.left_child_shard, split_shard_event.right_child_shard];
+
+        for child_shard_uid in children_shard_uids {
+            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid);
+        }
+        store_update.commit()
+    }
+
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
     fn process_memtrie_resharding_storage_update(
         &mut self,
         mut chain_store_update: ChainStoreUpdate,
         block: &Block,
-        shard_uid: ShardUId,
+        parent_shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
     ) -> Result<(), Error> {
@@ -125,7 +148,7 @@ impl ReshardingManager {
         let block_height = block.header().height();
         let _span = tracing::debug_span!(
             target: "resharding", "process_memtrie_resharding_storage_update",
-            ?block_hash, block_height, ?shard_uid)
+            ?block_hash, block_height, ?parent_shard_uid)
         .entered();
 
         // TODO(resharding): what if node doesn't have memtrie? just pause
@@ -133,11 +156,11 @@ impl ReshardingManager {
         // TODO(resharding): fork handling. if epoch is finalized on different
         // blocks, the second finalization will crash.
         tries.freeze_mem_tries(
-            shard_uid,
+            parent_shard_uid,
             vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
         )?;
 
-        let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
+        let chunk_extra = self.get_chunk_extra(block_hash, &parent_shard_uid)?;
         let boundary_account = split_shard_event.boundary_account;
 
         let mut trie_store_update = self.store.store_update();
@@ -152,7 +175,7 @@ impl ReshardingManager {
                     "Memtrie not loaded. Cannot process memtrie resharding storage
                      update for block {:?}, shard {:?}",
                     block_hash,
-                    shard_uid
+                    parent_shard_uid,
                 );
                 return Err(Error::Other("Memtrie not loaded".to_string()));
             };

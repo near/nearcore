@@ -160,8 +160,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
 
     /// Set the mapping from `child_shard_uid` to `parent_shard_uid`.
     /// Used by Resharding V3 for State mapping.
-    #[cfg(test)]
-    fn set_shard_uid_mapping(&mut self, child_shard_uid: ShardUId, parent_shard_uid: ShardUId) {
+    pub fn set_shard_uid_mapping(&mut self, child_shard_uid: ShardUId, parent_shard_uid: ShardUId) {
         self.store_update.set(
             DBCol::StateShardUIdMapping,
             child_shard_uid.to_bytes().as_ref(),
