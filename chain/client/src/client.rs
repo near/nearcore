@@ -2560,7 +2560,7 @@ impl Client {
         let header = self.chain.get_block_header(&header_head.last_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-            match self.chain.get_current_epoch_sync_hash()? {
+            match self.chain.get_current_epoch_sync_hash(&header_head.last_block_hash)? {
                 Some(h) => h,
                 None => return Ok(None),
             }

@@ -2446,9 +2446,11 @@ impl Chain {
 
     // Returns the first block for which at least two new chunks have been produced for every shard in the epoch
     // `next_header` is the next block header that is being processed in start_process_block_impl()
-    pub fn get_current_epoch_sync_hash(&self) -> Result<Option<CryptoHash>, Error> {
-        let head = self.head()?;
-        let epoch_start = Self::get_epoch_start_sync_hash(self, &head.last_block_hash)?;
+    pub fn get_current_epoch_sync_hash(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let epoch_start = self.get_epoch_start_sync_hash(block_hash)?;
         let mut header = self.get_block_header(&epoch_start)?;
 
         let shard_ids = self.epoch_manager.shard_ids(header.epoch_id())?;
@@ -3942,7 +3944,7 @@ impl Chain {
                 } else {
                     // FIXME: this needs to be fixed. can't be iterating over the whole chain inside of preprocess
                     // block like that if there are many missed chunks
-                    match self.get_current_epoch_sync_hash()? {
+                    match self.get_current_epoch_sync_hash(&head.last_block_hash)? {
                         Some(sync_hash) => {
                             if sync_hash == head.last_block_hash {
                                 // note that here we're returning prev_block_hash instead of last_block_hash because in this case
@@ -4540,7 +4542,7 @@ impl Chain {
 
         if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
             // TODO(current_epoch_state_sync): replace this with a more efficient lookup
-            match self.get_current_epoch_sync_hash()? {
+            match self.get_current_epoch_sync_hash(sync_hash)? {
                 Some(h) => Ok(*sync_hash == h),
                 None => Ok(false),
             }
