@@ -44,6 +44,7 @@ impl ReshardingManager {
             runtime_adapter,
             resharding_sender.into_sender(),
             FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
+            resharding_config.clone(),
         );
         Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
@@ -159,6 +160,9 @@ impl ReshardingManager {
                 new_shard_uid.shard_id(),
                 Some(partial_storage),
                 CryptoHash::default(),
+                // No contract code is accessed during resharding.
+                // TODO(#11099): Confirm if sending no contracts is ok here.
+                vec![],
             );
 
             // Commit `TrieChanges` directly. They are needed to serve reads of

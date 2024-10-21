@@ -8,7 +8,8 @@ use crate::client::{
 };
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
     PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
 };
 use crate::types::{
@@ -357,6 +358,29 @@ fn network_message_to_partial_witness_handler(
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
             }
+            None
+        }
+        NetworkRequests::ChunkContractAccesses(chunk_validators, contract_accesses) => {
+            for target in chunk_validators {
+                shared_state
+                    .senders_for_account(&target)
+                    .partial_witness_sender
+                    .send(ChunkContractAccessesMessage(contract_accesses.clone()));
+            }
+            None
+        }
+        NetworkRequests::ContractCodeRequest(target, request) => {
+            shared_state
+                .senders_for_account(&target)
+                .partial_witness_sender
+                .send(ContractCodeRequestMessage(request));
+            None
+        }
+        NetworkRequests::ContractCodeResponse(target, response) => {
+            shared_state
+                .senders_for_account(&target)
+                .partial_witness_sender
+                .send(ContractCodeResponseMessage(response));
             None
         }
         _ => Some(request),
