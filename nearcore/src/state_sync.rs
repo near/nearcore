@@ -674,9 +674,6 @@ fn get_latest_epoch(
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
     let epoch_height = epoch_info.epoch_height();
 
-    // This is not the way protocol features are normally gated, but this is not actually
-    // a protocol feature/change. The protocol version is just an easy way to coordinate
-    // among nodes for now
     let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(epoch_info.protocol_version()) {
         chain.get_current_epoch_sync_hash(&final_block_header)?
     } else {
