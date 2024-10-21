@@ -31,6 +31,9 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             }
         }
 
+        default_stake = 50000000000000000000000000000000
+        stake_delta = 5000000000000000000000000000000
+
         # Key will be moved from old_validator to new_validator,
         # while the other_validator remains untouched.
         [
@@ -40,7 +43,13 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         ] = start_cluster(2, 1, 3, None,
                           [["epoch_length", EPOCH_LENGTH],
                            ["block_producer_kickout_threshold", 10],
-                           ["chunk_producer_kickout_threshold", 10]],
+                           ["chunk_producer_kickout_threshold", 10],
+                           # TODO(#12273): find better way to adjust validator stakes.
+                           ["validators", 0, "amount", str(default_stake + stake_delta)],
+                           ["validators", 1, "amount", str(default_stake - stake_delta)],
+                           ["records", 0, "Account", "account", "locked", str(default_stake + stake_delta)],
+                           ["records", 2, "Account", "account", "locked", str(default_stake - stake_delta)]
+     ],
                           config_map)
         wait_for_blocks(old_validator, count=5)
 
@@ -54,12 +63,20 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         max_height = block.height + 4 * EPOCH_LENGTH
         target_height = max_height - EPOCH_LENGTH // 2
         start_time = time.time()
+        latest_epoch_start_height = 0
 
         while True:
             self.assertLess(time.time() - start_time, TIMEOUT,
                             'Validators got stuck')
 
             info = old_validator.json_rpc('validators', 'latest')
+            epoch_start_height = info['result']['epoch_start_height']
+            if epoch_start_height > latest_epoch_start_height:
+                latest_epoch_start_height = epoch_start_height
+                logger.info(f"Epoch start height: {epoch_start_height}")
+                logger.info(f"Validators: {info['result']['current_validators']}")
+                logger.info(f"Next validators: {info['result']['next_validators']}")
+
             next_validators = info['result']['next_validators']
             account_ids = [v['account_id'] for v in next_validators]
             # We copied over 'test0' validator key, along with validator account ID.
