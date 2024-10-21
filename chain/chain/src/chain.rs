@@ -2444,11 +2444,11 @@ impl Chain {
         if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
             self.get_current_epoch_sync_hash(block_hash)
         } else {
-            self.get_epoch_start_sync_hash(block_hash).map(Some)
+            self.get_previous_epoch_sync_hash(block_hash).map(Some)
         }
     }
 
-    fn get_epoch_start_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
+    fn get_previous_epoch_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
         Ok(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block())
     }
 
@@ -2458,7 +2458,7 @@ impl Chain {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Option<CryptoHash>, Error> {
-        let epoch_start = self.get_epoch_start_sync_hash(block_hash)?;
+        let epoch_start = self.get_previous_epoch_sync_hash(block_hash)?;
         let mut header = self.get_block_header(&epoch_start)?;
 
         let shard_ids = self.epoch_manager.shard_ids(header.epoch_id())?;
