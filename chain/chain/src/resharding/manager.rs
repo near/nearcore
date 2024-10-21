@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::event_type::ReshardingEventType;
+use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use super::types::ReshardingSender;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
 use crate::types::RuntimeAdapter;
@@ -49,13 +49,10 @@ impl ReshardingManager {
         Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
 
-    /// If shard layout changes after the given block, creates temporary
-    /// memtries for new shards to be able to process them in the next epoch.
-    /// Note this doesn't complete resharding, proper memtries are to be
-    /// created later.
-    pub fn process_memtrie_resharding_storage_update(
+    /// Trigger resharding if shard layout changes after the given block.
+    pub fn start_resharding(
         &mut self,
-        mut chain_store_update: ChainStoreUpdate,
+        chain_store_update: ChainStoreUpdate,
         block: &Block,
         shard_uid: ShardUId,
         tries: ShardTries,
@@ -63,7 +60,7 @@ impl ReshardingManager {
         let block_hash = block.hash();
         let block_height = block.header().height();
         let _span = tracing::debug_span!(
-            target: "resharding", "process_memtrie_resharding_storage_update", 
+            target: "resharding", "start_resharding",
             ?block_hash, block_height, ?shard_uid)
         .entered();
 
@@ -84,6 +81,7 @@ impl ReshardingManager {
             tracing::debug!(target: "resharding", ?next_shard_layout, "next shard layout is not v2, skipping");
             return Ok(());
         }
+
         let resharding_event_type =
             ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
         let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
@@ -96,6 +94,40 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        self.process_memtrie_resharding_storage_update(
+            chain_store_update,
+            block,
+            shard_uid,
+            tries,
+            split_shard_event.clone(),
+        )?;
+
+        // Trigger resharding of flat storage.
+        self.flat_storage_resharder.start_resharding(
+            ReshardingEventType::SplitShard(split_shard_event),
+            &next_shard_layout,
+        )?;
+
+        Ok(())
+    }
+
+    /// Creates temporary memtries for new shards to be able to process them in the next epoch.
+    /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
+    fn process_memtrie_resharding_storage_update(
+        &mut self,
+        mut chain_store_update: ChainStoreUpdate,
+        block: &Block,
+        shard_uid: ShardUId,
+        tries: ShardTries,
+        split_shard_event: ReshardingSplitShardParams,
+    ) -> Result<(), Error> {
+        let block_hash = block.hash();
+        let block_height = block.header().height();
+        let _span = tracing::debug_span!(
+            target: "resharding", "process_memtrie_resharding_storage_update",
+            ?block_hash, block_height, ?shard_uid)
+        .entered();
+
         // TODO(resharding): what if node doesn't have memtrie? just pause
         // processing?
         // TODO(resharding): fork handling. if epoch is finalized on different
@@ -103,12 +135,6 @@ impl ReshardingManager {
         tries.freeze_mem_tries(
             shard_uid,
             vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
-        )?;
-
-        // Trigger resharding of flat storage.
-        self.flat_storage_resharder.start_resharding(
-            ReshardingEventType::SplitShard(split_shard_event.clone()),
-            &next_shard_layout,
         )?;
 
         let chunk_extra = self.get_chunk_extra(block_hash, &shard_uid)?;
