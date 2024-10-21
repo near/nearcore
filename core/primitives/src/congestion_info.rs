@@ -507,8 +507,10 @@ mod tests {
     use super::*;
 
     fn get_config() -> CongestionControlConfig {
+        // Fix the initial configuration of congestion control for the tests.
+        let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
         let runtime_config_store = RuntimeConfigStore::new(None);
-        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
+        let runtime_config = runtime_config_store.get_config(protocol_version);
         runtime_config.congestion_control_config
     }
 
