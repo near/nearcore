@@ -19,6 +19,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+    StoredChunkStateTransitionDataV2,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId};
@@ -210,6 +211,11 @@ impl Client {
                     base_state,
                     receipts_hash,
                     contract_accesses,
+                }) => (base_state, receipts_hash, contract_accesses, vec![]),
+                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
                     contract_deploys,
                 }) => (base_state, receipts_hash, contract_accesses, contract_deploys),
             }
@@ -236,21 +242,21 @@ impl Client {
                     }
                     Error::Other(message)
                 })?;
-            match state_transition {
+            let base_state = match state_transition {
                 StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state,
                     ..
-                }) => {
-                    implicit_transitions.push(ChunkStateTransition {
-                        block_hash: *block_hash,
-                        base_state,
-                        post_state_root: *self
-                            .chain
-                            .get_chunk_extra(block_hash, &shard_uid)?
-                            .state_root(),
-                    });
-                }
-            }
+                }) => base_state,
+                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                    base_state,
+                    ..
+                }) => base_state,
+            };
+            implicit_transitions.push(ChunkStateTransition {
+                block_hash: *block_hash,
+                base_state,
+                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
+            });
         }
 
         Ok(StateTransitionData {
