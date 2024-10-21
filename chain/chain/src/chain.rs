@@ -1257,7 +1257,6 @@ impl Chain {
         }
 
         // Verify that proposals from chunks match block header proposals.
-        let block_height = block.header().height();
         for pair in block
             .chunks()
             .iter_new_chunks()
