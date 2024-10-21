@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ShardInfo, StateSyncInfo};
+use near_primitives::sharding::{ShardInfo, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
@@ -383,12 +383,11 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
         if epoch_first_block != sync_hash {
             tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
         }
-        let new_info = StateSyncInfo {
-            state_sync_version: 0,
+        let new_info = StateSyncInfo::V0(StateSyncInfoV0 {
             epoch_first_block,
             sync_hash: Some(sync_hash),
             shards,
-        };
+        });
         update
             .set_ser(DBCol::StateDlInfos, &key, &new_info)
             .context("failed writing to StateDlInfos")?;

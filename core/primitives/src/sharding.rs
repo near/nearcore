@@ -61,12 +61,7 @@ pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 /// Contains the information that is used to sync state for shards as epochs switch
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct StateSyncInfo {
-    /// For now this is always set to 0. This is included because an improvement we might want to make in the future
-    /// is that when syncing to the current epoch's state, we currently wait for two new chunks in each shard, but
-    /// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
-    /// in order to allow for this change in the future without needing another database migration.
-    pub state_sync_version: u32,
+pub struct StateSyncInfoV0 {
     /// The first block of the epoch we want to state sync for. This field is not strictly required since
     /// this struct is keyed by this hash in the database, but it's a small amount of data that makes
     /// the info in this type more complete.
@@ -81,6 +76,16 @@ pub struct StateSyncInfo {
     pub sync_hash: Option<CryptoHash>,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
+}
+
+/// Contains the information that is used to sync state for shards as epochs switch
+/// Currently there is only one version possible, but an improvement we might want to make in the future
+/// is that when syncing to the current epoch's state, we currently wait for two new chunks in each shard, but
+/// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
+/// in order to allow for this change in the future without needing another database migration.
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub enum StateSyncInfo {
+    V0(StateSyncInfoV0),
 }
 
 pub mod shard_chunk_header_inner;

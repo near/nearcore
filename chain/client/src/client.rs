@@ -68,9 +68,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardInfo,
+    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardInfo, StateSyncInfo,
+    StateSyncInfoV0,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -2591,9 +2591,10 @@ impl Client {
         let mut notify_state_sync = false;
         let me = signer.as_ref().map(|x| x.validator_id().clone());
 
-        for (epoch_first_block, mut state_sync_info) in
+        for (epoch_first_block, state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
+            let StateSyncInfo::V0(mut state_sync_info) = state_sync_info;
             assert_eq!(epoch_first_block, state_sync_info.epoch_first_block);
 
             // I *think* this is not relevant anymore, since we download
@@ -2643,7 +2644,10 @@ impl Client {
                     let mut update = self.chain.mut_chain_store().store_update();
                     // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
                     // actually writing to the DB while actively iterating this column
-                    update.add_state_sync_info(epoch_first_block, state_sync_info.clone());
+                    update.add_state_sync_info(
+                        epoch_first_block,
+                        StateSyncInfo::V0(state_sync_info.clone()),
+                    );
                     // TODO: would be nice to be able to propagate context up the call stack so we can just log
                     // once at the top with all the info. Otherwise this error will look very cryptic
                     update.commit()?;
@@ -2768,7 +2772,7 @@ impl Client {
     fn get_shards_to_split(
         &mut self,
         sync_hash: CryptoHash,
-        state_sync_info: &StateSyncInfo,
+        state_sync_info: &StateSyncInfoV0,
         me: &Option<AccountId>,
     ) -> Result<HashMap<u64, ShardSyncDownload>, Error> {
         let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();

@@ -65,7 +65,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
-    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
+    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo, StateSyncInfoV0,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
@@ -797,8 +797,7 @@ impl Chain {
             } else {
                 Some(*block.header().hash())
             };
-            let state_sync_info = StateSyncInfo {
-                state_sync_version: 0,
+            let state_sync_info = StateSyncInfo::V0(StateSyncInfoV0 {
                 epoch_first_block: *block.header().hash(),
                 sync_hash,
                 shards: shards_to_state_sync
@@ -808,7 +807,7 @@ impl Chain {
                         ShardInfo(*shard_id, chunk.chunk_hash())
                     })
                     .collect(),
-            };
+            });
 
             Ok(Some(state_sync_info))
         }
