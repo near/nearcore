@@ -185,10 +185,12 @@ impl CacheEntry {
             CacheUpdate::WitnessPart(partial_witness, encoder) => {
                 self.process_witness_part(partial_witness, encoder);
             }
-            CacheUpdate::AccessedContractHashes(hashes) => {
-                self.set_requested_contracts(hashes);
+            CacheUpdate::AccessedContractHashes(code_hashes) => {
+                self.set_requested_contracts(code_hashes);
             }
-            CacheUpdate::AccessedContractCodes(codes) => self.set_received_contracts(codes),
+            CacheUpdate::AccessedContractCodes(contract_codes) => {
+                self.set_received_contracts(contract_codes)
+            }
         }
         self.try_finalize()
     }
@@ -223,15 +225,15 @@ impl CacheEntry {
         }
     }
 
-    fn set_received_contracts(&mut self, contract_code: Vec<CodeBytes>) {
+    fn set_received_contracts(&mut self, contract_codes: Vec<CodeBytes>) {
         match &self.accessed_contracts {
             AccessedContractsState::Requested(hashes) => {
                 let actual = HashSet::<CryptoHash>::from_iter(
-                    contract_code.iter().map(|code| CryptoHash::hash_bytes(&code.0)),
+                    contract_codes.iter().map(|code| CryptoHash::hash_bytes(&code.0)),
                 );
                 let expected = HashSet::from_iter(hashes.iter().map(|hash| hash.0));
                 if actual == expected {
-                    self.accessed_contracts = AccessedContractsState::Received(contract_code);
+                    self.accessed_contracts = AccessedContractsState::Received(contract_codes);
                 } else {
                     tracing::warn!(
                         target: "client",
@@ -270,7 +272,7 @@ impl CacheEntry {
             WitnessPartsState::Empty | WitnessPartsState::WaitingParts(_) => unreachable!(),
             WitnessPartsState::Decoded(_) => {
                 // We want to avoid copying decoded witness, so we move it out of the state
-                // are reset it to Empty.
+                // and reset it to Empty.
                 let WitnessPartsState::Decoded(result) =
                     std::mem::replace(&mut self.witness_parts, WitnessPartsState::Empty)
                 else {
@@ -284,7 +286,7 @@ impl CacheEntry {
             AccessedContractsState::Requested(_) => unreachable!(),
             AccessedContractsState::Received(_) => {
                 // We want to avoid copying contracts, so we move them out of the state
-                // are reset it to Unknown.
+                // and reset it to Unknown.
                 let AccessedContractsState::Received(contracts) = std::mem::replace(
                     &mut self.accessed_contracts,
                     AccessedContractsState::Unknown,

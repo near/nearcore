@@ -174,6 +174,7 @@ pub struct SetChainInfo(pub ChainInfo);
 /// Public actix interface of `PeerManagerActor`.
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
+#[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
     /// Request PeerManager to call `tier1_advertise_proxies()`. Used internally.

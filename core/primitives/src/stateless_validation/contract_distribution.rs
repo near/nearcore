@@ -216,6 +216,8 @@ impl ContractCodeRequestV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeRequestInner {
+    /// Account of the node requesting the contracts. Used for signature verification and
+    /// to identify the node to send the response to.
     requester: AccountId,
     /// Production metadata of the chunk created after the chunk the accesses belong to.
     /// We associate this message with the next-chunk info because this message is generated

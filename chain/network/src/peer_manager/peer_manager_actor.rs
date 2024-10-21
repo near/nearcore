@@ -111,6 +111,7 @@ pub struct PeerManagerActor {
 /// we are at that stage, feel free to add any events that you need to observe.
 /// In particular prefer emitting a new event to polling for a state change.
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     PeerManagerStarted,
     ServerStarted,
