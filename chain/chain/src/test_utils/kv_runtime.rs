@@ -1119,7 +1119,7 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
     }
 
-    fn get_random_chunk_producers_for_shard(
+    fn get_random_chunk_producer_for_shard(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,

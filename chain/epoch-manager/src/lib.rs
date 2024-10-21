@@ -1074,7 +1074,7 @@ impl EpochManager {
         })
     }
 
-    pub fn get_random_chunk_producers_for_shard(
+    pub fn get_random_chunk_producer_for_shard(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,

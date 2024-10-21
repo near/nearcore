@@ -358,9 +358,9 @@ impl PartialWitnessActor {
         self.partial_witness_tracker
             .store_accessed_contract_hashes(key.clone(), contract_hashes.to_vec())?;
         // TODO(#11099): currently we always request all hashes to test worst case scenario.
-        // Eventually we want to only request ones that are missing from the complied contracts cache.
+        // Eventually we want to only request ones that are missing from the compiled contracts cache.
         let random_chunk_producer =
-            self.epoch_manager.get_random_chunk_producers_for_shard(&key.epoch_id, key.shard_id)?;
+            self.epoch_manager.get_random_chunk_producer_for_shard(&key.epoch_id, key.shard_id)?;
         let request = ContractCodeRequest::new(key.clone(), contract_hashes.to_vec(), &signer);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
@@ -387,6 +387,7 @@ impl PartialWitnessActor {
                     tracing::warn!(
                         target: "client",
                         ?contract_hash,
+                        chunk_production_key = ?key,
                         "Requested contract hash is not present in the storage"
                     );
                     return Ok(());
