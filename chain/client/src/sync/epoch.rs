@@ -504,10 +504,6 @@ impl EpochSync {
         update.save_block_header_no_update_tree(
             proof.current_epoch.second_last_block_header_in_prev_epoch.clone(),
         )?;
-        tracing::info!(
-            "last final block of last past epoch: {:?}",
-            proof.past_epochs.last().unwrap().last_final_block_header.hash()
-        );
         update.save_block_header_no_update_tree(
             proof.past_epochs.last().unwrap().last_final_block_header.clone(),
         )?;
@@ -745,7 +741,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
         }
         let store = self.client.chain.chain_store.store().clone();
         let network_adapter = self.client.network_adapter.clone();
-        let route_back = msg.route_back;
+        let requester_peer_id = msg.from_peer;
         let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
         self.client.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
@@ -758,7 +754,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
                     }
                 };
                 network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::EpochSyncResponse { route_back, proof },
+                    NetworkRequests::EpochSyncResponse { peer_id: requester_peer_id, proof },
                 ));
             },
         )

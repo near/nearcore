@@ -84,10 +84,16 @@ fn cargo_build_cmd(target_dir: &std::path::Path) -> Command {
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
     res.env_remove("RUSTC_WORKSPACE_WRAPPER");
 
-    res.env("RUSTFLAGS", "-Dwarnings");
+    res.env("RUSTC_BOOTSTRAP", "1"); // FIXME: remove once `-Zbuild-std` is no longer necessary
+    res.env("RUSTFLAGS", "-Dwarnings -Ctarget-cpu=mvp");
     res.env("CARGO_TARGET_DIR", target_dir);
 
-    res.args(["build", "--target=wasm32-unknown-unknown", "--release"]);
+    res.args([
+        "build",
+        "-Zbuild-std=panic_abort,std",
+        "--target=wasm32-unknown-unknown",
+        "--release",
+    ]);
 
     res
 }

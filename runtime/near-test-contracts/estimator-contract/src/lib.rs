@@ -3,7 +3,7 @@
 #![allow(clippy::all)]
 
 #[panic_handler]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
     core::arch::wasm32::unreachable()
 }
@@ -191,21 +191,21 @@ extern "C" {
 }
 
 // Function that does not do anything at all.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn noop() {}
 
 // Function that does not do anything at all. With a shorter name.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn n() {}
 
 // Function that does not do anything at all. With a 100 byte name.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn noooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooop(
 ) {
 }
 
 // Function that we use to measure `base` cost by calling `block_height` many times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn base_1M() {
     for _ in 0..1_000_000 {
         block_index();
@@ -214,7 +214,7 @@ pub unsafe fn base_1M() {
 
 // Function to measure `read_memory_base` and `read_memory_byte` many times.
 // Reads 10b 10k times from memory.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn read_memory_10b_10k() {
     let buffer = [0u8; 10];
     for _ in 0..10_000 {
@@ -224,7 +224,7 @@ pub unsafe fn read_memory_10b_10k() {
 
 // Function to measure `read_memory_base` and `read_memory_byte` many times.
 // Reads 1Mib 10k times from memory.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn read_memory_1Mib_10k() {
     let buffer = [0u8; 1024 * 1024];
     for _ in 0..10_000 {
@@ -234,7 +234,7 @@ pub unsafe fn read_memory_1Mib_10k() {
 
 // Function to measure `write_memory_base` and `write_memory_byte` many times.
 // Writes 10b 10k times into memory. Includes `read_register` costs.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_memory_10b_10k() {
     let buffer = [0u8; 10];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
@@ -245,7 +245,7 @@ pub unsafe fn write_memory_10b_10k() {
 
 // Function to measure `write_memory_base` and `write_memory_byte` many times.
 // Writes 1Mib 10k times into memory. Includes `read_register` costs.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_memory_1Mib_10k() {
     let buffer = [0u8; 1024 * 1024];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
@@ -256,7 +256,7 @@ pub unsafe fn write_memory_1Mib_10k() {
 
 // Function to measure `read_register_base` and `read_register_byte` many times.
 // Reads 10b 10k times from register.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn read_register_10b_10k() {
     let buffer = [0u8; 10];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
@@ -267,7 +267,7 @@ pub unsafe fn read_register_10b_10k() {
 
 // Function to measure `read_register_base` and `read_register_byte` many times.
 // Reads 1Mib 10k times from register.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn read_register_1Mib_10k() {
     let buffer = [0u8; 1024 * 1024];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
@@ -278,7 +278,7 @@ pub unsafe fn read_register_1Mib_10k() {
 
 // Function to measure `write_register_base` and `write_register_byte` many times.
 // Writes 10b 10k times to register.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_register_10b_10k() {
     let buffer = [0u8; 10];
     for _ in 0..10_000 {
@@ -288,7 +288,7 @@ pub unsafe fn write_register_10b_10k() {
 
 // Function to measure `write_register_base` and `write_register_byte` many times.
 // Writes 1Mib 10k times to register.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_register_1Mib_10k() {
     let buffer = [0u8; 1024 * 1024];
     for _ in 0..10_000 {
@@ -299,7 +299,7 @@ pub unsafe fn write_register_1Mib_10k() {
 // Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf8 10b 10k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn utf8_log_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -310,7 +310,7 @@ pub unsafe fn utf8_log_10b_10k() {
 // Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf8 10kib 1k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn utf8_log_10kib_1k() {
     let buffer = [65u8; 10240];
     for _ in 0..1_000 {
@@ -322,7 +322,7 @@ pub unsafe fn utf8_log_10kib_1k() {
 // Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf8 10b 10k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn nul_utf8_log_10b_10k() {
     let mut buffer = [65u8; 10];
     buffer[buffer.len() - 1] = 0;
@@ -335,7 +335,7 @@ pub unsafe fn nul_utf8_log_10b_10k() {
 // Function to measure `utf8_decoding_base`, `utf8_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf8 10kib 1k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn nul_utf8_log_10kib_1k() {
     let mut buffer = [65u8; 10240];
     buffer[buffer.len() - 1] = 0;
@@ -347,7 +347,7 @@ pub unsafe fn nul_utf8_log_10kib_1k() {
 // Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf16 10b 10k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn utf16_log_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -358,7 +358,7 @@ pub unsafe fn utf16_log_10b_10k() {
 // Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf16 10kib 1k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn utf16_log_10kib_1k() {
     let buffer = [65u8; 10240];
     for _ in 0..1_000 {
@@ -370,7 +370,7 @@ pub unsafe fn utf16_log_10kib_1k() {
 // Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf16 10b 10k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn nul_utf16_log_10b_10k() {
     let mut buffer = [65u8; 10];
     buffer[buffer.len() - 2] = 0;
@@ -384,7 +384,7 @@ pub unsafe fn nul_utf16_log_10b_10k() {
 // Function to measure `utf16_decoding_base`, `utf16_decoding_byte`, `log_base`, and `log_byte`;
 // It actually measures them together with `read_memory_base` and `read_memory_byte`.
 // Write utf16 10kib 1k times into log.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn nul_utf16_log_10kib_1k() {
     let mut buffer = [65u8; 10240];
     buffer[buffer.len() - 2] = 0;
@@ -398,7 +398,7 @@ pub unsafe fn nul_utf16_log_10kib_1k() {
 // and `write_register_byte`. However `sha256` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute sha256 on 10b 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sha256_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -409,7 +409,7 @@ pub unsafe fn sha256_10b_10k() {
 // and `write_register_byte`. However `sha256` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute sha256 on 10kib 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sha256_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
@@ -421,7 +421,7 @@ pub unsafe fn sha256_10kib_10k() {
 // and `write_register_byte`. However `keccak256` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute keccak256 on 10b 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn keccak256_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -432,7 +432,7 @@ pub unsafe fn keccak256_10b_10k() {
 // and `write_register_byte`. However `keccak256` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute keccak256 on 10kib 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn keccak256_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
@@ -444,7 +444,7 @@ pub unsafe fn keccak256_10kib_10k() {
 // and `write_register_byte`. However `keccak512` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute keccak512 on 10b 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn keccak512_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -455,7 +455,7 @@ pub unsafe fn keccak512_10b_10k() {
 // and `write_register_byte`. However `keccak512` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute keccak512 on 10kib 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn keccak512_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
@@ -467,7 +467,7 @@ pub unsafe fn keccak512_10kib_10k() {
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10b 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ripemd160_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -478,7 +478,7 @@ pub unsafe fn ripemd160_10b_10k() {
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10kib 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ripemd160_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
@@ -490,7 +490,7 @@ pub unsafe fn ripemd160_10kib_10k() {
 // `write_register_byte`. However `ecrecover` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ecrecover 10k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ecrecover_10k() {
     let hash_buffer: [u8; 32] = [
         0x7d, 0xba, 0xf5, 0x58, 0xb0, 0xa1, 0xa5, 0xdc, 0x7a, 0x67, 0x20, 0x21, 0x17, 0xab, 0x14,
@@ -514,7 +514,7 @@ pub unsafe fn ecrecover_10k() {
 /// `write_register_base`, and `write_register_byte`. However
 /// `ed25519_verify_base` computation is more expensive than register writing so
 /// we are okay overcharging it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ed25519_verify_32b_500() {
     // private key: OReNDSAXOnl-U6Wki95ut01ehQW_9wcAF_utjzRNreg
     // public key: M4QwJx4Sogjr0KcMI_gsvt-lEU6tgd9GWmgejE_JYlA
@@ -552,7 +552,7 @@ pub unsafe fn ed25519_verify_32b_500() {
 }
 
 /// Function to measure `ed25519_verify_bytes`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ed25519_verify_16kib_64() {
     // 16kB bytes message
     let message = [b'a'; 16384];
@@ -593,7 +593,7 @@ struct MultiexpElem([u8; 64], [u8; 32]);
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_multiexp on 1 element 10 times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn alt_bn128_g1_multiexp_1_10() {
     #[rustfmt::skip]
     let buffer: [MultiexpElem; 1] = [
@@ -612,7 +612,7 @@ pub unsafe fn alt_bn128_g1_multiexp_1_10() {
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_multiexp on 10 elements 10 times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn alt_bn128_g1_multiexp_10_10() {
     #[rustfmt::skip]
     let buffer: [MultiexpElem; 10] = [
@@ -653,7 +653,7 @@ struct SumElem(u8, [u8; 64]);
 // and `write_register_byte`. However `g1_sum` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_sum on 1 element 1k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn alt_bn128_g1_sum_1_1k() {
     #[rustfmt::skip]
     let buffer: [SumElem; 1] = [
@@ -672,7 +672,7 @@ pub unsafe fn alt_bn128_g1_sum_1_1k() {
 // and `write_register_byte`. However `g1_sum` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_sum on 10 element 1k times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn alt_bn128_g1_sum_10_1k() {
     #[rustfmt::skip]
     let buffer: [SumElem; 10] = [
@@ -703,7 +703,7 @@ struct PairingElem([u8; 64], [u8; 128]);
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute pairing_check on 1 element 10 times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn alt_bn128_pairing_check_1_10() {
     #[rustfmt::skip]
     let buffer: [PairingElem; 1] = [
@@ -721,7 +721,7 @@ pub unsafe fn alt_bn128_pairing_check_1_10() {
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute pairing_check on 10 elements 10 times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn alt_bn128_pairing_check_10_10() {
     #[rustfmt::skip]
     let buffer: [PairingElem; 10] = [
@@ -754,7 +754,7 @@ pub unsafe fn alt_bn128_pairing_check_10_10() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p1_sum_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -767,7 +767,7 @@ pub unsafe fn bls12381_p1_sum_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p1_sum_50_100() {
     let buffer: [[u8; 2*97]; 25] = [[0, 18, 25, 108, 90, 67, 214, 146, 36, 216, 113, 51, 137, 40, 95, 38, 185, 143, 134, 238, 145, 10, 179, 221, 102, 142, 65, 55, 56, 40, 32, 3, 204, 91, 115, 87, 175, 154, 122, 245, 75, 183, 19, 214, 34, 85, 232, 15, 86, 6, 186, 129, 2, 191, 190, 234, 68, 22, 183, 16, 199, 62, 140, 206, 48, 50, 195, 28, 98, 105, 196, 73, 6, 248, 172, 79, 120, 116, 206, 153, 251, 23, 85, 153, 146, 72, 101, 40, 150, 56, 132, 206, 66, 154, 153, 47, 238,
         0, 0, 1, 16, 16, 152, 245, 195, 152, 147, 118, 87, 102, 175, 69, 18, 160, 199, 78, 27, 184, 155, 199, 230, 253, 241, 78, 62, 115, 55, 210, 87, 204, 15, 148, 101, 129, 121, 216, 51, 32, 185, 159, 49, 255, 148, 205, 43, 172, 3, 225, 169, 249, 244, 76, 162, 205, 171, 79, 67, 161, 163, 238, 52, 112, 253, 249, 11, 47, 194, 40, 235, 59, 112, 159, 205, 114, 240, 20, 131, 138, 200, 42, 109, 121, 122, 238, 254, 217, 160, 128, 75, 34, 237, 28, 232, 247]; 25];
@@ -781,7 +781,7 @@ pub unsafe fn bls12381_p1_sum_50_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p2_sum_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -794,7 +794,7 @@ pub unsafe fn bls12381_p2_sum_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p2_sum_50_100() {
     let buffer: [[u8; 2*193]; 25] = [
         [0, 12, 199, 10, 88, 127, 70, 82, 3, 157, 129, 23, 182, 16, 56, 88, 173, 205, 151, 40, 246, 174, 190, 35, 5, 120, 56, 154, 98, 218, 0, 66, 183, 98, 59, 28, 4, 54, 115, 79, 70, 60, 253, 209, 135, 210, 9, 3, 36, 24, 192, 173, 166, 53, 27, 112, 102, 31, 5, 51, 101, 222, 174, 86, 145, 7, 152, 189, 42, 206, 110, 43, 246, 186, 65, 146, 209, 162, 41, 150, 127, 106, 246, 202, 28, 154, 138, 17, 235, 192, 162, 50, 52, 78, 224, 246, 214, 7, 155, 165, 13, 37, 17, 99, 27, 32, 182, 214, 243, 132, 30, 97, 110, 157, 17, 182, 142, 195, 54, 140, 214, 1, 41, 217, 212, 120, 122, 181, 108, 78, 145, 69, 163, 137, 39, 229, 28, 156, 214, 39, 29, 73, 61, 147, 136, 9, 245, 11, 215, 190, 237, 178, 51, 40, 129, 143, 159, 253, 175, 219, 109, 166, 164, 221, 128, 197, 169, 4, 138, 184, 177, 84, 223, 60, 173, 147, 140, 206, 222, 130, 159, 17, 86, 247, 105, 217, 225, 73, 121, 30, 142, 12, 217,
@@ -809,7 +809,7 @@ pub unsafe fn bls12381_p2_sum_50_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_g1_multiexp_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -822,7 +822,7 @@ pub unsafe fn bls12381_g1_multiexp_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_g1_multiexp_50_100() {
     let buffer: [[u8; 96 + 32]; 50] = [[23, 241, 211, 167, 49, 151, 215, 148, 38, 149, 99, 140, 79, 169, 172, 15, 195, 104, 140, 79, 151, 116, 185, 5, 161, 78, 58, 63, 23, 27, 172, 88, 108, 85, 232, 63, 249, 122, 26, 239, 251, 58, 240, 10, 219, 34, 198, 187, 8, 179, 244, 129, 227, 170, 160, 241, 160, 158, 48, 237, 116, 29, 138, 228, 252, 245, 224, 149, 213, 208, 10, 246, 0, 219, 24, 203, 44, 4, 179, 237, 208, 60, 199, 68, 162, 136, 138, 228, 12, 170, 35, 41, 70, 197, 231,
         225, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]; 50];
@@ -836,7 +836,7 @@ pub unsafe fn bls12381_g1_multiexp_50_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_g2_multiexp_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -849,7 +849,7 @@ pub unsafe fn bls12381_g2_multiexp_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_g2_multiexp_50_100() {
     let buffer: [[u8; 192 + 32]; 50] = [[19, 224, 43, 96, 82, 113, 159, 96, 125, 172, 211, 160, 136, 39, 79, 101, 89, 107, 208, 208, 153, 32, 182, 26, 181, 218, 97, 187, 220, 127, 80, 73, 51, 76, 241, 18, 19, 148, 93, 87, 229, 172, 125, 5, 93, 4, 43, 126, 2, 74, 162, 178, 240, 143, 10, 145, 38, 8, 5, 39, 45, 197, 16, 81, 198, 228, 122, 212, 250, 64, 59, 2, 180, 81, 11, 100, 122, 227, 209, 119, 11, 172, 3, 38, 168, 5, 187, 239, 212, 128, 86, 200, 193, 33, 189, 184, 6, 6, 196, 160, 46, 167, 52, 204, 50, 172, 210, 176, 43, 194, 139, 153, 203, 62, 40, 126, 133, 167, 99, 175, 38, 116, 146, 171, 87, 46, 153, 171, 63, 55, 13, 39, 92, 236, 29, 161, 170, 169, 7, 95, 240, 95, 121, 190, 12, 229, 213, 39, 114, 125, 110, 17, 140, 201, 205, 198, 218, 46, 53, 26, 173, 253, 155, 170, 140, 189, 211, 167, 109, 66, 154, 105, 81, 96, 209, 44, 146, 58, 201, 204, 59, 172, 162, 137, 225, 147, 84, 134, 8, 184, 40, 1,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]; 50];
@@ -863,7 +863,7 @@ pub unsafe fn bls12381_g2_multiexp_50_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_map_fp_to_g1_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -876,7 +876,7 @@ pub unsafe fn bls12381_map_fp_to_g1_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_map_fp_to_g1_50_100() {
     let buffer: [[u8; 48]; 50] = [[20, 64, 110, 91, 251, 146, 9, 37, 106, 56, 32, 135, 154, 41, 172, 47, 98, 214, 172, 168, 35, 36, 191, 58, 226, 170, 125, 60, 84, 121, 32, 67, 189, 140, 121, 31, 204, 219, 8, 12, 26, 82, 220, 104, 184, 182, 147, 80]; 50];
 
@@ -890,7 +890,7 @@ pub unsafe fn bls12381_map_fp_to_g1_50_100() {
 }
 
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_map_fp2_to_g2_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -903,7 +903,7 @@ pub unsafe fn bls12381_map_fp2_to_g2_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_map_fp2_to_g2_10_100() {
     let buffer: [[u8; 96]; 10] = [[14, 136, 91, 179, 57, 150, 225, 47, 7, 218, 105, 7, 62, 44, 12, 200, 128, 188, 142, 255, 38, 210, 167, 36, 41, 158, 177, 45, 84, 244, 188, 242, 111, 71, 72, 187, 2, 14, 128, 167, 227, 121, 74, 123, 14, 71, 166, 65, 20, 64, 110, 91, 251, 146, 9, 37, 106, 56, 32, 135, 154, 41, 172, 47, 98, 214, 172, 168, 35, 36, 191, 58, 226, 170, 125, 60, 84, 121, 32, 67, 189, 140, 121, 31, 204, 219, 8, 12, 26, 82, 220, 104, 184, 182, 147, 80]; 10];
 
@@ -916,7 +916,7 @@ pub unsafe fn bls12381_map_fp2_to_g2_10_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_pairing_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -928,7 +928,7 @@ pub unsafe fn bls12381_pairing_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_pairing_5_100() {
     let buffer: [[u8; 288]; 5] = [[23, 241, 211, 167, 49, 151, 215, 148, 38, 149, 99, 140, 79, 169, 172, 15, 195, 104, 140, 79, 151, 116, 185, 5, 161, 78, 58, 63, 23, 27, 172, 88, 108, 85, 232, 63, 249, 122, 26, 239, 251, 58, 240, 10, 219, 34, 198, 187, 8, 179, 244, 129, 227, 170, 160, 241, 160, 158, 48, 237, 116, 29, 138, 228, 252, 245, 224, 149, 213, 208, 10, 246, 0, 219, 24, 203, 44, 4, 179, 237, 208, 60, 199, 68, 162, 136, 138, 228, 12, 170, 35, 41, 70, 197, 231, 225, 19, 224, 43, 96, 82, 113, 159, 96, 125, 172, 211, 160, 136, 39, 79, 101, 89, 107, 208, 208, 153, 32, 182, 26, 181, 218, 97, 187, 220, 127, 80, 73, 51, 76, 241, 18, 19, 148, 93, 87, 229, 172, 125, 5, 93, 4, 43, 126, 2, 74, 162, 178, 240, 143, 10, 145, 38, 8, 5, 39, 45, 197, 16, 81, 198, 228, 122, 212, 250, 64, 59, 2, 180, 81, 11, 100, 122, 227, 209, 119, 11, 172, 3, 38, 168, 5, 187, 239, 212, 128, 86, 200, 193, 33, 189, 184, 6, 6, 196, 160, 46, 167, 52, 204, 50, 172, 210, 176, 43, 194, 139, 153, 203, 62, 40, 126, 133, 167, 99, 175, 38, 116, 146, 171, 87, 46, 153, 171, 63, 55, 13, 39, 92, 236, 29, 161, 170, 169, 7, 95, 240, 95, 121, 190, 12, 229, 213, 39, 114, 125, 110, 17, 140, 201, 205, 198, 218, 46, 53, 26, 173, 253, 155, 170, 140, 189, 211, 167, 109, 66, 154, 105, 81, 96, 209, 44, 146, 58, 201, 204, 59, 172, 162, 137, 225, 147, 84, 134, 8, 184, 40, 1]; 5];
 
@@ -941,7 +941,7 @@ pub unsafe fn bls12381_pairing_5_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p1_decompress_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -954,7 +954,7 @@ pub unsafe fn bls12381_p1_decompress_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p1_decompress_50_100() {
     let buffer: [[u8; 48]; 50] = [[185, 110, 35, 139, 110, 142, 126, 177, 120, 97, 234, 41, 91, 204, 20, 203, 207, 103, 224, 112, 176, 18, 102, 59, 68, 107, 137, 231, 10, 71, 183, 63, 198, 228, 242, 206, 195, 124, 70, 91, 53, 182, 222, 158, 19, 104, 106, 15]; 50];
 
@@ -967,7 +967,7 @@ pub unsafe fn bls12381_p1_decompress_50_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p2_decompress_0_100() {
     let buffer: [u8; 0] = [];
 
@@ -980,7 +980,7 @@ pub unsafe fn bls12381_p2_decompress_0_100() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn bls12381_p2_decompress_50_100() {
     let buffer: [[u8; 96]; 50] = [[143, 150, 139, 210, 67, 144, 143, 243, 229, 250, 26, 179, 243, 30, 7, 129, 151, 229, 138, 206, 86, 43, 190, 139, 90, 39, 29, 95, 186, 80, 35, 125, 160, 200, 254, 101, 231, 181, 119, 28, 192, 168, 111, 213, 127, 50, 52, 126, 21, 162, 109, 31, 93, 86, 196, 114, 208, 25, 238, 162, 83, 158, 88, 219, 0, 196, 154, 165, 208, 169, 102, 56, 56, 144, 63, 221, 190, 67, 107, 91, 21, 126, 131, 179, 93, 26, 78, 95, 137, 247, 129, 39, 243, 93, 172, 240]; 50];
 
@@ -1000,7 +1000,7 @@ pub unsafe fn bls12381_p2_decompress_50_100() {
 
 macro_rules! storage_bench {
     ($key_buf:ident, $key_len:expr, $value_buf:ident, $value_len:expr, $loop_n:expr, $exp_name:ident,  $call:block) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe fn $exp_name() {
             let mut $key_buf = [0u8; $key_len];
             let mut $value_buf = [0u8; $value_len];
@@ -1094,7 +1094,7 @@ storage_bench!(key, 10240, value, 10, 1000, storage_has_key_10kib_key_1k, {
 });
 
 // Function to measure `promise_and_base`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn promise_and_100k() {
     let account = b"alice_near";
     let id0 = promise_batch_create(account.len() as _, account.as_ptr() as _);
@@ -1106,7 +1106,7 @@ pub unsafe fn promise_and_100k() {
 }
 
 // Function to measure `promise_and_per_promise`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn promise_and_100k_on_1k_and() {
     let account = b"alice_near";
     let mut ids = [0u64; 1000];
@@ -1119,7 +1119,7 @@ pub unsafe fn promise_and_100k_on_1k_and() {
 }
 
 // Function to measure `promise_return`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn promise_return_100k() {
     let account = b"alice_near";
     let id = promise_batch_create(account.len() as _, account.as_ptr() as _);
@@ -1131,14 +1131,14 @@ pub unsafe fn promise_return_100k() {
 // Measuring cost for data_receipt_creation_config.
 
 // Function that emits 10b of data.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_producer_10b() {
     let data = [0u8; 10];
     value_return(data.len() as _, data.as_ptr() as _);
 }
 
 // Function that emits 100kib of data.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_producer_100kib() {
     let data = [0u8; 102400];
     value_return(data.len() as _, data.as_ptr() as _);
@@ -1146,7 +1146,7 @@ pub unsafe fn data_producer_100kib() {
 
 // Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at the same time.
 // Produces 1000 10b data receipts.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_receipt_10b_1000() {
     let buf = [0u8; 1000];
     current_account_id(0);
@@ -1187,7 +1187,7 @@ pub unsafe fn data_receipt_10b_1000() {
 
 // Function to subtract the base from the `data_receipt_creation_config`. This method doesn't
 // have a callback on created promises so there is no data dependency.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_receipt_base_10b_1000() {
     let buf = [0u8; 1000];
     current_account_id(0);
@@ -1216,7 +1216,7 @@ pub unsafe fn data_receipt_base_10b_1000() {
 
 // Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at the same time.
 // Produces 1000 10kib data receipts.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn data_receipt_100kib_1000() {
     let buf = [0u8; 1000];
     current_account_id(0);
@@ -1257,7 +1257,7 @@ pub unsafe fn data_receipt_100kib_1000() {
 
 /// Function to measure `yield_create_base` fee.
 /// Creates 1000 waiting receipts/yield promises.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn yield_create_base() {
     const METHOD_NAME: &str = "n";
     for _ in 0..1000 {
@@ -1269,7 +1269,7 @@ pub unsafe fn yield_create_base() {
 /// thus obtaining the cost of creating yield promises with a 100 byte method name.
 ///
 /// Creates 1000 waiting receipts/yield promises.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn yield_create_byte_100b_method_length() {
     const METHOD_NAME: &str = "noooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooop";
     for _ in 0..1000 {
@@ -1281,7 +1281,7 @@ pub unsafe fn yield_create_byte_100b_method_length() {
 /// thus obtaining the cost of creating yield promises with a 1000 byte arguments.
 ///
 /// Creates 1000 waiting receipts/yield promises.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn yield_create_byte_1000b_argument_length() {
     const ARGUMENTS: [u8; 1000] = [b'a'; 1000];
     const METHOD_NAME: &str = "n";
@@ -1298,19 +1298,19 @@ pub unsafe fn yield_create_byte_1000b_argument_length() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn yield_resume_base_prepare() {
     const METHOD_NAME: &str = "n";
     for i in 0..255u8 {
         promise_yield_create(METHOD_NAME.len() as u64, METHOD_NAME.as_ptr() as u64, 0, 0, 0, 1, 2);
-        storage_write(1, core::ptr::addr_of!(i) as u64, u64::MAX, 2, 3);
+        storage_write(1, &raw const i as u64, u64::MAX, 2, 3);
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn yield_resume_base() {
     for i in 0..255u8 {
-        match storage_read(1, core::ptr::addr_of!(i) as u64, 0) {
+        match storage_read(1, &raw const i as u64, 0) {
             0 => panic!("storage_read did not produce data_id"),
             1 => assert_eq!(promise_yield_resume(u64::MAX, 0, 0, 0), 1),
             _ => panic!("unexpected storage_read return"),
@@ -1318,11 +1318,11 @@ pub unsafe fn yield_resume_base() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn yield_resume_payload() {
     const ARGUMENTS: [u8; 1000] = [b'a'; 1000];
     for i in 0..255u8 {
-        match storage_read(1, core::ptr::addr_of!(i) as u64, 0) {
+        match storage_read(1, &raw const i as u64, 0) {
             0 => panic!("storage_read did not produce data_id"),
             1 => assert_eq!(promise_yield_resume(u64::MAX, 0, 1000, ARGUMENTS.as_ptr() as u64), 1),
             _ => panic!("unexpected storage_read return"),
@@ -1330,7 +1330,7 @@ pub unsafe fn yield_resume_payload() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn cpu_ram_soak_test() {
     let mut buf = [0u8; 100 * 1024];
     let len = buf.len();
@@ -1347,7 +1347,7 @@ pub unsafe fn cpu_ram_soak_test() {
 /// The assumption is that all WASM memory except for 1 page is available.
 const MAX_ARG_LEN: u64 = 1024 * 1024 - 4096;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// Insert or overwrite a value to given key
 pub unsafe fn account_storage_insert_key() {
     input(0);
@@ -1367,7 +1367,7 @@ pub unsafe fn account_storage_insert_key() {
     storage_write(key_len, key.as_ptr() as _, value_len, value.as_ptr() as _, 1);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// Check if key exists for account
 pub unsafe fn account_storage_has_key() {
     input(0);

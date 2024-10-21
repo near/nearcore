@@ -69,12 +69,10 @@ impl StateSyncDownloader {
             let i = AtomicUsize::new(0); // for easier Rust async capture
             let attempt = || {
                 async {
-                    let source = if let Some(fallback_source) = fallback_source.as_ref() {
-                        if i.load(Ordering::Relaxed) >= num_attempts_before_fallback {
-                            fallback_source.as_ref()
-                        } else {
-                            preferred_source.as_ref()
-                        }
+                    let source = if fallback_source.is_some()
+                        && i.load(Ordering::Relaxed) >= num_attempts_before_fallback
+                    {
+                        fallback_source.as_ref().unwrap().as_ref()
                     } else {
                         preferred_source.as_ref()
                     };
@@ -155,12 +153,12 @@ impl StateSyncDownloader {
 
             let i = AtomicUsize::new(0); // for easier Rust async capture
             let attempt = || async {
-                let source = if i.load(Ordering::Relaxed) < num_attempts_before_fallback
-                    && fallback_source.is_some()
+                let source = if fallback_source.is_some()
+                    && i.load(Ordering::Relaxed) >= num_attempts_before_fallback
                 {
-                    preferred_source.as_ref()
-                } else {
                     fallback_source.as_ref().unwrap().as_ref()
+                } else {
+                    preferred_source.as_ref()
                 };
                 let part = source
                     .download_shard_part(

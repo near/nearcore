@@ -268,15 +268,16 @@ fn network_message_to_client_handler(
         NetworkRequests::EpochSyncRequest { peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
             assert_ne!(&peer_id, my_peer_id, "Sending message to self not supported.");
-            shared_state.senders_for_peer(&peer_id).client_sender.send(EpochSyncRequestMessage {
-                route_back: shared_state.generate_route_back(my_peer_id),
-            });
+            shared_state
+                .senders_for_peer(&peer_id)
+                .client_sender
+                .send(EpochSyncRequestMessage { from_peer: my_peer_id.clone() });
             None
         }
-        NetworkRequests::EpochSyncResponse { route_back, proof } => {
+        NetworkRequests::EpochSyncResponse { peer_id, proof } => {
             let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
             shared_state
-                .senders_for_route_back(&route_back)
+                .senders_for_peer(&peer_id)
                 .client_sender
                 .send(EpochSyncResponseMessage { from_peer: my_peer_id.clone(), proof });
             None

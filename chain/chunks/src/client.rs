@@ -16,6 +16,7 @@ use near_primitives::{
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
     /// Note that this does NOT mean that the chunk is fully constructed. If we are
