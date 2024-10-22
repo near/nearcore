@@ -65,7 +65,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
-    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo, StateSyncInfoV0,
+    ShardChunkHeader, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
@@ -795,25 +795,14 @@ impl Chain {
             let protocol_version = self
                 .epoch_manager
                 .get_epoch_protocol_version(epoch_first_block.header().epoch_id())?;
-            let sync_hash = if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-                None
-            } else {
-                Some(*epoch_first_block.header().hash())
-            };
-            // This block is the first block in an epoch because this function is only called in get_catchup_and_state_sync_infos()
-            // when that is the case.
-            let state_sync_info = StateSyncInfo::V0(StateSyncInfoV0 {
-                epoch_first_block: *epoch_first_block.header().hash(),
-                sync_hash,
-                shards: shards_to_state_sync
-                    .iter()
-                    .map(|shard_id| {
-                        let chunk = &prev_block.chunks()[*shard_id as usize];
-                        ShardInfo(*shard_id, chunk.chunk_hash())
-                    })
-                    .collect(),
-            });
-
+            // Note that this block is the first block in an epoch because this function is only called
+            // in get_catchup_and_state_sync_infos() when that is the case.
+            let state_sync_info = StateSyncInfo::new(
+                protocol_version,
+                *epoch_first_block.header().hash(),
+                &prev_block,
+                &shards_to_state_sync,
+            );
             Ok(Some(state_sync_info))
         }
     }

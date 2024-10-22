@@ -381,11 +381,7 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
         if epoch_first_block != sync_hash {
             tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
         }
-        let new_info = StateSyncInfo::V0(StateSyncInfoV0 {
-            epoch_first_block,
-            sync_hash: Some(sync_hash),
-            shards,
-        });
+        let new_info = StateSyncInfo::V0(StateSyncInfoV0 { sync_hash, shards });
         update
             .set_ser(DBCol::StateDlInfos, &key, &new_info)
             .context("failed writing to StateDlInfos")?;

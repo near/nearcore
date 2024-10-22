@@ -70,7 +70,7 @@ use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardInfo, StateSyncInfo,
-    StateSyncInfoV0,
+    StateSyncInfoV1,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -2550,11 +2550,11 @@ impl Client {
         Ok(false)
     }
 
-    // Find the sync hash. Most of the time it will already be set in `state_sync_info`. If not, try to find it,
-    // and set the corresponding field in `state_sync_info`.
-    fn get_catchup_sync_hash(
+    /// Find the sync hash. Most of the time it will already be set in `state_sync_info`. If not, try to find it,
+    /// and set the corresponding field in `state_sync_info`.
+    fn get_catchup_sync_hash_v1(
         &mut self,
-        state_sync_info: &mut StateSyncInfoV0,
+        state_sync_info: &mut StateSyncInfoV1,
         epoch_first_block: &BlockHeader,
     ) -> Result<Option<CryptoHash>, Error> {
         if state_sync_info.sync_hash.is_some() {
@@ -2578,12 +2578,25 @@ impl Client {
             let mut update = self.chain.mut_chain_store().store_update();
             // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
             // actually writing to the DB while actively iterating this column
-            update.add_state_sync_info(StateSyncInfo::V0(state_sync_info.clone()));
+            update.add_state_sync_info(StateSyncInfo::V1(state_sync_info.clone()));
             // TODO: would be nice to be able to propagate context up the call stack so we can just log
             // once at the top with all the info. Otherwise this error will look very cryptic
             update.commit()?;
         }
         Ok(state_sync_info.sync_hash)
+    }
+
+    /// Find the sync hash. If syncing to the old epoch's state, it's always set. If syncing to
+    /// the current epoch's state, it might not yet be known, in which case we try to find it.
+    fn get_catchup_sync_hash(
+        &mut self,
+        state_sync_info: &mut StateSyncInfo,
+        epoch_first_block: &BlockHeader,
+    ) -> Result<Option<CryptoHash>, Error> {
+        match state_sync_info {
+            StateSyncInfo::V0(info) => Ok(Some(info.sync_hash)),
+            StateSyncInfo::V1(info) => self.get_catchup_sync_hash_v1(info, epoch_first_block),
+        }
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
@@ -2601,11 +2614,10 @@ impl Client {
         let mut notify_state_sync = false;
         let me = signer.as_ref().map(|x| x.validator_id().clone());
 
-        for (epoch_first_block, state_sync_info) in
+        for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
-            let StateSyncInfo::V0(mut state_sync_info) = state_sync_info;
-            assert_eq!(epoch_first_block, state_sync_info.epoch_first_block);
+            assert_eq!(&epoch_first_block, state_sync_info.block_hash());
 
             // I *think* this is not relevant anymore, since we download
             // already the next epoch's state.
@@ -2645,7 +2657,7 @@ impl Client {
             let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
 
             let tracking_shards: Vec<u64> =
-                state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
+                state_sync_info.shards().iter().map(|tuple| tuple.0).collect();
 
             // Notify each shard to sync.
             if notify_state_sync {
@@ -2733,7 +2745,7 @@ impl Client {
     fn get_shards_to_split(
         &mut self,
         sync_hash: CryptoHash,
-        state_sync_info: &StateSyncInfoV0,
+        state_sync_info: &StateSyncInfo,
         me: &Option<AccountId>,
     ) -> Result<HashMap<u64, ShardSyncDownload>, Error> {
         let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
@@ -2746,7 +2758,7 @@ impl Client {
 
         // If the client already has the state for this epoch, skip the downloading phase
         let shards_to_split = state_sync_info
-            .shards
+            .shards()
             .iter()
             .filter_map(|ShardInfo(shard_id, _)| self.should_split_shard(shard_id, me, prev_hash))
             .collect();
