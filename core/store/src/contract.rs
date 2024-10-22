@@ -71,7 +71,7 @@ impl ContractsTracker {
     /// Finalizes this tracker and returns the calls and committed deployments.
     fn finalize(self) -> ContractStorageResult {
         ContractStorageResult {
-            contract_calls: self.contract_calls.into_iter().collect(),
+            contract_calls: mem::take(&mut self.contract_calls),
             contract_deploys: self.committed_deploys.into_keys().collect(),
         }
     }
