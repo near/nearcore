@@ -2550,6 +2550,42 @@ impl Client {
         Ok(false)
     }
 
+    // Find the sync hash. Most of the time it will already be set in `state_sync_info`. If not, try to find it,
+    // and set the corresponding field in `state_sync_info`.
+    fn get_catchup_sync_hash(
+        &mut self,
+        state_sync_info: &mut StateSyncInfoV0,
+        epoch_first_block: &BlockHeader,
+    ) -> Result<Option<CryptoHash>, Error> {
+        if state_sync_info.sync_hash.is_some() {
+            return Ok(state_sync_info.sync_hash);
+        }
+
+        let new_chunk_tracker = match self.catchup_tracker.entry(*epoch_first_block.epoch_id()) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let shard_ids = self.epoch_manager.shard_ids(epoch_first_block.epoch_id())?;
+                e.insert(NewChunkTracker::new(
+                    *epoch_first_block.hash(),
+                    epoch_first_block.height(),
+                    &shard_ids,
+                ))
+            }
+        };
+
+        if let Some(sync_hash) = new_chunk_tracker.find_sync_hash(&self.chain)? {
+            state_sync_info.sync_hash = Some(sync_hash);
+            let mut update = self.chain.mut_chain_store().store_update();
+            // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
+            // actually writing to the DB while actively iterating this column
+            update.add_state_sync_info(StateSyncInfo::V0(state_sync_info.clone()));
+            // TODO: would be nice to be able to propagate context up the call stack so we can just log
+            // once at the top with all the info. Otherwise this error will look very cryptic
+            update.commit()?;
+        }
+        Ok(state_sync_info.sync_hash)
+    }
+
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
@@ -2579,76 +2615,33 @@ impl Client {
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let CatchupState { state_sync, state_downloads, catchup } = if let Some(sync_hash) =
-                state_sync_info.sync_hash
-            {
-                match self.catchup_state_syncs.entry(sync_hash) {
-                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(e) => {
-                        tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
-                        notify_state_sync = true;
-                        e.insert(CatchupState {
-                            state_sync: StateSync::new(
-                                self.clock.clone(),
-                                self.network_adapter.clone(),
-                                state_sync_timeout,
-                                &self.config.chain_id,
-                                &self.config.state_sync.sync,
-                                true,
-                            ),
-                            state_downloads: shards_to_split.clone(),
-                            catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
-                        })
-                    }
-                }
-            } else {
-                let new_chunk_tracker = match self.catchup_tracker.entry(*block_header.epoch_id()) {
-                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(e) => {
-                        let shard_ids = self.epoch_manager.shard_ids(block_header.epoch_id())?;
-                        e.insert(NewChunkTracker::new(
-                            *block_header.hash(),
-                            block_header.height(),
-                            &shard_ids,
-                        ))
-                    }
-                };
-                if let Some(sync_hash) = new_chunk_tracker.find_sync_hash(&self.chain)? {
-                    state_sync_info.sync_hash = Some(sync_hash);
-                    let mut update = self.chain.mut_chain_store().store_update();
-                    // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
-                    // actually writing to the DB while actively iterating this column
-                    update.add_state_sync_info(StateSyncInfo::V0(state_sync_info.clone()));
-                    // TODO: would be nice to be able to propagate context up the call stack so we can just log
-                    // once at the top with all the info. Otherwise this error will look very cryptic
-                    update.commit()?;
-
-                    tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
-                    notify_state_sync = true;
-                    match self.catchup_state_syncs.entry(sync_hash) {
-                        std::collections::hash_map::Entry::Vacant(e) => e.insert(CatchupState {
-                            state_sync: StateSync::new(
-                                self.clock.clone(),
-                                self.network_adapter.clone(),
-                                state_sync_timeout,
-                                &self.config.chain_id,
-                                &self.config.state_sync.sync,
-                                true,
-                            ),
-                            state_downloads: shards_to_split.clone(),
-                            catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
-                        }),
-                        std::collections::hash_map::Entry::Occupied(_) => {
-                            panic!("Error occurred during catchup. Already stored state sync info for {}", sync_hash);
-                        }
-                    }
-                } else {
-                    continue;
-                }
+            let sync_hash = match self.get_catchup_sync_hash(&mut state_sync_info, &block_header)? {
+                Some(h) => h,
+                None => continue,
             };
 
-            // Here if the state sync structs are set, it must mean we've found a sync hash to use
-            let sync_hash = state_sync_info.sync_hash.unwrap();
+            let CatchupState { state_sync, state_downloads, catchup } = match self
+                .catchup_state_syncs
+                .entry(sync_hash)
+            {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
+                    notify_state_sync = true;
+                    e.insert(CatchupState {
+                        state_sync: StateSync::new(
+                            self.clock.clone(),
+                            self.network_adapter.clone(),
+                            state_sync_timeout,
+                            &self.config.chain_id,
+                            &self.config.state_sync.sync,
+                            true,
+                        ),
+                        state_downloads: shards_to_split.clone(),
+                        catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
+                    })
+                }
+            };
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
             debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&state_downloads, false), "Catchup");
