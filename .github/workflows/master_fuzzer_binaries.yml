@@ -42,7 +42,9 @@ jobs:
           git: https://github.com/near/bolero
           rev: 1b43f78f25009695493b0e5fb72f9f82d1905845
 
-      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
+      - run: | 
+          rustup target add --toolchain nightly wasm32-unknown-unknown
+          rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v1"
