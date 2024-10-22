@@ -824,14 +824,6 @@ impl<'a> Chunks<'a> {
             ChunksCollection::V2(chunks) => chunks.get(index),
         }
     }
-
-    pub fn get_annotated(&self, index: ShardIndex) -> Option<MaybeNew<ShardChunkHeader>> {
-        match &self.chunks {
-            ChunksCollection::V1(chunks) => chunks.get(index),
-            ChunksCollection::V2(chunks) => chunks.get(index),
-        }
-        .map(|chunk| annotate_chunk(chunk, self.block_height))
-    }
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
