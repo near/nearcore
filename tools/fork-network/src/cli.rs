@@ -249,8 +249,11 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
         assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
@@ -329,8 +332,11 @@ impl ForkNetworkCommand {
             self.get_state_roots_and_hash(store.clone())?;
         tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let all_shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let runtime =
@@ -376,8 +382,11 @@ impl ForkNetworkCommand {
         let (prev_state_roots, _prev_hash, epoch_id, block_height) =
             self.get_state_roots_and_hash(store.clone())?;
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())

@@ -91,7 +91,8 @@ impl GenesisBuilder {
     pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         initialize_genesis_state(store.clone(), &config.genesis, Some(tmpdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &config.genesis.config, None);
         let runtime = NightshadeRuntime::from_config(
             tmpdir.path(),
             store.clone(),

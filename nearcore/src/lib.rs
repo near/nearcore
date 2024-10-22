@@ -255,7 +255,7 @@ pub fn start_with_config_and_synchronization(
     )?;
 
     let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config, None);
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
@@ -283,7 +283,7 @@ pub fn start_with_config_and_synchronization(
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
             let view_epoch_manager =
-                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config);
+                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config, None);
             let view_shard_tracker = ShardTracker::new(
                 TrackedConfig::from_config(&config.client_config),
                 epoch_manager.clone(),

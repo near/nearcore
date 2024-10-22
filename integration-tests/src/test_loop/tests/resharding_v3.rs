@@ -86,7 +86,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         clients.iter().map(|account: &AccountId| account.as_str()).collect_vec();
 
     // Prepare shard split configuration.
-    let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
     let mut base_epoch_config =
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();

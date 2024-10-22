@@ -120,8 +120,11 @@ impl ReplayController {
         let start_height = start_height.unwrap_or(genesis_height);
         let end_height = end_height.unwrap_or(head_height).min(head_height);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())

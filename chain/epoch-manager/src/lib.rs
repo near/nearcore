@@ -219,6 +219,7 @@ impl EpochManager {
             let config_dir = home_dir.map(|home_dir| home_dir.join("epoch_configs"));
             EpochConfigStore::for_chain_id(chain_id, config_dir).unwrap()
         } else {
+            // TODO: For tests, we want to use new_arc_handle_from_epoch_config_store with EpochConfigStore::test instead of calling new_arc_handle.
             let epoch_config = Genesis::test_epoch_config(
                 genesis_config.num_block_producer_seats,
                 genesis_config.shard_layout.clone(),

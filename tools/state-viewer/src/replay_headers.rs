@@ -42,10 +42,11 @@ pub(crate) fn replay_headers(
         start_height.unwrap_or_else(|| chain_store.get_genesis_height());
     let end_height: BlockHeight = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
 
-    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let replay_store = create_replay_store(home_dir, &near_config);
     let epoch_manager_replay =
-        EpochManager::new_arc_handle(replay_store, &near_config.genesis.config);
+        EpochManager::new_arc_handle(replay_store, &near_config.genesis.config, Some(home_dir));
 
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {

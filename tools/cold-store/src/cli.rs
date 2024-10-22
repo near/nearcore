@@ -75,8 +75,11 @@ impl ColdStoreCommand {
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(storage.get_hot_store(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),

@@ -38,7 +38,8 @@ fn setup_runtime(
             .unwrap()
             .get_hot_store()
     };
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone())
@@ -424,7 +425,7 @@ mod tests {
             .unwrap()
             .get_hot_store();
             let epoch_manager =
-                EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config);
+                EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config, None);
             let chain_store = ChainStore::new(
                 store,
                 near_config1.genesis.config.genesis_height,

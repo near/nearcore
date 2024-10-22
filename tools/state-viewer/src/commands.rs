@@ -163,8 +163,11 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager =
-        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        read_store.clone(),
+        &near_config.genesis.config,
+        Some(home_dir),
+    );
     let runtime =
         NightshadeRuntime::from_config(home_dir, read_store, &near_config, epoch_manager.clone())
             .context("could not create the transaction runtime")?;
@@ -203,7 +206,8 @@ pub(crate) fn apply_chunk(
     target_height: Option<u64>,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -258,8 +262,11 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        read_store.clone(),
+        &near_config.genesis.config,
+        Some(home_dir),
+    );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         read_store.clone(),
@@ -292,7 +299,8 @@ pub(crate) fn apply_receipt(
     hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -318,7 +326,8 @@ pub(crate) fn apply_tx(
     hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -552,6 +561,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 pub(crate) fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
+    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     show_full_hashes: bool,
@@ -561,7 +571,8 @@ pub(crate) fn print_chain(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     // TODO: Split into smaller functions.
@@ -766,7 +777,8 @@ pub(crate) fn view_genesis(
     compare: bool,
 ) {
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime_adapter = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -1521,7 +1533,7 @@ mod tests {
 
         let store = near_store::test_utils::create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             home_dir,
             store.clone(),
