@@ -805,6 +805,7 @@ impl<'a> Chunks<'a> {
         }
     }
 
+    /// Returns an iterator over the shard chunk headers, differentiating between new and old chunks.
     pub fn iter_annotated(
         &'a self,
     ) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
