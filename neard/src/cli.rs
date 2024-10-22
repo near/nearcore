@@ -20,7 +20,7 @@ use near_o11y::{
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
-use near_primitives::types::{new_shard_id_vec_tmp, Gas, NumSeats, NumShards, ShardId};
+use near_primitives::types::{Gas, NumSeats, NumShards, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -629,8 +629,7 @@ impl LocalnetCmd {
     fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<ShardId> {
         if tracked_shards.to_lowercase() == "all" {
             let tracked_shards = 0..num_shards;
-            let tracked_shards: Vec<_> = tracked_shards.collect();
-            return new_shard_id_vec_tmp(&tracked_shards);
+            return tracked_shards.map(ShardId::new).collect();
         }
         if tracked_shards.to_lowercase() == "none" {
             return vec![];
