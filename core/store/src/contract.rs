@@ -69,21 +69,20 @@ impl ContractsTracker {
     }
 
     /// Finalizes this tracker and returns the calls and committed deployments.
-    fn finalize(self) -> ContractStorageResult {
+    fn finalize(mut self) -> ContractStorageResult {
         ContractStorageResult {
-            contract_calls: mem::take(&mut self.contract_calls),
+            contract_calls: std::mem::take(&mut self.contract_calls),
             contract_deploys: self.committed_deploys.into_keys().collect(),
         }
     }
 }
 
 /// Result of finalizing the contract storage, containing the contract calls and committed deployments.
-// TODO(#11099): Pass calls and deploys as BtreeSet instead of vector.
 pub struct ContractStorageResult {
     /// List of code-hashes for the contract calls while applying the chunk.
-    pub contract_calls: Vec<CodeHash>,
+    pub contract_calls: BTreeSet<CodeHash>,
     /// List of code-hashes for the (committed) contract deployments while applying the chunk.
-    pub contract_deploys: Vec<CodeHash>,
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 /// Reads contract code from the trie by its hash.

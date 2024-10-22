@@ -208,9 +208,9 @@ mod tests {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
                     // TODO(#11099): Revisit this.
-                    contract_accesses: vec![],
+                    contract_accesses: Default::default(),
                     // TODO(#11099): Revisit this.
-                    contract_deploys: vec![],
+                    contract_deploys: Default::default(),
                 }),
             )
             .unwrap();

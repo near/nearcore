@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -364,8 +365,10 @@ impl PartialWitnessActor {
         }
         let key = accesses.chunk_production_key();
         let contract_hashes = accesses.contracts();
-        self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), contract_hashes.to_vec())?;
+        self.partial_witness_tracker.store_accessed_contract_hashes(
+            key.clone(),
+            BTreeSet::from_iter(contract_hashes.iter().cloned()),
+        )?;
         // TODO(#11099): currently we always request all hashes to test worst case scenario.
         // Eventually we want to only request ones that are missing from the compiled contracts cache.
         let random_chunk_producer =

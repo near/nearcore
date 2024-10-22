@@ -38,7 +38,7 @@ use near_store::{
     Trie,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1223,8 +1223,8 @@ fn test_exclude_contract_code_from_witness() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, vec![]);
-    assert_eq!(apply_result.contract_deploys, vec![CodeHash(*contract_code.hash())]);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash())]));
 
     let mut store_update = tries.store_update();
     let root =
@@ -1258,8 +1258,8 @@ fn test_exclude_contract_code_from_witness() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, vec![CodeHash(*contract_code.hash())]);
-    assert_eq!(apply_result.contract_deploys, vec![]);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
 
     // Check that both contracts are excluded from the storage proof.
     let partial_storage = apply_result.proof.unwrap();

@@ -68,7 +68,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
@@ -190,8 +190,8 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
-    pub contract_accesses: Vec<CodeHash>,
-    pub contract_deploys: Vec<CodeHash>,
+    pub contract_accesses: BTreeSet<CodeHash>,
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 #[derive(Debug)]

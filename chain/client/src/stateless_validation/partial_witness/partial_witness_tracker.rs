@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ enum AccessedContractsState {
     Unknown,
     /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`,
     /// waiting for response from the chunk producer.
-    Requested(Vec<CodeHash>),
+    Requested(BTreeSet<CodeHash>),
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
 }
@@ -133,7 +133,7 @@ struct CacheEntry {
 
 enum CacheUpdate {
     WitnessPart(PartialEncodedStateWitness, Arc<WitnessEncoder>),
-    AccessedContractHashes(Vec<CodeHash>),
+    AccessedContractHashes(BTreeSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
 
@@ -214,7 +214,7 @@ impl CacheEntry {
         }
     }
 
-    fn set_requested_contracts(&mut self, contract_hashes: Vec<CodeHash>) {
+    fn set_requested_contracts(&mut self, contract_hashes: BTreeSet<CodeHash>) {
         match &self.accessed_contracts {
             AccessedContractsState::Unknown => {
                 self.accessed_contracts = AccessedContractsState::Requested(contract_hashes);
@@ -348,7 +348,7 @@ impl PartialEncodedStateWitnessTracker {
     pub fn store_accessed_contract_hashes(
         &mut self,
         key: ChunkProductionKey,
-        hashes: Vec<CodeHash>,
+        hashes: BTreeSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
         let update = CacheUpdate::AccessedContractHashes(hashes);

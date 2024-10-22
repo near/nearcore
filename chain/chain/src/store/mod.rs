@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -2010,8 +2010,8 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
-        contract_accesses: Vec<CodeHash>,
-        contract_deploys: Vec<CodeHash>,
+        contract_accesses: BTreeSet<CodeHash>,
+        contract_deploys: BTreeSet<CodeHash>,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
@@ -2019,8 +2019,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
-                    contract_accesses,
-                    contract_deploys,
+                    contract_accesses: contract_accesses.into_iter().collect(),
+                    contract_deploys: contract_deploys.into_iter().collect(),
                 }),
             );
         }

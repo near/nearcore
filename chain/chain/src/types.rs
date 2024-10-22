@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -103,9 +105,9 @@ pub struct ApplyChunkResult {
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
     /// Code-hashes of the contracts accessed (called) while applying the chunk.
-    pub contract_accesses: Vec<CodeHash>,
+    pub contract_accesses: BTreeSet<CodeHash>,
     /// Code-hashes of the contracts deployed while applying the chunk.
-    pub contract_deploys: Vec<CodeHash>,
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 impl ApplyChunkResult {

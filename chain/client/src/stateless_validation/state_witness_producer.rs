@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use near_async::messaging::{CanSend, IntoSender};
@@ -37,8 +37,8 @@ struct StateTransitionData {
     main_transition: ChunkStateTransition,
     implicit_transitions: Vec<ChunkStateTransition>,
     applied_receipts_hash: CryptoHash,
-    contract_accesses: Vec<CodeHash>,
-    contract_deploys: Vec<CodeHash>,
+    contract_accesses: BTreeSet<CodeHash>,
+    contract_deploys: BTreeSet<CodeHash>,
 }
 
 /// Result of creating witness.
@@ -49,9 +49,9 @@ pub(crate) struct CreateWitnessResult {
     /// State witness created.
     pub(crate) state_witness: ChunkStateWitness,
     /// Code-hashes of contracts accessed while applying the previous chunk.
-    pub(crate) contract_accesses: Vec<CodeHash>,
+    pub(crate) contract_accesses: BTreeSet<CodeHash>,
     /// Code-hashes of contracts deployed while applying the previous chunk.
-    pub(crate) contract_deploys: Vec<CodeHash>,
+    pub(crate) contract_deploys: BTreeSet<CodeHash>,
 }
 
 impl Client {
@@ -277,8 +277,8 @@ impl Client {
             main_transition,
             implicit_transitions,
             applied_receipts_hash: receipts_hash,
-            contract_accesses,
-            contract_deploys,
+            contract_accesses: BTreeSet::from_iter(contract_accesses.into_iter()),
+            contract_deploys: BTreeSet::from_iter(contract_deploys.into_iter()),
         })
     }
 
@@ -373,7 +373,7 @@ impl Client {
         &self,
         epoch_id: &EpochId,
         chunk_header: &ShardChunkHeader,
-        contract_accesses: Vec<CodeHash>,
+        contract_accesses: BTreeSet<CodeHash>,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_production_key = ChunkProductionKey {
@@ -408,7 +408,11 @@ impl Client {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(chunk_production_key, contract_accesses, my_signer),
+                ChunkContractAccesses::new(
+                    chunk_production_key,
+                    contract_accesses.into_iter().collect(),
+                    my_signer,
+                ),
             ),
         ));
     }

@@ -10,7 +10,7 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
     TrieCacheMode,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod iterator;
 
@@ -59,9 +59,9 @@ pub struct TrieUpdateResult {
     pub trie_changes: TrieChanges,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     /// Code-hashes of the contracts accessed (called).
-    pub contract_accesses: Vec<CodeHash>,
+    pub contract_accesses: BTreeSet<CodeHash>,
     /// Code-hashes of the contracts deployed.
-    pub contract_deploys: Vec<CodeHash>,
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 impl TrieUpdate {
