@@ -229,19 +229,7 @@ impl Client {
         // Get the main state transition.
         let (main_transition, receipts_hash, contract_accesses) = if prev_chunk_header.is_genesis()
         {
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-            (
-                ChunkStateTransition {
-                    block_hash: main_block,
-                    base_state: Default::default(),
-                    post_state_root: *self
-                        .chain
-                        .get_chunk_extra(&main_block, &shard_uid)?
-                        .state_root(),
-                },
-                hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()),
-                vec![],
-            )
+            self.get_genesis_state_transition(&main_block, &epoch_id, shard_id)?
         } else {
             self.get_state_transition(&main_block, &epoch_id, shard_id)?
         };
@@ -297,6 +285,24 @@ impl Client {
                 contract_accesses,
             )),
         }
+    }
+
+    fn get_genesis_state_transition(
+        &self,
+        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<(ChunkStateTransition, CryptoHash, Vec<CodeHash>), Error> {
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+        Ok((
+            ChunkStateTransition {
+                block_hash: *block_hash,
+                base_state: Default::default(),
+                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
+            },
+            hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()),
+            vec![],
+        ))
     }
 
     /// State witness proves the execution of receipts proposed by `prev_chunk`.
