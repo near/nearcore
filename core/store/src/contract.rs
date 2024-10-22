@@ -78,6 +78,7 @@ impl ContractsTracker {
 }
 
 /// Result of finalizing the contract storage, containing the contract calls and committed deployments.
+// TODO(#11099): Pass calls and deploys as BtreeSet instead of vector.
 pub struct ContractStorageResult {
     /// List of code-hashes for the contract calls while applying the chunk.
     pub contract_calls: Vec<CodeHash>,
