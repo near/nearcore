@@ -252,7 +252,7 @@ fn next_blocks() {
 #[test]
 fn block_chunk_headers_iter() {
     init_test_logger();
-    let (mut chain, _, _, signer) = setup(Clock::real());
+    let (chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let mut block = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
     let header = block.chunks().get(0).unwrap().clone();
