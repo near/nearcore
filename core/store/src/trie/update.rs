@@ -146,11 +146,12 @@ impl TrieUpdate {
                 .changes
                 .push(RawStateChange { cause: event.clone(), data: value });
         }
+        self.contract_storage.commit();
     }
 
     pub fn rollback(&mut self) {
         self.prospective.clear();
-        self.contract_storage.rollback();
+        self.contract_storage.clear_uncommitted();
     }
 
     /// Prepare the accumulated state changes to be applied to the underlying storage.

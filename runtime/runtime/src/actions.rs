@@ -651,7 +651,7 @@ pub(crate) fn action_deploy_contract(
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
-    state_update.contract_storage.store(code);
+    state_update.contract_storage.record_deploy(code);
     Ok(())
 }
 

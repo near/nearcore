@@ -360,6 +360,12 @@ impl From<CryptoHash> for CodeHash {
     }
 }
 
+impl Into<CryptoHash> for CodeHash {
+    fn into(self) -> CryptoHash {
+        self.0
+    }
+}
+
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct CodeBytes(pub std::sync::Arc<[u8]>);
