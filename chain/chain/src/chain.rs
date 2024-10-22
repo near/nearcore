@@ -3865,21 +3865,15 @@ impl Chain {
         match snapshot_action {
             SnapshotAction::MakeSnapshot(prev_hash) => {
                 let prev_block = self.get_block(&prev_hash)?;
-                let epoch_height = self
-                    .epoch_manager
-                    .get_epoch_height_from_prev_block(prev_block.header().prev_hash())?;
-                let shard_layout = &self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(prev_block.header().prev_hash())?;
+                let prev_prev_hash = prev_block.header().prev_hash();
+                let epoch_height =
+                    self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
+                let shard_layout =
+                    &self.epoch_manager.get_shard_layout_from_prev_block(prev_prev_hash)?;
                 let shard_uids = shard_layout.shard_uids().collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(
-                    *prev_block.header().prev_hash(),
-                    epoch_height,
-                    shard_uids,
-                    prev_block,
-                );
+                make_snapshot_callback(*prev_prev_hash, epoch_height, shard_uids, prev_block);
             }
             SnapshotAction::DeleteSnapshot => {
                 let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
