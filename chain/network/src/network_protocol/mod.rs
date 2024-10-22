@@ -439,7 +439,7 @@ pub enum PeerMessage {
 
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
-    Challenge(Challenge),
+    Challenge(Box<Challenge>),
 
     SyncSnapshotHosts(SyncSnapshotHosts),
     StateRequestHeader(ShardId, CryptoHash),
@@ -892,8 +892,8 @@ pub struct StateResponseInfoV2 {
     PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
 )]
 pub enum StateResponseInfo {
-    V1(StateResponseInfoV1),
-    V2(StateResponseInfoV2),
+    V1(Box<StateResponseInfoV1>),
+    V2(Box<StateResponseInfoV2>),
 }
 
 impl StateResponseInfo {
