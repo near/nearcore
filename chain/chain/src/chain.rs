@@ -2427,6 +2427,11 @@ impl Chain {
     }
 
     // TODO(current_epoch_state_sync): move state sync related code to state sync files
+    /// Find the hash that should be used as the reference point when requesting state sync
+    /// headers and parts from other nodes for the epoch the block with hash `block_hash` belongs to.
+    /// If syncing to the state of that epoch (the new way), this block hash might not yet be known,
+    /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
+    /// it's the hash of the first block in that epoch.
     pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
         let header = self.get_block_header(block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
@@ -2437,12 +2442,14 @@ impl Chain {
         }
     }
 
+    /// Find the hash of the first block in the epoch the block with hash `block_hash` belongs to.
+    /// This is the "sync_hash" that will be used as a reference point when state syncing the previous epoch's state
     fn get_previous_epoch_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
         Ok(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block())
     }
 
-    // Returns the first block for which at least two new chunks have been produced for every shard in the epoch
-    // `next_header` is the next block header that is being processed in start_process_block_impl()
+    /// Returns the first block for which at least two new chunks have been produced for every shard in the epoch
+    /// This is the "sync_hash" that will be used as a reference point when state syncing the current epoch's state
     fn get_current_epoch_sync_hash(
         &self,
         block_hash: &CryptoHash,
