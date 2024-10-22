@@ -2471,17 +2471,14 @@ impl Chain {
 
             let mut done = true;
             for (shard_id, num_new_chunks) in num_new_chunks.iter_mut() {
-                let included = match header.chunk_mask().get(*shard_id as usize) {
-                    Some(i) => *i,
-                    None => {
-                        return Err(Error::Other(format!(
-                            "can't get shard {} in chunk mask for block {}",
-                            shard_id,
-                            header.hash()
-                        )));
-                    }
+                let Some(included) = header.chunk_mask().get(*shard_id as usize) else {
+                    return Err(Error::Other(format!(
+                        "can't get shard {} in chunk mask for block {}",
+                        shard_id,
+                        header.hash()
+                    )));
                 };
-                if included {
+                if *included {
                     *num_new_chunks += 1;
                 }
                 if *num_new_chunks < 2 {
