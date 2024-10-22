@@ -56,6 +56,7 @@ use near_store::{
     TrieChanges, WrappedTrieChanges,
 };
 use num_rational::Ratio;
+use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -737,6 +738,18 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(vec![])
     }
 
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = self.get_chunk_producers(valset, shard_index);
+        Ok(chunk_producers.into_iter().map(|vs| vs.take_account_id()).collect())
+    }
+
     /// We need to override the default implementation to make
     /// `Chain::should_produce_state_witness_for_this_or_next_epoch` work
     /// since `get_epoch_chunk_producers` returns empty Vec which results
@@ -1116,6 +1129,19 @@ impl EpochManagerAdapter for MockEpochManager {
         _epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
+    }
+
+    fn get_random_chunk_producer_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, EpochError> {
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = self.get_chunk_producers(valset, shard_index);
+        let index = rand::thread_rng().gen_range(0..chunk_producers.len());
+        Ok(chunk_producers[index].account_id().clone())
     }
 }
 
