@@ -4,7 +4,7 @@ use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{new_shard_id_vec_tmp, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use near_time::Instant;
 use sha2::Digest;
@@ -100,7 +100,7 @@ async fn state_parts_from_node(
         chain_id,
         genesis_hash,
         head_height,
-        new_shard_id_vec_tmp(&[0]),
+        vec![ShardId::new(0)],
         near_time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
