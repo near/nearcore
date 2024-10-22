@@ -2620,15 +2620,13 @@ impl Client {
                 None => continue,
             };
 
-            let CatchupState { state_sync, state_downloads, catchup } = match self
+            let CatchupState { state_sync, state_downloads, catchup } = self
                 .catchup_state_syncs
                 .entry(sync_hash)
-            {
-                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                std::collections::hash_map::Entry::Vacant(e) => {
+                .or_insert_with(|| {
                     tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
                     notify_state_sync = true;
-                    e.insert(CatchupState {
+                    CatchupState {
                         state_sync: StateSync::new(
                             self.clock.clone(),
                             self.network_adapter.clone(),
@@ -2639,9 +2637,8 @@ impl Client {
                         ),
                         state_downloads: shards_to_split.clone(),
                         catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
-                    })
-                }
-            };
+                    }
+                });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
             debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&state_downloads, false), "Catchup");
