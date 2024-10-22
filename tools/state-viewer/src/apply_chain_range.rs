@@ -499,7 +499,7 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{new_shard_id_tmp, BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -600,7 +600,7 @@ mod test {
             &genesis,
             None,
             None,
-            new_shard_id_tmp(0),
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,
@@ -645,7 +645,7 @@ mod test {
             &genesis,
             None,
             None,
-            new_shard_id_tmp(0),
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,
