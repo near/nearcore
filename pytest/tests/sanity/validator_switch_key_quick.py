@@ -31,26 +31,51 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             }
         }
 
+        default_stake = 50000000000000000000000000000000
+        stake_delta = 5000000000000000000000000000000
+
         # Key will be moved from old_validator to new_validator,
         # while the other_validator remains untouched.
         [
-            other_validator,
             old_validator,
+            other_validator,
             new_validator,
-        ] = start_cluster(2, 1, 3, None,
-                          [["epoch_length", EPOCH_LENGTH],
-                           ["block_producer_kickout_threshold", 10],
-                           ["chunk_producer_kickout_threshold", 10]],
-                          config_map)
-        wait_for_blocks(old_validator, count=5)
+        ] = start_cluster(
+            2,
+            1,
+            3,
+            None,
+            [
+                ["epoch_length", EPOCH_LENGTH],
+                ["block_producer_kickout_threshold", 10],
+                ["chunk_producer_kickout_threshold", 10],
+                # Make `test0` always come earlier than `test1` in the validator
+                # set, so that they won't switch places because of different
+                # rewards.
+                # TODO(#12273): find better way to adjust validator stakes.
+                ["validators", 0, "amount",
+                 str(default_stake + stake_delta)],
+                ["validators", 1, "amount",
+                 str(default_stake - stake_delta)],
+                [
+                    "records", 0, "Account", "account", "locked",
+                    str(default_stake + stake_delta)
+                ],
+                [
+                    "records", 2, "Account", "account", "locked",
+                    str(default_stake - stake_delta)
+                ]
+            ],
+            config_map)
+        wait_for_blocks(other_validator, count=5)
 
-        new_validator.reset_validator_key(other_validator.validator_key)
-        other_validator.kill()
+        new_validator.reset_validator_key(old_validator.validator_key)
+        old_validator.kill()
         new_validator.reload_updateable_config()
         new_validator.stop_checking_store()
-        wait_for_blocks(old_validator, count=2)
+        wait_for_blocks(other_validator, count=2)
 
-        block = old_validator.get_latest_block()
+        block = other_validator.get_latest_block()
         max_height = block.height + 4 * EPOCH_LENGTH
         target_height = max_height - EPOCH_LENGTH // 2
         start_time = time.time()
@@ -59,7 +84,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             self.assertLess(time.time() - start_time, TIMEOUT,
                             'Validators got stuck')
 
-            info = old_validator.json_rpc('validators', 'latest')
+            info = other_validator.json_rpc('validators', 'latest')
             next_validators = info['result']['next_validators']
             account_ids = [v['account_id'] for v in next_validators]
             # We copied over 'test0' validator key, along with validator account ID.
@@ -68,7 +93,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
 
             last_block_per_node = [
                 new_validator.get_latest_block(),
-                old_validator.get_latest_block()
+                other_validator.get_latest_block()
             ]
             height_per_node = list(
                 map(lambda block: block.height, last_block_per_node))
@@ -78,7 +103,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                             'Nodes are not synced')
 
             synchronized = True
-            for i, node in enumerate([new_validator, old_validator]):
+            for i, node in enumerate([new_validator, other_validator]):
                 try:
                     node.get_block(last_block_per_node[1 - i].hash)
                 except Exception:
@@ -91,7 +116,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 # If nodes are synchronized and the current height is close to `max_height` we can finish.
                 return
 
-            wait_for_blocks(old_validator, count=1)
+            wait_for_blocks(other_validator, count=1)
 
 
 if __name__ == '__main__':
