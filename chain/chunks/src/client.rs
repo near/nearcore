@@ -164,7 +164,7 @@ mod tests {
         hash::CryptoHash,
         shard_layout::{account_id_to_shard_uid, ShardLayout},
         transaction::SignedTransaction,
-        types::{new_shard_id_tmp, shard_id_as_u32, AccountId, ShardId},
+        types::{shard_id_as_u32, AccountId, ShardId},
     };
     use near_store::ShardUId;
     use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -178,8 +178,7 @@ mod tests {
         let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(10));
         let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(256));
         let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(1000));
-        let seed1000000 =
-            ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1_000_000));
+        let seed1000000 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(1_000_000));
         assert_ne!(seed0, seed10);
         assert_ne!(seed0, seed256);
         assert_ne!(seed0, seed1000);

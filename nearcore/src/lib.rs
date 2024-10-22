@@ -54,7 +54,7 @@ mod config_validate;
 mod download_file;
 pub mod dyn_config;
 #[cfg(feature = "json_rpc")]
-mod entity_debug;
+pub mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
