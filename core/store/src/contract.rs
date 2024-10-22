@@ -5,11 +5,11 @@ use near_vm_runner::ContractCode;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-/// Tracks the uncommitted and committed contract calls and deployments, while applying the receipts in a chunk.
+/// Tracks the uncommitted and committed deployments and calls to contracts, while applying the receipts in a chunk.
 ///
-/// Provides methods to record calls and deployments as uncommitted and then commit or rollback them.
-/// Committing calls/deployments appends them to a committed list and rollback clears the uncommitted list.
-/// The committed calls and deployments can be retrieved by calling `get_committed`.
+/// Provides methods to record deployments as uncommitted and then commit or rollback them.
+/// Committing deployments appends them to a committed list and rollback clears the uncommitted list.
+/// The contract calls and committed deployments are retrieved by calling `finalize`.
 #[derive(Default)]
 struct ContractsTracker {
     /// During an apply of a single chunk contracts may be deployed through the
@@ -26,17 +26,15 @@ struct ContractsTracker {
     /// (without going through transactional storage operations and such).
     uncommitted_deploys: BTreeMap<CodeHash, ContractCode>,
 
-    /// List of code-hashes for the contracts called,
-    /// before committing the receipt the call belongs to.
-    uncommitted_calls: BTreeSet<CodeHash>,
-
     /// Deployments moved from `uncommitted_deploys` by calling `commit`.
     /// These are returned from `finalize`.
     committed_deploys: BTreeMap<CodeHash, ContractCode>,
 
-    /// Calls moved from `uncommitted_calls` by calling `commit`.
-    /// These are returned from `finalize`.
-    committed_calls: BTreeSet<CodeHash>,
+    /// List of code-hashes for the contracts called.
+    ///
+    /// We do not distinguish between committed and uncommitted calls, because we need
+    /// to record all calls to validate both successful and failing function calls.
+    contract_calls: BTreeSet<CodeHash>,
 }
 
 impl ContractsTracker {
@@ -50,41 +48,38 @@ impl ContractsTracker {
     }
 
     fn call(&mut self, code_hash: CodeHash) {
-        self.uncommitted_calls.insert(code_hash);
+        self.contract_calls.insert(code_hash);
     }
 
     fn deploy(&mut self, code: ContractCode) {
         self.uncommitted_deploys.insert((*code.hash()).into(), code);
     }
 
-    fn clear_uncommitted(&mut self) {
+    /// Rollsback the uncommitted deployments.
+    fn rollback_deploys(&mut self) {
         self.uncommitted_deploys.clear();
-        self.uncommitted_calls.clear();
     }
 
-    fn commit(&mut self) {
+    /// Commits the uncommitted deployments by moving them to the set of committed deployments and clearing the uncommitted list.
+    fn commit_deploys(&mut self) {
         let deploys = std::mem::take(&mut self.uncommitted_deploys);
         for (code_hash, contract) in deploys.into_iter() {
             self.committed_deploys.insert(code_hash, contract);
         }
-
-        let calls = std::mem::take(&mut self.uncommitted_calls);
-        for code_hash in calls.into_iter() {
-            self.committed_calls.insert(code_hash);
-        }
     }
 
-    fn get_committed(&self) -> ContractStorageResult {
+    /// Finalizes this tracker and returns the calls and committed deployments.
+    fn finalize(self) -> ContractStorageResult {
         ContractStorageResult {
-            contract_calls: self.committed_calls.iter().cloned().collect(),
-            contract_deploys: self.committed_deploys.keys().cloned().collect(),
+            contract_calls: self.contract_calls.into_iter().collect(),
+            contract_deploys: self.committed_deploys.into_keys().collect(),
         }
     }
 }
 
-/// Result of finalizing the contract storage, containing the committed calls and deployments.
+/// Result of finalizing the contract storage, containing the contract calls and committed deployments.
 pub struct ContractStorageResult {
-    /// List of code-hashes for the (committed) contract calls while applying the chunk.
+    /// List of code-hashes for the contract calls while applying the chunk.
     pub contract_calls: Vec<CodeHash>,
     /// List of code-hashes for the (committed) contract deployments while applying the chunk.
     pub contract_deploys: Vec<CodeHash>,
@@ -96,13 +91,16 @@ pub struct ContractStorageResult {
 #[derive(Clone)]
 pub struct ContractStorage {
     storage: Arc<dyn TrieStorage>,
-    /// Tracker that tracks the contract calls and deployments that are not yet committed.
-    tracker: Arc<Mutex<ContractsTracker>>,
+    /// Tracker that tracks the contract calls and committed/uncommitted deployments.
+    ///
+    /// Calling `finalize`` on any instance of `ContractStorage` will finalize the tracker and
+    /// replace the value of this field with `None`, so it is not usable after that.
+    tracker: Arc<Mutex<Option<ContractsTracker>>>,
 }
 
 impl ContractStorage {
     pub fn new(storage: Arc<dyn TrieStorage>) -> Self {
-        Self { storage, tracker: Arc::new(Mutex::new(ContractsTracker::default())) }
+        Self { storage, tracker: Arc::new(Mutex::new(Some(ContractsTracker::default()))) }
     }
 
     /// Retrieves the contract code by its hash.
@@ -113,9 +111,17 @@ impl ContractStorage {
     /// is actually included in the chunk application.
     pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         {
-            let tracker = self.tracker.lock().expect("no panics");
-            if let Some(contract) = tracker.get(code_hash.into()) {
-                return Some(ContractCode::new(contract.code().to_vec(), Some(code_hash)));
+            let guard = self.tracker.lock().expect("no panics");
+            // The tracker may be finalized before the receipt preparation pipeline calls this function.
+            // In this case we should skip checking the tracker and directly read from the storage.
+            // Note that this does not cause any correctness issue, because the pipeline stops processing when
+            // it hits a new deployment, so the contract requested by the pipeline will not be in the committed or
+            // uncommitted deployment list.
+            if guard.is_some() {
+                let tracker = guard.as_ref().expect("no panics");
+                if let Some(contract) = tracker.get(code_hash.into()) {
+                    return Some(ContractCode::new(contract.code().to_vec(), Some(code_hash)));
+                }
             }
         }
 
@@ -125,44 +131,52 @@ impl ContractStorage {
         }
     }
 
-    /// Records an uncommitted call to a contract by code-hash.
+    /// Records an call to a contract by code-hash.
     ///
     /// This is used to capture the contracts that are called when applying a chunk.
-    /// Calling `rollback` clears this recording.
     pub fn record_call(&self, code_hash: CryptoHash) {
-        let mut tracker = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock().expect("no panics");
+        let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.call(code_hash.into());
     }
 
     /// Stores the contract code as an uncommitted deploy.
     ///
-    /// Subsequent calls to `get` will return the code that was stored here.
-    /// Calling `rollback` clears this uncommitted deploy.
+    /// Subsequent calls to `get` will return the code that was stored here. Calling `rollback_deploys` clears
+    /// this uncommitted deploy and calling `commit_deploys` moves it to the committed list.
     pub fn record_deploy(&self, code: ContractCode) {
-        let mut tracker = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock().expect("no panics");
+        let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.deploy(code);
     }
 
-    /// Commits the uncommitted recording of contract calls and deployments.
+    /// Commits the uncommitted recording of contract deployments.
     ///
-    /// This adds the uncommitted calls and deployments to the committed list and clears the uncommitted list.
-    /// Note that there can be multiple calls to `commit`.
-    pub(crate) fn commit(&mut self) {
-        let mut tracker = self.tracker.lock().expect("no panics");
-        tracker.commit();
+    /// Note that there can be multiple calls to `commit_deploys`. Each commit moves the uncommitted deployments
+    /// to the committed list and clears the uncommitted list.
+    pub(crate) fn commit_deploys(&mut self) {
+        let mut guard = self.tracker.lock().expect("no panics");
+        let tracker = guard.as_mut().expect("must not be called after finalizing");
+        tracker.commit_deploys();
     }
 
-    /// Rolls back the uncommitted recording of contract calls and deployments.
-    pub(crate) fn clear_uncommitted(&mut self) {
-        let mut tracker = self.tracker.lock().expect("no panics");
-        tracker.clear_uncommitted();
+    /// Rolls back the uncommitted recording of contract deployments.
+    ///
+    /// Note that there can be multiple calls to `rollback_deploys`. Each rollback clears the uncommitted deployments
+    /// but does not modify the list of committed deployments.
+    pub(crate) fn rollback_deploys(&mut self) {
+        let mut guard = self.tracker.lock().expect("no panics");
+        let tracker = guard.as_mut().expect("must not be called after finalizing");
+        tracker.rollback_deploys();
     }
 
-    /// Finalizes this instance and returns the list of committed contract calls and deployments collected so far.
+    /// Finalizes this instance and returns the list of contract calls and committed deployments recorded so far.
     ///
-    /// This should be called when there will be no further deployments or calls to contracts.
+    /// It also finalizes and destructs the inner`ContractsTracker` so there must be no other deployments or
+    /// calls to contracts after this returns.
     pub(crate) fn finalize(self) -> ContractStorageResult {
-        let tracker = self.tracker.lock().expect("no panics");
-        tracker.get_committed()
+        let mut guard = self.tracker.lock().expect("no panics");
+        let tracker = guard.take().expect("finalize must be called only once");
+        tracker.finalize()
     }
 }
