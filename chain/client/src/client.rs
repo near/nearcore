@@ -2617,7 +2617,7 @@ impl Client {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
-            assert_eq!(&epoch_first_block, state_sync_info.block_hash());
+            assert_eq!(&epoch_first_block, state_sync_info.epoch_first_block());
 
             // I *think* this is not relevant anymore, since we download
             // already the next epoch's state.

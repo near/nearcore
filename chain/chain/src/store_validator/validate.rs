@@ -720,7 +720,11 @@ pub(crate) fn state_sync_info_valid(
     block_hash: &CryptoHash,
     state_sync_info: &StateSyncInfo,
 ) -> Result<(), StoreValidatorError> {
-    check_discrepancy!(state_sync_info.block_hash(), block_hash, "Invalid StateSyncInfo stored");
+    check_discrepancy!(
+        state_sync_info.epoch_first_block(),
+        block_hash,
+        "Invalid StateSyncInfo stored"
+    );
     Ok(())
 }
 
