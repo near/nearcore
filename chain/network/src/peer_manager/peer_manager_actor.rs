@@ -1169,21 +1169,21 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::ChunkContractAccesses(chunk_validators, accesses) => {
-                for chunk_validator in chunk_validators {
+            NetworkRequests::ChunkContractAccesses(validators, accesses) => {
+                for validator in validators {
                     self.state.send_message_to_account(
                         &self.clock,
-                        &chunk_validator,
+                        &validator,
                         RoutedMessageBody::ChunkContractAccesses(accesses.clone()),
                     );
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkContractDeployments(chunk_validators, deploys) => {
-                for chunk_validator in chunk_validators {
+            NetworkRequests::ChunkContractDeployments(validators, deploys) => {
+                for validator in validators {
                     self.state.send_message_to_account(
                         &self.clock,
-                        &chunk_validator,
+                        &validator,
                         RoutedMessageBody::ChunkContractDeployments(deploys.clone()),
                     );
                 }

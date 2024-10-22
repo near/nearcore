@@ -41,6 +41,19 @@ struct StateTransitionData {
     contract_deploys: Vec<CodeHash>,
 }
 
+/// Result of creating witness.
+///
+/// Since we distribute the contracts accessed separately from the state witness,
+/// we contain them in separate fields in the result.
+pub(crate) struct CreateWitnessResult {
+    /// State witness created.
+    pub(crate) state_witness: ChunkStateWitness,
+    /// Code-hashes of contracts accessed while applying the previous chunk.
+    pub(crate) contract_accesses: Vec<CodeHash>,
+    /// Code-hashes of contracts deployed while applying the previous chunk.
+    pub(crate) contract_deploys: Vec<CodeHash>,
+}
+
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
     /// selected to validate this chunk.
@@ -63,13 +76,14 @@ impl Client {
 
         let my_signer =
             validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
-        let (state_witness, contract_accesses, contract_deploys) = self.create_state_witness(
-            my_signer.validator_id().clone(),
-            prev_block_header,
-            prev_chunk_header,
-            chunk,
-            transactions_storage_proof,
-        )?;
+        let CreateWitnessResult { state_witness, contract_accesses, contract_deploys } = self
+            .create_state_witness(
+                my_signer.validator_id().clone(),
+                prev_block_header,
+                prev_chunk_header,
+                chunk,
+                transactions_storage_proof,
+            )?;
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
@@ -120,7 +134,7 @@ impl Client {
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
-    ) -> Result<(ChunkStateWitness, Vec<CodeHash>, Vec<CodeHash>), Error> {
+    ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
@@ -149,7 +163,7 @@ impl Client {
         let source_receipt_proofs =
             self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
 
-        let witness = ChunkStateWitness::new(
+        let state_witness = ChunkStateWitness::new(
             chunk_producer,
             epoch_id,
             chunk_header,
@@ -164,7 +178,7 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
-        Ok((witness, contract_accesses, contract_deploys))
+        Ok(CreateWitnessResult { state_witness, contract_accesses, contract_deploys })
     }
 
     /// Collect state transition data necessary to produce state witness for
