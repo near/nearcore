@@ -66,7 +66,6 @@ pub struct ChunkContractAccessesInner {
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
-    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
@@ -140,7 +139,6 @@ pub struct ChunkContractDeploymentsInner {
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
-    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the deployments belong to).
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
@@ -223,7 +221,6 @@ pub struct ContractCodeRequestInner {
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
-    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,

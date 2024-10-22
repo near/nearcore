@@ -207,9 +207,7 @@ mod tests {
                 &StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
-                    // TODO(#11099): Revisit this.
                     contract_accesses: Default::default(),
-                    // TODO(#11099): Revisit this.
                     contract_deploys: Default::default(),
                 }),
             )
