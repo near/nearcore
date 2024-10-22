@@ -254,9 +254,9 @@ fn block_chunk_headers_iter() {
     init_test_logger();
     let (chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let mut block = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let mut block = TestBlockBuilder::new(Clock::real(), &genesis, signer).build();
     let header = block.chunks().get(0).unwrap().clone();
-    let mut fake_headers = vec![header.clone(); 16];
+    let mut fake_headers = vec![header; 16];
 
     // Make half of the headers have the same height as the block to appear as `New`
     for i in 0..fake_headers.len() / 2 {
