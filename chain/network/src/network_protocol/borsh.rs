@@ -15,6 +15,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -166,6 +167,9 @@ pub(super) enum PeerMessage {
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
     SyncSnapshotHosts(SyncSnapshotHosts),
+
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1500, "PeerMessage > 1500 bytes");

@@ -1,8 +1,8 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
-    EpochSyncResponseMessage, ProcessTxRequest, TxStatusRequest, TxStatusResponse,
+    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
+    TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -777,14 +777,6 @@ impl NetworkState {
             }
             RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
                 self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
-            RoutedMessageBody::EpochSyncRequest => {
-                self.client.send(EpochSyncRequestMessage { route_back: msg_hash });
-                None
-            }
-            RoutedMessageBody::EpochSyncResponse(proof) => {
-                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {

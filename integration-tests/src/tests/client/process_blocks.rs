@@ -12,8 +12,8 @@ use near_async::time::{Clock, Duration};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::ChainStore;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
+use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
 use near_client::test_utils::{
@@ -57,7 +57,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    new_shard_id_tmp, shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion,
+    shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
 };
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -1236,7 +1236,7 @@ fn test_bad_chunk_mask() {
     // The test never goes past the first epoch, so EpochId(11111...) can be used for all calculations
     let first_epoch_id = &EpochId::default();
 
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = ShardId::new(0);
     // Generate 4 blocks
     for height in 1..5 {
         let chunk_producer = env.clients[0]
@@ -1676,7 +1676,7 @@ fn test_process_block_after_state_sync() {
     }
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
     let sync_hash = *sync_block.hash();
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = ShardId::new(0);
 
     let header = env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = header.chunk_prev_state_root();
@@ -2064,7 +2064,10 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
         }
     }
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
+        let proof = env.clients[0]
+            .chain
+            .compute_past_block_proof_in_merkle_tree_of_later_block(block.hash(), head.hash())
+            .unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -2081,8 +2084,13 @@ fn test_block_merkle_proof() {
 fn test_block_merkle_proof_same_hash() {
     let env = TestEnv::default_builder().mock_epoch_managers().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let proof =
-        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
+    let proof = env.clients[0]
+        .chain
+        .compute_past_block_proof_in_merkle_tree_of_later_block(
+            genesis_block.hash(),
+            genesis_block.hash(),
+        )
+        .unwrap();
     assert!(proof.is_empty());
 }
 
@@ -2328,7 +2336,7 @@ fn test_validate_chunk_extra() {
     let chunks = client
         .chunk_inclusion_tracker
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = ShardId::new(0);
     let (chunk_header, _) = client
         .chunk_inclusion_tracker
         .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
@@ -2404,7 +2412,7 @@ fn test_catchup_gas_price_change() {
     let sync_hash = *blocks[5].hash();
     assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let shard_id = new_shard_id_tmp(0);
+    let shard_id = ShardId::new(0);
     let state_sync_header =
         env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
     let num_parts = state_sync_header.num_state_parts();
@@ -3623,7 +3631,7 @@ mod contract_precompilation_tests {
     const EPOCH_LENGTH: u64 = 25;
 
     fn state_sync_on_height(env: &TestEnv, height: BlockHeight) {
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = ShardId::new(0);
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let sync_hash = *sync_block.hash();
         let state_sync_header =

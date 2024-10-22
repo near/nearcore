@@ -20,6 +20,7 @@ pub struct RpcTransactionStatusRequest {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum TransactionInfo {
     Transaction(SignedTransaction),
     TransactionId { tx_hash: CryptoHash, sender_account_id: AccountId },

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
@@ -20,8 +20,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
-use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
+use near_client::{Client, PartialWitnessActor, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
@@ -30,7 +29,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{new_shard_id_tmp, AccountId};
+use near_primitives::types::{AccountId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
@@ -42,7 +41,7 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
+use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -192,7 +191,7 @@ fn register_drop_condition(
                 )
             });
 
-            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
                 chunks_storage,
                 epoch_manager_adapter.clone(),
                 drop_chunks_condition,
@@ -215,7 +214,7 @@ fn register_drop_condition(
                     chunk_ranges.clone(),
                 )
             });
-            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
                 chunks_storage,
                 epoch_manager_adapter.clone(),
                 drop_chunks_condition,
@@ -449,7 +448,7 @@ impl TestLoopBuilder {
         if is_validator && !self.track_all_shards {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![new_shard_id_tmp(666)];
+            client_config.tracked_shards = vec![ShardId::new(666)];
         }
 
         if let Some(config_modifier) = &self.config_modifier {
@@ -487,11 +486,6 @@ impl TestLoopBuilder {
         let shard_tracker =
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
-        let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-            client_adapter.as_sender(),
-            network_adapter.as_sender(),
-            test_loop_sync_actor_maker(idx, self.test_loop.sender().for_index(idx)),
-        )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache");
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -542,7 +536,6 @@ impl TestLoopBuilder {
             chain_genesis.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            state_sync_adapter,
             runtime_adapter.clone(),
             network_adapter.as_multi_sender(),
             client_to_shards_manager_sender.as_sender(),

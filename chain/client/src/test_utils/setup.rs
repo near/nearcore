@@ -9,7 +9,7 @@ use crate::stateless_validation::partial_witness::partial_witness_actor::{
     PartialWitnessActor, PartialWitnessSenderForClient,
 };
 use crate::{
-    start_client, Client, ClientActor, StartClientResult, SyncAdapter, SyncStatus, ViewClientActor,
+    start_client, Client, ClientActor, StartClientResult, SyncStatus, ViewClientActor,
     ViewClientActorInner,
 };
 use actix::{Actor, Addr, Context};
@@ -61,9 +61,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{
-    new_shard_id_tmp, AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats,
-};
+use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
@@ -157,12 +155,6 @@ pub fn setup(
         adv.clone(),
     );
 
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
-
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
@@ -186,7 +178,6 @@ pub fn setup(
         shard_tracker.clone(),
         runtime,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        state_sync_adapter,
         Arc::new(ActixFutureSpawner),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
@@ -461,10 +452,7 @@ fn process_peer_manager_message_default(
                             height: last_height[i],
                             hash: CryptoHash::default(),
                         }),
-                        tracked_shards: vec![0, 1, 2, 3]
-                            .into_iter()
-                            .map(new_shard_id_tmp)
-                            .collect(),
+                        tracked_shards: vec![0, 1, 2, 3].into_iter().map(ShardId::new).collect(),
                         archival: true,
                     },
                 },
@@ -1068,18 +1056,12 @@ pub fn setup_client_with_runtime(
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
     let mut client = Client::new(
         clock,
         config,
         chain_genesis,
         epoch_manager,
         shard_tracker,
-        state_sync_adapter,
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),

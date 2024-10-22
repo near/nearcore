@@ -8,7 +8,6 @@
 import unittest
 import pathlib
 import sys
-import json
 import time
 import threading
 
@@ -141,7 +140,7 @@ class CongestionControlTest(unittest.TestCase):
 
     def __run_after_congestion(self, node):
         logger.info("Checking the chain after congestion")
-        for height, hash in poll_blocks(node, __target=50):
+        for height, hash in poll_blocks(node, __target=100):
             chunk = self.__get_chunk(node, hash, 0)
 
             gas_used = chunk['header']['gas_used']
@@ -200,8 +199,10 @@ class CongestionControlTest(unittest.TestCase):
         self.finished = False
         self.lock = threading.Lock()
 
+        self.txs = []
         target_account = accounts[0]
-        for account in accounts:
+        # Spawn two thread per each account to get more transactions in.
+        for account in accounts + accounts:
             thread = threading.Thread(
                 target=self.__load,
                 args=[node, account, target_account],
@@ -221,7 +222,6 @@ class CongestionControlTest(unittest.TestCase):
         logger.debug(
             f"Starting load thread {sender_account.account_id} -> {target_account.account_id}"
         )
-        self.txs = []
         while not self.finished:
             tx_hash = self.__call_contract(node, sender_account, target_account)
             with self.lock:

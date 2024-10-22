@@ -110,8 +110,18 @@ impl Config {
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
     pub fn standard_preset() -> Self {
-        // TODO(trisfald): make preset
-        Self::default()
+        // TODO(trisfald): make presets for other message types
+        let mut config = Self::default();
+        // EpochSyncRequest is a very simple amplication attack vector, as it requires no arguments
+        // and the response is large. So we rate limit it to 1 request per 30 seconds. In practice,
+        // a peer should not need to epoch sync except when bootstrapping a node, so a request
+        // should be rarely received. We still set it to a reasonable rate limit so a bootstrapping
+        // node can retry without waiting for too long.
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncRequest,
+            SingleMessageConfig::new(1, 1.0 / 30.0, None),
+        );
+        config
     }
 
     /// Applies rate limits configuration overrides to `self`. In practice, merges the two configurations
@@ -173,6 +183,7 @@ pub enum RateLimitedPeerMessageKey {
     ChunkContractAccesses,
     ContractCodeRequest,
     ContractCodeResponse,
+    EpochSyncRequest,
 }
 
 /// Given a `PeerMessage` returns a tuple containing the `RateLimitedPeerMessageKey`
@@ -224,8 +235,8 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),
             RoutedMessageBody::ContractCodeResponse(_) => Some((ContractCodeResponse, 1)),
             RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
-            RoutedMessageBody::EpochSyncRequest => None,
-            RoutedMessageBody::EpochSyncResponse(_) => None,
+            RoutedMessageBody::_UnusedEpochSyncRequest => None,
+            RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,
             RoutedMessageBody::StatePartRequest(_) => None, // TODO
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
@@ -244,6 +255,8 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::StateRequestHeader(_, _) => Some((StateRequestHeader, 1)),
         PeerMessage::StateRequestPart(_, _, _) => Some((StateRequestPart, 1)),
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
+        PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
+        PeerMessage::EpochSyncResponse(_) => None,
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
         | PeerMessage::Tier3Handshake(_)
@@ -256,7 +269,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
 
 #[cfg(test)]
 mod tests {
-    use near_async::time::Duration;
+    use near_async::time::{Duration, FakeClock};
     use near_primitives::hash::CryptoHash;
 
     use crate::network_protocol::{Disconnect, PeerMessage};
@@ -451,5 +464,18 @@ mod tests {
             }
         }});
         assert!(serde_json::from_value::<OverrideConfig>(json).is_err());
+    }
+
+    #[test]
+    fn test_epoch_sync_rate_limit() {
+        let config = Config::standard_preset();
+        let clock = FakeClock::default();
+        let mut rate_limits = RateLimits::from_config(&config, clock.now());
+        assert!(rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
+        assert!(!rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
+        clock.advance(Duration::seconds(1));
+        assert!(!rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
+        clock.advance(Duration::seconds(30));
+        assert!(rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
     }
 }
