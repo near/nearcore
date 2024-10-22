@@ -806,7 +806,7 @@ impl ForkNetworkCommand {
         let new_config = GenesisConfig {
             chain_id: chain_id
                 .clone()
-                .unwrap_or(original_config.chain_id.clone() + chain_id_suffix),
+                .unwrap_or_else(|| original_config.chain_id.clone() + chain_id_suffix),
             genesis_height: height,
             genesis_time,
             epoch_length,

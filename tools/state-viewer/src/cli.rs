@@ -8,6 +8,9 @@ use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 use crate::latest_witnesses::StateWitnessCmd;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
+use near_epoch_manager::EpochManager;
+use near_jsonrpc::start_http_for_readonly_debug_querying;
+use near_network::tcp::ListenerAddr;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -16,9 +19,12 @@ use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::EpochHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::{Mode, NodeStorage, Store, Temperature};
-use nearcore::{load_config, NearConfig};
+use nearcore::entity_debug::EntityDebugHandlerImpl;
+use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -52,6 +58,9 @@ pub enum StateViewerSubCommand {
     /// List account names with contracts deployed.
     #[clap(alias = "contract_accounts")]
     ContractAccounts(ContractAccountsCmd),
+    /// Run a readonly Debug UI API server so the Debug UI can be used to query this node.
+    #[clap(alias = "debug_ui")]
+    DebugUI(DebugUICmd),
     /// Dump contract data in storage of given account to binary file.
     #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
@@ -163,6 +172,9 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ClearCache => clear_cache(store),
             StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DebugUI(cmd) => {
+                cmd.run(home_dir, near_config, storage.get_hot_store(), storage.get_cold_store())
+            }
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
@@ -404,6 +416,42 @@ pub struct ContractAccountsCmd {
 impl ContractAccountsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         contract_accounts(home_dir, store, near_config, self.filter).unwrap();
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct DebugUICmd {
+    #[clap(long)]
+    port: Option<u16>,
+}
+
+impl DebugUICmd {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        near_config: NearConfig,
+        store: Store,
+        cold_store: Option<Store>,
+    ) {
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let debug_handler = EntityDebugHandlerImpl {
+            hot_store: store.clone(),
+            cold_store,
+            epoch_manager: epoch_manager.clone(),
+            runtime: NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager)
+                .unwrap(),
+        };
+        let mut rpc_config = near_config.rpc_config.unwrap_or_default();
+        if let Some(port) = self.port {
+            rpc_config.addr = ListenerAddr::new(SocketAddr::new(rpc_config.addr.ip(), port));
+        }
+        actix::System::new()
+            .block_on(start_http_for_readonly_debug_querying(
+                rpc_config.addr,
+                Arc::new(debug_handler),
+            ))
+            .unwrap();
     }
 }
 
