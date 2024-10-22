@@ -10,7 +10,7 @@ use near_network::tcp;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{new_shard_id_tmp, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::Path;
@@ -181,7 +181,7 @@ impl IncomingRequests {
                                 PartialEncodedChunkRequestMsg {
                                     chunk_hash,
                                     part_ords: vec![0],
-                                    tracking_shards: [new_shard_id_tmp(0)]
+                                    tracking_shards: [ShardId::new(0)]
                                         .into_iter()
                                         .collect::<HashSet<_>>(),
                                 },

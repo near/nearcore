@@ -16,7 +16,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, CodeBytes, ContractCodeRequest, ContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -25,12 +25,15 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::Store;
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::{StorageError, Store, TrieDBStorage, TrieStorage};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
-use crate::stateless_validation::validate::validate_partial_encoded_state_witness;
+use crate::stateless_validation::validate::{
+    validate_chunk_contract_accesses, validate_partial_encoded_state_witness,
+};
 
 use super::encoding::WitnessEncoderCache;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
@@ -149,7 +152,7 @@ impl PartialWitnessActor {
         }
     }
 
-    pub fn handle_distribute_state_witness_request(
+    fn handle_distribute_state_witness_request(
         &mut self,
         msg: DistributeStateWitnessRequest,
     ) -> Result<(), Error> {
@@ -161,13 +164,7 @@ impl PartialWitnessActor {
             "distribute_chunk_state_witness",
         );
 
-        let signer = match self.my_signer.get() {
-            Some(signer) => signer,
-            None => {
-                return Err(Error::NotAValidator(format!("distribute state witness")));
-            }
-        };
-
+        let signer = self.my_validator_signer()?;
         let witness_bytes = compress_witness(&state_witness)?;
 
         self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, &signer)?;
@@ -290,17 +287,13 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
-    pub fn handle_partial_encoded_state_witness(
+    fn handle_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
 
-        let signer = self
-            .my_signer
-            .get()
-            .ok_or(Error::NotAValidator(format!("handle partial encoded state witness")))?;
-
+        let signer = self.my_validator_signer()?;
         // Validate the partial encoded state witness and forward the part to all the chunk validators.
         if validate_partial_encoded_state_witness(
             self.epoch_manager.as_ref(),
@@ -315,17 +308,13 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
-    pub fn handle_partial_encoded_state_witness_forward(
+    fn handle_partial_encoded_state_witness_forward(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
 
-        let signer = self
-            .my_signer
-            .get()
-            .ok_or(Error::NotAValidator(format!("handle partial encoded state witness forward")))?;
-
+        let signer = self.my_validator_signer()?;
         // Validate the partial encoded state witness and store the partial encoded state witness.
         if validate_partial_encoded_state_witness(
             self.epoch_manager.as_ref(),
@@ -344,42 +333,88 @@ impl PartialWitnessActor {
     /// the ack message and updates the corresponding metric with it.
     /// Currently we do not raise an error for handling of witness-ack messages,
     /// as it is used only for tracking some networking metrics.
-    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
+    fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 
     /// Handles contract code accesses message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the code-hashes
     /// of the contracts accessed when applying the previous chunk of the witness.
-    pub fn handle_chunk_contract_accesses(
+    fn handle_chunk_contract_accesses(
         &mut self,
-        _accesses: ChunkContractAccesses,
+        accesses: ChunkContractAccesses,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this and remove debug message.
-        tracing::debug!(target: "client", next_chunk=?_accesses.chunk_production_key(), contracts=?_accesses.contracts(), "handle_chunk_contract_accesses");
-        unimplemented!()
+        let signer = self.my_validator_signer()?;
+        if !validate_chunk_contract_accesses(
+            self.epoch_manager.as_ref(),
+            &accesses,
+            &signer,
+            &self.store,
+        )? {
+            return Ok(());
+        }
+        let key = accesses.chunk_production_key();
+        let contract_hashes = accesses.contracts();
+        self.partial_witness_tracker
+            .store_accessed_contract_hashes(key.clone(), contract_hashes.to_vec())?;
+        // TODO(#11099): currently we always request all hashes to test worst case scenario.
+        // Eventually we want to only request ones that are missing from the compiled contracts cache.
+        let random_chunk_producer =
+            self.epoch_manager.get_random_chunk_producer_for_shard(&key.epoch_id, key.shard_id)?;
+        let request = ContractCodeRequest::new(key.clone(), contract_hashes.to_vec(), &signer);
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
+        ));
+        Ok(())
     }
 
     /// Handles contract code requests message from chunk validators.
     /// As response to this message, sends the contract code requested to
     /// the requesting chunk validator for the given code hashes.
-    pub fn handle_contract_code_request(
-        &mut self,
-        _request: ContractCodeRequest,
-    ) -> Result<(), Error> {
-        // TODO(#11099): Implement this and remove debug message.
-        tracing::debug!(target: "client", next_chunk=?_request.chunk_production_key(), contracts=?_request.contracts(), "handle_contract_code_request");
-        unimplemented!()
+    fn handle_contract_code_request(&mut self, request: ContractCodeRequest) -> Result<(), Error> {
+        let signer = self.my_validator_signer()?;
+        // TODO(#11099): validate request
+        let key = request.chunk_production_key();
+        let storage = TrieDBStorage::new(
+            TrieStoreAdapter::new(self.store.clone()),
+            self.epoch_manager.shard_id_to_uid(key.shard_id, &key.epoch_id)?,
+        );
+        let mut contracts = Vec::new();
+        for contract_hash in request.contracts() {
+            match storage.retrieve_raw_bytes(&contract_hash.0) {
+                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Err(StorageError::MissingTrieValue(_, _)) => {
+                    tracing::warn!(
+                        target: "client",
+                        ?contract_hash,
+                        chunk_production_key = ?key,
+                        "Requested contract hash is not present in the storage"
+                    );
+                    return Ok(());
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        let response = ContractCodeResponse::new(key.clone(), &contracts, &signer);
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
+        ));
+        Ok(())
     }
 
     /// Handles contract code responses message from chunk producer.
-    pub fn handle_contract_code_response(
+    fn handle_contract_code_response(
         &mut self,
-        _response: ContractCodeResponse,
+        response: ContractCodeResponse,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this and remove debug message.
-        tracing::debug!(target: "client", "handle_contract_code_response");
-        unimplemented!()
+        // TODO(#11099): validate response
+        let key = response.chunk_production_key().clone();
+        let contracts = response.decompress_contracts()?;
+        self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
+    }
+
+    fn my_validator_signer(&self) -> Result<Arc<ValidatorSigner>, Error> {
+        self.my_signer.get().ok_or_else(|| Error::NotAValidator("not a validator".to_owned()))
     }
 }
 

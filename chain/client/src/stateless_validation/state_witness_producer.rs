@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use near_async::messaging::{CanSend, IntoSender};
@@ -337,7 +337,9 @@ impl Client {
         Ok(source_receipt_proofs)
     }
 
-    /// Sends the contract access to the same chunk validators that will receive the state witness for the chunk.
+    /// Sends the contract accesses to the same chunk validators
+    /// (except for the chunk producers that track the same shard),
+    /// which will receive the state witness for the new chunk.  
     fn send_contract_accesses_to_chunk_validators(
         &self,
         epoch_id: &EpochId,
@@ -345,7 +347,13 @@ impl Client {
         contract_accesses: Vec<CodeHash>,
         my_signer: &ValidatorSigner,
     ) {
-        let chunk_validators = self
+        let chunk_production_key = ChunkProductionKey {
+            epoch_id: *epoch_id,
+            shard_id: chunk_header.shard_id(),
+            height_created: chunk_header.height_created(),
+        };
+
+        let chunk_validators: HashSet<AccountId> = self
             .epoch_manager
             .get_chunk_validator_assignments(
                 &epoch_id,
@@ -353,17 +361,23 @@ impl Client {
                 chunk_header.height_created(),
             )
             .expect("Chunk validators must be defined")
-            .ordered_chunk_validators();
+            .assignments()
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect();
 
-        let chunk_production_key = ChunkProductionKey {
-            epoch_id: *epoch_id,
-            shard_id: chunk_header.shard_id(),
-            height_created: chunk_header.height_created(),
-        };
-        // TODO(#11099): Optimize the set of receivers by excluding self and chunk producers etc.
+        let chunk_producers: HashSet<AccountId> = self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_header.shard_id())
+            .expect("Chunk producers must be defined")
+            .into_iter()
+            .collect();
+
+        let target_chunk_validators =
+            chunk_validators.difference(&chunk_producers).cloned().collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
-                chunk_validators,
+                target_chunk_validators,
                 ChunkContractAccesses::new(chunk_production_key, contract_accesses, my_signer),
             ),
         ));

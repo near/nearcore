@@ -107,6 +107,7 @@ pub struct EntityQueryWithParams {
 /// We use a trait for this, because jsonrpc does not have access to low-level
 /// blockchain data structures for implementing the queries.
 pub trait EntityDebugHandler: Sync + Send {
+    #[allow(clippy::result_large_err)]
     fn query(&self, query: EntityQueryWithParams) -> Result<EntityDataValue, RpcError>;
 }
 
