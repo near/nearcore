@@ -19,6 +19,18 @@ use std::sync::{Arc, Mutex};
 use super::{ONE_NEAR, TGAS};
 use near_async::futures::FutureSpawnerExt;
 
+/// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
+/// the error.
+#[derive(Debug)]
+pub(crate) struct BalanceMismatchError {
+    #[allow(unused)]
+    pub account: AccountId,
+    #[allow(unused)]
+    pub expected: u128,
+    #[allow(unused)]
+    pub actual: u128,
+}
+
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
@@ -32,7 +44,7 @@ pub(crate) fn execute_money_transfers(
     test_loop: &mut TestLoopV2,
     node_data: &[TestData],
     accounts: &[AccountId],
-) -> Result<(), String> {
+) -> Result<(), BalanceMismatchError> {
     let clients = node_data
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -99,8 +111,10 @@ pub(crate) fn execute_money_transfers(
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
     for account in accounts {
-        if clients.query_balance(account) != *balances.get(account).unwrap() {
-            return Err(format!("Account balance mismatch for account {}", account));
+        let expected = *balances.get(account).unwrap();
+        let actual = clients.query_balance(account);
+        if expected != actual {
+            return Err(BalanceMismatchError { account: account.clone(), expected, actual });
         }
     }
     Ok(())

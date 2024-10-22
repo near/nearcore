@@ -11,7 +11,7 @@ use tempfile::TempDir;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::transactions::execute_money_transfers;
+use crate::test_loop::utils::transactions::{execute_money_transfers, BalanceMismatchError};
 use crate::test_loop::utils::ONE_NEAR;
 use near_async::messaging::CanSend;
 use near_chain::{ChainStore, ChainStoreAccess};
@@ -83,9 +83,7 @@ fn setup_initial_blockchain(
 
         match execute_money_transfers(&mut test_loop, &node_datas, &accounts) {
             Ok(()) => panic!("Expected money transfers to fail due to expired transactions"),
-            Err(err) => {
-                assert!(err.contains("balance mismatch"));
-            }
+            Err(BalanceMismatchError { .. }) => {}
         }
     } else {
         execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
