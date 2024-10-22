@@ -49,6 +49,9 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 ["epoch_length", EPOCH_LENGTH],
                 ["block_producer_kickout_threshold", 10],
                 ["chunk_producer_kickout_threshold", 10],
+                # Make `test0` always come earlier than `test1` in the validator
+                # set, so that they won't switch places because of different
+                # rewards.
                 # TODO(#12273): find better way to adjust validator stakes.
                 ["validators", 0, "amount",
                  str(default_stake + stake_delta)],
