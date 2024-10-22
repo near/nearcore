@@ -6,6 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 /// Tracks the uncommitted and committed contract calls and deployments, while applying the receipts in a chunk.
+///
+/// Provides methods to record calls and deployments as uncommitted and then commit or rollback them.
+/// Committing calls/deployments appends them to a committed list and rollback clears the uncommitted list.
+/// The committed calls and deployments can be retrieved by calling `get_committed`.
 #[derive(Default)]
 struct ContractsTracker {
     /// During an apply of a single chunk contracts may be deployed through the
@@ -80,9 +84,9 @@ impl ContractsTracker {
 
 /// Result of finalizing the contract storage, containing the committed calls and deployments.
 pub struct ContractStorageResult {
-    /// List of code-hashes for the contracts called while applying the chunk.
+    /// List of code-hashes for the (committed) contract calls while applying the chunk.
     pub contract_calls: Vec<CodeHash>,
-    /// List of code-hashes for the contracts deployed while applying the chunk.
+    /// List of code-hashes for the (committed) contract deployments while applying the chunk.
     pub contract_deploys: Vec<CodeHash>,
 }
 
@@ -140,7 +144,7 @@ impl ContractStorage {
     }
 
     /// Commits the uncommitted recording of contract calls and deployments.
-    /// 
+    ///
     /// This adds the uncommitted calls and deployments to the committed list and clears the uncommitted list.
     /// Note that there can be multiple calls to `commit`.
     pub(crate) fn commit(&mut self) {
