@@ -116,9 +116,7 @@ impl<'a> BatchedStoreUpdate<'a> {
 /// new blocks.
 pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
     let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
-    for row in
-        store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
-    {
+    for row in store.iter_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult) {
         let (_, mut outcomes) = row?;
         // It appears that it was possible that the same entry in the original column contained
         // duplicate outcomes. We remove them here to avoid panicing due to issuing a
@@ -373,7 +371,7 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
 
     let mut update = store.store_update();
 
-    for row in store.iter_prefix_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos, &[]) {
+    for row in store.iter_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos) {
         let (key, LegacyStateSyncInfo { sync_hash, shards }) =
             row.context("failed deserializing legacy StateSyncInfo in StateDlInfos")?;
 
