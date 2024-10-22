@@ -357,8 +357,13 @@ impl FlatStorageResharder {
         let (parent_shard, split_status) = self
             .get_parent_shard_and_status()
             .expect("flat storage resharding event must be Split!");
-        let SplittingParentStatus { left_child_shard, right_child_shard, flat_head, .. } =
-            split_status;
+        let SplittingParentStatus {
+            left_child_shard,
+            right_child_shard,
+            flat_head,
+            block_hash,
+            ..
+        } = split_status;
         let flat_store = self.runtime.store().flat_store();
         info!(target: "resharding", ?parent_shard, ?task_status, ?split_status, "flat storage shard split task: post-processing");
 
@@ -381,7 +386,7 @@ impl FlatStorageResharder {
                     store_update.set_flat_storage_status(
                         child_shard,
                         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
-                            flat_head.hash,
+                            block_hash,
                         )),
                     );
                 }
@@ -1037,7 +1042,7 @@ mod tests {
         );
         for child_shard in [left_child_shard, right_child_shard] {
             assert_eq!(
-                flat_store.get_flat_storage_status(status.left_child_shard),
+                flat_store.get_flat_storage_status(child_shard),
                 Ok(FlatStorageStatus::Empty)
             );
             assert_eq!(flat_store.iter(child_shard).count(), 0);
@@ -1513,5 +1518,149 @@ mod tests {
             Ok(buffered_receipt_value)
         );
         assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_key), Ok(None));
+    }
+
+    /// Base test scenario for testing children catchup.
+    fn children_catchup_base(with_restart: bool) {
+        init_test_logger();
+        let mut scheduler = Arc::new(DelayedScheduler::default());
+        let (mut chain, mut resharder) =
+            create_chain_and_resharder(simple_shard_layout(), scheduler.as_multi_sender());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard,
+            left_child_shard,
+            right_child_shard,
+            block_hash,
+            ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let manager = chain.runtime_adapter.get_flat_storage_manager();
+
+        // Do resharding.
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+
+        // Trigger the task to perform the parent split.
+        scheduler.call_split_shard_task();
+
+        // Simulate the chain going forward by five blocks.
+        let signer = Arc::new(create_test_signer("aa"));
+        for height in 1..6 {
+            let prev_block = chain.get_block_by_height(height - 1).unwrap();
+            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
+                .height(height)
+                .build();
+            chain.process_block_test(&None, block).unwrap();
+        }
+        assert_eq!(chain.head().unwrap().height, 5);
+
+        // Manually add deltas into the children shards.
+        // For simplicity, add one new account at every height.
+        for height in 1..6 {
+            let prev_hash = *chain.get_block_by_height(height).unwrap().header().prev_hash();
+            let block_hash = *chain.get_block_by_height(height).unwrap().hash();
+
+            let new_account_left_child = account!(format!("oo{}", height));
+            let state_changes_left_child = vec![RawStateChangesWithTrieKey {
+                trie_key: TrieKey::Account { account_id: new_account_left_child.clone() },
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(new_account_left_child.as_bytes().to_vec()),
+                }],
+            }];
+            manager
+                .save_flat_state_changes(
+                    block_hash,
+                    prev_hash,
+                    height,
+                    left_child_shard,
+                    &state_changes_left_child,
+                )
+                .unwrap()
+                .commit()
+                .unwrap();
+
+            let new_account_right_child = account!(format!("zz{}", height));
+            let state_changes_right_child = vec![RawStateChangesWithTrieKey {
+                trie_key: TrieKey::Account { account_id: new_account_right_child.clone() },
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(new_account_right_child.as_bytes().to_vec()),
+                }],
+            }];
+            manager
+                .save_flat_state_changes(
+                    block_hash,
+                    prev_hash,
+                    height,
+                    right_child_shard,
+                    &state_changes_right_child,
+                )
+                .unwrap()
+                .commit()
+                .unwrap();
+        }
+
+        // If this test is checking a node restart scenario: rebuild the resharder from scratch.
+        if with_restart {
+            scheduler = Arc::new(DelayedScheduler::default());
+            (_, resharder) =
+                create_chain_and_resharder(simple_shard_layout(), scheduler.as_multi_sender());
+            assert!(resharder
+                .resume(left_child_shard, &FlatStorageReshardingStatus::CatchingUp(block_hash))
+                .is_ok());
+            assert!(resharder
+                .resume(right_child_shard, &FlatStorageReshardingStatus::CatchingUp(block_hash))
+                .is_ok());
+        }
+
+        // Trigger the catchup tasks.
+        // TODO
+
+        // Check shards flat storage status.
+        let flat_store = resharder.runtime.store().flat_store();
+        let last_block = chain.get_block_by_height(5).unwrap();
+        assert_eq!(flat_store.get_flat_storage_status(parent_shard), Ok(FlatStorageStatus::Empty));
+        for child_shard in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                flat_store.get_flat_storage_status(child_shard),
+                Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                    flat_head: BlockInfo {
+                        hash: *last_block.hash(),
+                        height: 5,
+                        prev_hash: *last_block.header().prev_hash()
+                    }
+                }))
+            );
+        }
+        // Children flat storages should contain the new accounts created through the deltas
+        // application.
+        for height in 1..6 {
+            let new_account_left_child = account!(format!("oo{}", height));
+            assert_eq!(
+                flat_store.get(left_child_shard, &new_account_left_child.as_bytes()),
+                Ok(Some(FlatStateValue::inlined(new_account_left_child.as_bytes())))
+            );
+            let new_account_right_child = account!(format!("zz{}", height));
+            assert_eq!(
+                flat_store.get(right_child_shard, &new_account_right_child.as_bytes()),
+                Ok(Some(FlatStateValue::inlined(new_account_right_child.as_bytes())))
+            );
+        }
+    }
+
+    /// Tests the correctness of children catchup operation after a shard split.
+    #[test]
+    fn children_catchup_after_split() {
+        children_catchup_base(false);
+    }
+
+    /// Checks that children can perform catchup correctly even if the node has been restarted in
+    /// the middle of the process.
+    #[test]
+    fn children_catchup_after_restart() {
+        children_catchup_base(true);
     }
 }
