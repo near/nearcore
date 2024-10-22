@@ -3937,7 +3937,7 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    // FIXME: this needs to be fixed. can't be iterating over the whole chain inside of preprocess
+                    // TODO(current_epoch_state_sync): this needs to be fixed. can't be iterating over the whole chain inside of preprocess
                     // block like that if there are many missed chunks
                     match self.get_current_epoch_sync_hash(&head.last_block_hash)? {
                         Some(sync_hash) => {
