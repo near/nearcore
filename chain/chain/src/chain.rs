@@ -3939,17 +3939,17 @@ impl Chain {
                 } else {
                     // TODO(current_epoch_state_sync): this needs to be fixed. can't be iterating over the whole chain inside of preprocess
                     // block like that if there are many missed chunks
-                    match self.get_current_epoch_sync_hash(&head.last_block_hash)? {
-                        Some(sync_hash) => {
-                            if sync_hash == head.last_block_hash {
-                                // note that here we're returning prev_block_hash instead of last_block_hash because in this case
-                                // we can't detect the right sync hash until it is actually applied as the head block
-                                Ok(SnapshotAction::MakeSnapshot(head.prev_block_hash))
-                            } else {
-                                Ok(SnapshotAction::None)
-                            }
-                        }
-                        None => Ok(SnapshotAction::None),
+                    let Some(sync_hash) =
+                        self.get_current_epoch_sync_hash(&head.last_block_hash)?
+                    else {
+                        return Ok(SnapshotAction::None);
+                    };
+                    if sync_hash == head.last_block_hash {
+                        // note that here we're returning prev_block_hash instead of last_block_hash because in this case
+                        // we can't detect the right sync hash until it is actually applied as the head block
+                        Ok(SnapshotAction::MakeSnapshot(head.prev_block_hash))
+                    } else {
+                        Ok(SnapshotAction::None)
                     }
                 }
             }
