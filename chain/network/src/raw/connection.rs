@@ -88,7 +88,7 @@ pub enum DirectMessage {
     BlockHeaders(Vec<BlockHeader>),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(StateResponseInfo),
+    VersionedStateResponse(Box<StateResponseInfo>),
 }
 
 impl fmt::Display for DirectMessage {
@@ -175,7 +175,7 @@ pub enum ConnectError {
     #[error("handshake failed {0:?}")]
     HandshakeFailure(HandshakeFailureReason),
     #[error("received unexpected message before the handshake: {0:?}")]
-    UnexpectedFirstMessage(PeerMessage),
+    UnexpectedFirstMessage(Box<PeerMessage>),
     #[error(transparent)]
     TcpConnect(anyhow::Error),
 }
@@ -299,7 +299,7 @@ impl Connection {
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
                 return Err(ConnectError::HandshakeFailure(reason))
             }
-            _ => return Err(ConnectError::UnexpectedFirstMessage(message)),
+            _ => return Err(ConnectError::UnexpectedFirstMessage(Box::new(message))),
         };
 
         let my_peer_id = PeerId::new(secret_key.public_key());
@@ -369,7 +369,7 @@ impl Connection {
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
                 return Err(ConnectError::HandshakeFailure(reason))
             }
-            _ => return Err(ConnectError::UnexpectedFirstMessage(message)),
+            _ => return Err(ConnectError::UnexpectedFirstMessage(Box::new(message))),
         };
 
         Ok(())
@@ -392,7 +392,7 @@ impl Connection {
                 PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
             }
             DirectMessage::VersionedStateResponse(request) => {
-                PeerMessage::VersionedStateResponse(request)
+                PeerMessage::VersionedStateResponse(*request)
             }
         };
 
@@ -511,7 +511,9 @@ impl Connection {
                 }
                 PeerMessage::VersionedStateResponse(state_response) => {
                     return Ok((
-                        Message::Direct(DirectMessage::VersionedStateResponse(state_response)),
+                        Message::Direct(DirectMessage::VersionedStateResponse(Box::new(
+                            state_response,
+                        ))),
                         timestamp,
                     ));
                 }

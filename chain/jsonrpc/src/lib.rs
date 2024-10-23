@@ -31,7 +31,7 @@ use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
 };
 use near_network::debug::GetDebugStatus;
-use near_network::tcp;
+use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -120,6 +120,7 @@ impl RpcConfig {
 /// Serialises response of a query into JSON to be sent to the client.
 ///
 /// Returns an internal server error if the value fails to serialise.
+#[allow(clippy::result_large_err)]
 fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|err| RpcError::serialization_error(err.to_string()))
 }
@@ -159,6 +160,7 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
 
 /// This function processes response from query method to introduce
 /// backward compatible response in case of specific errors
+#[allow(clippy::result_large_err)]
 fn process_query_response(
     query_response: Result<
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
@@ -1416,6 +1418,16 @@ async fn handle_entity_debug(
     }
 }
 
+async fn handle_entity_debug_readonly(
+    req: web::Json<EntityQueryWithParams>,
+    handler: web::Data<Arc<dyn EntityDebugHandler>>,
+) -> Result<HttpResponse, HttpError> {
+    match handler.query(req.0) {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(err) => Ok(HttpResponse::ServiceUnavailable().body(format!("{:?}", err))),
+    }
+}
+
 async fn debug_block_status_handler(
     path: web::Path<u64>,
     handler: web::Data<JsonRpcHandler>,
@@ -1648,6 +1660,29 @@ pub fn start_http(
     }
 
     servers
+}
+
+/// Start an http server just for querying state via the Debug UI.
+pub async fn start_http_for_readonly_debug_querying(
+    addr: ListenerAddr,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
+) -> Result<(), std::io::Error> {
+    info!("Starting readonly debug API server at {}", addr);
+    info!("Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying.");
+    let listener = HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(entity_debug_handler.clone()))
+            .wrap(get_cors(&["*".to_string()]))
+            .wrap(middleware::Logger::default())
+            .service(
+                web::resource("/debug/api/entity")
+                    .route(web::post().to(handle_entity_debug_readonly)),
+            )
+    });
+
+    let server = listener.listen(addr.std_listener().unwrap())?;
+    server.workers(4).shutdown_timeout(5).disable_signals().run().await?;
+    Ok(())
 }
 
 fn tx_execution_status_meets_expectations(

@@ -22,7 +22,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -99,7 +99,7 @@ fn test_verify_block_double_sign_challenge() {
         genesis.header(),
         2,
         genesis.header().block_ordinal() + 1,
-        genesis.chunks().iter().cloned().collect(),
+        genesis.chunks().iter_deprecated().cloned().collect(),
         vec![vec![]; genesis.chunks().len()],
         *b1.header().epoch_id(),
         *b1.header().next_epoch_id(),
@@ -316,7 +316,7 @@ fn challenge(
     let shard_layout = env.clients[0].chain.epoch_manager.get_shard_layout(epoch_id).unwrap();
     let shard_index = shard_layout.get_shard_index(shard_id);
 
-    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
     let valid_challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: borsh::to_vec(&block.header()).unwrap(),
@@ -376,7 +376,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         Trie::EMPTY_ROOT,
         CryptoHash::default(),
         last_block.header().height() + 1,
-        new_shard_id_tmp(0),
+        ShardId::new(0),
         0,
         1_000,
         0,
@@ -448,8 +448,9 @@ fn test_verify_chunk_invalid_state_challenge() {
     let challenge_body =
         client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
     {
-        let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
-        let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+        let prev_merkle_proofs =
+            Block::compute_chunk_headers_root(last_block.chunks().iter_deprecated()).1;
+        let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         // TODO (#6316): enable storage proof generation

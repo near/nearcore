@@ -367,7 +367,7 @@ pub(crate) fn block_chunks_exist(
         // for single-shard, no-missing-chunks state sync or epoch sync tests.
         return Ok(());
     }
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
                 let cares_about_shard = sv.shard_tracker.care_about_shard(
@@ -419,7 +419,7 @@ pub(crate) fn block_chunks_height_validity(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_created() > block.header().height() {
             err!(
                 "Invalid ShardChunk included, chunk_header = {:?}, block = {:?}",
@@ -704,7 +704,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
         "Can't get Block {} from DB",
         block_hash
     );
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = sv
                 .epoch_manager

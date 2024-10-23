@@ -4,9 +4,10 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::{
+    block::MaybeNew, hash::CryptoHash, sharding::ShardChunkHeader, test_utils::TestBlockBuilder,
+    version::PROTOCOL_VERSION,
+};
 use num_rational::Ratio;
 
 #[test]
@@ -34,7 +35,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"Hc3bWEd7ikHf9BAe2SknvH2jAAakEtBRU1FBu6Udocm3");
     } else {
-        insta::assert_snapshot!(hash, @"dY6Z6HdATLWK3wwxkNtUs8T1GaEQqpxUCXm7TectWW7");
+        insta::assert_snapshot!(hash, @"GHZFAFiMdGzAfnWTcS9u9wqFvxMrgFpyEr6Use7jk2Lo");
     }
 
     for i in 1..5 {
@@ -52,7 +53,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"39R6bDFXkPfwdYs4crV3RyCde85ecycqP5DBwdtwyjcJ");
     } else {
-        insta::assert_snapshot!(hash, @"6RnKeuiGmxkFxNYeEmAbK6NzwvKYuTcKCwqAmqJ6m3DG");
+        insta::assert_snapshot!(hash, @"3Pdm44L71Bk8EokPHF1pxakHojsriNadBdZZSpcoDv9q");
     }
 }
 
@@ -73,7 +74,7 @@ fn build_chain_with_orphans() {
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
-        last_block.chunks().iter().cloned().collect(),
+        last_block.chunks().iter_deprecated().cloned().collect(),
         vec![vec![]; last_block.chunks().len()],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
@@ -246,4 +247,45 @@ fn next_blocks() {
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert_eq!(chain.mut_chain_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
     assert_eq!(chain.mut_chain_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
+}
+
+#[test]
+fn block_chunk_headers_iter() {
+    init_test_logger();
+    let (chain, _, _, signer) = setup(Clock::real());
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+    let mut block = TestBlockBuilder::new(Clock::real(), &genesis, signer).build();
+    let header = block.chunks().get(0).unwrap().clone();
+    let mut fake_headers = vec![header; 16];
+
+    // Make half of the headers have the same height as the block to appear as `New`
+    for i in 0..fake_headers.len() / 2 {
+        let fake_header = &mut fake_headers[i];
+        *fake_header.height_included_mut() = block.header().height();
+    }
+    block.set_chunks(fake_headers);
+
+    let chunks = block.chunks();
+
+    let new_headers: Vec<&ShardChunkHeader> = chunks
+        .iter()
+        .filter_map(|chunk| match chunk {
+            MaybeNew::New(chunk) => Some(chunk),
+            _ => None,
+        })
+        .collect();
+
+    let old_headers: Vec<&ShardChunkHeader> = chunks
+        .iter()
+        .filter_map(|chunk| match chunk {
+            MaybeNew::Old(chunk) => Some(chunk),
+            _ => None,
+        })
+        .collect();
+
+    let raw_headers: Vec<&ShardChunkHeader> = chunks.iter_raw().collect();
+
+    assert_eq!(old_headers.len(), 8);
+    assert_eq!(new_headers.len(), 8);
+    assert_eq!(raw_headers.len(), old_headers.len() + new_headers.len());
 }

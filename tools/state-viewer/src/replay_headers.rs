@@ -239,7 +239,7 @@ fn get_block_info(
             let height = header.height();
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
-            for (shard_index, chunk_header) in chunks.iter().enumerate() {
+            for (shard_index, chunk_header) in chunks.iter_deprecated().enumerate() {
                 let shard_id = shard_layout.get_shard_id(shard_index);
                 let endorsements = &endorsement_signatures[shard_index];
                 if !chunk_header.is_new_chunk(height) {

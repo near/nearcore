@@ -87,6 +87,8 @@ pytest sanity/rpc_max_gas_burnt.py
 pytest sanity/rpc_max_gas_burnt.py --features nightly
 pytest sanity/rpc_tx_status.py
 pytest sanity/rpc_tx_status.py --features nightly
+pytest --timeout=120 sanity/garbage_collection.py
+pytest --timeout=120 sanity/garbage_collection.py --features nightly
 pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=120 sanity/garbage_collection1.py --features nightly
 pytest --timeout=180 sanity/garbage_collection_intense.py

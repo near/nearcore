@@ -187,7 +187,7 @@ pub fn setup_mock_node(
         let prev_hash = *block.header().prev_hash();
         let epoch_id = block.header().epoch_id();
         let shard_layout = client_epoch_manager.get_shard_layout(epoch_id).unwrap();
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let state_root = chunk_header.prev_state_root();
             let state_root_node =
@@ -294,7 +294,7 @@ mod tests {
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::new_shard_id_vec_tmp;
+    use near_primitives::types::ShardId;
     use near_store::test_utils::gen_account_from_alphabet;
     use nearcore::{load_test_config, start_with_config};
     use rand::thread_rng;
@@ -322,7 +322,7 @@ mod tests {
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
         near_config.config.store.state_snapshot_enabled = true;
-        near_config.config.tracked_shards = new_shard_id_vec_tmp(&[0]); // Track all shards.
+        near_config.config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path();
@@ -408,7 +408,7 @@ mod tests {
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
         let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
         near_config1.client_config.min_num_peers = 1;
-        near_config1.client_config.tracked_shards = new_shard_id_vec_tmp(&[0]); // Track all shards.
+        near_config1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
         near_config1.config.store.state_snapshot_enabled = true;
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
 
