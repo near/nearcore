@@ -14,7 +14,7 @@ use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::ops::Bound;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";

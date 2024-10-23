@@ -213,13 +213,16 @@ impl EpochManager {
             );
         }
 
-        // Load epoch config files for other chains if home dir is not none. Otherwise, use genesis config.
-        let epoch_config_store = if home_dir.is_some() {
-            // We are using these configs for testing, so we can panic if they are not found.
-            let config_dir = home_dir.map(|home_dir| home_dir.join("epoch_configs"));
+        let config_dir = home_dir.map(|home_dir| home_dir.join("epoch_configs"));
+        let epoch_config_store = if config_dir.as_ref().map_or(false, |dir| dir.exists()) {
             EpochConfigStore::for_chain_id(chain_id, config_dir).unwrap()
+        } else if chain_id.starts_with("test-chain-") {
+            let epoch_config = EpochConfig::from(genesis_config);
+            EpochConfigStore::test(BTreeMap::from_iter(vec![(
+                genesis_config.protocol_version,
+                Arc::new(epoch_config),
+            )]))
         } else {
-            // TODO: For tests, we want to use new_arc_handle_from_epoch_config_store with EpochConfigStore::test instead of calling new_arc_handle.
             let epoch_config = Genesis::test_epoch_config(
                 genesis_config.num_block_producer_seats,
                 genesis_config.shard_layout.clone(),
