@@ -72,7 +72,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
@@ -199,10 +199,11 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
-    pub contract_accesses: Vec<CodeHash>,
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
+    pub contract_accesses: BTreeSet<CodeHash>,
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 #[derive(Debug)]
@@ -475,6 +476,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
+                    account.code_hash(),
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
@@ -2078,8 +2080,13 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
-        let TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses } =
-            state_update.finalize()?;
+        let TrieUpdateResult {
+            trie,
+            trie_changes,
+            state_changes,
+            contract_accesses,
+            contract_deploys,
+        } = state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -2135,11 +2142,12 @@ impl Runtime {
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
             bandwidth_requests,
-            contract_accesses,
             bandwidth_scheduler_state_hash: bandwidth_scheduler_output
                 .as_ref()
                 .map(|o| o.scheduler_state_hash)
                 .unwrap_or_default(),
+            contract_accesses,
+            contract_deploys,
         })
     }
 }
@@ -2227,7 +2235,7 @@ fn missing_chunk_apply_result(
     processing_state: ApplyProcessingState,
     bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
 ) -> Result<ApplyResult, RuntimeError> {
-    let TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses } =
+    let TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses, contract_deploys } =
         processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
 
@@ -2263,12 +2271,13 @@ fn missing_chunk_apply_result(
         delayed_receipts_count: delayed_receipts.len(),
         metrics: None,
         congestion_info,
-        contract_accesses,
         bandwidth_requests: previous_bandwidth_requests,
         bandwidth_scheduler_state_hash: bandwidth_scheduler_output
             .as_ref()
             .map(|o| o.scheduler_state_hash)
             .unwrap_or_default(),
+        contract_accesses,
+        contract_deploys,
     });
 }
 

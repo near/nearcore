@@ -384,7 +384,7 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
             borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                 base_state,
                 receipts_hash,
-                contract_accesses: vec![],
+                contract_accesses: Default::default(),
             }))?;
         update.set(DBCol::StateTransitionData, &key, &new_value);
     }

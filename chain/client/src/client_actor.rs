@@ -1917,6 +1917,31 @@ impl ClientActorInner {
             return Ok(false);
         }
 
+        if let Some(epoch_sync_boundary_block_header) =
+            self.client.epoch_sync.my_own_epoch_sync_boundary_block_header()
+        {
+            let current_epoch_start =
+                self.client.epoch_manager.get_epoch_start_height(&header_head.last_block_hash)?;
+            if &header_head.epoch_id == epoch_sync_boundary_block_header.epoch_id() {
+                // We do not want to state sync into the same epoch that epoch sync bootstrapped us with,
+                // because we're missing block headers before this epoch. Wait till we have a header in
+                // the next epoch before starting state sync. (This is not a long process; epoch sync
+                // should have picked an old enough epoch so that there is a new epoch already available;
+                // we just need to download more headers.)
+                return Ok(false);
+            }
+            if epoch_sync_boundary_block_header.height()
+                + self.client.chain.transaction_validity_period
+                > current_epoch_start
+            {
+                // We also do not want to state sync, if by doing so we would not have enough headers to
+                // perform transaction validity checks. Again, epoch sync should have picked an old
+                // enough epoch to ensure that we would have enough headers if we just continued with
+                // header sync.
+                return Ok(false);
+            }
+        }
+
         let block_sync_result = self.client.block_sync.run(
             &mut self.client.sync_status,
             &self.client.chain,

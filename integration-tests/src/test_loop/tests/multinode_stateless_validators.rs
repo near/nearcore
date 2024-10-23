@@ -67,7 +67,7 @@ fn test_stateless_validators_with_multi_test_loop() {
     let initial_epoch_id = chain.head().unwrap().epoch_id;
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts).unwrap();
 
     // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
     let prev_epoch_id = test_loop.data.get(&client_handle).client.chain.head().unwrap().epoch_id;

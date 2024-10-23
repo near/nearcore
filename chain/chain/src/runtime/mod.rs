@@ -471,6 +471,7 @@ impl NightshadeRuntime {
             contract_accesses: apply_result.contract_accesses,
             bandwidth_requests: apply_result.bandwidth_requests,
             bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
+            contract_deploys: apply_result.contract_deploys,
         };
 
         Ok(result)
