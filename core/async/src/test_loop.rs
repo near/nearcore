@@ -244,6 +244,20 @@ impl TestLoopV2 {
         self.pending_events_sender.send(format!("Adhoc({})", description), Box::new(callback));
     }
 
+    /// Sends any ad-hoc event to the loop, after some delay.
+    pub fn send_adhoc_event_with_delay(
+        &self,
+        description: String,
+        delay: Duration,
+        callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
+    ) {
+        self.pending_events_sender.send_with_delay(
+            format!("Adhoc({})", description),
+            Box::new(callback),
+            delay,
+        );
+    }
+
     /// Returns a clock that will always return the current virtual time.
     pub fn clock(&self) -> Clock {
         self.clock.clock()

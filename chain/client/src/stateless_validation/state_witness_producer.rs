@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use near_async::messaging::{CanSend, IntoSender};
@@ -19,6 +19,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+    StoredChunkStateTransitionDataV2,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -36,7 +37,21 @@ struct StateTransitionData {
     main_transition: ChunkStateTransition,
     implicit_transitions: Vec<ChunkStateTransition>,
     applied_receipts_hash: CryptoHash,
-    contract_accesses: Vec<CodeHash>,
+    contract_accesses: BTreeSet<CodeHash>,
+    contract_deploys: BTreeSet<CodeHash>,
+}
+
+/// Result of creating witness.
+///
+/// Since we distribute the contracts accessed separately from the state witness,
+/// we contain them in separate fields in the result.
+pub(crate) struct CreateWitnessResult {
+    /// State witness created.
+    pub(crate) state_witness: ChunkStateWitness,
+    /// Code-hashes of contracts accessed while applying the previous chunk.
+    pub(crate) contract_accesses: BTreeSet<CodeHash>,
+    /// Code-hashes of contracts deployed while applying the previous chunk.
+    pub(crate) contract_deploys: BTreeSet<CodeHash>,
 }
 
 impl Client {
@@ -61,13 +76,14 @@ impl Client {
 
         let my_signer =
             validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
-        let (state_witness, contract_accesses) = self.create_state_witness(
-            my_signer.validator_id().clone(),
-            prev_block_header,
-            prev_chunk_header,
-            chunk,
-            transactions_storage_proof,
-        )?;
+        let CreateWitnessResult { state_witness, contract_accesses, contract_deploys } = self
+            .create_state_witness(
+                my_signer.validator_id().clone(),
+                prev_block_header,
+                prev_chunk_header,
+                chunk,
+                transactions_storage_proof,
+            )?;
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
@@ -89,15 +105,18 @@ impl Client {
             );
         }
 
-        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version)
-            && !contract_accesses.is_empty()
-        {
-            self.send_contract_accesses_to_chunk_validators(
-                epoch_id,
-                &chunk_header,
-                contract_accesses,
-                my_signer.as_ref(),
-            );
+        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
+            // TODO(#11099): Currently we consume contract_deploys only for the following log message. Distribute it to validators
+            // that will not validate the current witness so that they can follow-up with requesting the contract code.
+            tracing::debug!(target: "client", ?contract_accesses, ?contract_deploys, "Contract accesses and deploys while sending state witness");
+            if !contract_accesses.is_empty() {
+                self.send_contract_accesses_to_chunk_validators(
+                    epoch_id,
+                    &chunk_header,
+                    contract_accesses,
+                    my_signer.as_ref(),
+                );
+            }
         }
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
@@ -115,7 +134,7 @@ impl Client {
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
-    ) -> Result<(ChunkStateWitness, Vec<CodeHash>), Error> {
+    ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
@@ -125,6 +144,7 @@ impl Client {
             implicit_transitions,
             applied_receipts_hash,
             contract_accesses,
+            contract_deploys,
         } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
 
         let new_transactions = chunk.transactions().to_vec();
@@ -143,7 +163,7 @@ impl Client {
         let source_receipt_proofs =
             self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
 
-        let witness = ChunkStateWitness::new(
+        let state_witness = ChunkStateWitness::new(
             chunk_producer,
             epoch_id,
             chunk_header,
@@ -158,7 +178,7 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
-        Ok((witness, contract_accesses))
+        Ok(CreateWitnessResult { state_witness, contract_accesses, contract_deploys })
     }
 
     /// Collect state transition data necessary to produce state witness for
@@ -199,7 +219,7 @@ impl Client {
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.
-                let (chunk_state_transition, _, _) =
+                let (chunk_state_transition, _, _, _) =
                     self.get_state_transition(&current_block_hash, &next_epoch_id, next_shard_id)?;
                 implicit_transitions.push(chunk_state_transition);
             }
@@ -211,7 +231,7 @@ impl Client {
             }
 
             // Add implicit state transition.
-            let (chunk_state_transition, _, _) = self.get_state_transition(
+            let (chunk_state_transition, _, _, _) = self.get_state_transition(
                 &current_block_hash,
                 &current_epoch_id,
                 current_shard_id,
@@ -227,18 +247,19 @@ impl Client {
         implicit_transitions.reverse();
 
         // Get the main state transition.
-        let (main_transition, receipts_hash, contract_accesses) = if prev_chunk_header.is_genesis()
-        {
-            self.get_genesis_state_transition(&main_block, &epoch_id, shard_id)?
-        } else {
-            self.get_state_transition(&main_block, &epoch_id, shard_id)?
-        };
+        let (main_transition, receipts_hash, contract_accesses, contract_deploys) =
+            if prev_chunk_header.is_genesis() {
+                self.get_genesis_state_transition(&main_block, &epoch_id, shard_id)?
+            } else {
+                self.get_state_transition(&main_block, &epoch_id, shard_id)?
+            };
 
         Ok(StateTransitionData {
             main_transition,
             implicit_transitions,
             applied_receipts_hash: receipts_hash,
-            contract_accesses,
+            contract_accesses: BTreeSet::from_iter(contract_accesses.into_iter()),
+            contract_deploys: BTreeSet::from_iter(contract_deploys.into_iter()),
         })
     }
 
@@ -248,7 +269,8 @@ impl Client {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<(ChunkStateTransition, CryptoHash, Vec<CodeHash>), Error> {
+    ) -> Result<(ChunkStateTransition, CryptoHash, BTreeSet<CodeHash>, BTreeSet<CodeHash>), Error>
+    {
         let shard_uid = self.chain.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         let stored_chunk_state_transition_data = self
             .chain
@@ -267,24 +289,30 @@ impl Client {
                 }
                 Error::Other(message)
             })?;
-        match stored_chunk_state_transition_data {
-            StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
-                base_state,
-                receipts_hash,
-                contract_accesses,
-            }) => Ok((
-                ChunkStateTransition {
-                    block_hash: *block_hash,
+        let (base_state, receipts_hash, contract_accesses, contract_deploys) =
+            match stored_chunk_state_transition_data {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state,
-                    post_state_root: *self
-                        .chain
-                        .get_chunk_extra(block_hash, &shard_uid)?
-                        .state_root(),
-                },
-                receipts_hash,
-                contract_accesses,
-            )),
-        }
+                    receipts_hash,
+                    contract_accesses,
+                }) => (base_state, receipts_hash, contract_accesses, Default::default()),
+                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    contract_deploys,
+                }) => (base_state, receipts_hash, contract_accesses, contract_deploys),
+            };
+        Ok((
+            ChunkStateTransition {
+                block_hash: *block_hash,
+                base_state,
+                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
+            },
+            receipts_hash,
+            BTreeSet::from_iter(contract_accesses.into_iter()),
+            BTreeSet::from_iter(contract_deploys.into_iter()),
+        ))
     }
 
     fn get_genesis_state_transition(
@@ -292,7 +320,8 @@ impl Client {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<(ChunkStateTransition, CryptoHash, Vec<CodeHash>), Error> {
+    ) -> Result<(ChunkStateTransition, CryptoHash, BTreeSet<CodeHash>, BTreeSet<CodeHash>), Error>
+    {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         Ok((
             ChunkStateTransition {
@@ -301,7 +330,8 @@ impl Client {
                 post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
             },
             hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()),
-            vec![],
+            Default::default(),
+            Default::default(),
         ))
     }
 
@@ -396,7 +426,7 @@ impl Client {
         &self,
         epoch_id: &EpochId,
         chunk_header: &ShardChunkHeader,
-        contract_accesses: Vec<CodeHash>,
+        contract_accesses: BTreeSet<CodeHash>,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_production_key = ChunkProductionKey {
@@ -427,6 +457,7 @@ impl Client {
 
         let target_chunk_validators =
             chunk_validators.difference(&chunk_producers).cloned().collect();
+        // TODO(#11099): Exclude new deployments from the list of contract accesses.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,

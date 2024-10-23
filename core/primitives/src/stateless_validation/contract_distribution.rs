@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
@@ -8,6 +10,8 @@ use near_schema_checker_lib::ProtocolSchema;
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 
 use super::{ChunkProductionKey, SignatureDifferentiator};
+
+// Data structures for chunk producers to send accessesed contracts to chunk validators.
 
 /// Contains contracts (as code-hashes) accessed during the application of a chunk.
 /// This is used by the chunk producer to let the chunk validators know about which contracts
@@ -20,7 +24,7 @@ pub enum ChunkContractAccesses {
 impl ChunkContractAccesses {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, signer))
@@ -49,7 +53,7 @@ pub struct ChunkContractAccessesV1 {
 impl ChunkContractAccessesV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkContractAccessesInner::new(next_chunk, contracts);
@@ -64,7 +68,6 @@ pub struct ChunkContractAccessesInner {
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
-    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
@@ -72,11 +75,84 @@ pub struct ChunkContractAccessesInner {
 }
 
 impl ChunkContractAccessesInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+    fn new(next_chunk: ChunkProductionKey, contracts: BTreeSet<CodeHash>) -> Self {
         Self {
             next_chunk,
-            contracts,
+            contracts: contracts.into_iter().collect(),
             signature_differentiator: "ChunkContractAccessesInner".to_owned(),
+        }
+    }
+}
+
+// Data structures for chunk producers to send deployed contracts to chunk validators.
+
+/// Contains contracts (as code-hashes) deployed during the application of a chunk.
+/// This is used by the chunk producer to let other validators know about which contracts
+/// could be needed for validating a witness in the future, so that the validators can request missing code.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum ChunkContractDeployments {
+    V1(ChunkContractDeploymentsV1),
+}
+
+impl ChunkContractDeployments {
+    pub fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: BTreeSet<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(ChunkContractDeploymentsV1::new(next_chunk, contracts, signer))
+    }
+
+    pub fn contracts(&self) -> &[CodeHash] {
+        match self {
+            Self::V1(deploys) => &deploys.inner.contracts,
+        }
+    }
+
+    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
+        match self {
+            Self::V1(deploys) => &deploys.inner.next_chunk,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractDeploymentsV1 {
+    inner: ChunkContractDeploymentsInner,
+    /// Signature of the inner, signed by the chunk producer of the next chunk.
+    signature: Signature,
+}
+
+impl ChunkContractDeploymentsV1 {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: BTreeSet<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ChunkContractDeploymentsInner::new(next_chunk, contracts);
+        let signature = signer.sign_chunk_contract_deployments(&inner);
+        Self { inner, signature }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractDeploymentsInner {
+    /// Production metadata of the chunk created after the chunk the deployments belong to.
+    /// We associate this message with the next-chunk info because this message is generated
+    /// and distributed while generating the state-witness of the next chunk
+    /// (by the chunk producer of the next chunk).
+    next_chunk: ChunkProductionKey,
+    /// List of code-hashes for the contracts accessed.
+    contracts: Vec<CodeHash>,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ChunkContractDeploymentsInner {
+    fn new(next_chunk: ChunkProductionKey, contracts: BTreeSet<CodeHash>) -> Self {
+        Self {
+            next_chunk,
+            contracts: contracts.into_iter().collect(),
+            signature_differentiator: "ChunkContractDeploymentsInner".to_owned(),
         }
     }
 }
@@ -93,7 +169,7 @@ pub enum ContractCodeRequest {
 impl ContractCodeRequest {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, signer))
@@ -128,7 +204,7 @@ pub struct ContractCodeRequestV1 {
 impl ContractCodeRequestV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner =
@@ -147,7 +223,6 @@ pub struct ContractCodeRequestInner {
     /// We associate this message with the next-chunk info because this message is generated
     /// and distributed while generating the state-witness of the next chunk
     /// (by the chunk producer of the next chunk).
-    // TODO(#11099): Consider simplifying this with the ChunkHash of the prev_chunk (the one the accesses belong to).
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
@@ -155,11 +230,15 @@ pub struct ContractCodeRequestInner {
 }
 
 impl ContractCodeRequestInner {
-    fn new(requester: AccountId, next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+    fn new(
+        requester: AccountId,
+        next_chunk: ChunkProductionKey,
+        contracts: BTreeSet<CodeHash>,
+    ) -> Self {
         Self {
             requester,
             next_chunk,
-            contracts,
+            contracts: contracts.into_iter().collect(),
             signature_differentiator: "ContractCodeRequestInner".to_owned(),
         }
     }
@@ -264,8 +343,31 @@ impl
 }
 
 /// Hash of some (uncompiled) contract code.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    BorshSerialize,
+    BorshDeserialize,
+    ProtocolSchema,
+)]
 pub struct CodeHash(pub CryptoHash);
+
+impl From<CryptoHash> for CodeHash {
+    fn from(crypto_hash: CryptoHash) -> Self {
+        Self(crypto_hash)
+    }
+}
+
+impl Into<CryptoHash> for CodeHash {
+    fn into(self) -> CryptoHash {
+        self.0
+    }
+}
 
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]

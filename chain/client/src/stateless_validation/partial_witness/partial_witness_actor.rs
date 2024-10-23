@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -8,15 +9,16 @@ use near_chain::Error;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage,
+    ChunkContractAccessesMessage, ChunkContractDeploymentsMessage, ChunkStateWitnessAckMessage,
+    ContractCodeRequestMessage, ContractCodeResponseMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, CodeBytes, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, ChunkContractDeployments, CodeBytes, ContractCodeRequest,
+    ContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -110,6 +112,14 @@ impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
         if let Err(err) = self.handle_chunk_contract_accesses(msg.0) {
             tracing::error!(target: "client", ?err, "Failed to handle ChunkContractAccessesMessage");
+        }
+    }
+}
+
+impl Handler<ChunkContractDeploymentsMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: ChunkContractDeploymentsMessage) {
+        if let Err(err) = self.handle_chunk_contract_deployments(msg.0) {
+            tracing::error!(target: "client", ?err, "Failed to handle ChunkContractDeploymentsMessage");
         }
     }
 }
@@ -354,18 +364,29 @@ impl PartialWitnessActor {
             return Ok(());
         }
         let key = accesses.chunk_production_key();
-        let contract_hashes = accesses.contracts();
+        let contract_hashes = BTreeSet::from_iter(accesses.contracts().iter().cloned());
         self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), contract_hashes.to_vec())?;
+            .store_accessed_contract_hashes(key.clone(), contract_hashes.clone())?;
         // TODO(#11099): currently we always request all hashes to test worst case scenario.
         // Eventually we want to only request ones that are missing from the compiled contracts cache.
         let random_chunk_producer =
             self.epoch_manager.get_random_chunk_producer_for_shard(&key.epoch_id, key.shard_id)?;
-        let request = ContractCodeRequest::new(key.clone(), contract_hashes.to_vec(), &signer);
+        let request = ContractCodeRequest::new(key.clone(), contract_hashes, &signer);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
         ));
         Ok(())
+    }
+
+    /// Handles new contract deployments message from chunk producer.
+    /// This is sent in parallel to a chunk state witness and contains the code-hashes
+    /// of the contracts deployed when applying the previous chunk of the witness.
+    fn handle_chunk_contract_deployments(
+        &mut self,
+        _deploys: ChunkContractDeployments,
+    ) -> Result<(), Error> {
+        // TODO(#11099): Implement the handling of this message.
+        unreachable!("code for sending message is not implemented yet")
     }
 
     /// Handles contract code requests message from chunk validators.

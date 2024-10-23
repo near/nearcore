@@ -1381,7 +1381,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
             // Since all actions are transfer actions, there is no contracts accessed.
-            contract_accesses: vec![],
+            contract_accesses: Default::default(),
+            contract_deploys: Default::default(),
         })
     }
 
