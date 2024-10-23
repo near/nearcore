@@ -167,29 +167,19 @@ pub enum StateChangeCause {
     /// or in tests setup.
     InitialState,
     /// Processing of a transaction.
-    TransactionProcessing {
-        tx_hash: CryptoHash,
-    },
+    TransactionProcessing { tx_hash: CryptoHash },
     /// Before the receipt is going to be processed, inputs get drained from the state, which
     /// causes state modification.
-    ActionReceiptProcessingStarted {
-        receipt_hash: CryptoHash,
-    },
+    ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
     /// Computation of gas reward.
-    ActionReceiptGasReward {
-        receipt_hash: CryptoHash,
-    },
+    ActionReceiptGasReward { receipt_hash: CryptoHash },
     /// Processing of a receipt.
-    ReceiptProcessing {
-        receipt_hash: CryptoHash,
-    },
+    ReceiptProcessing { receipt_hash: CryptoHash },
     /// The given receipt was postponed. This is either a data receipt or an action receipt.
     /// A `DataReceipt` can be postponed if the corresponding `ActionReceipt` is not received yet,
     /// or other data dependencies are not satisfied.
     /// An `ActionReceipt` can be postponed if not all data dependencies are received.
-    PostponedReceipt {
-        receipt_hash: CryptoHash,
-    },
+    PostponedReceipt { receipt_hash: CryptoHash },
     /// Updated delayed receipts queue in the state.
     /// We either processed previously delayed receipts or added more receipts to the delayed queue.
     UpdatedDelayedReceipts,
@@ -201,6 +191,7 @@ pub enum StateChangeCause {
     Migration,
     /// State changes for building states for re-sharding
     ReshardingV2,
+    /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
     BandwidthSchedulerStateUpdate,
 }
 
