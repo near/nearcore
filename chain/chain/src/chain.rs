@@ -2070,11 +2070,27 @@ impl Chain {
 
         self.check_orphans(me, *block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
+        self.check_if_upgrade_needed(&block_hash);
+
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
+    }
+
+    fn check_if_upgrade_needed(&self, block_hash: &CryptoHash) {
+        if let Ok(next_epoch_protocol_version) =
+            self.epoch_manager.get_next_epoch_protocol_version(block_hash)
+        {
+            if PROTOCOL_VERSION < next_epoch_protocol_version {
+                error!(
+                    "The protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new protocol version {}",
+                    PROTOCOL_VERSION,
+                    next_epoch_protocol_version,
+                );
+            }
+        }
     }
 
     /// Gets new flat storage head candidate for given `shard_id` and newly
@@ -2217,17 +2233,6 @@ impl Chain {
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
             panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
-        }
-
-        let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-        let next_epoch_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if next_epoch_protocol_version > PROTOCOL_VERSION {
-            error!(
-                "The client protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new network protocol version {}",
-                PROTOCOL_VERSION,
-                next_epoch_protocol_version,
-            );
         }
 
         // First real I/O expense.
