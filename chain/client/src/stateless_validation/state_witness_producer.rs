@@ -219,7 +219,7 @@ impl Client {
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.
-                let (chunk_state_transition, _, _) =
+                let (chunk_state_transition, _, _, _) =
                     self.get_state_transition(&current_block_hash, &next_epoch_id, next_shard_id)?;
                 implicit_transitions.push(chunk_state_transition);
             }
@@ -231,7 +231,7 @@ impl Client {
             }
 
             // Add implicit state transition.
-            let (chunk_state_transition, _, _) = self.get_state_transition(
+            let (chunk_state_transition, _, _, _) = self.get_state_transition(
                 &current_block_hash,
                 &current_epoch_id,
                 current_shard_id,
@@ -247,12 +247,12 @@ impl Client {
         implicit_transitions.reverse();
 
         // Get the main state transition.
-        let (main_transition, receipts_hash, contract_accesses) = if prev_chunk_header.is_genesis()
-        {
-            self.get_genesis_state_transition(&main_block, &epoch_id, shard_id)?
-        } else {
-            self.get_state_transition(&main_block, &epoch_id, shard_id)?
-        };
+        let (main_transition, receipts_hash, contract_accesses, contract_deploys) =
+            if prev_chunk_header.is_genesis() {
+                self.get_genesis_state_transition(&main_block, &epoch_id, shard_id)?
+            } else {
+                self.get_state_transition(&main_block, &epoch_id, shard_id)?
+            };
 
         Ok(StateTransitionData {
             main_transition,
@@ -269,7 +269,8 @@ impl Client {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<(ChunkStateTransition, CryptoHash, Vec<CodeHash>), Error> {
+    ) -> Result<(ChunkStateTransition, CryptoHash, BTreeSet<CodeHash>, BTreeSet<CodeHash>), Error>
+    {
         let shard_uid = self.chain.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         let stored_chunk_state_transition_data = self
             .chain
@@ -288,24 +289,30 @@ impl Client {
                 }
                 Error::Other(message)
             })?;
-        match stored_chunk_state_transition_data {
-            StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
-                base_state,
-                receipts_hash,
-                contract_accesses,
-            }) => Ok((
-                ChunkStateTransition {
-                    block_hash: *block_hash,
+        let (base_state, receipts_hash, contract_accesses, contract_deploys) =
+            match stored_chunk_state_transition_data {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state,
-                    post_state_root: *self
-                        .chain
-                        .get_chunk_extra(block_hash, &shard_uid)?
-                        .state_root(),
-                },
-                receipts_hash,
-                contract_accesses,
-            )),
-        }
+                    receipts_hash,
+                    contract_accesses,
+                }) => (base_state, receipts_hash, contract_accesses, Default::default()),
+                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    contract_deploys,
+                }) => (base_state, receipts_hash, contract_accesses, contract_deploys),
+            };
+        Ok((
+            ChunkStateTransition {
+                block_hash: *block_hash,
+                base_state,
+                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
+            },
+            receipts_hash,
+            BTreeSet::from_iter(contract_accesses.into_iter()),
+            BTreeSet::from_iter(contract_deploys.into_iter()),
+        ))
     }
 
     fn get_genesis_state_transition(
@@ -313,7 +320,8 @@ impl Client {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<(ChunkStateTransition, CryptoHash, Vec<CodeHash>), Error> {
+    ) -> Result<(ChunkStateTransition, CryptoHash, BTreeSet<CodeHash>, BTreeSet<CodeHash>), Error>
+    {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         Ok((
             ChunkStateTransition {
@@ -322,7 +330,8 @@ impl Client {
                 post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
             },
             hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()),
-            vec![],
+            Default::default(),
+            Default::default(),
         ))
     }
 

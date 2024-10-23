@@ -42,9 +42,7 @@ impl ContractsTracker {
         self.uncommitted_deploys
             .get(&code_hash)
             .or_else(|| self.committed_deploys.get(&code_hash))
-            .and_then(|contract| {
-                Some(ContractCode::new(contract.code().to_vec(), Some(code_hash.into())))
-            })
+            .map(|contract| ContractCode::new(contract.code().to_vec(), Some(code_hash.into())))
     }
 
     fn call(&mut self, code_hash: CodeHash) {
@@ -117,8 +115,7 @@ impl ContractStorage {
             // Note that this does not cause any correctness issue, because the pipeline stops processing when
             // it hits a new deployment, so the contract requested by the pipeline will not be in the committed or
             // uncommitted deployment list.
-            if guard.is_some() {
-                let tracker = guard.as_ref().expect("no panics");
+            if let Some(tracker) = guard.as_ref() {
                 if let Some(contract) = tracker.get(code_hash.into()) {
                     return Some(ContractCode::new(contract.code().to_vec(), Some(code_hash)));
                 }
@@ -131,7 +128,7 @@ impl ContractStorage {
         }
     }
 
-    /// Records an call to a contract by code-hash.
+    /// Records a call to a contract by code-hash.
     ///
     /// This is used to capture the contracts that are called when applying a chunk.
     pub fn record_call(&self, code_hash: CryptoHash) {

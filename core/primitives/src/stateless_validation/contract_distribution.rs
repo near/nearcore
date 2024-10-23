@@ -101,7 +101,7 @@ impl ChunkContractDeployments {
         Self::V1(ChunkContractDeploymentsV1::new(next_chunk, contracts, signer))
     }
 
-    pub fn contracts(&self) -> &Vec<CodeHash> {
+    pub fn contracts(&self) -> &[CodeHash] {
         match self {
             Self::V1(deploys) => &deploys.inner.contracts,
         }
