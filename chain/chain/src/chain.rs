@@ -2511,6 +2511,9 @@ impl Chain {
 
     /// Returns the first block for which at least two new chunks have been produced for every shard in the epoch
     /// This is the "sync_hash" that will be used as a reference point when state syncing the current epoch's state
+    // TODO(current_epoch_state_sync): remove this and replace it with a single more efficient function that somehow
+    // keeps track of the number of new chunks per shard so for, like in `NewChunkTracker::find_sync_hash()`, and then
+    // only implement this in one place.
     fn get_current_epoch_sync_hash(
         &self,
         block_hash: &CryptoHash,
