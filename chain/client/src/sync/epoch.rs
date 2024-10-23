@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::{compression::CompressedData, index_to_bytes};
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
 use near_vm_runner::logic::ProtocolVersion;
@@ -45,6 +45,8 @@ pub struct EpochSync {
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
+    // See `my_own_epoch_sync_boundary_block_header()`.
+    my_own_epoch_sync_boundary_block_header: Option<BlockHeader>,
 }
 
 impl EpochSync {
@@ -54,7 +56,14 @@ impl EpochSync {
         genesis: BlockHeader,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
+        store: &Store,
     ) -> Self {
+        let epoch_sync_proof_we_used_to_bootstrap = store
+            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
+            .expect("IO error querying epoch sync proof");
+        let my_own_epoch_sync_boundary_block_header = epoch_sync_proof_we_used_to_bootstrap
+            .map(|proof| proof.current_epoch.first_block_header_in_epoch);
+
         Self {
             clock,
             network_adapter,
@@ -62,7 +71,15 @@ impl EpochSync {
             async_computation_spawner,
             config,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
+            my_own_epoch_sync_boundary_block_header,
         }
+    }
+
+    /// Returns the block hash of the first block of the epoch that this node was initially
+    /// bootstrapped to using epoch sync, or None if this node was not bootstrapped using
+    /// epoch sync.
+    pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
+        self.my_own_epoch_sync_boundary_block_header.as_ref()
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
@@ -70,29 +87,17 @@ impl EpochSync {
     #[instrument(skip(store, cache))]
     pub fn derive_epoch_sync_proof(
         store: Store,
+        transaction_validity_period: BlockHeightDelta,
         cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
     ) -> Result<CompressedEpochSyncProof, Error> {
         // Epoch sync initializes a new node with the first block of some epoch; we call that
         // epoch the "target epoch". In the context of talking about the proof or the newly
         // bootstrapped node, it is also called the "current epoch".
-        //
-        // The basic requirement for picking the target epoch is that its first block must be
-        // final. That's just so that we don't have to deal with any forks. Therefore, it is
-        // sufficient to pick whatever epoch the current final block is in. However, because
-        // state sync also requires some previous headers to be available (depending on how
-        // many chunks were missing), it is more convenient to just pick the prior epoch, so
-        // that by the time the new node does state sync, it would have a whole epoch of headers
-        // available via header sync.
-        //
-        // In other words, we pick the target epoch to be the previous epoch of the final tip.
-        let tip = store
-            .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
-            .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
-        let next_next_epoch_id = tip.next_epoch_id;
-        // Last block hash of the target epoch is the same as the next next EpochId.
-        // That's a general property for Near's epochs.
+        let target_epoch_last_block_hash =
+            Self::find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
+
         let target_epoch_last_block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, next_next_epoch_id.0.as_bytes())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, target_epoch_last_block_hash.as_bytes())?
             .ok_or_else(|| Error::Other("Could not find last block of target epoch".to_string()))?;
         let target_epoch_second_last_block_header = store
             .get_ser::<BlockHeader>(
@@ -124,6 +129,63 @@ impl EpochSync {
         metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(proof.size_bytes() as i64);
         *guard = Some((*target_epoch_last_block_header.epoch_id(), proof.clone()));
         Ok(proof)
+    }
+
+    /// Figures out which target epoch we should produce a proof for, based on the current
+    /// state of the blockchain.
+    ///
+    /// The basic requirement for picking the target epoch is that its first block must be
+    /// final. That's just so that we don't have to deal with any forks. Therefore, it is
+    /// sufficient to pick whatever epoch the current final block is in. However, there are
+    /// additional considerations:
+    ///  - Because state sync also requires some previous headers to be available (depending
+    ///    on how many chunks were missing), if we pick the most recent epoch, after the node
+    ///    finishes epoch sync and transitions to state sync, it would not have these headers
+    ///    before the epoch. Therefore, for this purpose, it's convenient for epoch sync to not
+    ///    pick the most recent epoch. This would ensure that state sync has a whole epoch of
+    ///    headers before the epoch it's syncing to.
+    ///  - We also need to have enough block headers to check for transaction_validity_period.
+    ///    Therefore, we need find the latest epoch for which we would have at least that many
+    ///    headers.
+    fn find_target_epoch_to_produce_proof_for(
+        store: &Store,
+        transaction_validity_period: BlockHeightDelta,
+    ) -> Result<CryptoHash, Error> {
+        let tip = store
+            .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
+            .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
+        let current_epoch_start_height = store
+            .get_ser::<BlockHeight>(DBCol::EpochStart, tip.epoch_id.0.as_bytes())?
+            .ok_or_else(|| Error::EpochOutOfBounds(tip.epoch_id))?;
+        let next_next_epoch_id = tip.next_epoch_id;
+        // Last block hash of the target epoch is the same as the next next EpochId.
+        // That's a general property for Near's epochs.
+        let mut target_epoch_last_block_hash = next_next_epoch_id.0;
+        Ok(loop {
+            let block_info = store
+                .get_ser::<BlockInfo>(DBCol::BlockInfo, target_epoch_last_block_hash.as_bytes())?
+                .ok_or_else(|| Error::Other("Could not find block info".to_string()))?;
+            let target_epoch_first_block_hash = block_info.epoch_first_block();
+            let target_epoch_first_block_header = store
+                .get_ser::<BlockHeader>(
+                    DBCol::BlockHeader,
+                    target_epoch_first_block_hash.as_bytes(),
+                )?
+                .ok_or_else(|| {
+                    Error::Other("Could not find first block of target epoch".to_string())
+                })?;
+            // Check that we have enough headers to check for transaction_validity_period.
+            // We check this against the current epoch's start height, because when we state
+            // sync, we will sync against the current epoch, and starting from the point we
+            // state sync is when we'll need to be able to check for transaction validity.
+            if target_epoch_first_block_header.height() + transaction_validity_period
+                > current_epoch_start_height
+            {
+                target_epoch_last_block_hash = *target_epoch_first_block_header.prev_hash();
+            } else {
+                break target_epoch_last_block_hash;
+            }
+        })
     }
 
     /// Derives an epoch sync proof using a target epoch which the given block header is in.
@@ -472,12 +534,28 @@ impl EpochSync {
                 tracing::warn!("Ignoring epoch sync proof from unexpected peer: {}", source_peer);
                 return Ok(());
             }
-            if proof.current_epoch.first_block_header_in_epoch.height()
-                + self.config.epoch_sync_accept_proof_max_horizon
+            if proof
+                .current_epoch
+                .first_block_header_in_epoch
+                .height()
+                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period))
+                >= status.source_peer_height
+            {
+                tracing::error!(
+                    "Ignoring epoch sync proof from peer {} that is too recent",
+                    source_peer
+                );
+                return Ok(());
+            }
+            if proof
+                .current_epoch
+                .first_block_header_in_epoch
+                .height()
+                .saturating_add(self.config.epoch_sync_horizon)
                 < status.source_peer_height
             {
                 tracing::error!(
-                    "Ignoring epoch sync proof from peer {} with too high height",
+                    "Ignoring epoch sync proof from peer {} that is too old",
                     source_peer
                 );
                 return Ok(());
@@ -743,10 +821,15 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;
         let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
+        let transaction_validity_period = self.client.chain.transaction_validity_period;
         self.client.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
             move || {
-                let proof = match EpochSync::derive_epoch_sync_proof(store, cache) {
+                let proof = match EpochSync::derive_epoch_sync_proof(
+                    store,
+                    transaction_validity_period,
+                    cache,
+                ) {
                     Ok(epoch_sync_proof) => epoch_sync_proof,
                     Err(err) => {
                         tracing::error!(?err, "Failed to derive epoch sync proof");

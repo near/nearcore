@@ -190,7 +190,6 @@ impl SyncConfig {
 pub struct EpochSyncConfig {
     pub enabled: bool,
     pub epoch_sync_horizon: BlockHeightDelta,
-    pub epoch_sync_accept_proof_max_horizon: BlockHeightDelta,
     #[serde(with = "near_time::serde_duration_as_std")]
     pub timeout_for_epoch_sync: Duration,
 }
@@ -203,7 +202,6 @@ impl Default for EpochSyncConfig {
             // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
             // (Epoch sync should not be picking a target epoch more than 2 epochs old.)
             epoch_sync_horizon: 216000,
-            epoch_sync_accept_proof_max_horizon: 86400,
             timeout_for_epoch_sync: Duration::seconds(60),
         }
     }
