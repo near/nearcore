@@ -283,6 +283,9 @@ fn block_chunk_headers_iter() {
         })
         .collect();
 
+    let raw_headers: Vec<&ShardChunkHeader> = chunks.iter_raw().collect();
+
     assert_eq!(old_headers.len(), 8);
     assert_eq!(new_headers.len(), 8);
+    assert_eq!(raw_headers.len(), old_headers.len() + new_headers.len());
 }
