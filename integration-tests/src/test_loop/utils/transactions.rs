@@ -1,7 +1,7 @@
 use crate::test_loop::env::TestData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
-use near_async::messaging::SendAsync;
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
@@ -19,17 +19,32 @@ use std::sync::{Arc, Mutex};
 use super::{ONE_NEAR, TGAS};
 use near_async::futures::FutureSpawnerExt;
 
+/// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
+/// the error.
+#[derive(Debug)]
+pub(crate) struct BalanceMismatchError {
+    #[allow(unused)]
+    pub account: AccountId,
+    #[allow(unused)]
+    pub expected: u128,
+    #[allow(unused)]
+    pub actual: u128,
+}
+
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
 /// balances correctly.
+///
+/// If balances are incorrect, returns an error.
+///
 /// TODO: consider resending transactions which may be dropped because of
 /// missing chunks.
 pub(crate) fn execute_money_transfers(
     test_loop: &mut TestLoopV2,
     node_data: &[TestData],
     accounts: &[AccountId],
-) {
+) -> Result<(), BalanceMismatchError> {
     let clients = node_data
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -39,45 +54,52 @@ pub(crate) fn execute_money_transfers(
         .map(|account| (account.clone(), clients.query_balance(&account)))
         .collect::<HashMap<_, _>>();
     let num_clients = clients.len();
-
-    // Transactions have to be built on top of some block in chain. To make
-    // sure all clients accept them, we select the head of the client with
-    // the smallest height.
-    let (_, anchor_hash) = clients
-        .iter()
-        .map(|client| {
-            let head = client.chain.head().unwrap();
-            (head.height, head.last_block_hash)
-        })
-        .min_by_key(|&(height, _)| height)
-        .unwrap();
     drop(clients);
+
+    let node_data = Arc::new(node_data.to_vec());
 
     for i in 0..accounts.len() {
         let amount = ONE_NEAR * (i as u128 + 1);
-        let sender = &accounts[i];
-        let receiver = &accounts[(i + 1) % accounts.len()];
-        let tx = SignedTransaction::send_money(
-            // TODO: set correct nonce.
-            1,
-            sender.clone(),
-            receiver.clone(),
-            &create_user_test_signer(sender).into(),
-            amount,
-            anchor_hash,
+        let sender = accounts[i].clone();
+        let receiver = accounts[(i + 1) % accounts.len()].clone();
+        let node_data = node_data.clone();
+        *balances.get_mut(&sender).unwrap() -= amount;
+        *balances.get_mut(&receiver).unwrap() += amount;
+        test_loop.send_adhoc_event_with_delay(
+            format!("transaction {}", i),
+            Duration::milliseconds(300 * i as i64),
+            move |data| {
+                let clients = node_data
+                    .iter()
+                    .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
+                    .collect_vec();
+
+                // Transactions have to be built on top of some block in chain. To make
+                // sure all clients accept them, we select the head of the client with
+                // the smallest height.
+                let (_, anchor_hash) = clients
+                    .iter()
+                    .map(|client| {
+                        let head = client.chain.head().unwrap();
+                        (head.height, head.last_block_hash)
+                    })
+                    .min_by_key(|&(height, _)| height)
+                    .unwrap();
+
+                let tx = SignedTransaction::send_money(
+                    // TODO: set correct nonce.
+                    1,
+                    sender.clone(),
+                    receiver.clone(),
+                    &create_user_test_signer(&sender).into(),
+                    amount,
+                    anchor_hash,
+                );
+                let process_tx_request =
+                    ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+                node_data[i % num_clients].client_sender.send(process_tx_request);
+            },
         );
-        *balances.get_mut(sender).unwrap() -= amount;
-        *balances.get_mut(receiver).unwrap() += amount;
-        let future = node_data[i % num_clients]
-            .client_sender
-            .clone()
-            .with_delay(Duration::milliseconds(300 * i as i64))
-            .send_async(ProcessTxRequest {
-                transaction: tx,
-                is_forwarded: false,
-                check_only: false,
-            });
-        drop(future);
     }
 
     // Give plenty of time for these transactions to complete.
@@ -89,13 +111,13 @@ pub(crate) fn execute_money_transfers(
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
     for account in accounts {
-        assert_eq!(
-            clients.query_balance(account),
-            *balances.get(account).unwrap(),
-            "Account balance mismatch for account {}",
-            account
-        );
+        let expected = *balances.get(account).unwrap();
+        let actual = clients.query_balance(account);
+        if expected != actual {
+            return Err(BalanceMismatchError { account: account.clone(), expected, actual });
+        }
     }
+    Ok(())
 }
 
 /// Deploy the test contract to the provided contract_id account. The contract

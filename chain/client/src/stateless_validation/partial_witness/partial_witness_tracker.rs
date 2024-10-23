@@ -16,6 +16,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::types::ShardId;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -42,9 +43,19 @@ enum AccessedContractsState {
     Unknown,
     /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`,
     /// waiting for response from the chunk producer.
-    Requested(Vec<CodeHash>),
+    Requested { contract_hashes: Vec<CodeHash>, requested_at: Instant },
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
+}
+
+impl AccessedContractsState {
+    fn metrics_label(&self) -> &str {
+        match &self {
+            AccessedContractsState::Unknown => "unknown",
+            AccessedContractsState::Requested { .. } => "requested",
+            AccessedContractsState::Received(_) => "received",
+        }
+    }
 }
 
 struct WaitingPartsState {
@@ -61,7 +72,7 @@ enum WitnessPartsState {
     /// Received at least one part, but not enough to decode the witness.
     WaitingParts(WaitingPartsState),
     /// Received enough parts and tried decoding the witness.
-    Decoded(DecodePartialWitnessResult),
+    Decoded { decode_result: DecodePartialWitnessResult, decoded_at: Instant },
 }
 
 impl WaitingPartsState {
@@ -127,6 +138,7 @@ impl WaitingPartsState {
 
 struct CacheEntry {
     created_at: Instant,
+    shard_id: ShardId,
     witness_parts: WitnessPartsState,
     accessed_contracts: AccessedContractsState,
 }
@@ -138,9 +150,10 @@ enum CacheUpdate {
 }
 
 impl CacheEntry {
-    pub fn new() -> Self {
+    pub fn new(shard_id: ShardId) -> Self {
         Self {
             created_at: Instant::now(),
+            shard_id,
             witness_parts: WitnessPartsState::Empty,
             accessed_contracts: AccessedContractsState::Unknown,
         }
@@ -149,14 +162,14 @@ impl CacheEntry {
     pub fn data_parts_required(&self) -> Option<usize> {
         match &self.witness_parts {
             WitnessPartsState::WaitingParts(data) => Some(data.data_parts_required()),
-            WitnessPartsState::Empty | WitnessPartsState::Decoded(_) => None,
+            WitnessPartsState::Empty | WitnessPartsState::Decoded { .. } => None,
         }
     }
 
     pub fn data_parts_present(&self) -> Option<usize> {
         match &self.witness_parts {
             WitnessPartsState::WaitingParts(data) => Some(data.data_parts_present),
-            WitnessPartsState::Empty | WitnessPartsState::Decoded(_) => None,
+            WitnessPartsState::Empty | WitnessPartsState::Decoded { .. } => None,
         }
     }
 
@@ -164,12 +177,12 @@ impl CacheEntry {
         let parts_size = match &self.witness_parts {
             WitnessPartsState::Empty => 0,
             WitnessPartsState::WaitingParts(parts) => parts.total_parts_size,
-            WitnessPartsState::Decoded(decode_result) => {
+            WitnessPartsState::Decoded { decode_result, .. } => {
                 decode_result.as_ref().map_or(0, |witness| witness.size_bytes())
             }
         };
         let contracts_size = match &self.accessed_contracts {
-            AccessedContractsState::Unknown | AccessedContractsState::Requested(_) => 0,
+            AccessedContractsState::Unknown | AccessedContractsState::Requested { .. } => 0,
             AccessedContractsState::Received(contracts) => {
                 contracts.iter().map(|code| code.0.len()).sum()
             }
@@ -189,7 +202,7 @@ impl CacheEntry {
                 self.set_requested_contracts(code_hashes);
             }
             CacheUpdate::AccessedContractCodes(contract_codes) => {
-                self.set_received_contracts(contract_codes)
+                self.set_received_contracts(contract_codes);
             }
         }
         self.try_finalize()
@@ -207,19 +220,29 @@ impl CacheEntry {
         let parts = match &mut self.witness_parts {
             WitnessPartsState::Empty => unreachable!(),
             WitnessPartsState::WaitingParts(parts) => parts,
-            WitnessPartsState::Decoded(_) => return,
+            WitnessPartsState::Decoded { .. } => return,
         };
         if let Some(decode_result) = parts.insert_part(partial_witness) {
-            self.witness_parts = WitnessPartsState::Decoded(decode_result)
+            self.witness_parts =
+                WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
+            metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT
+                .with_label_values(&[
+                    &self.shard_id.to_string(),
+                    self.accessed_contracts.metrics_label(),
+                ])
+                .inc();
         }
     }
 
     fn set_requested_contracts(&mut self, contract_hashes: Vec<CodeHash>) {
         match &self.accessed_contracts {
             AccessedContractsState::Unknown => {
-                self.accessed_contracts = AccessedContractsState::Requested(contract_hashes);
+                self.accessed_contracts = AccessedContractsState::Requested {
+                    contract_hashes,
+                    requested_at: Instant::now(),
+                };
             }
-            AccessedContractsState::Requested(_) | AccessedContractsState::Received(_) => {
+            AccessedContractsState::Requested { .. } | AccessedContractsState::Received(_) => {
                 tracing::warn!(target: "client", "Already received accessed contract hashes");
             }
         }
@@ -227,21 +250,30 @@ impl CacheEntry {
 
     fn set_received_contracts(&mut self, contract_codes: Vec<CodeBytes>) {
         match &self.accessed_contracts {
-            AccessedContractsState::Requested(hashes) => {
+            AccessedContractsState::Requested { contract_hashes, requested_at } => {
                 let actual = HashSet::<CryptoHash>::from_iter(
                     contract_codes.iter().map(|code| CryptoHash::hash_bytes(&code.0)),
                 );
-                let expected = HashSet::from_iter(hashes.iter().map(|hash| hash.0));
-                if actual == expected {
-                    self.accessed_contracts = AccessedContractsState::Received(contract_codes);
-                } else {
+                let expected = HashSet::from_iter(contract_hashes.iter().map(|hash| hash.0));
+                if actual != expected {
                     tracing::warn!(
                         target: "client",
                         ?actual,
                         ?expected,
                         "Received contracts hashes do not match the requested ones"
                     );
+                    return;
                 }
+                let shard_id_label = self.shard_id.to_string();
+                metrics::RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME
+                    .with_label_values(&[&shard_id_label])
+                    .observe(requested_at.elapsed().as_secs_f64());
+                if let WitnessPartsState::Decoded { decoded_at, .. } = &self.witness_parts {
+                    metrics::WITNESS_ACCESSED_CONTRACT_CODES_DELAY
+                        .with_label_values(&[&shard_id_label])
+                        .observe(decoded_at.elapsed().as_secs_f64());
+                }
+                self.accessed_contracts = AccessedContractsState::Received(contract_codes);
             }
             AccessedContractsState::Unknown => {
                 tracing::warn!(target: "client", "Received accessed contracts without sending a request");
@@ -253,7 +285,7 @@ impl CacheEntry {
     }
 
     fn try_finalize(&mut self) -> Option<(DecodePartialWitnessResult, Vec<CodeBytes>)> {
-        let parts_ready = matches!(self.witness_parts, WitnessPartsState::Decoded(_));
+        let parts_ready = matches!(self.witness_parts, WitnessPartsState::Decoded { .. });
         let contracts_ready = matches!(
             self.accessed_contracts,
             // We consider `Unknown` to be ready state for the following reasons:
@@ -270,20 +302,20 @@ impl CacheEntry {
         }
         let decode_result = match &mut self.witness_parts {
             WitnessPartsState::Empty | WitnessPartsState::WaitingParts(_) => unreachable!(),
-            WitnessPartsState::Decoded(_) => {
+            WitnessPartsState::Decoded { .. } => {
                 // We want to avoid copying decoded witness, so we move it out of the state
                 // and reset it to Empty.
-                let WitnessPartsState::Decoded(result) =
+                let WitnessPartsState::Decoded { decode_result, .. } =
                     std::mem::replace(&mut self.witness_parts, WitnessPartsState::Empty)
                 else {
                     unreachable!()
                 };
-                result
+                decode_result
             }
         };
         let contracts: Vec<CodeBytes> = match &mut self.accessed_contracts {
             AccessedContractsState::Unknown => vec![],
-            AccessedContractsState::Requested(_) => unreachable!(),
+            AccessedContractsState::Requested { .. } => unreachable!(),
             AccessedContractsState::Received(_) => {
                 // We want to avoid copying contracts, so we move them out of the state
                 // and reset it to Unknown.
@@ -448,7 +480,7 @@ impl PartialEncodedStateWitnessTracker {
     fn maybe_insert_new_entry_in_parts_cache(&mut self, key: &ChunkProductionKey) {
         if !self.parts_cache.contains(key) {
             if let Some((evicted_key, evicted_entry)) =
-                self.parts_cache.push(key.clone(), CacheEntry::new())
+                self.parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
             {
                 tracing::warn!(
                     target: "client",
