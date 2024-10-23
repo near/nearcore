@@ -268,7 +268,7 @@ fn block_chunk_headers_iter() {
     let chunks = block.chunks();
 
     let new_headers: Vec<&ShardChunkHeader> = chunks
-        .iter_annotated()
+        .iter()
         .filter_map(|chunk| match chunk {
             MaybeNew::New(chunk) => Some(chunk),
             _ => None,
@@ -276,7 +276,7 @@ fn block_chunk_headers_iter() {
         .collect();
 
     let old_headers: Vec<&ShardChunkHeader> = chunks
-        .iter_annotated()
+        .iter()
         .filter_map(|chunk| match chunk {
             MaybeNew::Old(chunk) => Some(chunk),
             _ => None,
