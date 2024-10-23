@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -43,7 +43,7 @@ enum AccessedContractsState {
     Unknown,
     /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`,
     /// waiting for response from the chunk producer.
-    Requested { contract_hashes: Vec<CodeHash>, requested_at: Instant },
+    Requested { contract_hashes: BTreeSet<CodeHash>, requested_at: Instant },
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
 }
@@ -145,7 +145,7 @@ struct CacheEntry {
 
 enum CacheUpdate {
     WitnessPart(PartialEncodedStateWitness, Arc<WitnessEncoder>),
-    AccessedContractHashes(Vec<CodeHash>),
+    AccessedContractHashes(BTreeSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
 
@@ -234,7 +234,7 @@ impl CacheEntry {
         }
     }
 
-    fn set_requested_contracts(&mut self, contract_hashes: Vec<CodeHash>) {
+    fn set_requested_contracts(&mut self, contract_hashes: BTreeSet<CodeHash>) {
         match &self.accessed_contracts {
             AccessedContractsState::Unknown => {
                 self.accessed_contracts = AccessedContractsState::Requested {
@@ -251,11 +251,11 @@ impl CacheEntry {
     fn set_received_contracts(&mut self, contract_codes: Vec<CodeBytes>) {
         match &self.accessed_contracts {
             AccessedContractsState::Requested { contract_hashes, requested_at } => {
-                let actual = HashSet::<CryptoHash>::from_iter(
-                    contract_codes.iter().map(|code| CryptoHash::hash_bytes(&code.0)),
+                let actual = BTreeSet::from_iter(
+                    contract_codes.iter().map(|code| CodeHash(CryptoHash::hash_bytes(&code.0))),
                 );
-                let expected = HashSet::from_iter(contract_hashes.iter().map(|hash| hash.0));
-                if actual != expected {
+                let expected = contract_hashes;
+                if actual != *expected {
                     tracing::warn!(
                         target: "client",
                         ?actual,
@@ -380,7 +380,7 @@ impl PartialEncodedStateWitnessTracker {
     pub fn store_accessed_contract_hashes(
         &mut self,
         key: ChunkProductionKey,
-        hashes: Vec<CodeHash>,
+        hashes: BTreeSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
         let update = CacheUpdate::AccessedContractHashes(hashes);
