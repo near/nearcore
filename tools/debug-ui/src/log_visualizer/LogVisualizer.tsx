@@ -35,6 +35,17 @@ export const LogVisualizer = () => {
         return { events, arrowGroups, layouts };
     }, [logLines]);
 
+    const { selectedEventLogs, selectedEventDetails } = useMemo(() => {
+        if (selectedEventId === null) {
+            return { selectedEventLogs: '', selectedEventDetails: '' };
+        }
+        const event = events.get(selectedEventId)!;
+        return {
+            selectedEventLogs: event.logRows.join('\n'),
+            selectedEventDetails: prettyPrint(event.data),
+        };
+    }, [selectedEventId, events]);
+
     return (
         <div className="log-visualizer">
             {logLines.length === 0 && <LogFileDrop onFileDrop={setLogLines} />}
@@ -199,16 +210,24 @@ export const LogVisualizer = () => {
             {selectedEventId !== null && (
                 <div className="log-view">
                     <LogViewer
-                        data={events.get(selectedEventId)!.logRows.join('\n')}
+                        data={selectedEventLogs}
                         theme="dark"
                         height="calc(40vh - 35px)"
-                        header={<div className="log-view-header">Logs for this event</div>}
+                        header={
+                            <div className="log-view-header">
+                                Logs for this event <CopyIcon data={selectedEventLogs} />
+                            </div>
+                        }
                     />
                     <LogViewer
-                        data={prettyPrint(events.get(selectedEventId)!.data)}
+                        data={selectedEventDetails}
                         theme="dark"
                         height="calc(60vh - 35px)"
-                        header={<div className="log-view-header">Event details</div>}
+                        header={
+                            <div className="log-view-header">
+                                Event details <CopyIcon data={selectedEventDetails} />
+                            </div>
+                        }
                     />
                 </div>
             )}
@@ -244,5 +263,21 @@ function drawLine(
                 width: to.x - from.x,
                 height: to.y - from.y,
             }}></div>
+    );
+}
+
+function CopyIcon({ data }: { data: string }) {
+    const [copied, setCopied] = useState(false);
+
+    return (
+        <span
+            className="copy-icon"
+            onClick={() => {
+                navigator.clipboard.writeText(data);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }}>
+            ⧉{copied && <span className="copied">Copied!</span>}
+        </span>
     );
 }
