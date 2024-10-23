@@ -293,12 +293,18 @@ pub trait EpochManagerAdapter: Send + Sync {
         -> Result<ProtocolVersion, EpochError>;
 
     /// Get protocol version of next epoch.
-    fn get_next_epoch_protocol_version(&self, block_hash: &CryptoHash) -> Result<ProtocolVersion, EpochError> {
+    fn get_next_epoch_protocol_version(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<ProtocolVersion, EpochError> {
         self.get_epoch_protocol_version(&self.get_next_epoch_id(block_hash)?)
     }
 
     /// Get protocol version of next epoch with hash of previous block.network
-    fn get_next_epoch_protocol_version_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<ProtocolVersion, EpochError> {
+    fn get_next_epoch_protocol_version_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ProtocolVersion, EpochError> {
         self.get_epoch_protocol_version(&self.get_next_epoch_id_from_prev_block(parent_hash)?)
     }
 
