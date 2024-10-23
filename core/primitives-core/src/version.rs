@@ -176,6 +176,12 @@ pub enum ProtocolFeature {
     SimpleNightshadeV4,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     ExcludeContractCodeFromStateWitness,
+    /// Relaxed validation of transactions included in a chunk.
+    ///
+    /// Chunks no longer become entirely invalid in case invalid transactions are included in the
+    /// chunk. Instead the transactions are discarded during their conversion to receipts.
+    #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
+    RelaxedChunkValidation,
 }
 
 impl ProtocolFeature {
@@ -253,11 +259,12 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::SimpleNightshadeV4 => 145,
-
+            #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
+            ProtocolFeature::RelaxedChunkValidation => 146,
             // Features that are not yet in Nightly.
 
             // TODO(#11099): Move this feature to Nightly.
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 147,
         }
     }
 
@@ -270,7 +277,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 146;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

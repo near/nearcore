@@ -67,6 +67,9 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives-core/protocol_feature_nonrefundable_transfer_nep491",
 ]
+protocol_feature_relaxed_chunk_validation = [
+  "near-primitives-core/protocol_feature_relaxed_chunk_validation",
+]
 
 nightly = [
   "near-fmt/nightly",
@@ -78,6 +81,7 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "protocol_feature_relaxed_chunk_validation",
 ]
 
 nightly_protocol = [
