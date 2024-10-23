@@ -10,7 +10,7 @@ use near_chain_primitives::Error;
 use tracing::{debug, error, info};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
-use crate::resharding::types::FlatStorageSplitShardRequest;
+use crate::resharding::types::ReshardingRequest;
 use crate::types::RuntimeAdapter;
 use itertools::Itertools;
 use near_async::messaging::Sender;
@@ -58,7 +58,7 @@ pub struct FlatStorageResharder {
     /// The current active resharding event.
     resharding_event: Arc<Mutex<Option<FlatStorageReshardingEventStatus>>>,
     /// Sender responsible to convey requests to the dedicated resharding actor.
-    scheduler: Sender<FlatStorageSplitShardRequest>,
+    scheduler: Sender<ReshardingRequest>,
     /// Controls cancellation of background processing.
     pub controller: FlatStorageResharderController,
     /// Configuration for resharding.
@@ -75,7 +75,7 @@ impl FlatStorageResharder {
     /// * `resharing_config`: configuration options
     pub fn new(
         runtime: Arc<dyn RuntimeAdapter>,
-        scheduler: Sender<FlatStorageSplitShardRequest>,
+        scheduler: Sender<ReshardingRequest>,
         controller: FlatStorageResharderController,
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
@@ -126,10 +126,9 @@ impl FlatStorageResharder {
                 self.clean_children_shards(&status)?;
                 self.schedule_split_shard(parent_shard_uid, &status);
             }
-            FlatStorageReshardingStatus::CatchingUp(_) => {
+            FlatStorageReshardingStatus::CatchingUp(block_hash) => {
                 info!(target: "resharding", ?shard_uid, ?status, "resuming flat storage shard catchup");
-                // TODO(Trisfald): implement child catch up
-                todo!()
+                self.shard_catchup_task(shard_uid, *block_hash);
             }
         }
         Ok(())
@@ -210,7 +209,7 @@ impl FlatStorageResharder {
         self.set_resharding_event(event);
         info!(target: "resharding", ?parent_shard, ?status,"scheduling flat storage shard split");
         let resharder = self.clone();
-        self.scheduler.send(FlatStorageSplitShardRequest { resharder });
+        self.scheduler.send(ReshardingRequest::FlatStorageSplitShard { resharder });
     }
 
     /// Cleans up children shards flat storage's content (status is excluded).
@@ -248,6 +247,7 @@ impl FlatStorageResharder {
     ///
     /// Conceptually it simply copies each key-value pair from the parent shard to the correct child.
     pub fn split_shard_task(&self) -> FlatStorageReshardingTaskStatus {
+        info!(target: "resharding", "flat storage shard split task started");
         let task_status = self.split_shard_task_impl();
         self.split_shard_task_postprocessing(task_status);
         info!(target: "resharding", ?task_status, "flat storage shard split task finished");
@@ -389,8 +389,12 @@ impl FlatStorageResharder {
                             block_hash,
                         )),
                     );
+                    self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
+                        resharder: self.clone(),
+                        shard: child_shard,
+                        flat_head_block_hash: block_hash,
+                    });
                 }
-                // TODO(trisfald): trigger catchup
             }
             FlatStorageReshardingTaskStatus::Failed
             | FlatStorageReshardingTaskStatus::Cancelled => {
@@ -464,6 +468,20 @@ impl FlatStorageResharder {
         }
 
         Ok(iter)
+    }
+
+    /// Task to perform catchup and creation of a flat storage shard spawned from a previous
+    /// resharding operation. This may be a long operation time-wise.
+    pub fn shard_catchup_task(
+        &self,
+        shard: ShardUId,
+        flat_head_block_hash: CryptoHash,
+    ) -> FlatStorageReshardingTaskStatus {
+        info!(target: "resharding", ?shard, ?flat_head_block_hash, "flat storage shard catchup task started");
+        // TODO(Trisfald): implement
+        let task_status = FlatStorageReshardingTaskStatus::Successful { num_batches_done: 1 };
+        info!(target: "resharding", ?shard, ?task_status, "flat storage shard catchup task finished");
+        task_status
     }
 }
 
@@ -658,7 +676,7 @@ impl FlatStorageResharderController {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::atomic::AtomicU32};
 
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
@@ -697,27 +715,74 @@ mod tests {
     #[derive(Default)]
     struct TestScheduler {}
 
-    impl CanSend<FlatStorageSplitShardRequest> for TestScheduler {
-        fn send(&self, msg: FlatStorageSplitShardRequest) {
-            msg.resharder.split_shard_task();
+    impl CanSend<ReshardingRequest> for TestScheduler {
+        fn send(&self, msg: ReshardingRequest) {
+            match msg {
+                ReshardingRequest::FlatStorageSplitShard { resharder } => {
+                    resharder.split_shard_task();
+                }
+                ReshardingRequest::FlatStorageShardCatchup {
+                    resharder,
+                    shard,
+                    flat_head_block_hash,
+                } => {
+                    resharder.shard_catchup_task(shard, flat_head_block_hash);
+                }
+                _ => {}
+            }
         }
     }
 
     #[derive(Default)]
     struct DelayedScheduler {
-        split_shard_request: Mutex<Option<FlatStorageSplitShardRequest>>,
+        split_shard_request: Mutex<Option<ReshardingRequest>>,
+        shard_catchup_requests: Mutex<Vec<ReshardingRequest>>,
+        memtrie_reload_requests_count: AtomicU32,
     }
 
     impl DelayedScheduler {
         fn call_split_shard_task(&self) -> FlatStorageReshardingTaskStatus {
-            let msg_guard = self.split_shard_request.lock().unwrap();
-            msg_guard.as_ref().unwrap().resharder.split_shard_task()
+            let request = self.split_shard_request.lock().unwrap();
+            if let ReshardingRequest::FlatStorageSplitShard { resharder } =
+                request.as_ref().unwrap()
+            {
+                resharder.split_shard_task()
+            } else {
+                panic!("unexpected flat storage resharding request {:?}", request);
+            }
+        }
+
+        fn call_shard_catchup_tasks(&self) -> Vec<FlatStorageReshardingTaskStatus> {
+            self.shard_catchup_requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|request| match request {
+                    ReshardingRequest::FlatStorageShardCatchup {
+                        resharder,
+                        shard,
+                        flat_head_block_hash,
+                    } => resharder.shard_catchup_task(*shard, *flat_head_block_hash),
+                    _ => panic!("unexpected flat storage resharding request {:?}", request),
+                })
+                .collect()
         }
     }
 
-    impl CanSend<FlatStorageSplitShardRequest> for DelayedScheduler {
-        fn send(&self, msg: FlatStorageSplitShardRequest) {
-            *self.split_shard_request.lock().unwrap() = Some(msg);
+    impl CanSend<ReshardingRequest> for DelayedScheduler {
+        fn send(&self, msg: ReshardingRequest) {
+            match msg {
+                ReshardingRequest::FlatStorageSplitShard { .. } => {
+                    *self.split_shard_request.lock().unwrap() = Some(msg);
+                }
+                ReshardingRequest::FlatStorageShardCatchup { .. } => {
+                    self.shard_catchup_requests.lock().unwrap().push(msg);
+                }
+                ReshardingRequest::MemtrieReload { .. } => {
+                    self.memtrie_reload_requests_count
+                        .fetch_add(2, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
         }
     }
 
@@ -1617,7 +1682,13 @@ mod tests {
         }
 
         // Trigger the catchup tasks.
-        // TODO
+        assert_eq!(
+            scheduler.call_shard_catchup_tasks(),
+            vec![
+                FlatStorageReshardingTaskStatus::Successful { num_batches_done: 1 },
+                FlatStorageReshardingTaskStatus::Successful { num_batches_done: 1 }
+            ]
+        );
 
         // Check shards flat storage status.
         let flat_store = resharder.runtime.store().flat_store();
@@ -1634,6 +1705,11 @@ mod tests {
                     }
                 }))
             );
+            assert!(resharder
+                .runtime
+                .get_flat_storage_manager()
+                .get_flat_storage_for_shard(child_shard)
+                .is_some());
         }
         // Children flat storages should contain the new accounts created through the deltas
         // application.
