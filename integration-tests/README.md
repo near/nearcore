@@ -67,7 +67,7 @@ deployment and execution, specific validator selection, etc. See
 `execute_money_transfers` implementation for inspiration.
 
 ```rust
-execute_money_transfers(&mut test_loop, &node_datas, &accounts);
+execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 ```
 
 Then, use the `run_until` method to progress the blockchain until a certain

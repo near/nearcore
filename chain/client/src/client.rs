@@ -284,6 +284,7 @@ impl Client {
             chain.genesis().clone(),
             async_computation_spawner.clone(),
             config.epoch_sync.clone(),
+            chain.chain_store.store(),
         );
         let header_sync = HeaderSync::new(
             clock.clone(),
