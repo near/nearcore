@@ -9,6 +9,9 @@ mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
+use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -442,6 +445,9 @@ pub enum PeerMessage {
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
+
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
 }
 
 impl fmt::Display for PeerMessage {
@@ -551,9 +557,13 @@ pub enum RoutedMessageBody {
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
-    EpochSyncRequest,
-    EpochSyncResponse(CompressedEpochSyncProof),
+    /// Not used, but needed for borsh backward compatibility.
+    _UnusedEpochSyncRequest,
+    _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
+    ChunkContractAccesses(ChunkContractAccesses),
+    ContractCodeRequest(ContractCodeRequest),
+    ContractCodeResponse(ContractCodeResponse),
 }
 
 impl RoutedMessageBody {
@@ -579,6 +589,8 @@ impl RoutedMessageBody {
             RoutedMessageBody::ChunkEndorsement(_)
             | RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            // TODO(#11099): Remove this when we filter the targets of message at the sender side.
+            | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -643,11 +655,17 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
             }
-            RoutedMessageBody::EpochSyncRequest => write!(f, "EpochSyncRequest"),
-            RoutedMessageBody::EpochSyncResponse(_) => {
+            RoutedMessageBody::_UnusedEpochSyncRequest => write!(f, "EpochSyncRequest"),
+            RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
+            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ChunkContractAccesses(_) => write!(f, "ChunkContractAccesses"),
+            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ContractCodeRequest(_) => write!(f, "ContractCodeRequest"),
+            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
         }
     }
 }
@@ -733,7 +751,6 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::EpochSyncRequest
         )
     }
 

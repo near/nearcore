@@ -4,11 +4,11 @@ use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
-    StateRoot, TrieCacheMode,
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    TrieCacheMode,
 };
 use std::collections::BTreeMap;
 
@@ -51,6 +51,14 @@ impl<'a> TrieUpdateValuePtr<'a> {
             TrieUpdateValuePtr::Ref(trie, value_ref) => Ok(trie.deref_optimized(value_ref)?),
         }
     }
+}
+
+/// Contains the result of trie updates generated during the finalization of [`TrieUpdate`].
+pub struct TrieUpdateResult {
+    pub trie: Trie,
+    pub trie_changes: TrieChanges,
+    pub state_changes: Vec<RawStateChangesWithTrieKey>,
+    pub contract_accesses: Vec<CodeHash>,
 }
 
 impl TrieUpdate {
@@ -100,33 +108,6 @@ impl TrieUpdate {
             }
         }
         self.trie.contains_key(&key)
-    }
-
-    /// Gets code from trie updates or directly from contract storage,
-    /// bypassing the trie.
-    pub fn get_code(
-        &self,
-        account_id: AccountId,
-        code_hash: CryptoHash,
-    ) -> Option<near_vm_runner::ContractCode> {
-        let key = TrieKey::ContractCode { account_id }.to_vec();
-        let raw_code_update = if let Some(key_value) = self.prospective.get(&key) {
-            Some(key_value.value.as_ref().map(<Vec<u8>>::clone))
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                Some(data.as_ref().map(<Vec<u8>>::clone))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        match raw_code_update {
-            Some(raw_code) => {
-                raw_code.map(|code| near_vm_runner::ContractCode::new(code, Some(code_hash)))
-            }
-            None => self.contract_storage.get(code_hash),
-        }
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -184,12 +165,10 @@ impl TrieUpdate {
             db_reads = tracing::field::Empty
         )
     )]
-    pub fn finalize(
-        self,
-    ) -> Result<(Trie, TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
+    pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let span = tracing::Span::current();
-        let TrieUpdate { trie, committed, .. } = self;
+        let TrieUpdate { trie, committed, contract_storage, .. } = self;
         let start_counts = trie.accounting_cache.borrow().get_trie_nodes_count();
         let mut state_changes = Vec::with_capacity(committed.len());
         let trie_changes =
@@ -208,7 +187,8 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        Ok((trie, trie_changes, state_changes))
+        let contract_accesses = contract_storage.finalize().contract_accesses;
+        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses })
     }
 
     /// Returns Error if the underlying storage fails
@@ -303,7 +283,7 @@ mod tests {
         trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let trie_changes = trie_update.finalize().unwrap().1;
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
         store_update.commit().unwrap();
@@ -328,7 +308,7 @@ mod tests {
         let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update.commit(StateChangeCause::TransactionProcessing { tx_hash: Trie::EMPTY_ROOT });
-        let trie_changes = trie_update.finalize().unwrap().1;
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
         store_update.commit().unwrap();
@@ -340,7 +320,7 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let trie_changes = trie_update.finalize().unwrap().1;
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
         store_update.commit().unwrap();
@@ -351,7 +331,7 @@ mod tests {
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let trie_changes = trie_update.finalize().unwrap().1;
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
         store_update.commit().unwrap();
@@ -360,7 +340,7 @@ mod tests {
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let trie_changes = trie_update.finalize().unwrap().1;
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
         store_update.commit().unwrap();
@@ -375,7 +355,7 @@ mod tests {
         trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let trie_changes = trie_update.finalize().unwrap().1;
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();

@@ -10,6 +10,7 @@ use futures::FutureExt;
 use near_async::messaging::CanSend;
 use near_async::time::Clock;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_primitives::types::shard_id_as_usize;
 use rand::{thread_rng, Rng};
 
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
@@ -109,28 +110,30 @@ fn repro_1183() {
                     for from in ["test1", "test2", "test3", "test4"].iter() {
                         for to in ["test1", "test2", "test3", "test4"].iter() {
                             let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
-                            connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
-                                .client_actor
-                                .do_send(
-                                    ProcessTxRequest {
-                                        transaction: SignedTransaction::send_money(
-                                            block.header().height() * 16 + nonce_delta,
+                            // This test uses the V0 shard layout so it's ok to
+                            // cast ShardId to ShardIndex.
+                            let shard_id = account_id_to_shard_id(&from, 4);
+                            let shard_index = shard_id_as_usize(shard_id);
+                            connectors1.write().unwrap()[shard_index].client_actor.do_send(
+                                ProcessTxRequest {
+                                    transaction: SignedTransaction::send_money(
+                                        block.header().height() * 16 + nonce_delta,
+                                        from.clone(),
+                                        to,
+                                        &InMemorySigner::from_seed(
                                             from.clone(),
-                                            to,
-                                            &InMemorySigner::from_seed(
-                                                from.clone(),
-                                                KeyType::ED25519,
-                                                from.as_ref(),
-                                            )
-                                            .into(),
-                                            1,
-                                            *block.header().prev_hash(),
-                                        ),
-                                        is_forwarded: false,
-                                        check_only: false,
-                                    }
-                                    .with_span_context(),
-                                );
+                                            KeyType::ED25519,
+                                            from.as_ref(),
+                                        )
+                                        .into(),
+                                        1,
+                                        *block.header().prev_hash(),
+                                    ),
+                                    is_forwarded: false,
+                                    check_only: false,
+                                }
+                                .with_span_context(),
+                            );
                             nonce_delta += 1
                         }
                     }

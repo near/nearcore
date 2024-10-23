@@ -110,8 +110,8 @@ pub fn make_outgoing_receipts_proofs(
 
     let mut receipts_by_shard =
         Chain::group_receipts_by_shard(outgoing_receipts.to_vec(), &shard_layout);
-    let it = proofs.into_iter().enumerate().map(move |(proof_shard_id, proof)| {
-        let proof_shard_id = proof_shard_id as u64;
+    let it = proofs.into_iter().enumerate().map(move |(proof_shard_index, proof)| {
+        let proof_shard_id = shard_layout.get_shard_id(proof_shard_index);
         let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
         let shard_proof =
             ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
@@ -174,7 +174,7 @@ pub fn decode_encoded_chunk(
         target: "chunks",
         "decode_encoded_chunk",
         height_included = encoded_chunk.cloned_header().height_included(),
-        shard_id = encoded_chunk.cloned_header().shard_id(),
+        shard_id = ?encoded_chunk.cloned_header().shard_id(),
         ?chunk_hash)
     .entered();
 

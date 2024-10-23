@@ -2,7 +2,11 @@
 //! We first check if store has the genesis hash and state_roots, if not, we go ahead with initialization
 
 use rayon::prelude::*;
-use std::{collections::HashSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
@@ -110,17 +114,18 @@ fn genesis_state_from_genesis(
     let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
     let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
     let storage_usage_config = &runtime_config.fees.storage_usage_config;
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
     let shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-    // note that here we are depending on the behavior that shard_layout.shard_uids() returns an iterator
-    // in order by shard id from 0 to num_shards()
-    let mut shard_account_ids: Vec<HashSet<AccountId>> =
-        shard_uids.iter().map(|_| HashSet::new()).collect();
+
+    let mut shard_account_ids: BTreeMap<ShardId, HashSet<AccountId>> =
+        shard_ids.iter().map(|&shard_id| (shard_id, HashSet::new())).collect();
     let mut has_protocol_account = false;
     info!(target: "store","distributing records to shards");
 
     genesis.for_each_record(|record: &StateRecord| {
-        shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
-            .insert(state_record_to_account_id(record).clone());
+        let shard_id = state_record_to_shard_id(record, &shard_layout);
+        let account_id = state_record_to_account_id(record).clone();
+        shard_account_ids.get_mut(&shard_id).unwrap().insert(account_id);
         if let StateRecord::Account { account_id, .. } = record {
             if account_id == &genesis.config.protocol_treasury_account {
                 has_protocol_account = true;
@@ -165,7 +170,7 @@ fn genesis_state_from_genesis(
                 &validators,
                 storage_usage_config,
                 genesis,
-                shard_account_ids[shard_id as usize].clone(),
+                shard_account_ids[&shard_id].clone(),
             )
         })
         .collect()

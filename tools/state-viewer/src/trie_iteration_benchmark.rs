@@ -117,14 +117,15 @@ impl TrieIterationBenchmarkCmd {
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             if chunk_header.height_included() != block.header().height() {
                 println!("chunk for shard {shard_id} is missing and will be skipped");
             }
         }
 
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
+        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             if chunk_header.height_included() != block.header().height() {
                 println!("chunk for shard {shard_id} is missing, skipping it");
                 continue;

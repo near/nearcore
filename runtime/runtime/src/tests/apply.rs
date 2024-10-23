@@ -26,7 +26,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    Balance, Compute, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
+    shard_id_as_u32, Balance, Compute, EpochInfoProvider, Gas, MerkleHash, ShardId,
+    StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
@@ -72,13 +73,13 @@ fn setup_runtime_for_shard(
     set_account(&mut initial_state, account_id.clone(), &initial_account);
     set_access_key(&mut initial_state, account_id, signer.public_key(), &AccessKey::full_access());
     initial_state.commit(StateChangeCause::InitialState);
-    let trie_changes = initial_state.finalize().unwrap().1;
+    let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
     let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        [(0, ExtendedCongestionInfo::default())].into()
+        [(ShardId::new(0), ExtendedCongestionInfo::default())].into()
     } else {
         [].into()
     };
@@ -864,7 +865,7 @@ fn test_delete_key_underflow() {
     initial_account_state.set_storage_usage(10);
     set_account(&mut state_update, alice_account(), &initial_account_state);
     state_update.commit(StateChangeCause::InitialState);
-    let trie_changes = state_update.finalize().unwrap().1;
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
@@ -1247,9 +1248,9 @@ fn test_congestion_buffering() {
     // shard 0. Hence all receipts will be forwarded to shard 0. We don't
     // want local forwarding in the test, hence we need to use a different
     // shard id.
-    let local_shard = 1 as ShardId;
-    let local_shard_uid = ShardUId { version: 0, shard_id: local_shard as u32 };
-    let receiver_shard = 0 as ShardId;
+    let local_shard = ShardId::new(1);
+    let local_shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(local_shard) };
+    let receiver_shard = ShardId::new(0);
 
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
@@ -1269,14 +1270,19 @@ fn test_congestion_buffering() {
         apply_state.config.congestion_control_config.max_congestion_incoming_gas;
     apply_state
         .congestion_info
-        .get_mut(&0)
+        .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
         .add_delayed_receipt_gas(max_congestion_incoming_gas)
         .unwrap();
     // set allowed shard of shard 0 to 0 to prevent shard 1 from forwarding
-    apply_state.congestion_info.get_mut(&0).unwrap().congestion_info.set_allowed_shard(0);
-    apply_state.congestion_info.insert(1, Default::default());
+    apply_state
+        .congestion_info
+        .get_mut(&receiver_shard)
+        .unwrap()
+        .congestion_info
+        .set_allowed_shard(0);
+    apply_state.congestion_info.insert(local_shard, Default::default());
 
     // We need receipts that produce an outgoing receipt. Function calls and
     // delegate actions are currently the two only choices. We use delegate
@@ -1327,7 +1333,7 @@ fn test_congestion_buffering() {
     // to be forwarded per round
     apply_state
         .congestion_info
-        .get_mut(&0)
+        .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
         .remove_delayed_receipt_gas(10)
@@ -1391,7 +1397,7 @@ fn commit_apply_result(
 ) -> CryptoHash {
     // congestion control requires an update on
     let shard_id = apply_state.shard_id;
-    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+    let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
     if let Some(congestion_info) = apply_result.congestion_info {
         apply_state
             .congestion_info

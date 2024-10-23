@@ -2,6 +2,7 @@ use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
@@ -289,7 +290,12 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn finish_block_processing(&mut self, block_hash: &CryptoHash, new_head: Option<Tip>) {
+    pub fn finish_block_processing(
+        &mut self,
+        shard_layout: &ShardLayout,
+        block_hash: &CryptoHash,
+        new_head: Option<Tip>,
+    ) {
         if let Some(processed_block) = self.blocks.get_mut(&block_hash) {
             processed_block.processed_timestamp = Some(self.clock.now());
         }
@@ -297,10 +303,11 @@ impl BlocksDelayTracker {
         if let Some(processed_block) = self.blocks.get(&block_hash) {
             let chunks = processed_block.chunks.clone();
             self.update_block_metrics(processed_block);
-            for (shard_id, chunk_hash) in chunks.into_iter().enumerate() {
+            for (shard_index, chunk_hash) in chunks.into_iter().enumerate() {
                 if let Some(chunk_hash) = chunk_hash {
                     if let Some(processed_chunk) = self.chunks.get(&chunk_hash) {
-                        self.update_chunk_metrics(processed_chunk, shard_id as ShardId);
+                        let shard_id = shard_layout.get_shard_id(shard_index);
+                        self.update_chunk_metrics(processed_chunk, shard_id);
                     }
                 }
             }

@@ -186,6 +186,7 @@ fn copy_state_from_store(
 
         let Some(trie_changes) = trie_changes else { continue };
         for op in trie_changes.insertions() {
+            // TODO(reshardingV3) Handle shard_uid not mapped there
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 
@@ -325,6 +326,7 @@ pub fn copy_all_data_to_cold(
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
+                // TODO(reshardingV3) Should do mapping here?
                 let (key, value) = result?;
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }

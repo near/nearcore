@@ -1989,6 +1989,9 @@ impl<T: ChainAccess> TxMirror<T> {
         let tracker2 = tracker.clone();
         let index_target_thread = actix::Arbiter::new();
 
+        // TODO: Consider moving this back to the TxTracker struct. Separating these made certain things easier, but now it
+        // means we need to be careful about the lock order to avoid deadlocks. We keep the convention that the TxTracker is
+        // always locked first.
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
@@ -2027,7 +2030,7 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
+                chunks: vec![MappedChunk { shard_id: ShardId::new(0), txs: Vec::new() }],
             };
 
             for h in next_heights {

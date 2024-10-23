@@ -199,7 +199,7 @@ pub enum Error {
     InvalidBlockMerkleRoot,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
-    InvalidSplitShardsIds(u64, u64),
+    InvalidSplitShardsIds(ShardId, ShardId),
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator: {0}")]
     NotAValidator(String),
@@ -232,6 +232,12 @@ pub enum Error {
     /// GC error.
     #[error("GC Error: {0}")]
     GCError(String),
+    /// Resharding error.
+    #[error("Resharding Error: {0}")]
+    ReshardingError(String),
+    /// EpochSyncProof validation error.
+    #[error("EpochSyncProof Validation Error: {0}")]
+    InvalidEpochSyncProof(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -269,6 +275,7 @@ impl Error {
             | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
+            | Error::ReshardingError(_)
             | Error::DBNotFoundErr(_) => false,
             Error::InvalidBlockPastTime(_, _)
             | Error::InvalidBlockFutureTime(_)
@@ -296,6 +303,7 @@ impl Error {
             | Error::MaliciousChallenge
             | Error::IncorrectNumberOfChunkHeaders
             | Error::InvalidEpochHash
+            | Error::InvalidEpochSyncProof(_)
             | Error::InvalidNextBPHash
             | Error::NotEnoughApprovals
             | Error::InvalidFinalityInfo
@@ -373,6 +381,7 @@ impl Error {
             Error::MaliciousChallenge => "malicious_challenge",
             Error::IncorrectNumberOfChunkHeaders => "incorrect_number_of_chunk_headers",
             Error::InvalidEpochHash => "invalid_epoch_hash",
+            Error::InvalidEpochSyncProof(_) => "invalid_epoch_sync_proof",
             Error::InvalidNextBPHash => "invalid_next_bp_hash",
             Error::NotEnoughApprovals => "not_enough_approvals",
             Error::InvalidFinalityInfo => "invalid_finality_info",
@@ -392,6 +401,7 @@ impl Error {
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
+            Error::ReshardingError(_) => "resharding_error",
         }
     }
 }

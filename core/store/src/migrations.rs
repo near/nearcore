@@ -2,11 +2,15 @@ use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardInfo, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
@@ -361,8 +365,37 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
 
 /// Migrates the database from version 40 to 41.
 ///
-/// This rewrites the contents of the StateDlInfos column
+/// The migraton replaces non-enum StoredChunkStateTransitionData struct with its enum version.
 pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshDeserialize)]
+    pub struct DeprecatedStoredChunkStateTransitionData {
+        pub base_state: PartialState,
+        pub receipts_hash: CryptoHash,
+    }
+
+    let _span =
+        tracing::info_span!(target: "migrations", "Replacing StoredChunkStateTransitionData with its enum version V1").entered();
+    let mut update = store.store_update();
+    for result in store.iter(DBCol::StateTransitionData) {
+        let (key, old_value) = result?;
+        let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
+            DeprecatedStoredChunkStateTransitionData::try_from_slice(&old_value)?;
+        let new_value =
+            borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                base_state,
+                receipts_hash,
+                contract_accesses: vec![],
+            }))?;
+        update.set(DBCol::StateTransitionData, &key, &new_value);
+    }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 41 to 42.
+///
+/// This rewrites the contents of the StateDlInfos column
+pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
     #[derive(BorshSerialize, BorshDeserialize)]
     struct LegacyStateSyncInfo {
         sync_hash: CryptoHash,

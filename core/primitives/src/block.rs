@@ -14,6 +14,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
@@ -88,6 +89,7 @@ pub enum Block {
 #[cfg(feature = "solomon")]
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 
+/// The shard_ids, state_roots and congestion_infos must be in the same order.
 #[cfg(feature = "solomon")]
 pub fn genesis_chunks(
     state_roots: Vec<crate::types::StateRoot>,
@@ -110,10 +112,9 @@ pub fn genesis_chunks(
     let num = shard_ids.len();
     assert_eq!(state_roots.len(), num);
 
-    for shard_id in 0..num {
-        let state_root = state_roots[shard_id];
-        let congestion_info = congestion_infos[shard_id];
-        let shard_id = shard_id as crate::types::ShardId;
+    for (shard_index, &shard_id) in shard_ids.iter().enumerate() {
+        let state_root = state_roots[shard_index];
+        let congestion_info = congestion_infos[shard_index];
 
         let encoded_chunk = genesis_chunk(
             &rs,
@@ -140,7 +141,7 @@ fn genesis_chunk(
     genesis_protocol_version: u32,
     genesis_height: u64,
     initial_gas_limit: u64,
-    shard_id: u64,
+    shard_id: ShardId,
     state_root: CryptoHash,
     congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
@@ -781,7 +782,7 @@ impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
     }
 }
 
-impl<'a> Index<usize> for ChunksCollection<'a> {
+impl<'a> Index<ShardIndex> for ChunksCollection<'a> {
     type Output = ShardChunkHeader;
 
     /// Deprecated. Please use get instead, it's safer.
@@ -808,7 +809,7 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&ShardChunkHeader> {
+    pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
         match self {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),

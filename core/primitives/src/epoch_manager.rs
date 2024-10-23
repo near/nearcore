@@ -55,6 +55,15 @@ pub struct EpochConfig {
     pub validator_selection_config: ValidatorSelectionConfig,
 }
 
+impl EpochConfig {
+    /// Total number of validator seats in the epoch since protocol version 69.
+    pub fn num_validators(&self) -> NumSeats {
+        self.num_block_producer_seats
+            .max(self.validator_selection_config.num_chunk_producer_seats)
+            .max(self.validator_selection_config.num_chunk_validator_seats)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ShardConfig {
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,

@@ -174,6 +174,8 @@ pub enum ProtocolFeature {
     StateStoredReceipt,
     /// Resharding V3
     SimpleNightshadeV4,
+    /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
+    ExcludeContractCodeFromStateWitness,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -257,6 +259,11 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::StateSyncHashUpdate => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
+
+            // Features that are not yet in Nightly.
+
+            // TODO(#11099): Move this feature to Nightly.
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
         }
     }
 
@@ -266,7 +273,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 72;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;

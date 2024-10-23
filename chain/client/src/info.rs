@@ -152,7 +152,7 @@ impl InfoHelper {
         let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
             let tracked =
-                client.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+                client.shard_tracker.care_about_shard(me, &head.prev_block_hash, shard_id, true);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {
@@ -210,6 +210,7 @@ impl InfoHelper {
         let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
         let blocks_in_epoch = client.config.epoch_length;
         let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap_or_default();
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
         if let Ok(epoch_info) = epoch_info {
             metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
             metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
@@ -250,10 +251,11 @@ impl InfoHelper {
             });
 
             for shard_id in shard_ids {
+                let shard_index = shard_layout.get_shard_index(shard_id);
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
-                let chunk_producers = chunk_producers_settlement.get(shard_id as usize);
+                let chunk_producers = chunk_producers_settlement.get(shard_index);
                 let Some(chunk_producers) = chunk_producers else {
                     tracing::warn!(target: "stats", ?shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
                     continue;
@@ -743,13 +745,25 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
+        SyncStatus::StateSync(StateSyncStatus {
+            sync_hash,
+            sync_status: shard_statuses,
+            download_tasks,
+            computation_tasks,
+        }) => {
             let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
+                write!(res, "[{}: {}]", shard_id, shard_status.to_string(),).unwrap();
             }
+            write!(
+                res,
+                " ({} downloads, {} computations)",
+                download_tasks.len(),
+                computation_tasks.len()
+            )
+            .unwrap();
             if let SyncConfig::Peers = state_sync_config {
                 tracing::warn!(
                     target: "stats",
@@ -941,7 +955,7 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoSender};
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
@@ -1003,6 +1017,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             validator.clone(),
+            noop().into_multi_sender(),
         )
         .unwrap();
 

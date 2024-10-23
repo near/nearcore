@@ -21,6 +21,7 @@ use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
 use near_primitives::block::GenesisId;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
+use near_primitives::utils::compression::CompressedData;
 use near_store::test_utils::create_test_store;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -281,7 +282,7 @@ fn test_epoch_sync_from_another_epoch_synced_node() {
 impl TestNetworkSetup {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
         let store = self.stores[node_index].clone();
-        EpochSync::derive_epoch_sync_proof(store).unwrap()
+        EpochSync::derive_epoch_sync_proof(store, Default::default()).unwrap().decode().unwrap().0
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
@@ -314,7 +315,7 @@ fn sanity_check_epoch_sync_proof(
         (final_head_height - genesis_config.genesis_height - 1) / genesis_config.epoch_length + 1;
     let expected_current_epoch_height = epoch_height_of_final_block - 1;
     assert_eq!(
-        proof.current_epoch.first_block_info_in_epoch.height(),
+        proof.current_epoch.first_block_header_in_epoch.height(),
         genesis_config.genesis_height
             + (expected_current_epoch_height - 1) * genesis_config.epoch_length
             + 1

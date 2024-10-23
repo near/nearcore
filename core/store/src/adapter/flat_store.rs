@@ -234,7 +234,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         }
     }
 
-    pub fn remove_all(&mut self, shard_uid: ShardUId) {
+    pub fn remove_all_values(&mut self, shard_uid: ShardUId) {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatState);
     }
 
@@ -242,6 +242,10 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
         self.store_update
             .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status)
             .expect("Borsh should not have failed here")
+    }
+
+    pub fn remove_status(&mut self, shard_uid: ShardUId) {
+        self.store_update.delete(DBCol::FlatStorageStatus, &shard_uid.to_bytes());
     }
 
     pub fn set_delta(&mut self, shard_uid: ShardUId, delta: &FlatStateDelta) {
@@ -264,6 +268,13 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn remove_all_deltas(&mut self, shard_uid: ShardUId) {
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatStateChanges);
         self.remove_range_by_shard_uid(shard_uid, DBCol::FlatStateDeltaMetadata);
+    }
+
+    /// Removes flat storage in its entirety for a shard: deltas, values and status.
+    pub fn remove_flat_storage(&mut self, shard_uid: ShardUId) {
+        self.remove_all_deltas(shard_uid);
+        self.remove_all_values(shard_uid);
+        self.remove_status(shard_uid);
     }
 
     // helper

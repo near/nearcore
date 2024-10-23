@@ -53,7 +53,10 @@ impl tcp::Tier {
             | RoutedMessageBody::ChunkEndorsement(..)
             | RoutedMessageBody::PartialEncodedStateWitness(..)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(..)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
+            | RoutedMessageBody::VersionedPartialEncodedChunk(..)
+            | RoutedMessageBody::ChunkContractAccesses(_)
+            | RoutedMessageBody::ContractCodeRequest(_)
+            | RoutedMessageBody::ContractCodeResponse(_) => true,
             _ => self == tcp::Tier::T2,
         }
     }

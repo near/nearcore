@@ -8,7 +8,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
-use near_client::{Client, SyncAdapter};
+use near_client::Client;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
@@ -23,7 +23,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[test]
 fn test_client_with_simple_test_loop() {
@@ -83,19 +83,12 @@ fn test_client_with_simple_test_loop() {
 
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        client_adapter.as_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
-
     let client = Client::new(
         test_loop.clock(),
         client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
-        state_sync_adapter,
         runtime_adapter,
         noop().into_multi_sender(),
         shards_manager_adapter.as_sender(),
@@ -104,6 +97,9 @@ fn test_client_with_simple_test_loop() {
         [0; 32],
         None,
         Arc::new(test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+        noop().into_multi_sender(),
+        noop().into_multi_sender(),
+        Arc::new(test_loop.future_spawner()),
         noop().into_multi_sender(),
     )
     .unwrap();
@@ -133,7 +129,6 @@ fn test_client_with_simple_test_loop() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
-        Box::new(test_loop.future_spawner()),
     )
     .unwrap();
 

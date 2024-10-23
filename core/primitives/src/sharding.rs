@@ -3,6 +3,7 @@ use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
+use crate::shard_layout::ShardLayout;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -61,8 +62,9 @@ impl From<CryptoHash> for ChunkHash {
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 impl ShardInfo {
-    fn new(prev_block: &Block, shard_id: ShardId) -> Self {
-        let chunk = &prev_block.chunks()[shard_id as usize];
+    fn new(prev_block: &Block, shard_layout: &ShardLayout, shard_id: ShardId) -> Self {
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk = &prev_block.chunks()[shard_index];
         Self(shard_id, chunk.chunk_hash())
     }
 }
@@ -109,31 +111,37 @@ pub enum StateSyncInfo {
     V1(StateSyncInfoV1),
 }
 
-fn shard_infos(prev_block: &Block, shards: &[ShardId]) -> Vec<ShardInfo> {
-    shards.iter().map(|shard_id| ShardInfo::new(prev_block, *shard_id)).collect()
+fn shard_infos(
+    prev_block: &Block,
+    shard_layout: &ShardLayout,
+    shards: &[ShardId],
+) -> Vec<ShardInfo> {
+    shards.iter().map(|shard_id| ShardInfo::new(prev_block, shard_layout, *shard_id)).collect()
 }
 
 impl StateSyncInfo {
     pub fn new_previous_epoch(
         epoch_first_block: CryptoHash,
         prev_block: &Block,
+        shard_layout: &ShardLayout,
         shards: &[ShardId],
     ) -> Self {
         Self::V0(StateSyncInfoV0 {
             sync_hash: epoch_first_block,
-            shards: shard_infos(prev_block, shards),
+            shards: shard_infos(prev_block, shard_layout, shards),
         })
     }
 
     fn new_current_epoch(
         epoch_first_block: CryptoHash,
         prev_block: &Block,
+        shard_layout: &ShardLayout,
         shards: &[ShardId],
     ) -> Self {
         Self::V1(StateSyncInfoV1 {
             epoch_first_block,
             sync_hash: None,
-            shards: shard_infos(prev_block, shards),
+            shards: shard_infos(prev_block, shard_layout, shards),
         })
     }
 
@@ -141,12 +149,13 @@ impl StateSyncInfo {
         protocol_version: ProtocolVersion,
         epoch_first_block: CryptoHash,
         prev_block: &Block,
+        shard_layout: &ShardLayout,
         shards: &[ShardId],
     ) -> Self {
         if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-            Self::new_current_epoch(epoch_first_block, prev_block, shards)
+            Self::new_current_epoch(epoch_first_block, prev_block, shard_layout, shards)
         } else {
-            Self::new_previous_epoch(epoch_first_block, prev_block, shards)
+            Self::new_previous_epoch(epoch_first_block, prev_block, shard_layout, shards)
         }
     }
 
@@ -1312,7 +1321,7 @@ impl EncodedShardChunk {
             "decode_chunk",
             data_parts,
             height_included = self.cloned_header().height_included(),
-            shard_id = self.cloned_header().shard_id(),
+            shard_id = ?self.cloned_header().shard_id(),
             chunk_hash = ?self.chunk_hash())
         .entered();
 

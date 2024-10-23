@@ -159,9 +159,12 @@ pub fn check_apply_block_result(
     let height = block.header().height();
     let block_hash = block.header().hash();
     let protocol_version = block.header().latest_protocol_version();
+    let epoch_id = block.header().epoch_id();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let shard_index = shard_layout.get_shard_index(shard_id);
     let new_chunk_extra = resulting_chunk_extra(
         apply_result,
-        block.chunks()[shard_id as usize].gas_limit(),
+        block.chunks()[shard_index].gas_limit(),
         protocol_version,
     );
     println!(
@@ -169,7 +172,7 @@ pub fn check_apply_block_result(
         shard_id, height, &new_chunk_extra,
     );
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-    if block.chunks()[shard_id as usize].height_included() == height {
+    if block.chunks()[shard_index].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
             if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
                 tracing::debug!("new chunk extra matches old chunk extra");

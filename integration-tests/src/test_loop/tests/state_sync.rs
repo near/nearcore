@@ -6,7 +6,7 @@ use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, AccountInfo, BlockHeightDelta, Nonce, NumSeats};
+use near_primitives::types::{AccountId, AccountInfo, BlockHeightDelta, Nonce, NumSeats, ShardId};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
@@ -14,6 +14,7 @@ use crate::test_loop::utils::transactions::get_anchor_hash;
 use crate::test_loop::utils::ONE_NEAR;
 
 use itertools::Itertools;
+use std::collections::HashMap;
 
 const EPOCH_LENGTH: BlockHeightDelta = 40;
 
@@ -64,7 +65,10 @@ struct TestState {
     accounts: Vec<Vec<(AccountId, Nonce)>>,
 }
 
-fn setup_initial_blockchain(num_shards: usize, chunks_produced: Vec<Vec<bool>>) -> TestState {
+fn setup_initial_blockchain(
+    num_shards: usize,
+    chunks_produced: HashMap<ShardId, Vec<bool>>,
+) -> TestState {
     let builder = TestLoopBuilder::new();
 
     let num_block_producer_seats = 1;
@@ -117,7 +121,7 @@ fn setup_initial_blockchain(num_shards: usize, chunks_produced: Vec<Vec<bool>>) 
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .chunks_produced(chunks_produced)
+        .drop_chunks_by_height(chunks_produced)
         .build();
 
     TestState { env, accounts }
@@ -256,7 +260,7 @@ fn run_test(state: TestState) {
 #[derive(Debug)]
 struct StateSyncTest {
     num_shards: usize,
-    chunks_produced: &'static [&'static [bool]],
+    chunks_produced: &'static [(ShardId, &'static [bool])],
 }
 
 static TEST_CASES: &[StateSyncTest] = &[
@@ -264,17 +268,24 @@ static TEST_CASES: &[StateSyncTest] = &[
     StateSyncTest { num_shards: 2, chunks_produced: &[] },
     StateSyncTest { num_shards: 4, chunks_produced: &[] },
     // Now we miss some chunks at the beginning of the epoch
-    StateSyncTest { num_shards: 4, chunks_produced: &[&[false, true, true, true]] },
     StateSyncTest {
         num_shards: 4,
-        chunks_produced: &[&[true, true, true, true], &[false, false, true, true]],
+        chunks_produced: &[
+            (ShardId::new(0), &[false]),
+            (ShardId::new(1), &[true]),
+            (ShardId::new(2), &[true]),
+            (ShardId::new(3), &[true]),
+        ],
+    },
+    StateSyncTest {
+        num_shards: 4,
+        chunks_produced: &[(ShardId::new(0), &[true, false]), (ShardId::new(1), &[true, false])],
     },
     StateSyncTest {
         num_shards: 4,
         chunks_produced: &[
-            &[false, false, false, false],
-            &[true, true, true, true],
-            &[true, false, true, true],
+            (ShardId::new(0), &[false, true]),
+            (ShardId::new(2), &[true, false, true]),
         ],
     },
 ];
@@ -287,7 +298,10 @@ fn test_state_sync_current_epoch() {
         tracing::info!("run test: {:?}", t);
         let state = setup_initial_blockchain(
             t.num_shards,
-            t.chunks_produced.to_vec().into_iter().map(|v| v.to_vec()).collect(),
+            t.chunks_produced
+                .iter()
+                .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+                .collect(),
         );
         run_test(state);
     }
