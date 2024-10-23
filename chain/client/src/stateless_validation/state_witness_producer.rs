@@ -461,11 +461,7 @@ impl Client {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(
-                    chunk_production_key,
-                    contract_accesses.into_iter().collect(),
-                    my_signer,
-                ),
+                ChunkContractAccesses::new(chunk_production_key, contract_accesses, my_signer),
             ),
         ));
     }

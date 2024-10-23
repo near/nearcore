@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
@@ -22,7 +24,7 @@ pub enum ChunkContractAccesses {
 impl ChunkContractAccesses {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, signer))
@@ -51,7 +53,7 @@ pub struct ChunkContractAccessesV1 {
 impl ChunkContractAccessesV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkContractAccessesInner::new(next_chunk, contracts);
@@ -73,10 +75,10 @@ pub struct ChunkContractAccessesInner {
 }
 
 impl ChunkContractAccessesInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+    fn new(next_chunk: ChunkProductionKey, contracts: BTreeSet<CodeHash>) -> Self {
         Self {
             next_chunk,
-            contracts,
+            contracts: contracts.into_iter().collect(),
             signature_differentiator: "ChunkContractAccessesInner".to_owned(),
         }
     }
@@ -95,7 +97,7 @@ pub enum ChunkContractDeployments {
 impl ChunkContractDeployments {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ChunkContractDeploymentsV1::new(next_chunk, contracts, signer))
@@ -124,7 +126,7 @@ pub struct ChunkContractDeploymentsV1 {
 impl ChunkContractDeploymentsV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkContractDeploymentsInner::new(next_chunk, contracts);
@@ -146,10 +148,10 @@ pub struct ChunkContractDeploymentsInner {
 }
 
 impl ChunkContractDeploymentsInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+    fn new(next_chunk: ChunkProductionKey, contracts: BTreeSet<CodeHash>) -> Self {
         Self {
             next_chunk,
-            contracts,
+            contracts: contracts.into_iter().collect(),
             signature_differentiator: "ChunkContractDeploymentsInner".to_owned(),
         }
     }
@@ -167,7 +169,7 @@ pub enum ContractCodeRequest {
 impl ContractCodeRequest {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, signer))
@@ -202,7 +204,7 @@ pub struct ContractCodeRequestV1 {
 impl ContractCodeRequestV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: Vec<CodeHash>,
+        contracts: BTreeSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner =
@@ -228,11 +230,15 @@ pub struct ContractCodeRequestInner {
 }
 
 impl ContractCodeRequestInner {
-    fn new(requester: AccountId, next_chunk: ChunkProductionKey, contracts: Vec<CodeHash>) -> Self {
+    fn new(
+        requester: AccountId,
+        next_chunk: ChunkProductionKey,
+        contracts: BTreeSet<CodeHash>,
+    ) -> Self {
         Self {
             requester,
             next_chunk,
-            contracts,
+            contracts: contracts.into_iter().collect(),
             signature_differentiator: "ContractCodeRequestInner".to_owned(),
         }
     }
