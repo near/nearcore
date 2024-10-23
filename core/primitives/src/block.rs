@@ -801,6 +801,8 @@ impl<'a> Chunks<'a> {
         }
     }
 
+    /// Deprecated, use `iter` instead. `iter_raw` is available if there is no need to
+    /// distinguish between old and new headers.
     pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
