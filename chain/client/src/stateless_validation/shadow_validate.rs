@@ -19,7 +19,7 @@ impl Client {
         let prev_block_chunks = prev_block.chunks();
         for (shard_index, chunk) in block
             .chunks()
-            .iter()
+            .iter_deprecated()
             .enumerate()
             .filter(|(_, chunk)| chunk.is_new_chunk(block.header().height()))
         {

@@ -183,7 +183,7 @@ fn find_tx_or_receipt(
     chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
-    let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+    let chunk_hashes = block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
 
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
@@ -560,7 +560,8 @@ mod test {
             let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
             let hash = *block.hash();
-            let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+            let chunk_hashes =
+                block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
             let epoch_id = *block.header().epoch_id();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
@@ -649,7 +650,8 @@ mod test {
             let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
             let hash = *block.hash();
-            let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+            let chunk_hashes =
+                block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
             let epoch_id = *block.header().epoch_id();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 

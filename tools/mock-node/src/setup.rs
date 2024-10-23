@@ -187,7 +187,7 @@ pub fn setup_mock_node(
         let prev_hash = *block.header().prev_hash();
         let epoch_id = block.header().epoch_id();
         let shard_layout = client_epoch_manager.get_shard_layout(epoch_id).unwrap();
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let state_root = chunk_header.prev_state_root();
             let state_root_node =
