@@ -159,7 +159,6 @@ impl StateSyncInfo {
         }
     }
 
-    // TODO: rename
     /// Block hash that identifies this state sync struct on disk
     pub fn epoch_first_block(&self) -> &CryptoHash {
         match self {

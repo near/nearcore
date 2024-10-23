@@ -2887,11 +2887,11 @@ impl Client {
 impl Client {
     pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
         let mut ret = vec![];
-        for (sync_hash, CatchupState { sync_status: status, catchup, .. }) in
+        for (sync_hash, CatchupState { sync_status, catchup, .. }) in
             self.catchup_state_syncs.iter()
         {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
-            let shard_sync_status: HashMap<_, _> = status
+            let shard_sync_status: HashMap<_, _> = sync_status
                 .sync_status
                 .iter()
                 .map(|(shard_id, state)| (*shard_id, state.to_string()))
