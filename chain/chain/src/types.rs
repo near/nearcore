@@ -40,6 +40,7 @@ use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_vm_runner::ContractRuntimeCache;
 use num_rational::Rational32;
 use tracing::instrument;
 
@@ -527,6 +528,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_runtime_config(&self, protocol_version: ProtocolVersion)
         -> Result<RuntimeConfig, Error>;
+
+    fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 }
 
 /// The last known / checked height and time when we have processed it.

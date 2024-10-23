@@ -1342,6 +1342,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
+
+    fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
+        self.compiled_contract_cache.as_ref()
+    }
 }
 
 /// Get the limit on the number of new receipts imposed by the local congestion control.
