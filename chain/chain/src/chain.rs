@@ -2148,7 +2148,7 @@ impl Chain {
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
-    /// to process the block an the block is valid.
+    /// to process the block and the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
         &self,
@@ -2182,7 +2182,8 @@ impl Chain {
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.head()?;
-        let is_next = header.prev_hash() == &head.last_block_hash;
+        let prev_hash = header.prev_hash();
+        let is_next = prev_hash == &head.last_block_hash;
 
         // Sandbox allows fast-forwarding, so only enable when not within sandbox
         if !cfg!(feature = "sandbox") {
@@ -2195,7 +2196,7 @@ impl Chain {
         }
 
         // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.block_exists(header.prev_hash())? {
+        if !is_next && !self.block_exists(prev_hash)? {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
@@ -2216,6 +2217,17 @@ impl Chain {
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
             panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
+        }
+
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
+        if next_epoch_protocol_version > PROTOCOL_VERSION {
+            error!(
+                "The client protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new network protocol version {}",
+                PROTOCOL_VERSION,
+                next_epoch_protocol_version,
+            );
         }
 
         // First real I/O expense.
