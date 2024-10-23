@@ -3554,38 +3554,6 @@ impl Chain {
             .collect()
     }
 
-    /// Returns sequence of blocks in chain from `last_block_hash` (inclusive)
-    /// until the block with height `first_block_height` (inclusive if `include_with_height`
-    /// is true). For each block hash in resulting `Vec`, next entry contains hash of its
-    /// parent on chain.
-    /// TODO(logunov): consider uniting with `get_incoming_receipts_for_shard` because it
-    /// has the same purpose.
-    pub fn get_blocks_until_height(
-        &self,
-        mut last_block_hash: CryptoHash,
-        first_block_height: BlockHeight,
-        include_with_height: bool,
-    ) -> Result<Vec<CryptoHash>, Error> {
-        let mut blocks = vec![];
-        loop {
-            let header = self.get_block_header(&last_block_hash)?;
-            if header.height() < first_block_height {
-                return Err(Error::InvalidBlockHeight(first_block_height));
-            }
-
-            if header.height() == first_block_height {
-                break;
-            }
-
-            blocks.push(last_block_hash);
-            last_block_hash = *header.prev_hash();
-        }
-        if include_with_height {
-            blocks.push(last_block_hash);
-        }
-        Ok(blocks)
-    }
-
     /// Checks whether `me` is chunk producer for this or next epoch, given
     /// block header which is not in DB yet. If this is the case, node must
     /// produce necessary data for state witness.
