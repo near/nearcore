@@ -116,7 +116,7 @@ mod tests {
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-        StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+        StoredChunkStateTransitionData, StoredChunkStateTransitionDataV2,
     };
     use near_primitives::types::{BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
@@ -204,11 +204,11 @@ mod tests {
             .set_ser(
                 DBCol::StateTransitionData,
                 &get_block_shard_id(&block_hash, shard_id),
-                &StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                &StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
-                    // TODO(#11099): Revisit this.
-                    contract_accesses: vec![],
+                    contract_accesses: Default::default(),
+                    contract_deploys: Default::default(),
                 }),
             )
             .unwrap();

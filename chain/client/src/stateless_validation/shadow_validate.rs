@@ -1,3 +1,4 @@
+use crate::stateless_validation::state_witness_producer::CreateWitnessResult;
 use near_chain::stateless_validation::chunk_validation::validate_prepared_transactions;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
@@ -74,7 +75,7 @@ impl Client {
             ));
         };
 
-        let (witness, _contract_accesses) = self.create_state_witness(
+        let CreateWitnessResult { state_witness, .. } = self.create_state_witness(
             // Setting arbitrary chunk producer is OK for shadow validation
             "alice.near".parse().unwrap(),
             prev_block_header,
@@ -83,10 +84,10 @@ impl Client {
             validated_transactions.storage_proof,
         )?;
         if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
         self.chain.shadow_validate_state_witness(
-            witness,
+            state_witness,
             self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
             None,
