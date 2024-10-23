@@ -14,6 +14,7 @@ pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> = La
     )
     .unwrap()
 });
+
 pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_save_latest_witness_commit_update_time",
@@ -23,6 +24,7 @@ pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = Lazy
     )
     .unwrap()
 });
+
 pub static SAVED_LATEST_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_saved_latest_witnesses_count",
@@ -30,6 +32,7 @@ pub static SAVED_LATEST_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
 pub static SAVED_LATEST_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_saved_latest_witnesses_size",

@@ -610,15 +610,8 @@ impl Block {
         }
     }
 
-    pub fn chunks(&self) -> ChunksCollection {
-        match self {
-            Block::BlockV1(block) => ChunksCollection::V1(
-                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
-            ),
-            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
-            Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
-            Block::BlockV4(block) => ChunksCollection::V2(&block.body.chunks()),
-        }
+    pub fn chunks(&self) -> Chunks {
+        Chunks::new(&self)
     }
 
     #[inline]
@@ -745,72 +738,89 @@ impl Block {
     }
 }
 
+#[derive(Clone)]
+pub enum MaybeNew<'a, T> {
+    New(&'a T),
+    Old(&'a T),
+}
+
+fn annotate_chunk(
+    chunk: &ShardChunkHeader,
+    block_height: BlockHeight,
+) -> MaybeNew<ShardChunkHeader> {
+    if chunk.is_new_chunk(block_height) {
+        MaybeNew::New(chunk)
+    } else {
+        MaybeNew::Old(chunk)
+    }
+}
+
 pub enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
 }
 
-pub struct VersionedChunksIter<'a> {
-    chunks: &'a [ShardChunkHeader],
-    curr_index: usize,
-    len: usize,
+pub struct Chunks<'a> {
+    chunks: ChunksCollection<'a>,
+    block_height: BlockHeight,
 }
 
-impl<'a> VersionedChunksIter<'a> {
-    fn new(chunks: &'a [ShardChunkHeader]) -> Self {
-        Self { chunks, curr_index: 0, len: chunks.len() }
-    }
-}
-
-impl<'a> Iterator for VersionedChunksIter<'a> {
-    type Item = &'a ShardChunkHeader;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_index < self.len {
-            let item = &self.chunks[self.curr_index];
-            self.curr_index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
-    fn len(&self) -> usize {
-        self.len - self.curr_index
-    }
-}
-
-impl<'a> Index<ShardIndex> for ChunksCollection<'a> {
+impl<'a> Index<ShardIndex> for Chunks<'a> {
     type Output = ShardChunkHeader;
 
     /// Deprecated. Please use get instead, it's safer.
     fn index(&self, index: usize) -> &Self::Output {
-        match self {
+        match &self.chunks {
             ChunksCollection::V1(chunks) => &chunks[index],
             ChunksCollection::V2(chunks) => &chunks[index],
         }
     }
 }
 
-impl<'a> ChunksCollection<'a> {
+impl<'a> Chunks<'a> {
+    pub fn new(block: &'a Block) -> Self {
+        let chunks = match block {
+            Block::BlockV1(block) => ChunksCollection::V1(
+                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
+            ),
+            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
+            Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
+            Block::BlockV4(block) => ChunksCollection::V2(&block.body.chunks()),
+        };
+
+        Self { chunks, block_height: block.header().height() }
+    }
+
     pub fn len(&self) -> usize {
-        match self {
+        match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.len(),
             ChunksCollection::V2(chunks) => chunks.len(),
         }
     }
 
-    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
-        match self {
-            ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
-            ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
+    pub fn iter(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
+            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
+        }
+    }
+
+    /// Returns an iterator over the shard chunk headers, differentiating between new and old chunks.
+    pub fn iter_annotated(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => {
+                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+            }
+            ChunksCollection::V2(chunks) => {
+                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+            }
         }
     }
 
     pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
-        match self {
+        match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
         }
