@@ -24,18 +24,41 @@ fn test_get_maintenance_windows_for_validator() {
             GetMaintenanceWindows { account_id: "test".parse().unwrap() }.with_span_context(),
         );
 
-        // block_height: 0 bp: test         cps: [AccountId("test")]
-        // block_height: 1 bp: validator    cps: [AccountId("validator")]
-        // block_height: 2 bp: test         cps: [AccountId("test")]
-        // block_height: 3 bp: validator    cps: [AccountId("validator")]
-        // block_height: 4 bp: test         cps: [AccountId("test")]
-        // block_height: 5 bp: validator    cps: [AccountId("validator")]
-        // block_height: 6 bp: test         cps: [AccountId("test")]
-        // block_height: 7 bp: validator    cps: [AccountId("validator")]
-        // block_height: 8 bp: test         cps: [AccountId("test")]
-        // block_height: 9 bp: validator    cps: [AccountId("validator")]
+        // shard_ids: [ShardId(0)]
+        // #0
+        // block producer: test
+        // chunk producer for shard 0: other
+        // #1
+        // block producer: other
+        // chunk producer for shard 0: other
+        // #2
+        // block producer: other
+        // chunk producer for shard 0: test
+        // #3
+        // block producer: test
+        // chunk producer for shard 0: test
+        // #4
+        // block producer: other
+        // chunk producer for shard 0: other
+        // #5
+        // block producer: test
+        // chunk producer for shard 0: test
+        // #6
+        // block producer: test
+        // chunk producer for shard 0: other
+        // #7
+        // block producer: other
+        // chunk producer for shard 0: test
+        // #8
+        // block producer: other
+        // chunk producer for shard 0: test
+        // #9
+        // block producer: other
+        // chunk producer for shard 0: test
+        //
+        // Maintenance heights (heights where it's not a block or chunk producer) for test: 1, 4
         let actor = actor.then(|res| {
-            assert_eq!(res.unwrap().unwrap(), vec![1..2, 3..4, 5..6, 7..8, 9..10]);
+            assert_eq!(res.unwrap().unwrap(), [1..2, 4..5]);
             System::current().stop();
             future::ready(())
         });
