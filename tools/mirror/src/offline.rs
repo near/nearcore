@@ -45,7 +45,11 @@ impl ChainAccess {
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
         );
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &config.genesis.config,
+            Some(home.as_ref()),
+        );
         let runtime =
             NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
                 .context("could not create the transaction runtime")?;

@@ -40,7 +40,8 @@ pub fn load_trie_stop_at_height(
         near_config.client_config.save_trie_changes,
     );
 
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime =
         NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
     let runtime = runtime.expect("could not create the transaction runtime");

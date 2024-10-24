@@ -531,7 +531,7 @@ mod test {
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -619,7 +619,7 @@ mod test {
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),

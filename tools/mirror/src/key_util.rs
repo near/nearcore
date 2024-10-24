@@ -61,7 +61,8 @@ pub(crate) fn keys_from_source_db(
         config.genesis.config.genesis_height,
         config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home));
     let runtime =
         NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
             .context("could not create the transaction runtime")?;

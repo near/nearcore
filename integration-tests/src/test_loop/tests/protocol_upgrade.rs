@@ -86,7 +86,7 @@ fn test_protocol_upgrade(
     let (genesis, genesis_epoch_config_store) = genesis_builder.build();
     let genesis_epoch_info = genesis_epoch_config_store.get_config(old_protocol);
 
-    let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let mut old_epoch_config: EpochConfig =
         mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
     let mut new_epoch_config: EpochConfig =

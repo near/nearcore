@@ -513,7 +513,7 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let nightshade_runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -583,7 +583,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -627,7 +627,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),

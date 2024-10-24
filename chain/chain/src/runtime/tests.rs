@@ -121,7 +121,7 @@ impl TestEnv {
             FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>).unwrap();
 
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::new(
             store.clone(),
             compiled_contract_cache.handle(),
@@ -1546,7 +1546,7 @@ fn test_genesis_hash() {
 
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime = NightshadeRuntime::test_with_runtime_config_store(
         tempdir.path(),
         store.clone(),
