@@ -58,14 +58,14 @@ class ShadowTrackingTest(unittest.TestCase):
         )
         node_config_sync["tracked_shards"] = []
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
-        configs = {x: node_config_sync for x in range(3)}
-        configs[3] = node_config_dump
+        configs = {x: node_config_sync for x in range(4)}
+        configs[4] = node_config_dump
 
         # Set the failover node to shadow track "test0".
-        configs[2]["tracked_shadow_validator"] = "test0"
+        configs[3]["tracked_shadow_validator"] = "test0"
 
         nodes = start_cluster(
-            2, 2, 3, None,
+            3, 2, 3, None,
             [["epoch_length", EPOCH_LENGTH],
              ["shuffle_shard_assignment_for_chunk_producers", True],
              ["block_producer_kickout_threshold", 20],
@@ -75,24 +75,24 @@ class ShadowTrackingTest(unittest.TestCase):
             node.stop_checking_store()
 
         # Wait for 1 epoch so that shard shuffling kicks in.
-        wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
+        wait_for_blocks(nodes[4], count=EPOCH_LENGTH)
         logger.info('## Initial shard assignment: {}'.format(
-            self._get_shard_assignment('latest', nodes[3])))
+            self._get_shard_assignment('latest', nodes[4])))
 
         # Stop the failover node for 1 epoch, so that it has to state sync to a new shard tracked by "test0".
-        nodes[2].kill()
-        wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
-        nodes[2].start(boot_node=nodes[3])
+        nodes[3].kill()
+        wait_for_blocks(nodes[4], count=EPOCH_LENGTH)
+        nodes[3].start(boot_node=nodes[4])
         # Give it some time to catch up.
-        wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
+        wait_for_blocks(nodes[4], count=EPOCH_LENGTH)
 
         round = 0
         epoch_ids = set()
 
         while True:
-            wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
+            wait_for_blocks(nodes[4], count=EPOCH_LENGTH)
             block_height = self._get_min_block_height(nodes)
-            block_header = self._get_block_header(block_height, nodes[3])
+            block_header = self._get_block_header(block_height, nodes[4])
             block_hash = block_header['hash']
             epoch_id = block_header['epoch_id']
             if epoch_id in epoch_ids:
@@ -102,7 +102,7 @@ class ShadowTrackingTest(unittest.TestCase):
             round += 1
 
             shards = self._get_shard_assignment({'epoch_id': epoch_id},
-                                                nodes[3])
+                                                nodes[4])
             logger.info(f'## Round {round} shard assignment: '
                         f'block_height={block_height}, '
                         f'block_hash={block_hash}, '
@@ -111,8 +111,8 @@ class ShadowTrackingTest(unittest.TestCase):
 
             for shard in shards['test0']:
                 # The RPC node should have chunk from a shard tracked by "test0".
-                self.assertTrue(self._has_chunk(block_hash, shard, nodes[2]))
-            if round == 3:
+                self.assertTrue(self._has_chunk(block_hash, shard, nodes[3]))
+            if round == 4:
                 break
 
 
