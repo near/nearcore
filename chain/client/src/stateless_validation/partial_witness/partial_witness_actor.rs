@@ -15,10 +15,11 @@ use near_network::state_witness::{
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeployments, CodeBytes, ContractCodeRequest,
+    ChunkContractAccesses, ChunkContractDeployments, CodeBytes, CodeHash, ContractCodeRequest,
     ContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
@@ -30,7 +31,7 @@ use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::get_contract_cache_key;
+use near_vm_runner::{get_contract_cache_key, ContractRuntimeCache};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -371,10 +372,8 @@ impl PartialWitnessActor {
             accesses
                 .contracts()
                 .iter()
-                .filter(|hash| {
-                    !contracts_cache
-                        .has(&get_contract_cache_key(hash.0, &runtime_config.wasm_config))
-                        .is_ok_and(|has| has)
+                .filter(|&hash| {
+                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
                 })
                 .cloned(),
         );
@@ -467,4 +466,13 @@ fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitn
         witness,
     );
     Ok(witness_bytes)
+}
+
+fn contracts_cache_contains_contract(
+    cache: &dyn ContractRuntimeCache,
+    contract_hash: &CodeHash,
+    runtime_config: &RuntimeConfig,
+) -> bool {
+    let cache_key = get_contract_cache_key(contract_hash.0, &runtime_config.wasm_config);
+    cache.memory_cache().contains(cache_key) || cache.has(&cache_key).is_ok_and(|has| has)
 }
