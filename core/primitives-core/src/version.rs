@@ -253,10 +253,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::SimpleNightshadeV4 => 145,
-
-            // Features that are not yet in Nightly.
-
-            // TODO(#11099): Move this feature to Nightly.
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
         }
     }
@@ -270,7 +266,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 146;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
