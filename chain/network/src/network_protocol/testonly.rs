@@ -216,7 +216,7 @@ impl ChunkSet {
         // Consider making this more realistic.
         let chunks = genesis_chunks(
             vec![StateRoot::new()],
-            vec![Default::default(); shard_ids.len()],
+            vec![Some(Default::default()); shard_ids.len()],
             &shard_ids,
             1000,
             0,
