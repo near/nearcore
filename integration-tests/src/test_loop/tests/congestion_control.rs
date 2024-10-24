@@ -106,7 +106,7 @@ fn do_deploy_contract(
 ) {
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
     let code = near_test_contracts::rs_contract().to_vec();
-    let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 2);
+    let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 1);
     test_loop.run_for(Duration::seconds(5));
     check_txs(&*test_loop, node_datas, rpc_id, &[tx]);
 }
