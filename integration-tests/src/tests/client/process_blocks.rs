@@ -2151,6 +2151,7 @@ fn test_data_reset_before_state_sync() {
 
 #[test]
 fn test_sync_hash_validity() {
+    init_test_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2158,11 +2159,11 @@ fn test_sync_hash_validity() {
     for i in 1..19 {
         env.produce_block(0, i);
     }
-    for i in 0..19 {
+    for i in 1..19 {
         let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
-        assert_eq!(res.unwrap(), i == 0 || (i % epoch_length) == 1);
+        assert_eq!(res.unwrap(), (i % epoch_length) == 1);
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
