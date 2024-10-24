@@ -1,12 +1,12 @@
 use super::{to_yocto, GAS_PRICE};
 use crate::config::safe_add_gas;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
-use crate::tests::{create_receipt_with_actions, MAX_ATTACHED_GAS};
+use crate::tests::{create_receipt_with_actions, set_sha256_cost, MAX_ATTACHED_GAS};
 use crate::total_prepaid_exec_fees;
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
-use near_parameters::{ActionCosts, ExtCosts, ParameterCost, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::Action;
@@ -26,7 +26,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    shard_id_as_u32, Balance, Compute, EpochInfoProvider, Gas, MerkleHash, ShardId,
+    shard_id_as_u32, AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, ShardId,
     StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
@@ -47,34 +47,50 @@ use testlib::runtime_utils::{alice_account, bob_account};
 /***************/
 
 fn setup_runtime(
+    initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
     initial_locked: Balance,
     gas_limit: Gas,
-) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<Signer>, impl EpochInfoProvider) {
-    setup_runtime_for_shard(initial_balance, initial_locked, gas_limit, ShardUId::single_shard())
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
+    setup_runtime_for_shard(
+        initial_accounts,
+        initial_balance,
+        initial_locked,
+        gas_limit,
+        ShardUId::single_shard(),
+    )
 }
 
 fn setup_runtime_for_shard(
+    initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
     initial_locked: Balance,
     gas_limit: Gas,
     shard_uid: ShardUId,
-) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<Signer>, impl EpochInfoProvider) {
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let runtime = Runtime::new();
-    let account_id = alice_account();
-    let signer: Arc<Signer> = Arc::new(
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref()).into(),
-    );
-
+    let mut signers = vec![];
     let mut initial_state = tries.new_trie_update(shard_uid, root);
-    let mut initial_account = account_new(initial_balance, hash(&[]));
-    // For the account and a full access key
-    initial_account.set_storage_usage(182);
-    initial_account.set_locked(initial_locked);
-    set_account(&mut initial_state, account_id.clone(), &initial_account);
-    set_access_key(&mut initial_state, account_id, signer.public_key(), &AccessKey::full_access());
+    for account_id in initial_accounts.into_iter() {
+        let signer: Arc<Signer> = Arc::new(
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
+                .into(),
+        );
+        let mut initial_account = account_new(initial_balance, CryptoHash::default());
+        // For the account and a full access key
+        initial_account.set_storage_usage(182);
+        initial_account.set_locked(initial_locked);
+        set_account(&mut initial_state, account_id.clone(), &initial_account);
+        set_access_key(
+            &mut initial_state,
+            account_id,
+            signer.public_key(),
+            &AccessKey::full_access(),
+        );
+        signers.push(signer);
+    }
     initial_state.commit(StateChangeCause::InitialState);
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
@@ -108,13 +124,13 @@ fn setup_runtime_for_shard(
         congestion_info,
     };
 
-    (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
+    (runtime, tries, root, apply_state, signers, MockEpochInfoProvider::default())
 }
 
 #[test]
 fn test_apply_no_op() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), 0, 10u64.pow(15));
     runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -134,7 +150,7 @@ fn test_apply_check_balance_validation_rewards() {
     let reward = to_yocto(10_000_000);
     let small_refund = to_yocto(500);
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
     let validator_accounts_update = ValidatorAccountsUpdate {
         stake_info: vec![(alice_account(), initial_locked)].into_iter().collect(),
@@ -168,7 +184,7 @@ fn test_apply_refund_receipts() {
     let small_transfer = to_yocto(10_000);
     let gas_limit = 1;
     let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
 
     let n = 10;
     let receipts = generate_refund_receipts(small_transfer, n);
@@ -206,8 +222,12 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
     let initial_locked = to_yocto(500_000);
     let small_transfer = to_yocto(10_000);
     let gas_limit = 1;
-    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
 
     let n = 10;
     let receipts = generate_receipts(small_transfer, n);
@@ -246,7 +266,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
     let initial_locked = to_yocto(500_000);
     let small_transfer = to_yocto(10_000);
     let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, 1);
+        setup_runtime(vec![alice_account(), bob_account()], initial_balance, initial_locked, 1);
 
     let receipt_gas_cost = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
         + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
@@ -289,7 +309,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
     let initial_locked = to_yocto(500_000);
     let small_transfer = to_yocto(10_000);
     let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, 1);
+        setup_runtime(vec![alice_account(), bob_account()], initial_balance, initial_locked, 1);
 
     let receipt_gas_cost = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
         + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
@@ -443,8 +463,8 @@ fn test_apply_delayed_receipts_local_tx() {
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
     let small_transfer = to_yocto(10_000);
-    let (runtime, tries, mut root, mut apply_state, signer, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, 1);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account(), bob_account()], initial_balance, initial_locked, 1);
 
     let receipt_exec_gas_fee = 1000;
     let mut free_config = RuntimeConfig::free();
@@ -464,7 +484,7 @@ fn test_apply_delayed_receipts_local_tx() {
                 i + 1,
                 alice_account(),
                 alice_account(),
-                &*signer,
+                &*signers[0],
                 small_transfer,
                 CryptoHash::default(),
             )
@@ -674,8 +694,12 @@ fn test_apply_deficit_gas_for_transfer() {
     let initial_locked = to_yocto(500_000);
     let small_transfer = to_yocto(10_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
 
     let n = 1;
     let mut receipts = generate_receipts(small_transfer, n);
@@ -702,8 +726,12 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
 
     let gas = 2 * 10u64.pow(14);
     let gas_price = GAS_PRICE / 10;
@@ -765,8 +793,12 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
 
     let gas = 1_000_000;
     let gas_price = GAS_PRICE / 10;
@@ -819,21 +851,21 @@ fn test_apply_deficit_gas_for_function_call_partial() {
 #[test]
 fn test_delete_key_add_key() {
     let initial_locked = to_yocto(500_000);
-    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
     let actions = vec![
-        Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+        Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signers[0].public_key() })),
         Action::AddKey(Box::new(AddKeyAction {
-            public_key: signer.public_key(),
+            public_key: signers[0].public_key(),
             access_key: AccessKey::full_access(),
         })),
     ];
 
-    let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
+    let receipts = vec![create_receipt_with_actions(alice_account(), signers[0].clone(), actions)];
 
     let apply_result = runtime
         .apply(
@@ -860,8 +892,8 @@ fn test_delete_key_add_key() {
 #[test]
 fn test_delete_key_underflow() {
     let initial_locked = to_yocto(500_000);
-    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let mut initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -874,9 +906,9 @@ fn test_delete_key_underflow() {
     store_update.commit().unwrap();
 
     let actions =
-        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() }))];
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signers[0].public_key() }))];
 
-    let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
+    let receipts = vec![create_receipt_with_actions(alice_account(), signers[0].clone(), actions)];
 
     let apply_result = runtime
         .apply(
@@ -909,13 +941,13 @@ fn test_contract_precompilation() {
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
     let gas_limit = 10u64.pow(15);
-    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
 
     let wasm_code = near_test_contracts::rs_contract().to_vec();
     let actions = vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
 
-    let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
+    let receipts = vec![create_receipt_with_actions(alice_account(), signers[0].clone(), actions)];
 
     let apply_result = runtime
         .apply(
@@ -947,23 +979,16 @@ fn test_contract_precompilation() {
 
 #[test]
 fn test_compute_usage_limit() {
-    let (runtime, tries, mut root, mut apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 1);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
 
-    let mut free_config = RuntimeConfig::free();
-    let sha256_cost = ParameterCost {
-        gas: Gas::from(1_000_000u64),
-        compute: Compute::from(10_000_000_000_000u64),
-    };
-    let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
-    wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
-    apply_state.config = Arc::new(free_config);
+    let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
     apply_state.gas_limit = Some(sha256_cost.compute);
 
     let deploy_contract_receipt = create_receipt_with_actions(
         alice_account(),
-        signer.clone(),
+        signers[0].clone(),
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
@@ -971,7 +996,7 @@ fn test_compute_usage_limit() {
 
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
-        signer.clone(),
+        signers[0].clone(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
@@ -982,7 +1007,7 @@ fn test_compute_usage_limit() {
 
     let second_call_receipt = create_receipt_with_actions(
         alice_account(),
-        signer,
+        signers[0].clone(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"second".to_vec(),
@@ -1009,6 +1034,7 @@ fn test_compute_usage_limit() {
     root = commit_apply_result(&apply_result, &mut apply_state, &tries);
 
     // Only first two receipts should fit into the chunk due to the compute usage limit.
+    assert_eq!(apply_result.delayed_receipts_count, 1);
     assert_matches!(&apply_result.outcomes[..], [first, second] => {
         assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
         assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
@@ -1039,12 +1065,12 @@ fn test_compute_usage_limit() {
 
 #[test]
 fn test_compute_usage_limit_with_failed_receipt() {
-    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
     let deploy_contract_receipt = create_receipt_with_actions(
         alice_account(),
-        signer.clone(),
+        signers[0].clone(),
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
@@ -1052,7 +1078,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
 
     let first_call_receipt = create_receipt_with_actions(
         alice_account(),
-        signer,
+        signers[0].clone(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_sha256".to_string(),
             args: b"first".to_vec(),
@@ -1085,8 +1111,12 @@ fn test_compute_usage_limit_with_failed_receipt() {
 // TODO(#11099): Add separate test for storage proof limit without contract calls.
 #[test]
 fn test_main_storage_proof_size_soft_limit_for_contracts() {
-    let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
 
     // Change main_storage_proof_size_soft_limit to a smaller value
     // The value of 500 is small enough to let the first receipt go through but not the second
@@ -1096,10 +1126,10 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
     runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
     apply_state.config = Arc::new(runtime_config);
 
-    let create_acc_fn = |account_id| {
+    let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
-            signer.clone(),
+            signer,
             vec![Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::sized_contract(5000).to_vec(),
             })],
@@ -1111,7 +1141,10 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
             &None,
             &apply_state,
-            &[create_acc_fn(alice_account()), create_acc_fn(bob_account())],
+            &[
+                create_acc_fn(alice_account(), signers[0].clone()),
+                create_acc_fn(bob_account(), signers[1].clone()),
+            ],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1123,10 +1156,10 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
 
-    let function_call_fn = |account_id| {
+    let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
-            signer.clone(),
+            signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
@@ -1142,7 +1175,10 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
             &None,
             &apply_state,
-            &[function_call_fn(alice_account()), function_call_fn(bob_account())],
+            &[
+                function_call_fn(alice_account(), signers[0].clone()),
+                function_call_fn(bob_account(), signers[1].clone()),
+            ],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1183,27 +1219,36 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         let code_key = TrieKey::ContractCode { account_id: alice_account() };
         assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
         let code_key = TrieKey::ContractCode { account_id: bob_account() };
-        assert_matches!(storage.get(&code_key.to_vec()), Ok(None));
+        assert_matches!(
+            storage.get(&code_key.to_vec()),
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                _
+            ))
+        );
     }
 }
 
+// Tests excluding contract code from state witness and recording of contract deployments and function calls.
 #[test]
 fn test_exclude_contract_code_from_witness() {
     if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
 
-    let mut runtime_config = RuntimeConfig::test();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
-    apply_state.config = Arc::new(runtime_config);
+    apply_state.config = Arc::new(RuntimeConfig::free());
 
-    let contract_code = ContractCode::new(near_test_contracts::sized_contract(5000).to_vec(), None);
-    let create_acc_fn = |account_id| {
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
-            signer.clone(),
+            signer,
             vec![Action::DeployContract(DeployContractAction {
                 code: contract_code.code().to_vec(),
             })],
@@ -1215,7 +1260,10 @@ fn test_exclude_contract_code_from_witness() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
             &None,
             &apply_state,
-            &[create_acc_fn(alice_account()), create_acc_fn(bob_account())],
+            &[
+                create_acc_fn(alice_account(), signers[0].clone()),
+                create_acc_fn(bob_account(), signers[1].clone()),
+            ],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1224,6 +1272,7 @@ fn test_exclude_contract_code_from_witness() {
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
     assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    // Since both accounts deploy the same contract, we expect only one contract deploy.
     assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash())]));
 
     let mut store_update = tries.store_update();
@@ -1231,26 +1280,28 @@ fn test_exclude_contract_code_from_witness() {
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
 
-    let function_call_fn = |account_id| {
+    let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
-            signer.clone(),
+            signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
                 gas: 1,
                 deposit: 0,
             }))],
         )
     };
 
-    // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
             &None,
             &apply_state,
-            &[function_call_fn(alice_account()), function_call_fn(bob_account())],
+            &[
+                function_call_fn(alice_account(), signers[0].clone()),
+                function_call_fn(bob_account(), signers[1].clone()),
+            ],
             &[],
             &epoch_info_provider,
             Default::default(),
@@ -1258,6 +1309,7 @@ fn test_exclude_contract_code_from_witness() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
+    // Since both accounts call the same contract, we expect only one contract access.
     assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
     assert_eq!(apply_result.contract_deploys, BTreeSet::new());
 
@@ -1276,6 +1328,592 @@ fn test_exclude_contract_code_from_witness() {
     );
 }
 
+// Tests excluding contract code from state witness and recording of contract deployments and function calls
+// with one of the function calls fail due to exceeding the gas limit.
+#[test]
+fn test_exclude_contract_code_from_witness_with_failed_call() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+
+    let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
+    // This allows us to execute 1 receipt with a function call per apply.
+    apply_state.gas_limit = Some(sha256_cost.compute);
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
+        create_receipt_with_actions(
+            account_id,
+            signer,
+            vec![Action::DeployContract(DeployContractAction {
+                code: contract_code.code().to_vec(),
+            })],
+        )
+    };
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[
+                create_acc_fn(alice_account(), signers[0].clone()),
+                create_acc_fn(bob_account(), signers[1].clone()),
+            ],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    // Since both accounts deploy the same contract, we expect only one contract deploy.
+    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash())]));
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
+        create_receipt_with_actions(
+            account_id,
+            signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
+                gas: sha256_cost.gas,
+                deposit: 0,
+            }))],
+        )
+    };
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[
+                function_call_fn(alice_account(), signers[0].clone()),
+                function_call_fn(bob_account(), signers[1].clone()),
+            ],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 1);
+    // Since both accounts call the same contract, we expect only one contract access.
+    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+
+    // Check that both contracts are excluded from the storage proof.
+    let partial_storage = apply_result.proof.unwrap();
+    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
+    let code_key = TrieKey::ContractCode { account_id: bob_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
+}
+
+// Tests excluding contract code from state witness and recording of contract deployments and function calls
+// where different contracts are deployed to different accounts, to check if we record code-hashes of both contracts.
+#[test]
+fn test_deploy_and_call_different_contracts() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        1,
+    );
+
+    apply_state.config = Arc::new(RuntimeConfig::free());
+
+    // We use different contract to check the code hashes in the output.
+    let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let second_contract_code = ContractCode::new(near_test_contracts::sized_contract(100), None);
+
+    let first_deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: first_contract_code.code().to_vec(),
+        })],
+    );
+
+    let first_call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ext_sha256".to_string(),
+            args: b"first".to_vec(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let second_deploy_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: second_contract_code.code().to_vec(),
+        })],
+    );
+
+    let second_call_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: Vec::new(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_deploy_receipt, second_deploy_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(
+        apply_result.contract_deploys,
+        BTreeSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_call_receipt, second_call_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(
+        apply_result.contract_accesses,
+        BTreeSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
+    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+}
+
+// Similar to test_deploy_and_call_different_contracts, but one of the function calls fails.
+#[test]
+fn test_deploy_and_call_different_contracts_with_failed_call() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        1,
+    );
+
+    let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
+    // This allows us to execute 1 receipt with a function call per apply.
+    apply_state.gas_limit = Some(sha256_cost.compute);
+
+    // We use different contract to check the code hashes in the output.
+    let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let second_contract_code = ContractCode::new(near_test_contracts::sized_contract(100), None);
+
+    let first_deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: first_contract_code.code().to_vec(),
+        })],
+    );
+
+    let first_call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ext_sha256".to_string(),
+            args: b"first".to_vec(),
+            gas: sha256_cost.gas,
+            deposit: 0,
+        }))],
+    );
+
+    let second_deploy_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: second_contract_code.code().to_vec(),
+        })],
+    );
+
+    let second_call_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: Vec::new(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_deploy_receipt, second_deploy_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(
+        apply_result.contract_deploys,
+        BTreeSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_call_receipt, second_call_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 1);
+    assert_eq!(
+        apply_result.contract_accesses,
+        BTreeSet::from([CodeHash(*first_contract_code.hash())])
+    );
+    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+}
+
+// Tests excluding contract code from state witness and recording of contract deployments and function calls
+// where different contracts are deployed to different accounts and all receipts are evaluated in the same call to apply.
+
+#[test]
+fn test_deploy_and_call_in_apply() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        1,
+    );
+
+    apply_state.config = Arc::new(RuntimeConfig::free());
+
+    // We use different contract to check the code hashes in the output.
+    let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let second_contract_code = ContractCode::new(near_test_contracts::sized_contract(100), None);
+
+    let first_deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: first_contract_code.code().to_vec(),
+        })],
+    );
+
+    let first_call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ext_sha256".to_string(),
+            args: b"first".to_vec(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let second_deploy_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: second_contract_code.code().to_vec(),
+        })],
+    );
+
+    let second_call_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: Vec::new(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(
+        apply_result.contract_accesses,
+        BTreeSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
+    assert_eq!(
+        apply_result.contract_deploys,
+        BTreeSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
+}
+
+// Similar to test_deploy_and_call_in_apply but one of the function calls fail due to exceeding gas limit.
+#[test]
+fn test_deploy_and_call_in_apply_with_failed_call() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        1,
+    );
+
+    let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
+    // This allows us to execute 1 receipt with a function call per apply.
+    apply_state.gas_limit = Some(sha256_cost.compute);
+
+    // We use different contract to check the code hashes in the output.
+    let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let second_contract_code = ContractCode::new(near_test_contracts::sized_contract(100), None);
+
+    let first_deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: first_contract_code.code().to_vec(),
+        })],
+    );
+
+    let first_call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ext_sha256".to_string(),
+            args: b"first".to_vec(),
+            gas: sha256_cost.gas,
+            deposit: 0,
+        }))],
+    );
+
+    let second_deploy_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: second_contract_code.code().to_vec(),
+        })],
+    );
+
+    let second_call_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: Vec::new(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 1);
+    assert_eq!(
+        apply_result.contract_accesses,
+        BTreeSet::from([CodeHash(*first_contract_code.hash())])
+    );
+    // We record both deployments even if the function call to one of them fails.
+    assert_eq!(
+        apply_result.contract_deploys,
+        BTreeSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
+}
+
+// Tests the case in which deploy and call are contained in the same receipt.
+#[test]
+fn test_deploy_and_call_in_same_receipt() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        1,
+    );
+
+    apply_state.config = Arc::new(RuntimeConfig::free());
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![
+            Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
+                gas: 1,
+                deposit: 0,
+            })),
+        ],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash()),]));
+}
+
+// Tests the case in which deploy and call are contained in the same receipt and function call fails due to exceeding gas limit.
+#[test]
+fn test_deploy_and_call_in_same_receipt_with_failed_call() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        1,
+    );
+
+    let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
+    // This allows us to execute 1 receipt with a function call per apply.
+    apply_state.gas_limit = Some(sha256_cost.compute);
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![
+            Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
+                gas: 1,
+                deposit: 0,
+            })),
+        ],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+}
+
 /// Check that applying nothing does not change the state trie.
 ///
 /// This test is useful to check that trie columns are not accidentally
@@ -1287,7 +1925,7 @@ fn test_empty_apply() {
     let initial_locked = to_yocto(500_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root_before, apply_state, _signer, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
 
     let receipts = [];
     let transactions = [];
@@ -1317,8 +1955,12 @@ fn test_congestion_delayed_receipts_accounting() {
     let initial_locked = to_yocto(0);
     let deposit = to_yocto(1);
     let gas_limit = 1;
-    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
 
     let n = 10;
     let receipts = generate_receipts(deposit, n);
@@ -1375,7 +2017,13 @@ fn test_congestion_buffering() {
     // execute a single receipt per chunk
     let gas_limit = 1;
     let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime_for_shard(initial_balance, initial_locked, gas_limit, local_shard_uid);
+        setup_runtime_for_shard(
+            vec![alice_account(), bob_account()],
+            initial_balance,
+            initial_locked,
+            gas_limit,
+            local_shard_uid,
+        );
 
     apply_state.shard_id = local_shard;
 
@@ -1544,7 +2192,7 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
     let initial_locked = to_yocto(500_000);
     let gas_limit = 10u64.pow(15);
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime(initial_balance, initial_locked, gas_limit);
+        setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
 
     // Delete previous congestion info to trigger bootstrapping it. An empty
     // shards congestion info map is what we should see in the first chunk
@@ -1586,14 +2234,14 @@ fn test_congestion_info_bootstrapping() {
 
 #[test]
 fn test_deploy_and_call_local_receipt() {
-    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
     let tx = SignedTransaction::from_actions(
         1,
         alice_account(),
         alice_account(),
-        &*signer,
+        &*signers[0],
         vec![
             Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
@@ -1648,14 +2296,14 @@ fn test_deploy_and_call_local_receipt() {
 
 #[test]
 fn test_deploy_and_call_local_receipts() {
-    let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+    let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
+        setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
     let tx1 = SignedTransaction::from_actions(
         1,
         alice_account(),
         alice_account(),
-        &*signer,
+        &*signers[0],
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
@@ -1667,7 +2315,7 @@ fn test_deploy_and_call_local_receipts() {
         2,
         alice_account(),
         alice_account(),
-        &*signer,
+        &*signers[0],
         vec![
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "log_something".to_string(),
