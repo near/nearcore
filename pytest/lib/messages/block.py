@@ -1037,10 +1037,9 @@ block_schema = [
         {
             'kind':
                 'struct',
-            'fields': [
-                'to_shard',
-                'u8'  # TODO(bandwidth_scheduler) - add requested values
-            ]
+            'fields': [['to_shard', 'u8'
+                       ]  # TODO(bandwidth_scheduler) - add requested values
+                      ]
         }
     ],
     [
