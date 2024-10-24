@@ -2161,9 +2161,15 @@ fn test_sync_hash_validity() {
     }
     for i in 1..19 {
         let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
-        let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
-        println!("height {:?} -> {:?}", i, res);
-        assert_eq!(res.unwrap(), (i % epoch_length) == 1);
+        let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
+        println!("height {} -> {}", i, valid);
+        if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+            // This assumes that all shards have new chunks in every block, which should be true
+            // with TestEnv::produce_block()
+            assert_eq!(valid, (i % epoch_length) == 3);
+        } else {
+            assert_eq!(valid, (i % epoch_length) == 1);
+        }
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
