@@ -683,6 +683,14 @@ impl Block {
         let mut result = BTreeMap::new();
 
         for chunk in self.chunks().iter() {
+            // It's okay to take bandwidth requests from a missing chunk,
+            // the chunk was missing so it didn't send anything and still
+            // wants to send out the same receipts.
+            let chunk = match chunk {
+                MaybeNew::New(new_chunk) => new_chunk,
+                MaybeNew::Old(missing_chunk) => missing_chunk,
+            };
+
             let shard_id = chunk.shard_id();
 
             if let Some(bandwidth_requests) = chunk.bandwidth_requests() {

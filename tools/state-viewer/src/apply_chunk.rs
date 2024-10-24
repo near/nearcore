@@ -9,6 +9,7 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::MaybeNew;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -122,7 +123,10 @@ pub(crate) fn apply_chunk(
     // will end up different from what it would normally be.
     let mut shards_bandwidth_requests = BTreeMap::new();
     for prev_chunk in prev_block.chunks().iter() {
-        let shard_id = prev_chunk.shard_id();
+        let shard_id = match prev_chunk {
+            MaybeNew::New(new_chunk) => new_chunk.shard_id(),
+            MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
+        };
         let shard_uid =
             epoch_manager.shard_id_to_uid(shard_id, prev_block.header().epoch_id()).unwrap();
         let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {
