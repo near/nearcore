@@ -15,7 +15,6 @@ use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
 };
-use near_client::sync::state::get_epoch_start_sync_hash;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -268,6 +267,11 @@ fn get_current_state(
         tracing::error!(target: "state_sync_dump", ?shard_id, ?err, "Failed to get the latest epoch");
         err
     })?;
+
+    let new_sync_hash = match new_sync_hash {
+        Some(h) => h,
+        None => return Ok(StateDumpAction::Wait),
+    };
 
     if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
         tracing::debug!(target: "state_sync_dump", ?shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
@@ -652,7 +656,7 @@ struct LatestEpochInfo {
     prev_epoch_id: EpochId,
     epoch_id: EpochId,
     epoch_height: EpochHeight,
-    sync_hash: CryptoHash,
+    sync_hash: Option<CryptoHash>,
 }
 
 /// return epoch_id and sync_hash of the latest complete epoch available locally.
@@ -666,12 +670,13 @@ fn get_latest_epoch(
     let hash = head.last_block_hash;
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();
-    let sync_hash = get_epoch_start_sync_hash(chain, final_hash)?;
+    let sync_hash = chain.get_sync_hash(final_hash)?;
     let final_block_header = chain.get_block_header(&final_hash)?;
     let epoch_id = *final_block_header.epoch_id();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
     let epoch_height = epoch_info.epoch_height();
+
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");
 
     Ok(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash })

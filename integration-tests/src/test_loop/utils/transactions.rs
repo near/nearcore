@@ -5,6 +5,7 @@ use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
+use near_client::Client;
 use near_client::ProcessTxResponse;
 use near_network::client::ProcessTxRequest;
 use near_primitives::errors::InvalidTxError;
@@ -29,6 +30,21 @@ pub(crate) struct BalanceMismatchError {
     pub expected: u128,
     #[allow(unused)]
     pub actual: u128,
+}
+
+// Transactions have to be built on top of some block in chain. To make
+// sure all clients accept them, we select the head of the client with
+// the smallest height.
+pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
+    let (_, anchor_hash) = clients
+        .iter()
+        .map(|client| {
+            let head = client.chain.head().unwrap();
+            (head.height, head.last_block_hash)
+        })
+        .min_by_key(|&(height, _)| height)
+        .unwrap();
+    anchor_hash
 }
 
 /// Execute money transfers within given `TestLoop` between given accounts.
@@ -74,17 +90,7 @@ pub(crate) fn execute_money_transfers(
                     .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
                     .collect_vec();
 
-                // Transactions have to be built on top of some block in chain. To make
-                // sure all clients accept them, we select the head of the client with
-                // the smallest height.
-                let (_, anchor_hash) = clients
-                    .iter()
-                    .map(|client| {
-                        let head = client.chain.head().unwrap();
-                        (head.height, head.last_block_hash)
-                    })
-                    .min_by_key(|&(height, _)| height)
-                    .unwrap();
+                let anchor_hash = get_anchor_hash(&clients);
 
                 let tx = SignedTransaction::send_money(
                     // TODO: set correct nonce.

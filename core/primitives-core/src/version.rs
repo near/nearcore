@@ -176,6 +176,11 @@ pub enum ProtocolFeature {
     SimpleNightshadeV4,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     ExcludeContractCodeFromStateWitness,
+    /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
+    /// should no longer be the first block of the epoch, but a couple blocks after that in order
+    /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
+    /// here to coordinate among nodes
+    StateSyncHashUpdate,
 }
 
 impl ProtocolFeature {
@@ -252,6 +257,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::StateSyncHashUpdate => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
 
             // Features that are not yet in Nightly.

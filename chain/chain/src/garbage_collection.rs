@@ -318,6 +318,7 @@ impl ChainStore {
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
         let sync_height = header.height();
+        // TODO(current_epoch_state_sync): fix this when syncing to the current epoch's state
         // The congestion control added a dependency on the prev block when
         // applying chunks in a block. This means that we need to keep the
         // blocks at sync hash, prev hash and prev prev hash. The heigh of that

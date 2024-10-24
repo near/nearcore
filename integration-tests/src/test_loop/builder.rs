@@ -53,6 +53,12 @@ enum DropConditionKind {
     /// Whether test loop should drop all chunks in the given range of heights
     /// relative to first block height where protocol version changes.
     ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
+    /// Specifies the chunks that should be produced by their appearance in the
+    /// chain with respect to the start of an epoch. That is, a given chunk at height
+    /// `height_created` for shard `shard_id` will be produced if
+    /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
+    /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
+    ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -102,6 +108,33 @@ fn is_chunk_validated_by(
         .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
         .unwrap();
     return chunk_validators.contains(&account_id);
+}
+
+/// returns !chunks_produced[shard_id][height_created - epoch_start].
+fn should_drop_chunk_by_height(
+    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
+    chunk: ShardChunkHeader,
+    chunks_produced: HashMap<ShardId, Vec<bool>>,
+) -> bool {
+    let prev_block_hash = chunk.prev_block_hash();
+    let shard_id = chunk.shard_id();
+    let height_created = chunk.height_created();
+
+    let height_in_epoch =
+        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap() {
+            0
+        } else {
+            let epoch_start =
+                epoch_manager_adapter.get_epoch_start_height(prev_block_hash).unwrap();
+            height_created - epoch_start
+        };
+    let Some(chunks_produced) = chunks_produced.get(&shard_id) else {
+        return false;
+    };
+    let Some(should_produce) = chunks_produced.get(height_in_epoch as usize) else {
+        return false;
+    };
+    !*should_produce
 }
 
 /// Returns true if the chunk should be dropped based on the
@@ -220,6 +253,22 @@ fn register_drop_condition(
                 drop_chunks_condition,
             ));
         }
+        DropConditionKind::ChunksProducedByHeight(chunks_produced) => {
+            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
+            let chunks_produced = chunks_produced.clone();
+            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
+                should_drop_chunk_by_height(
+                    inner_epoch_manager_adapter.clone(),
+                    chunk,
+                    chunks_produced.clone(),
+                )
+            });
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
+                chunks_storage,
+                epoch_manager_adapter.clone(),
+                drop_chunks_condition,
+            ));
+        }
     }
 }
 
@@ -307,6 +356,17 @@ impl TestLoopBuilder {
                 protocol_version,
                 chunk_ranges,
             )));
+        }
+        self
+    }
+
+    pub(crate) fn drop_chunks_by_height(
+        mut self,
+        chunks_produced: HashMap<ShardId, Vec<bool>>,
+    ) -> Self {
+        if !chunks_produced.is_empty() {
+            self.drop_condition_kinds
+                .push(DropConditionKind::ChunksProducedByHeight(chunks_produced));
         }
         self
     }

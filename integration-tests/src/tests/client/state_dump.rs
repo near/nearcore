@@ -244,14 +244,7 @@ fn run_state_sync_with_dumped_parts(
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let epoch_height = epoch_info.epoch_height();
 
-    let sync_block_height = (epoch_length * epoch_height + 1) as usize;
-    let sync_hash = *blocks[sync_block_height - 1].hash();
-
-    // the block at sync_block_height should be the start of an epoch
-    assert_ne!(
-        blocks[sync_block_height - 1].header().epoch_id(),
-        blocks[sync_block_height - 2].header().epoch_id()
-    );
+    let sync_hash = env.clients[0].chain.get_sync_hash(final_block_hash).unwrap().unwrap();
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header =
         env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
@@ -375,7 +368,7 @@ fn run_state_sync_with_dumped_parts(
     }
 }
 
-/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous to the dumping node's final block.
+/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous (or current) to the dumping node's final block.
 /// Specifically, it tests that the above holds true in both conditions:
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
