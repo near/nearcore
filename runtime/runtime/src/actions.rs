@@ -172,6 +172,7 @@ pub(crate) fn action_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
+    code_hash: CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
@@ -183,7 +184,19 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-    state_update.trie.request_code_recording(account_id.clone());
+
+    // When the contract code is excluded from the witness, the Trie read for the contract code
+    // is not recorded and the code-size does not contribute to the storage-proof limit.
+    // Instead we just record that the code with the given hash was called, so that we can identify
+    // which contract-code to distribute to the validators.
+    if ProtocolFeature::ExcludeContractCodeFromStateWitness
+        .enabled(apply_state.current_protocol_version)
+    {
+        state_update.contract_storage.record_call(code_hash);
+    } else {
+        state_update.trie.request_code_recording(account_id.clone());
+    }
+
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
 
@@ -638,7 +651,7 @@ pub(crate) fn action_deploy_contract(
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
-    state_update.contract_storage.store(code);
+    state_update.contract_storage.record_deploy(code);
     Ok(())
 }
 
@@ -1436,7 +1449,7 @@ mod tests {
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().1;
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();

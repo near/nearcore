@@ -8,14 +8,12 @@ use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
-use near_async::messaging::Sender;
 use near_async::time::{Clock, Duration};
-use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::ChainStore;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
+use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
 use near_client::test_utils::{
@@ -58,13 +56,15 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
+use near_primitives::types::{
+    shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
+};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_primitives_core::num_rational::{Ratio, Rational32};
-use near_primitives_core::types::ShardId;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
@@ -97,7 +97,7 @@ pub(crate) fn produce_blocks_from_height_with_protocol_version(
     let next_height = height + blocks_number;
     for i in height..next_height {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-        block.mut_header().set_latest_protocol_version(protocol_version);
+        set_block_protocol_version(&mut block, env.get_client_id(0), protocol_version);
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         for j in 1..env.clients.len() {
             env.process_block(j, block.clone(), Provenance::NONE);
@@ -686,7 +686,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+            let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
                 ShardChunkHeader::V1(chunk) => {
@@ -1236,15 +1236,18 @@ fn test_bad_chunk_mask() {
     // The test never goes past the first epoch, so EpochId(11111...) can be used for all calculations
     let first_epoch_id = &EpochId::default();
 
+    let shard_id = ShardId::new(0);
     // Generate 4 blocks
     for height in 1..5 {
-        let chunk_producer =
-            env.clients[0].epoch_manager.get_chunk_producer(&first_epoch_id, height, 0).unwrap();
+        let chunk_producer = env.clients[0]
+            .epoch_manager
+            .get_chunk_producer(&first_epoch_id, height, shard_id)
+            .unwrap();
         let block_producer =
             env.clients[0].epoch_manager.get_block_producer(&first_epoch_id, height).unwrap();
 
         // Manually produce a single chunk on shard 0, chunk for 1 is always missing.
-        let shard_chunk = env.client(&chunk_producer).produce_one_chunk(height, 0);
+        let shard_chunk = env.client(&chunk_producer).produce_one_chunk(height, shard_id);
         env.process_partial_encoded_chunks();
         for i in 0..env.clients.len() {
             env.process_shards_manager_responses(i);
@@ -1256,7 +1259,7 @@ fn test_bad_chunk_mask() {
         {
             let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
-            let mut chunk_headers: Vec<_> = block.chunks().iter().cloned().collect();
+            let mut chunk_headers: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
             chunk_headers[0] = chunk_header;
             block.set_chunks(chunk_headers.clone());
             block
@@ -1415,11 +1418,11 @@ fn test_archival_save_trie_changes() {
 
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
-        for chunk in chunks.iter() {
-            let shard_id = chunk.shard_id() as u32;
+        for chunk in chunks.iter_deprecated() {
+            let shard_id = chunk.shard_id();
             let version = shard_layout.version();
 
-            let shard_uid = ShardUId { version, shard_id };
+            let shard_uid = ShardUId { version, shard_id: shard_id_as_u32(shard_id) };
             let key = get_block_shard_uid(&block.hash(), &shard_uid);
             let trie_changes: Option<TrieChanges> =
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
@@ -1673,15 +1676,16 @@ fn test_process_block_after_state_sync() {
     }
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
     let sync_hash = *sync_block.hash();
+    let shard_id = ShardId::new(0);
 
-    let header = env.clients[0].chain.compute_state_response_header(0, sync_hash).unwrap();
+    let header = env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = header.chunk_prev_state_root();
     let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(0, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
+        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -1692,7 +1696,7 @@ fn test_process_block_after_state_sync() {
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
+        .apply_state_part(shard_id, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     env.clients[0].process_block_test(block.into(), Provenance::PRODUCED).unwrap();
@@ -2060,7 +2064,10 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
         }
     }
     for block in blocks {
-        let proof = env.clients[0].chain.get_block_proof(block.hash(), head.hash()).unwrap();
+        let proof = env.clients[0]
+            .chain
+            .compute_past_block_proof_in_merkle_tree_of_later_block(block.hash(), head.hash())
+            .unwrap();
         assert!(verify_hash(*root, &proof, *block.hash()));
     }
 }
@@ -2077,8 +2084,13 @@ fn test_block_merkle_proof() {
 fn test_block_merkle_proof_same_hash() {
     let env = TestEnv::default_builder().mock_epoch_managers().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let proof =
-        env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
+    let proof = env.clients[0]
+        .chain
+        .compute_past_block_proof_in_merkle_tree_of_later_block(
+            genesis_block.hash(),
+            genesis_block.hash(),
+        )
+        .unwrap();
     assert!(proof.is_empty());
 }
 
@@ -2271,7 +2283,7 @@ fn test_validate_chunk_extra() {
         block
             .mut_header()
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
-        let outcome_root = Block::compute_outcome_root(block.chunks().iter());
+        let outcome_root = Block::compute_outcome_root(block.chunks().iter_deprecated());
         block.mut_header().set_prev_outcome_root(outcome_root);
         let endorsement =
             ChunkEndorsement::new(EpochId::default(), &chunk_header, &validator_signer);
@@ -2325,9 +2337,10 @@ fn test_validate_chunk_extra() {
     let chunks = client
         .chunk_inclusion_tracker
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
+    let shard_id = ShardId::new(0);
     let (chunk_header, _) = client
         .chunk_inclusion_tracker
-        .get_chunk_header_and_endorsements(chunks.get(&0).unwrap())
+        .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
         .unwrap();
     let chunk_extra =
         client.chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
@@ -2400,46 +2413,54 @@ fn test_catchup_gas_price_change() {
     let sync_hash = *blocks[5].hash();
     assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+    let shard_id = ShardId::new(0);
+    let state_sync_header =
+        env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
     let num_parts = state_sync_header.num_state_parts();
     let state_sync_parts = (0..num_parts)
-        .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
+        .map(|i| env.clients[0].chain.get_state_response_part(shard_id, i, sync_hash).unwrap())
         .collect::<Vec<_>>();
 
-    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+    env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header.clone()).unwrap();
     for i in 0..num_parts {
         env.clients[1]
             .chain
-            .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
-            .unwrap();
-    }
-    let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let f = Sender::from_fn(move |msg: ApplyStatePartsRequest| {
-        let store = rt.store();
-
-        let shard_id = msg.shard_uid.shard_id as ShardId;
-        let mut store_update = store.store_update();
-        assert!(rt
-            .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)
-            .unwrap());
-        store_update.commit().unwrap();
-        for part_id in 0..msg.num_parts {
-            let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
-            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
-
-            rt.apply_state_part(
+            .set_state_part(
                 shard_id,
-                &msg.state_root,
-                PartId::new(part_id, msg.num_parts),
-                &part,
-                &msg.epoch_id,
+                sync_hash,
+                PartId::new(i, num_parts),
+                &state_sync_parts[i as usize],
             )
             .unwrap();
+    }
+    {
+        let store = env.clients[1].runtime_adapter.store();
+        let mut store_update = store.store_update();
+        assert!(env.clients[1]
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
+            .unwrap());
+        store_update.commit().unwrap();
+        for part_id in 0..num_parts {
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            env.clients[1]
+                .runtime_adapter
+                .apply_state_part(
+                    shard_id,
+                    &state_sync_header.chunk_prev_state_root(),
+                    PartId::new(part_id, num_parts),
+                    &part,
+                    blocks[5].header().epoch_id(),
+                )
+                .unwrap();
         }
-    });
-    env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-    env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
+    }
+    env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =
@@ -2496,13 +2517,14 @@ fn test_block_execution_outcomes() {
     }
     let block = env.clients[0].chain.get_block_by_height(2).unwrap();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
+    let shard_id = chunk.shard_id();
     assert_eq!(chunk.transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
         .get_block_execution_outcomes(block.hash())
         .unwrap()
-        .remove(&0)
+        .remove(&shard_id)
         .unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 5);
     assert_eq!(
@@ -2516,6 +2538,7 @@ fn test_block_execution_outcomes() {
     // Make sure the chunk outcomes contain the outcome from the delayed receipt.
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
+    let shard_id = next_chunk.shard_id();
     assert!(next_chunk.transactions().is_empty());
     assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
@@ -2523,7 +2546,7 @@ fn test_block_execution_outcomes() {
         .chain_store()
         .get_block_execution_outcomes(next_block.hash())
         .unwrap()
-        .remove(&0)
+        .remove(&shard_id)
         .unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 1);
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
@@ -2573,6 +2596,7 @@ fn test_refund_receipts_processing() {
     }
 
     let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
+    let test_shard_id = test_shard_uid.shard_id();
     for tx_hash in tx_hashes {
         let tx_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
         assert_eq!(tx_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
@@ -2590,7 +2614,7 @@ fn test_refund_receipts_processing() {
                 .chain_store()
                 .get_block_execution_outcomes(&receipt_outcome.block_hash)
                 .unwrap()
-                .remove(&0)
+                .remove(&test_shard_id)
                 .unwrap();
             assert_eq!(execution_outcomes_from_block.len(), 1);
             let chunk_extra = env.clients[0]
@@ -3608,10 +3632,11 @@ mod contract_precompilation_tests {
     const EPOCH_LENGTH: u64 = 25;
 
     fn state_sync_on_height(env: &TestEnv, height: BlockHeight) {
+        let shard_id = ShardId::new(0);
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let sync_hash = *sync_block.hash();
         let state_sync_header =
-            env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+            env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
         let state_root = state_sync_header.chunk_prev_state_root();
         let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
         let sync_prev_header =
@@ -3619,11 +3644,11 @@ mod contract_precompilation_tests {
         let sync_prev_prev_hash = sync_prev_header.prev_hash();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(0, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
+            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter
-            .apply_state_part(0, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
+            .apply_state_part(shard_id, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
             .unwrap();
     }
 
@@ -3679,15 +3704,17 @@ mod contract_precompilation_tests {
         // Note that we can't test that behaviour is the same on two clients, because
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap();
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
+        let shard_uid = ShardUId::single_shard();
+        let shard_id = shard_uid.shard_id();
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
         // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
+
         let trie = env.clients[1]
             .runtime_adapter
-            .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
+            .get_trie_for_shard(shard_id, block.header().prev_hash(), state_root, false)
             .unwrap();
         let state_update = TrieUpdate::new(trie);
 
@@ -3696,7 +3723,7 @@ mod contract_precompilation_tests {
             block_height: EPOCH_LENGTH,
             prev_block_hash: *block.header().prev_hash(),
             block_hash: *block.hash(),
-            shard_id: ShardUId::single_shard().shard_id(),
+            shard_id: shard_id,
             epoch_id: *block.header().epoch_id(),
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),

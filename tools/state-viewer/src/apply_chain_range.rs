@@ -15,6 +15,7 @@ use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutc
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
@@ -82,7 +83,9 @@ fn apply_block_from_range(
         }
     };
     let block = read_chain_store.get_block(&block_hash).unwrap();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let epoch_id = block.header().epoch_id();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+    let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
@@ -100,7 +103,7 @@ fn apply_block_from_range(
         }
         progress_reporter.inc_and_report_progress(0);
         return;
-    } else if block.chunks()[shard_id as usize].height_included() == height {
+    } else if block.chunks()[shard_index].height_included() == height {
         chunk_present = true;
         let res_existing_chunk_extra = read_chain_store.get_chunk_extra(&block_hash, &shard_uid);
         assert!(
@@ -109,7 +112,7 @@ fn apply_block_from_range(
             height
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
-        let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+        let chunk_hash = block.chunks()[shard_index].chunk_hash();
         let chunk = read_chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
             panic!(
                 "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
@@ -140,12 +143,15 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 epoch_manager,
                 shard_id,
+                &shard_layout,
                 block_hash,
-                prev_block.chunks()[shard_id as usize].height_included(),
+                prev_block.chunks()[shard_index].height_included(),
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
@@ -302,7 +308,7 @@ fn apply_block_from_range(
         flat_storage.update_flat_head(&block_hash).unwrap();
 
         // Apply trie changes to trie node caches.
-        let mut fake_store_update = read_store.store_update();
+        let mut fake_store_update = read_store.trie_store().store_update();
         apply_result.trie_changes.insertions_into(&mut fake_store_update);
         apply_result.trie_changes.deletions_into(&mut fake_store_update);
     } else {
@@ -360,10 +366,7 @@ pub fn apply_chain_range(
                 shard_id,
                 &shard_layout,
             );
-            let flat_head = match near_store::flat::store_helper::get_flat_storage_status(
-                &read_store,
-                shard_uid,
-            ) {
+            let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
                 Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
                 status => {
                     panic!("cannot create flat storage for shard {shard_id} with status {status:?}")
@@ -493,7 +496,7 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -594,7 +597,7 @@ mod test {
             &genesis,
             None,
             None,
-            0,
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,
@@ -639,7 +642,7 @@ mod test {
             &genesis,
             None,
             None,
-            0,
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,

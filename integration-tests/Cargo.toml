@@ -167,4 +167,3 @@ sandbox = [
 ]
 no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []
-testloop = ["near-chain/testloop"]

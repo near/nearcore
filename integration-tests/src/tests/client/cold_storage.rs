@@ -186,10 +186,11 @@ fn test_storage_after_commit_of_cold_update() {
         let cold_store = &storage.get_cold_store().unwrap();
         let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
         // assert that this test actually checks something
-        // apart from StateChangesForSplitStates and StateHeaders, that are empty
+        // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
         assert!(
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
+                || col == DBCol::StateShardUIdMapping
                 || num_checks > 0
         );
     }
@@ -308,10 +309,11 @@ fn test_cold_db_copy_with_height_skips() {
             let cold_store = storage.get_cold_store().unwrap();
             let num_checks = check_iter(&client_store, &cold_store, col, &no_check_rules);
             // assert that this test actually checks something
-            // apart from StateChangesForSplitStates and StateHeaders, that are empty
+            // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
+                    || col == DBCol::StateShardUIdMapping
                     || num_checks > 0
             );
         }
@@ -361,8 +363,11 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             continue;
         }
         let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
-        // StateChangesForSplitStates and StateHeaders are empty
-        if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
+        // StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping are empty
+        if col == DBCol::StateChangesForSplitStates
+            || col == DBCol::StateHeaders
+            || col == DBCol::StateShardUIdMapping
+        {
             continue;
         }
         // assert that this test actually checks something

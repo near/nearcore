@@ -30,7 +30,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
-use near_primitives::types::{ShardId, StateRoot};
+use near_primitives::types::{shard_id_max, ShardId, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -119,8 +119,7 @@ impl Trie {
             Some(NibbleSlice::nibbles_to_bytes(&nibbles_end))
         };
 
-        Ok(flat_storage_chunk_view
-            .iter_flat_state_entries(key_begin.as_deref(), key_end.as_deref()))
+        Ok(flat_storage_chunk_view.iter_range(key_begin.as_deref(), key_end.as_deref()))
     }
 
     /// Determines the boundaries of a state part by accessing the Trie (i.e. State column).
@@ -129,9 +128,9 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<(PartialState, Vec<u8>, Vec<u8>), StorageError> {
-        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
-            ShardId::MAX, // Fake value for metrics.
-            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or_else(
+            shard_id_max, // Fake value for metrics.
+            |chunk_view| chunk_view.shard_uid().shard_id(),
         );
         let _span = tracing::debug_span!(
             target: "state-parts",
@@ -183,9 +182,9 @@ impl Trie {
         nibbles_end: Vec<u8>,
         state_trie: &Trie,
     ) -> Result<PartialState, StorageError> {
-        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
-            ShardId::MAX, // Fake value for metrics.
-            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or_else(
+            shard_id_max, // Fake value for metrics.
+            |chunk_view| chunk_view.shard_uid().shard_id(),
         );
         let _span = tracing::debug_span!(
             target: "state-parts",
@@ -518,6 +517,7 @@ mod tests {
 
     use near_primitives::hash::{hash, CryptoHash};
 
+    use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
     use crate::trie::iterator::CrumbStatus;
     use crate::trie::{
@@ -525,7 +525,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{DBCol, MissingTrieValueContext, TrieCachingStorage};
+    use crate::MissingTrieValueContext;
     use near_primitives::shard_layout::ShardUId;
 
     /// Checks that sampling state boundaries always gives valid state keys
@@ -1205,7 +1205,7 @@ mod tests {
             state_items.into_iter().map(|(k, v)| (k, Some(FlatStateValue::inlined(&v))));
         let delta = FlatStateChanges::from(changes_for_delta);
         let mut store_update = tries.store_update();
-        delta.apply_to_flat_state(&mut store_update, shard_uid);
+        delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
 
         let (partial_state, nibbles_begin, nibbles_end) =
@@ -1228,8 +1228,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let store_value = vec![5; value_len];
         let value_hash = hash(&store_value);
-        let store_key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &value_hash);
-        store_update.decrement_refcount(DBCol::State, &store_key);
+        store_update.decrement_refcount(shard_uid, &value_hash);
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1253,7 +1252,7 @@ mod tests {
         // is invalid.
         let mut store_update = tries.store_update();
         let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
-        delta.apply_to_flat_state(&mut store_update, shard_uid);
+        delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
 
         assert_matches!(

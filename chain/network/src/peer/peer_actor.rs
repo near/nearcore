@@ -1,7 +1,8 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
+    EpochSyncRequestMessage, EpochSyncResponseMessage, ProcessTxRequest, RecvChallenge,
+    StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -32,7 +33,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
-use near_async::messaging::SendAsync;
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
@@ -1100,7 +1101,24 @@ impl PeerActor {
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
                     //TODO: Route to state sync actor.
-                    network_state.client.send_async(StateResponse(info.into())).await.ok();
+                    network_state
+                        .client
+                        .send_async(StateResponseReceived {
+                            peer_id,
+                            state_response_info: info.into(),
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                PeerMessage::EpochSyncRequest => {
+                    network_state.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                    None
+                }
+                PeerMessage::EpochSyncResponse(proof) => {
+                    network_state
+                        .client
+                        .send(EpochSyncResponseMessage { from_peer: peer_id, proof });
                     None
                 }
                 msg => {

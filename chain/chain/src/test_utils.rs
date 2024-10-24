@@ -32,6 +32,7 @@ use tracing::debug;
 
 pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
 pub use self::validator_schedule::ValidatorSchedule;
+use near_async::messaging::{noop, IntoMultiSender};
 
 pub fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
@@ -76,6 +77,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap()
 }
@@ -160,6 +162,7 @@ pub fn setup_with_tx_validity_period(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
 
@@ -226,7 +229,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                 }
             );
             if let Some(block) = maybe_block {
-                for chunk_header in block.chunks().iter() {
+                for chunk_header in block.chunks().iter_deprecated() {
                     let chunk_producer = epoch_manager
                         .get_chunk_producer(
                             &epoch_id,

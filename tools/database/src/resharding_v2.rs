@@ -2,6 +2,7 @@ use core::time;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::v2::ReshardingResponse;
@@ -160,6 +161,8 @@ impl ReshardingV2Command {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
+            // Resharding sender is not used in resharding-v2.
+            noop().into_multi_sender(),
         )
         .unwrap();
         Ok(chain)

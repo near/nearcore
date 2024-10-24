@@ -32,6 +32,7 @@ use near_primitives::receipt::{
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use near_primitives::transaction::NonrefundableStorageTransferAction;
 use near_primitives::transaction::{
@@ -51,6 +52,7 @@ use near_primitives::utils::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
+use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
     get_received_data, has_received_data, remove_account, remove_postponed_receipt,
@@ -66,7 +68,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
@@ -188,6 +190,8 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
+    pub contract_accesses: BTreeSet<CodeHash>,
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 #[derive(Debug)]
@@ -460,6 +464,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
+                    account.code_hash(),
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
@@ -1351,7 +1356,7 @@ impl Runtime {
         {
             // Note that receipts are restored only on mainnet so restored_receipts will be empty on
             // other chains.
-            migration_data.restored_receipts.get(&0u64).cloned().unwrap_or_default()
+            migration_data.restored_receipts.get(&ShardId::new(0)).cloned().unwrap_or_default()
         } else {
             vec![]
         };
@@ -2020,7 +2025,10 @@ impl Runtime {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
             let all_shards = apply_state.congestion_info.all_shards();
 
-            let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
+            // TODO(wacban) Using non-contiguous shard id here breaks some
+            // assumptions. The shard index should be used here instead.
+            let congestion_seed =
+                apply_state.block_height.wrapping_add(apply_state.shard_id.into());
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 all_shards.as_slice(),
@@ -2047,7 +2055,13 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
-        let (trie, trie_changes, state_changes) = state_update.finalize()?;
+        let TrieUpdateResult {
+            trie,
+            trie_changes,
+            state_changes,
+            contract_accesses,
+            contract_deploys,
+        } = state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -2102,6 +2116,8 @@ impl Runtime {
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
+            contract_accesses,
+            contract_deploys,
         })
     }
 }
@@ -2188,7 +2204,8 @@ fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
     processing_state: ApplyProcessingState,
 ) -> Result<ApplyResult, RuntimeError> {
-    let (trie, trie_changes, state_changes) = processing_state.state_update.finalize()?;
+    let TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses, contract_deploys } =
+        processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
 
     // For old chunks, copy the congestion info exactly as it came in,
@@ -2214,6 +2231,8 @@ fn missing_chunk_apply_result(
         delayed_receipts_count: delayed_receipts.len(),
         metrics: None,
         congestion_info,
+        contract_accesses,
+        contract_deploys,
     });
 }
 

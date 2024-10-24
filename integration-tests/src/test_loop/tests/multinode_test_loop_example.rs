@@ -37,10 +37,10 @@ fn test_client_with_multi_test_loop() {
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = genesis_builder.build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).clients(clients).build();
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -51,7 +51,7 @@ fn test_client_with_multi_test_loop() {
     };
     tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
 
-    execute_money_transfers(&mut test_loop, &node_datas, &accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();

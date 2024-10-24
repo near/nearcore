@@ -134,7 +134,7 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
-                self.chain_store_update.merge(store_update);
+                self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
@@ -155,6 +155,8 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
+                        apply_result.contract_accesses,
+                        apply_result.contract_deploys,
                     );
                 }
             }
@@ -174,7 +176,7 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
-                self.chain_store_update.merge(store_update);
+                self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
@@ -184,6 +186,8 @@ impl<'a> ChainUpdate<'a> {
                         shard_uid.shard_id(),
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
+                        apply_result.contract_accesses,
+                        apply_result.contract_deploys,
                     );
                 }
             }
@@ -209,7 +213,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
-                warn!(target: "chain", shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
+                warn!(target: "chain", ?shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -465,7 +469,7 @@ impl<'a> ChainUpdate<'a> {
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<ShardUId, Error> {
         let _span =
-            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", shard_id, ?sync_hash).entered();
+            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", ?shard_id, ?sync_hash).entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -544,7 +548,7 @@ impl<'a> ChainUpdate<'a> {
             shard_uid,
             apply_result.trie_changes.state_changes(),
         )?;
-        self.chain_store_update.merge(store_update);
+        self.chain_store_update.merge(store_update.into());
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
@@ -596,7 +600,7 @@ impl<'a> ChainUpdate<'a> {
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let _span =
-            tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, shard_id)
+            tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, ?shard_id)
                 .entered();
         let block_header_result =
             self.chain_store_update.get_block_header_on_chain_by_height(&sync_hash, height);
@@ -643,7 +647,7 @@ impl<'a> ChainUpdate<'a> {
             shard_uid,
             apply_result.trie_changes.state_changes(),
         )?;
-        self.chain_store_update.merge(store_update);
+        self.chain_store_update.merge(store_update.into());
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
         // The chunk is missing but some fields may need to be updated

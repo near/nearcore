@@ -379,9 +379,12 @@ impl ReplayController {
         shard_id: ShardId,
         prev_chunk_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>> {
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
         let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
+            &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
         )?;
@@ -448,7 +451,7 @@ impl ReplayController {
         let block_height = block.header().height();
         let block_hash = block.header().hash();
         let mut receipt_proofs_by_shard_id: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
-        for chunk_header in block.chunks().iter() {
+        for chunk_header in block.chunks().iter_deprecated() {
             if !chunk_header.is_new_chunk(block_height) {
                 continue;
             }

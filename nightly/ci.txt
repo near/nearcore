@@ -1,2 +1,4 @@
 # TODO: add remaining tests.
 ./pytest.txt
+./sandbox.txt
+./expensive.txt

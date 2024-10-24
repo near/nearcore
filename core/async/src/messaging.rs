@@ -30,7 +30,10 @@ pub trait Actor {
 /// messages it would like to handle, while the CanSend trait implements the logic to send the
 /// message to the actor. Handle and CanSend are typically not both implemented by the same struct.
 /// Note that the actor is any struct that implements the Handler trait, not just actix actors.
-pub trait Handler<M: actix::Message> {
+pub trait Handler<M: actix::Message>
+where
+    M::Result: Send,
+{
     fn handle(&mut self, msg: M) -> M::Result;
 }
 
@@ -40,7 +43,10 @@ pub trait Handler<M: actix::Message> {
 /// defined as actix::Context<Self> implements DelayedActionRunner<T>.
 /// Note that the implementer for hander of a message only needs to implement either of Handler or
 /// HandlerWithContext, not both.
-pub trait HandlerWithContext<M: actix::Message> {
+pub trait HandlerWithContext<M: actix::Message>
+where
+    M::Result: Send,
+{
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result;
 }
 
@@ -48,6 +54,7 @@ impl<A, M> HandlerWithContext<M> for A
 where
     M: actix::Message,
     A: Actor + Handler<M>,
+    M::Result: Send,
 {
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
         self.wrap_handler(msg, ctx, |this, msg, _| Handler::handle(this, msg))
@@ -134,8 +141,14 @@ impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendA
         // possible that someone implementing the Sender would just drop the
         // message without calling the responder, in which case we return a
         // Dropped error.
-        let (sender, receiver) = oneshot::channel::<Result<R, AsyncSendError>>();
-        let future = async move { receiver.await.unwrap_or_else(|_| Err(AsyncSendError::Dropped)) };
+        let (sender, receiver) =
+            oneshot::channel::<BoxFuture<'static, Result<R, AsyncSendError>>>();
+        let future = async move {
+            match receiver.await {
+                Ok(result_future) => result_future.await,
+                Err(_) => Err(AsyncSendError::Dropped),
+            }
+        };
         let responder = Box::new(move |r| {
             // It's ok for the send to return an error, because that means the receiver is dropped
             // therefore the sender does not care about the result.
@@ -182,10 +195,10 @@ impl Display for AsyncSendError {
 
 /// Used to implement an async sender. An async sender is just a Sender whose
 /// message is `MessageWithCallback<M, R>`, which is a message plus a
-/// callback function (which resolves the future that send_async returns).
+/// callback to send the response future back.
 pub struct MessageWithCallback<T, R> {
     pub message: T,
-    pub callback: Box<dyn FnOnce(Result<R, AsyncSendError>) + Send>,
+    pub callback: Box<dyn FnOnce(BoxFuture<'static, Result<R, AsyncSendError>>) + Send>,
 }
 
 impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
@@ -264,6 +277,7 @@ impl<A, B: MultiSenderFrom<A>> IntoMultiSender<B> for A {
 #[cfg(test)]
 mod tests {
     use crate::messaging::{AsyncSendError, MessageWithCallback, Sender};
+    use futures::FutureExt;
     use tokio_util::sync::CancellationToken;
 
     #[tokio::test]
@@ -295,7 +309,7 @@ mod tests {
                 let callback_done = callback_done.clone();
                 tokio::spawn(async move {
                     result_blocker.cancelled().await;
-                    callback(Ok(message));
+                    callback(async move { Ok(message) }.boxed());
                     callback_done.cancel();
                 });
             })

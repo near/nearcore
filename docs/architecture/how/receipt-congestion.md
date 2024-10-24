@@ -48,7 +48,7 @@ For a finite amount of time, we can accept more inflow than outflow, we just hav
 
 Next, we look at ideas one at a time before combining some of them into the
 cross-shard congestion design proposed in
-[NEP-539](https://github.com/near/NEPs/pull/539).
+[NEP-539](https://github.com/near/NEPs/blob/master/neps/nep-0539.md).
 
 ## Idea 1: Compute the minimum max-flow and stay below that limit
 
@@ -185,7 +185,7 @@ that are not on the critical path.
 
 ## Putting it all together
 
-The proposal in [NEP-539](https://github.com/near/NEPs/pull/539) combines all
+The proposal in [NEP-539](https://github.com/near/NEPs/blob/master/neps/nep-0539.md) combines all
 ideas 2, 3, and 4.
 
 We have a limit of how much memory we consider to be normal operations (for

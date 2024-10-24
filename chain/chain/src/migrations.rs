@@ -29,7 +29,7 @@ pub fn check_if_block_is_first_with_chunk_of_version(
     if is_first_epoch_with_protocol_version(epoch_manager, prev_block_hash)? {
         // Compare only epochs because we already know that current epoch is the first one with current protocol version
         // convert shard id to shard id of previous epoch because number of shards may change
-        let shard_id = epoch_manager.get_prev_shard_ids(prev_block_hash, vec![shard_id])?[0];
+        let (shard_id, _) = epoch_manager.get_prev_shard_ids(prev_block_hash, vec![shard_id])?[0];
         let prev_epoch_id = chain_store.get_epoch_id_of_last_block_with_chunk(
             epoch_manager,
             prev_block_hash,

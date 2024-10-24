@@ -15,7 +15,7 @@ import deepdiff
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
 from key import Key
-from utils import load_test_contract
+from utils import load_test_contract, wait_for_blocks
 import transaction
 
 nodes = start_cluster(
@@ -71,6 +71,7 @@ def test_changes_with_new_account_with_access_key():
         balance=10**24,
         nonce=7,
         block_hash=latest_block_hash)
+    wait_for_blocks(nodes[0], target=5)
     new_account_response = nodes[0].send_tx_and_wait(create_account_tx, 10)
 
     # Step 2

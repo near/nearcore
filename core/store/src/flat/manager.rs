@@ -1,6 +1,5 @@
-use crate::flat::{
-    store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR,
-};
+use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
+use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -8,8 +7,6 @@ use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
-
-use crate::{Store, StoreUpdate};
 
 use super::chunk_view::FlatStorageChunkView;
 use super::{
@@ -23,7 +20,7 @@ use super::{
 pub struct FlatStorageManager(Arc<FlatStorageManagerInner>);
 
 pub struct FlatStorageManagerInner {
-    store: Store,
+    store: FlatStoreAdapter,
     /// Here we store the flat_storage per shard. The reason why we don't use the same
     /// FlatStorage for all shards is that there are two modes of block processing,
     /// normal block processing and block catchups. Since these are performed on different range
@@ -36,7 +33,7 @@ pub struct FlatStorageManagerInner {
 }
 
 impl FlatStorageManager {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: FlatStoreAdapter) -> Self {
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
     }
 
@@ -47,15 +44,14 @@ impl FlatStorageManager {
     /// an empty database.
     pub fn set_flat_storage_for_genesis(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut FlatStoreUpdateAdapter,
         shard_uid: ShardUId,
         genesis_block: &CryptoHash,
         genesis_height: BlockHeight,
     ) {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         assert!(!flat_storages.contains_key(&shard_uid));
-        store_helper::set_flat_storage_status(
-            store_update,
+        store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
                 flat_head: BlockInfo::genesis(*genesis_block, genesis_height),
@@ -136,18 +132,15 @@ impl FlatStorageManager {
         height: BlockHeight,
         shard_uid: ShardUId,
         state_changes: &[RawStateChangesWithTrieKey],
-    ) -> Result<StoreUpdate, StorageError> {
+    ) -> Result<FlatStoreUpdateAdapter<'static>, StorageError> {
         let prev_block_with_changes = if state_changes.is_empty() {
             // The current block has no flat state changes.
             // Find the last block with flat state changes by looking it up in
             // the prev block.
-            store_helper::get_prev_block_with_changes(
-                &self.0.store,
-                shard_uid,
-                block_hash,
-                prev_hash,
-            )
-            .map_err(|e| StorageError::from(e))?
+            self.0
+                .store
+                .get_prev_block_with_changes(shard_uid, block_hash, prev_hash)
+                .map_err(|e| StorageError::from(e))?
         } else {
             // The current block has flat state changes.
             None
@@ -167,8 +160,8 @@ impl FlatStorageManager {
         } else {
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
             debug!(target: "store", %shard_uid, "Add delta for flat storage creation");
-            let mut store_update: StoreUpdate = self.0.store.store_update();
-            store_helper::set_delta(&mut store_update, shard_uid, &delta);
+            let mut store_update = self.0.store.store_update();
+            store_update.set_delta(shard_uid, &delta);
             store_update
         };
 
@@ -176,8 +169,7 @@ impl FlatStorageManager {
     }
 
     pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
-        store_helper::get_flat_storage_status(&self.0.store, shard_uid)
-            .expect("failed to read flat storage status")
+        self.0.store.get_flat_storage_status(shard_uid).expect("failed to read flat storage status")
     }
 
     /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.
@@ -216,7 +208,7 @@ impl FlatStorageManager {
     pub fn remove_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut FlatStoreUpdateAdapter,
     ) -> Result<bool, StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {

@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -22,6 +24,7 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -37,6 +40,7 @@ use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_vm_runner::ContractRuntimeCache;
 use num_rational::Rational32;
 use tracing::instrument;
 
@@ -101,6 +105,10 @@ pub struct ApplyChunkResult {
     /// should be set to None for chunks before the CongestionControl protocol
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
+    /// Code-hashes of the contracts accessed (called) while applying the chunk.
+    pub contract_accesses: BTreeSet<CodeHash>,
+    /// Code-hashes of the contracts deployed while applying the chunk.
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 impl ApplyChunkResult {
@@ -520,6 +528,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_runtime_config(&self, protocol_version: ProtocolVersion)
         -> Result<RuntimeConfig, Error>;
+
+    fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -547,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let shard_ids: Vec<_> = (0..32).collect();
+        let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
             vec![Default::default(); shard_ids.len()],

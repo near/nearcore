@@ -172,6 +172,10 @@ pub enum ProtocolFeature {
     ChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
     StateStoredReceipt,
+    /// Resharding V3
+    SimpleNightshadeV4,
+    /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
+    ExcludeContractCodeFromStateWitness,
 }
 
 impl ProtocolFeature {
@@ -248,6 +252,12 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::SimpleNightshadeV4 => 145,
+
+            // Features that are not yet in Nightly.
+
+            // TODO(#11099): Move this feature to Nightly.
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
         }
     }
 
@@ -257,7 +267,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 72;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;

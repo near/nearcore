@@ -10,7 +10,6 @@ use near_parameters::{ActionCosts, ExtCosts, ParameterCost, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::Action;
-use near_primitives::checked_feature;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
@@ -19,6 +18,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
 use near_primitives::transaction::{
     AddKeyAction, DeleteKeyAction, DeployContractAction, ExecutionOutcomeWithId, ExecutionStatus,
@@ -26,15 +26,19 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    Balance, Compute, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
+    shard_id_as_u32, Balance, Compute, EpochInfoProvider, Gas, MerkleHash, ShardId,
+    StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
-use near_store::{get_account, set_access_key, set_account, ShardTries, Trie};
-use near_vm_runner::FilesystemContractRuntimeCache;
-use std::collections::HashMap;
+use near_store::{
+    get_account, set_access_key, set_account, MissingTrieValueContext, ShardTries, StorageError,
+    Trie,
+};
+use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -72,13 +76,13 @@ fn setup_runtime_for_shard(
     set_account(&mut initial_state, account_id.clone(), &initial_account);
     set_access_key(&mut initial_state, account_id, signer.public_key(), &AccessKey::full_access());
     initial_state.commit(StateChangeCause::InitialState);
-    let trie_changes = initial_state.finalize().unwrap().1;
+    let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
     let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        [(0, ExtendedCongestionInfo::default())].into()
+        [(ShardId::new(0), ExtendedCongestionInfo::default())].into()
     } else {
         [].into()
     };
@@ -864,7 +868,7 @@ fn test_delete_key_underflow() {
     initial_account_state.set_storage_usage(10);
     set_account(&mut state_update, alice_account(), &initial_account_state);
     state_update.commit(StateChangeCause::InitialState);
-    let trie_changes = state_update.finalize().unwrap().1;
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
@@ -1078,16 +1082,16 @@ fn test_compute_usage_limit_with_failed_receipt() {
     });
 }
 
+// TODO(#11099): Add separate test for storage proof limit without contract calls.
 #[test]
-fn test_main_storage_proof_size_soft_limit() {
-    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
-        return;
-    }
+fn test_main_storage_proof_size_soft_limit_for_contracts() {
     let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
         setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
     // Change main_storage_proof_size_soft_limit to a smaller value
     // The value of 500 is small enough to let the first receipt go through but not the second
+    // if the contract code is included in the storage proof. Otherwise, both receipts will go
+    // through since the contract code does not contribute to the storage proof.
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
     apply_state.config = Arc::new(runtime_config);
@@ -1145,17 +1149,131 @@ fn test_main_storage_proof_size_soft_limit() {
         )
         .unwrap();
 
-    // We expect function_call_fn(bob_account()) to be in delayed receipts
-    assert_eq!(apply_result.delayed_receipts_count, 1);
+    if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        // We expect that both receipts are included since the contract code is not included in the storage proof.
+        assert_eq!(apply_result.delayed_receipts_count, 0);
 
-    // Check that alice contract is present in storage proof and bob
-    // contract is not.
+        // Check that both contracts are excluded from the storage proof.
+        let partial_storage = apply_result.proof.unwrap();
+        let storage = Trie::from_recorded_storage(partial_storage, root, false);
+        let code_key = TrieKey::ContractCode { account_id: alice_account() };
+        assert_matches!(
+            storage.get(&code_key.to_vec()),
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                _
+            ))
+        );
+        let code_key = TrieKey::ContractCode { account_id: bob_account() };
+        assert_matches!(
+            storage.get(&code_key.to_vec()),
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                _
+            ))
+        );
+    } else {
+        // We expect function_call_fn(bob_account()) to be in delayed receipts
+        assert_eq!(apply_result.delayed_receipts_count, 1);
+
+        // Check that alice contract is present in storage proof and bob
+        // contract is not.
+        let partial_storage = apply_result.proof.unwrap();
+        let storage = Trie::from_recorded_storage(partial_storage, root, false);
+        let code_key = TrieKey::ContractCode { account_id: alice_account() };
+        assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
+        let code_key = TrieKey::ContractCode { account_id: bob_account() };
+        assert_matches!(storage.get(&code_key.to_vec()), Ok(None));
+    }
+}
+
+#[test]
+fn test_exclude_contract_code_from_witness() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
+    apply_state.config = Arc::new(runtime_config);
+
+    let contract_code = ContractCode::new(near_test_contracts::sized_contract(5000).to_vec(), None);
+    let create_acc_fn = |account_id| {
+        create_receipt_with_actions(
+            account_id,
+            signer.clone(),
+            vec![Action::DeployContract(DeployContractAction {
+                code: contract_code.code().to_vec(),
+            })],
+        )
+    };
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[create_acc_fn(alice_account()), create_acc_fn(bob_account())],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash())]));
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    let function_call_fn = |account_id| {
+        create_receipt_with_actions(
+            account_id,
+            signer.clone(),
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: Vec::new(),
+                gas: 1,
+                deposit: 0,
+            }))],
+        )
+    };
+
+    // The function call to bob_account should hit the main_storage_proof_size_soft_limit
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[function_call_fn(alice_account()), function_call_fn(bob_account())],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+
+    // Check that both contracts are excluded from the storage proof.
     let partial_storage = apply_result.proof.unwrap();
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
-    assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
-    assert_matches!(storage.get(&code_key.to_vec()), Err(_) | Ok(None));
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
 }
 
 /// Check that applying nothing does not change the state trie.
@@ -1247,9 +1365,9 @@ fn test_congestion_buffering() {
     // shard 0. Hence all receipts will be forwarded to shard 0. We don't
     // want local forwarding in the test, hence we need to use a different
     // shard id.
-    let local_shard = 1 as ShardId;
-    let local_shard_uid = ShardUId { version: 0, shard_id: local_shard as u32 };
-    let receiver_shard = 0 as ShardId;
+    let local_shard = ShardId::new(1);
+    let local_shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(local_shard) };
+    let receiver_shard = ShardId::new(0);
 
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
@@ -1269,14 +1387,19 @@ fn test_congestion_buffering() {
         apply_state.config.congestion_control_config.max_congestion_incoming_gas;
     apply_state
         .congestion_info
-        .get_mut(&0)
+        .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
         .add_delayed_receipt_gas(max_congestion_incoming_gas)
         .unwrap();
     // set allowed shard of shard 0 to 0 to prevent shard 1 from forwarding
-    apply_state.congestion_info.get_mut(&0).unwrap().congestion_info.set_allowed_shard(0);
-    apply_state.congestion_info.insert(1, Default::default());
+    apply_state
+        .congestion_info
+        .get_mut(&receiver_shard)
+        .unwrap()
+        .congestion_info
+        .set_allowed_shard(0);
+    apply_state.congestion_info.insert(local_shard, Default::default());
 
     // We need receipts that produce an outgoing receipt. Function calls and
     // delegate actions are currently the two only choices. We use delegate
@@ -1327,7 +1450,7 @@ fn test_congestion_buffering() {
     // to be forwarded per round
     apply_state
         .congestion_info
-        .get_mut(&0)
+        .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
         .remove_delayed_receipt_gas(10)
@@ -1391,7 +1514,7 @@ fn commit_apply_result(
 ) -> CryptoHash {
     // congestion control requires an update on
     let shard_id = apply_state.shard_id;
-    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+    let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
     if let Some(congestion_info) = apply_result.congestion_info {
         apply_state
             .congestion_info

@@ -44,7 +44,7 @@ body:
   - type: checkboxes
     id: ready-to-contribute
     attributes:
-      label: Are you ready to contribute to nearcore?
+      label: Contributing
       description: Are you interested in implementing this feature?
       options:
-        - label: Yes
+        - label: Yes, I am interested

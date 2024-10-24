@@ -41,8 +41,12 @@ fn test_congestion_control_genesis_bootstrap() {
         genesis_builder.add_user_account_simple(clients[i].clone(), initial_balance);
     }
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis_builder.build()).clients(clients.clone()).build();
+    let (genesis, epoch_config_store) = genesis_builder.build();
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build();
 
     test_loop.run_for(Duration::seconds(5));
 

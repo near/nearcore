@@ -591,12 +591,12 @@ mod old_validator_selection {
             all_validators.push(bp.clone());
         }
 
-        let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+        let num_shards = epoch_config.shard_layout.shard_ids().count();
         if chunk_producers.is_empty() {
             // All validators tried to unstake?
             return Err(EpochError::NotEnoughValidators {
                 num_validators: 0u64,
-                num_shards: shard_ids.len() as NumShards,
+                num_shards: num_shards as u64,
             });
         }
 
@@ -605,11 +605,9 @@ mod old_validator_selection {
         // each validator as even as possible). Note that in prod configuration number of seats
         // per shard is the same as maximal number of block producers, so normally all
         // validators would be assigned to all chunks
-        let chunk_producers_settlement = shard_ids
-            .iter()
-            .map(|&shard_id| shard_id as usize)
-            .map(|shard_id| {
-                (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
+        let chunk_producers_settlement = (0..num_shards)
+            .map(|shard_index| {
+                (0..epoch_config.num_block_producer_seats_per_shard[shard_index]
                     .min(block_producers_settlement.len() as u64))
                     .map(|_| {
                         let res = block_producers_settlement[id];
@@ -637,6 +635,7 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::ShardIndex;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -964,12 +963,15 @@ mod tests {
         )
         .unwrap();
 
-        for shard_id in 0..num_shards {
+        let shard_layout = &epoch_config.shard_layout;
+        for shard_index in 0..num_shards {
+            let shard_index = shard_index as ShardIndex;
+            let shard_id = shard_layout.get_shard_id(shard_index);
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(h, shard_id);
+                let cp = epoch_info.sample_chunk_producer(shard_layout, shard_id, h);
                 // Don't read too much into this. The reason the ValidatorId always
                 // equals the ShardId is because the validators are assigned to shards in order.
-                assert_eq!(cp, Some(shard_id))
+                assert_eq!(cp, Some(shard_index as u64))
             }
         }
 
@@ -992,10 +994,10 @@ mod tests {
         )
         .unwrap();
 
-        for shard_id in 0..num_shards {
+        for shard_id in shard_layout.shard_ids() {
             let mut counts: [i32; 2] = [0, 0];
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(h, shard_id).unwrap();
+                let cp = epoch_info.sample_chunk_producer(shard_layout, shard_id, h).unwrap();
                 // if ValidatorId is in the second half then it is the lower
                 // stake validator (because they are sorted by decreasing stake).
                 let index = if cp >= num_shards { 1 } else { 0 };

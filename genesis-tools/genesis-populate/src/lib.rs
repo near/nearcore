@@ -18,10 +18,14 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
+use near_primitives::types::{
+    shard_id_as_u32, AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot,
+};
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
+use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
@@ -133,15 +137,19 @@ impl GenesisBuilder {
         let roots = get_genesis_state_roots(self.runtime.store())?
             .expect("genesis state roots not initialized.");
         let genesis_shard_version = self.genesis.config.shard_layout.version();
-        self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
+        self.roots =
+            roots.into_iter().enumerate().map(|(k, v)| (ShardId::new(k as u64), v)).collect();
         self.state_updates = self
             .roots
             .iter()
-            .map(|(shard_idx, root)| {
+            .map(|(&shard_id, root)| {
                 (
-                    *shard_idx,
+                    shard_id,
                     self.runtime.get_tries().new_trie_update(
-                        ShardUId { version: genesis_shard_version, shard_id: *shard_idx as u32 },
+                        ShardUId {
+                            version: genesis_shard_version,
+                            shard_id: shard_id_as_u32(shard_id),
+                        },
                         *root,
                     ),
                 )
@@ -197,13 +205,14 @@ impl GenesisBuilder {
         }
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
-        let (_, trie_changes, state_changes) = state_update.finalize()?;
+        let TrieUpdateResult { trie_changes, state_changes, .. } = state_update.finalize()?;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
-        let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
+        let shard_uid =
+            ShardUId { version: genesis_shard_version, shard_id: shard_id_as_u32(shard_idx) };
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
-            .apply_to_flat_state(&mut store_update, shard_uid);
+            .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root);
@@ -263,7 +272,9 @@ impl GenesisBuilder {
         store_update.save_block(genesis.clone());
 
         let protocol_version = self.genesis.config.protocol_version;
-        for (chunk_header, &state_root) in genesis.chunks().iter().zip(self.roots.values()) {
+        for (chunk_header, &state_root) in
+            genesis.chunks().iter_deprecated().zip(self.roots.values())
+        {
             let shard_layout = &self.genesis.config.shard_layout;
             let shard_id = chunk_header.shard_id();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -299,7 +310,7 @@ impl GenesisBuilder {
         &self,
         protocol_version: ProtocolVersion,
         genesis: &Block,
-        shard_id: u64,
+        shard_id: ShardId,
         state_root: CryptoHash,
     ) -> Result<Option<CongestionInfo>> {
         if !ProtocolFeature::CongestionControl.enabled(protocol_version) {

@@ -8,7 +8,9 @@ use near_o11y::metrics::{
     try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
     IntGaugeVec,
 };
+use near_primitives::types::ShardId;
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
+use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -118,7 +120,7 @@ fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> an
     let block = chain_store.get_block(&head.last_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
 
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         let shard_id = chunk_header.shard_id();
         if chunk_header.height_included() != block.header().height() {
             tracing::trace!(target: "metrics", "trie-stats - chunk for shard {shard_id} is missing, skipping it.");
@@ -147,7 +149,7 @@ fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> an
 }
 
 fn get_postponed_receipt_count_for_shard(
-    shard_id: u64,
+    shard_id: ShardId,
     shard_layout: &ShardLayout,
     chain_store: &ChainStore,
     block: &Block,
@@ -156,7 +158,7 @@ fn get_postponed_receipt_count_for_shard(
     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
     let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid)?;
     let state_root = chunk_extra.state_root();
-    let storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
     let storage = Arc::new(storage);
     let flat_storage_chunk_view = None;
     let trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
