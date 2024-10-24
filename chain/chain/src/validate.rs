@@ -220,17 +220,6 @@ fn validate_bandwidth_requests(
     extra_bandwidth_requests: Option<&BandwidthRequests>,
     header_bandwidth_requests: Option<&BandwidthRequests>,
 ) -> Result<(), Error> {
-    if extra_bandwidth_requests.is_none()
-        && header_bandwidth_requests == Some(&BandwidthRequests::empty())
-    {
-        // This corner case happens for the first chunk that has the BandwidthScheduler feature enabled.
-        // The previous chunk was applied with a protocol version which doesn't have bandwidth scheduler
-        // enabled and because of that the bandwidth requests in ChunkExtra are None.
-        // The header was produced in the new protocol version, and the newer version of header always
-        // has some bandwidth requests, it's not an `Option`. Because of that the header requests are `Some(BandwidthRequests::empty())`.
-        return Ok(());
-    }
-
     if extra_bandwidth_requests != header_bandwidth_requests {
         fn requests_len(requests_opt: Option<&BandwidthRequests>) -> usize {
             match requests_opt {
