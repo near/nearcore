@@ -165,7 +165,7 @@ fn get_merkle_tree_node(
             } else {
                 // An intermediate node at level L and index I is available in a partial merkle tree
                 // stored on disk, if I is even (it is the left child of its parent). Every ordinal
-                // between I*2^L and (I+1)*2^L-1 is able to provide this node (as there is a
+                // between (I+1)*2^L and (I+2)*2^L-1 is able to provide this node (as there is a
                 // corresponding 1 at the L-th bit of the binary representation of all these
                 // ordinals. To satisfy the requirement that we only access block data between the
                 // block to prove and the block to prove against, we need to find an ordinal that is
