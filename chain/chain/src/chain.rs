@@ -2070,11 +2070,27 @@ impl Chain {
 
         self.check_orphans(me, *block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
+        self.check_if_upgrade_needed(&block_hash);
+
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
+    }
+
+    fn check_if_upgrade_needed(&self, block_hash: &CryptoHash) {
+        if let Ok(next_epoch_protocol_version) =
+            self.epoch_manager.get_next_epoch_protocol_version(block_hash)
+        {
+            if PROTOCOL_VERSION < next_epoch_protocol_version {
+                error!(
+                    "The protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new protocol version {}",
+                    PROTOCOL_VERSION,
+                    next_epoch_protocol_version,
+                );
+            }
+        }
     }
 
     /// Gets new flat storage head candidate for given `shard_id` and newly
@@ -2148,7 +2164,7 @@ impl Chain {
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
-    /// to process the block an the block is valid.
+    /// to process the block and the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
         &self,
@@ -2182,7 +2198,8 @@ impl Chain {
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.head()?;
-        let is_next = header.prev_hash() == &head.last_block_hash;
+        let prev_hash = header.prev_hash();
+        let is_next = prev_hash == &head.last_block_hash;
 
         // Sandbox allows fast-forwarding, so only enable when not within sandbox
         if !cfg!(feature = "sandbox") {
@@ -2195,7 +2212,7 @@ impl Chain {
         }
 
         // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.block_exists(header.prev_hash())? {
+        if !is_next && !self.block_exists(prev_hash)? {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
