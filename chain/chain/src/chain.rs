@@ -2494,6 +2494,10 @@ impl Chain {
     /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
     /// it's the hash of the first block in that epoch.
     pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
+        if block_hash == self.genesis().hash() {
+            // We shouldn't be trying to sync state from before the genesis block
+            return Ok(None);
+        }
         let header = self.get_block_header(block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
