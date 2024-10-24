@@ -440,7 +440,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
@@ -518,7 +518,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
@@ -582,7 +582,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
@@ -625,7 +625,7 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
@@ -680,7 +680,7 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
 
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
@@ -777,8 +777,11 @@ mod test {
         .unwrap();
 
         let last_block = blocks.pop().unwrap();
-        let state_roots =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
+        let state_roots = last_block
+            .chunks()
+            .iter_deprecated()
+            .map(|chunk| chunk.prev_state_root())
+            .collect::<Vec<_>>();
 
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let _ = state_dump(
@@ -860,7 +863,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
@@ -918,7 +921,7 @@ mod test {
 
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =

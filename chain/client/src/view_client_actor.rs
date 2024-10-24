@@ -1105,7 +1105,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                         .chain
                         .get_block(&h)?
                         .chunks()
-                        .iter()
+                        .iter_deprecated()
                         .map(|header| header.prev_outcome_root())
                         .collect::<Vec<_>>();
                     if target_shard_index >= outcome_roots.len() {
