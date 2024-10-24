@@ -141,6 +141,10 @@ impl ChainStore {
         let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
         let tries = runtime_adapter.get_tries();
         let head = self.head()?;
+        if head.height == self.get_genesis_height() {
+            // Nothing to do if head is at genesis. Return early because some of the later queries would fail.
+            return Ok(());
+        }
         let tail = self.tail()?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
