@@ -149,7 +149,7 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","Challenge");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::Challenge(Box::new(data::make_challenge(&mut rng)));
+    let want = PeerMessage::Challenge(data::make_challenge(&mut rng));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 

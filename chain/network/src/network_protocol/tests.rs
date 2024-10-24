@@ -128,7 +128,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Routed(routed_message1),
         PeerMessage::Routed(routed_message2),
         PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }),
-        PeerMessage::Challenge(Box::new(data::make_challenge(&mut rng))),
+        PeerMessage::Challenge(data::make_challenge(&mut rng)),
     ];
 
     // Check that serialize;deserialize = 1

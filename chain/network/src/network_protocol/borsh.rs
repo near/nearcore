@@ -152,7 +152,7 @@ pub(super) enum PeerMessage {
 
     /// Gracefully disconnect from other peer.
     Disconnect,
-    Challenge(Box<Challenge>),
+    Challenge(Challenge),
 
     _HandshakeV2,
     _EpochSyncRequest,
