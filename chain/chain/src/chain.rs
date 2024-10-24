@@ -47,6 +47,7 @@ use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
@@ -621,6 +622,7 @@ impl Chain {
             gas_limit,
             0,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         )
     }
 
@@ -3237,7 +3239,12 @@ impl Chain {
         };
         let congestion_info = block.block_congestion_info();
 
-        Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
+        Ok(ApplyChunkBlockContext::from_header(
+            block_header,
+            gas_price,
+            congestion_info,
+            block.block_bandwidth_requests(),
+        ))
     }
 
     fn block_catch_up_postprocess(

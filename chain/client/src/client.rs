@@ -925,6 +925,7 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             congestion_info,
+            chunk_extra.bandwidth_requests().cloned(),
             &*validator_signer,
             &mut self.rs_for_chunk_production,
             protocol_version,

@@ -10,6 +10,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::Action;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
@@ -122,6 +123,7 @@ fn setup_runtime_for_shard(
         migration_data: Arc::new(MigrationData::default()),
         migration_flags: MigrationFlags::default(),
         congestion_info,
+        bandwidth_requests: BlockBandwidthRequests::empty(),
     };
 
     (runtime, tries, root, apply_state, signers, MockEpochInfoProvider::default())
@@ -1915,6 +1917,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 }
 
 /// Check that applying nothing does not change the state trie.
+/// UPDATE: BandwidthScheduler runs on every height and modifies the state, so this is no longer true for newer protocol versions
 ///
 /// This test is useful to check that trie columns are not accidentally
 /// initialized. Many integration tests will fail as well if this fails, but
@@ -1944,7 +1947,14 @@ fn test_empty_apply() {
     let mut store_update = tries.store_update();
     let root_after =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
+    if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
+        assert!(
+            root_before != root_after,
+            "state root not changed - did the bandwdith scheduler run?"
+        );
+    } else {
+        assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
+    }
 }
 
 /// Test that delayed receipts are accounted for in the congestion info of

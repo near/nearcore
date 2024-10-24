@@ -10,6 +10,9 @@ use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError
 pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
+use bandwidth_scheduler::{
+    generate_mock_bandwidth_requests, run_bandwidth_scheduler, BandwidthSchedulerOutput,
+};
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
@@ -18,6 +21,7 @@ pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
+use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
@@ -75,6 +79,7 @@ use tracing::{debug, instrument};
 mod actions;
 pub mod adapter;
 mod balance_checker;
+mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
 mod conversions;
@@ -136,6 +141,10 @@ pub struct ApplyState {
     /// the congestion info needs to be computed while applying receipts.
     /// TODO(congestion_info) - verify performance of initialization when congested
     pub congestion_info: BlockCongestionInfo,
+    /// Bandwidth requests from all shards, generated at the previous height.
+    /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
+    /// decides how much each shard is allowed to send.
+    pub bandwidth_requests: BlockBandwidthRequests,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -190,6 +199,9 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
+    pub bandwidth_requests: Option<BandwidthRequests>,
+    /// Used only for a sanity check.
+    pub bandwidth_scheduler_state_hash: CryptoHash,
     pub contract_accesses: BTreeSet<CodeHash>,
     pub contract_deploys: BTreeSet<CodeHash>,
 }
@@ -1444,12 +1456,20 @@ impl Runtime {
         let delayed_receipts = DelayedReceiptQueue::load(&processing_state.state_update)?;
         let delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts);
 
+        // Bandwidth scheduler should be run for every chunk, including the missing ones.
+        let bandwidth_scheduler_output =
+            run_bandwidth_scheduler(apply_state, &mut processing_state.state_update)?;
+
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
             && processing_state.protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
-            return missing_chunk_apply_result(&delayed_receipts, processing_state);
+            return missing_chunk_apply_result(
+                &delayed_receipts,
+                processing_state,
+                &bandwidth_scheduler_output,
+            );
         }
 
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
@@ -1501,6 +1521,7 @@ impl Runtime {
             validator_accounts_update,
             state_patch,
             outgoing_receipts,
+            &bandwidth_scheduler_output,
         )
     }
 
@@ -2000,6 +2021,7 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         state_patch: SandboxStatePatch,
         outgoing_receipts: Vec<Receipt>,
+        bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
@@ -2035,6 +2057,9 @@ impl Runtime {
                 congestion_seed,
             );
         }
+
+        let bandwidth_requests =
+            generate_mock_bandwidth_requests(apply_state, bandwidth_scheduler_output);
 
         check_balance(
             &apply_state.config,
@@ -2116,6 +2141,11 @@ impl Runtime {
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
+            bandwidth_requests,
+            bandwidth_scheduler_state_hash: bandwidth_scheduler_output
+                .as_ref()
+                .map(|o| o.scheduler_state_hash)
+                .unwrap_or_default(),
             contract_accesses,
             contract_deploys,
         })
@@ -2203,6 +2233,7 @@ fn action_transfer_or_implicit_account_creation(
 fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
     processing_state: ApplyProcessingState,
+    bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses, contract_deploys } =
         processing_state.state_update.finalize()?;
@@ -2216,6 +2247,15 @@ fn missing_chunk_apply_result(
         .congestion_info
         .get(&processing_state.apply_state.shard_id)
         .map(|extended_info| extended_info.congestion_info);
+
+    // The chunk is missing and doesn't send out any receipts.
+    // It still wants to send the same receipts to the same shards, the bandwidth requests are the same.
+    let previous_bandwidth_requests = processing_state
+        .apply_state
+        .bandwidth_requests
+        .shards_bandwidth_requests
+        .get(&processing_state.apply_state.shard_id)
+        .cloned();
 
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,
@@ -2231,6 +2271,11 @@ fn missing_chunk_apply_result(
         delayed_receipts_count: delayed_receipts.len(),
         metrics: None,
         congestion_info,
+        bandwidth_requests: previous_bandwidth_requests,
+        bandwidth_scheduler_state_hash: bandwidth_scheduler_output
+            .as_ref()
+            .map(|o| o.scheduler_state_hash)
+            .unwrap_or_default(),
         contract_accesses,
         contract_deploys,
     });

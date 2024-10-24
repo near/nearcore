@@ -10,6 +10,7 @@ use near_pool::{
 };
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
@@ -214,6 +215,7 @@ impl TestEnv {
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
+        // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
@@ -256,6 +258,7 @@ impl TestEnv {
                     challenges_result,
                     random_seed: CryptoHash::default(),
                     congestion_info,
+                    bandwidth_requests: BlockBandwidthRequests::empty(),
                 },
                 receipts,
                 transactions,

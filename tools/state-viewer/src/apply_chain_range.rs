@@ -196,6 +196,7 @@ fn apply_block_from_range(
                     block.header(),
                     prev_block.header().next_gas_price(),
                     block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -222,6 +223,7 @@ fn apply_block_from_range(
                     block.header(),
                     block.header().next_gas_price(),
                     block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &[],
                 &[],
@@ -241,6 +243,7 @@ fn apply_block_from_range(
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.bandwidth_requests.clone(),
     );
 
     let state_update =

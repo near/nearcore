@@ -16,6 +16,7 @@ use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
@@ -1383,7 +1384,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
-            // Since all actions are transfer actions, there is no contracts accessed.
+            bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            bandwidth_scheduler_state_hash: CryptoHash::default(),
             contract_accesses: Default::default(),
             contract_deploys: Default::default(),
         })

@@ -8,6 +8,8 @@ use near_chain::types::{
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::MaybeNew;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -21,7 +23,7 @@ use near_store::DBCol;
 use near_store::Store;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::cli::StorageSource;
@@ -113,6 +115,29 @@ pub(crate) fn apply_chunk(
         Some(h) => h,
         None => prev_height + 1,
     };
+
+    // Try to recover bandwidth requests from the previous chunk extras.
+    // Normally they would be taken from the block that contains the applied chunk,
+    // but it's not available here.
+    // The chunk can be applied with the wrong bandwidth requests, but the bandwidth scheduler state
+    // will end up different from what it would normally be.
+    let mut shards_bandwidth_requests = BTreeMap::new();
+    for prev_chunk in prev_block.chunks().iter() {
+        let shard_id = match prev_chunk {
+            MaybeNew::New(new_chunk) => new_chunk.shard_id(),
+            MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
+        };
+        let shard_uid =
+            epoch_manager.shard_id_to_uid(shard_id, prev_block.header().epoch_id()).unwrap();
+        let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {
+            continue;
+        };
+        if let Some(bandwidth_requests) = chunk_extra.bandwidth_requests() {
+            shards_bandwidth_requests.insert(shard_id, bandwidth_requests.clone());
+        }
+    }
+    let block_bandwidth_requests = BlockBandwidthRequests { shards_bandwidth_requests };
+
     let prev_timestamp = prev_block.header().raw_timestamp();
     let gas_price = prev_block.header().next_gas_price();
     let receipts = get_incoming_receipts(
@@ -163,6 +188,7 @@ pub(crate) fn apply_chunk(
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: prev_block.block_congestion_info(),
+                bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
             transactions,

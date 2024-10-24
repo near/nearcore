@@ -295,6 +295,7 @@ impl GenesisBuilder {
                     self.genesis.config.gas_limit,
                     0,
                     congestion_info,
+                    chunk_header.bandwidth_requests().cloned(),
                 ),
             );
         }
