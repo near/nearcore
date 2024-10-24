@@ -626,7 +626,7 @@ impl TestLoopBuilder {
             client_adapter.as_multi_sender(),
             validator_signer.clone(),
             epoch_manager.clone(),
-            store,
+            runtime_adapter.clone(),
         );
 
         let gc_actor = GCActor::new(
