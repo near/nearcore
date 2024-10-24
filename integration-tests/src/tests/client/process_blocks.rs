@@ -686,7 +686,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+            let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
                 ShardChunkHeader::V1(chunk) => {
@@ -1259,7 +1259,7 @@ fn test_bad_chunk_mask() {
         {
             let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
-            let mut chunk_headers: Vec<_> = block.chunks().iter().cloned().collect();
+            let mut chunk_headers: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
             chunk_headers[0] = chunk_header;
             block.set_chunks(chunk_headers.clone());
             block
@@ -1418,7 +1418,7 @@ fn test_archival_save_trie_changes() {
 
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
-        for chunk in chunks.iter() {
+        for chunk in chunks.iter_deprecated() {
             let shard_id = chunk.shard_id();
             let version = shard_layout.version();
 
@@ -2283,7 +2283,7 @@ fn test_validate_chunk_extra() {
         block
             .mut_header()
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
-        let outcome_root = Block::compute_outcome_root(block.chunks().iter());
+        let outcome_root = Block::compute_outcome_root(block.chunks().iter_deprecated());
         block.mut_header().set_prev_outcome_root(outcome_root);
         let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), &validator_signer);
         block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature))]]);

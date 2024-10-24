@@ -107,7 +107,7 @@ fn retrieve_starting_chunk_hash(
             .chain_store()
             .get_block_hash_by_height(height)
             .and_then(|hash| chain.chain_store().get_block(&hash))
-            .map(|block| block.chunks().iter().next().unwrap().chunk_hash())
+            .map(|block| block.chunks().iter_deprecated().next().unwrap().chunk_hash())
         {
             Ok(hash) => return Ok(hash),
             Err(e) => {
