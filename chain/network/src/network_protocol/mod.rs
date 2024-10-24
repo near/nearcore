@@ -591,10 +591,6 @@ impl RoutedMessageBody {
             RoutedMessageBody::ChunkEndorsement(_)
             | RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
-            // TODO(#11099): Remove this when we filter the targets of message at the sender side.
-            | RoutedMessageBody::ChunkContractAccesses(_)
-            // TODO(#11099): Remove this when we filter the targets of message at the sender side.
-            | RoutedMessageBody::ChunkContractDeployments(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -664,13 +660,15 @@ impl fmt::Debug for RoutedMessageBody {
                 write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
-            // TODO(#11099): Add more details to debug message.
-            RoutedMessageBody::ChunkContractAccesses(_) => write!(f, "ChunkContractAccesses"),
-            // TODO(#11099): Add more details to debug message.
-            RoutedMessageBody::ChunkContractDeployments(_) => write!(f, "ChunkContractDeployments"),
-            // TODO(#11099): Add more details to debug message.
-            RoutedMessageBody::ContractCodeRequest(_) => write!(f, "ContractCodeRequest"),
-            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ChunkContractAccesses(accesses) => {
+                write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
+            }
+            RoutedMessageBody::ChunkContractDeployments(deploys) => {
+                write!(f, "ChunkContractDeployments(code_hashes={:?}", deploys.contracts())
+            }
+            RoutedMessageBody::ContractCodeRequest(request) => {
+                write!(f, "ContractCodeRequest(code_hashes={:?})", request.contracts())
+            }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
         }
     }
