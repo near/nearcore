@@ -1,9 +1,10 @@
-use near_async::messaging::SendAsync;
+use near_async::messaging::{Handler, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_network::client::ProcessTxRequest;
+use near_network::client::{ProcessTxRequest, StateRequestHeader};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo, BlockHeightDelta, Nonce, NumSeats, ShardId};
@@ -305,4 +306,54 @@ fn test_state_sync_current_epoch() {
         );
         run_test(state);
     }
+}
+
+fn spam_state_sync_header_reqs(env: &mut TestLoopEnv, sync_hash: CryptoHash) {
+    let view_client_handle = env.datas[0].view_client_sender.actor_handle();
+    let view_client = env.test_loop.data.get_mut(&view_client_handle);
+
+    for _ in 0..30 {
+        let res = view_client.handle(StateRequestHeader { shard_id: ShardId::new(0), sync_hash });
+        assert!(res.is_some());
+    }
+
+    // immediately query again, should be rejected
+    let shard_id = ShardId::new(0);
+    let res = view_client.handle(StateRequestHeader { shard_id, sync_hash });
+    assert!(res.is_none());
+
+    env.test_loop.run_for(Duration::seconds(40));
+
+    let view_client_handle = env.datas[0].view_client_sender.actor_handle();
+    let view_client = env.test_loop.data.get_mut(&view_client_handle);
+
+    let res = view_client.handle(StateRequestHeader { shard_id, sync_hash });
+    assert!(res.is_some());
+}
+
+#[test]
+fn test_state_request() {
+    init_test_logger();
+
+    let TestState { mut env, .. } = setup_initial_blockchain(4, HashMap::default());
+
+    env.test_loop.run_until(
+        |data| {
+            let handle = env.datas[0].client_sender.actor_handle();
+            let client = &data.get(&handle).client;
+            let tip = client.chain.head().unwrap();
+            if tip.epoch_id == Default::default() {
+                return false;
+            }
+            client.chain.get_sync_hash(&tip.last_block_hash).unwrap().is_some()
+        },
+        Duration::seconds(20),
+    );
+    let client_handle = env.datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let tip = client.chain.head().unwrap();
+    let sync_hash = client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap();
+
+    spam_state_sync_header_reqs(&mut env, sync_hash);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
