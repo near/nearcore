@@ -347,7 +347,7 @@ pub fn execute_tx(
         .unwrap())
 }
 
-/// Make the account id for the provided index.
+/// Creates account ids for the given number of accounts.
 pub fn make_accounts(num_accounts: usize) -> Vec<AccountId> {
     let accounts =
         (0..num_accounts).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
