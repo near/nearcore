@@ -9,7 +9,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::ShardUId;
+use near_store::{get_account, get_delayed_receipt_indices, ShardUId};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -110,7 +110,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(base_shard_layout)
+        .shard_layout(base_shard_layout.clone())
         .protocol_version(base_protocol_version)
         .epoch_length(epoch_length)
         .validators_desired_roles(&block_and_chunk_producers, &[]);
@@ -145,6 +145,19 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
             if chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
+
+            // DEBUG START
+            println!("BASE: {:?}", base_shard_layout);
+            let shard_0_uid = ShardUId { version: 3, shard_id: 0 };
+            let trie = client.chain.runtime_adapter.get_tries().get_view_trie_for_shard(shard_0_uid, *block_header.prev_state_root());
+            //let account_0: AccountId = "account0".parse().unwrap();
+            //let res = get_account(&trie, &account_0);
+            let res = get_delayed_receipt_indices(&trie);
+            println!("RES: {:?}", res);
+            if res.is_err() {
+                panic!("HERE");
+            }
+            // DEBUG END
         }
 
         // Return true if we passed an epoch with increased number of shards.
