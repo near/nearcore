@@ -42,7 +42,7 @@ fn test_contract_distribution_testloop() {
     let mut rng = rand::thread_rng();
     let num_contracts = contract_ids.len();
 
-    // Each account calls one of the contracts randomly.
+    // Each account calls one of the previously deployed contracts randomly.
     let sender_to_contract_ids = accounts
         .iter()
         .map(|a| (a, vec![contract_ids[rng.gen_range(0..num_contracts)]]))
@@ -52,7 +52,7 @@ fn test_contract_distribution_testloop() {
     // Clear the contract cache and make the same calls.
     clear_compiled_contract_caches(&mut test_loop, &node_datas);
 
-    // Each account calls one of the contracts randomly.
+    // Each account calls one of the previously deployed contracts randomly.
     let sender_to_contract_ids = accounts
         .iter()
         .map(|a| (a, vec![contract_ids[rng.gen_range(0..num_contracts)]]))
@@ -100,33 +100,29 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     (env, rpc_id)
 }
 
-/// Deploy the contract for selected accounts based on turn and wait until the transaction is executed.
-/// Returns the list of accounts for which a contract was deployed.
+/// Deploys a contract for the given accounts (`contract_ids`) and waits until the transactions are executed.
+/// Each account gets a fake contract with a different size (thus code-hashes are different)
 fn deploy_contracts(
     test_loop: &mut TestLoopV2,
     node_datas: &Vec<TestData>,
     rpc_id: &AccountId,
     contract_ids: Vec<&AccountId>,
     nonce: &mut u64,
-) -> Vec<AccountId> {
+) {
     let start_height = get_current_height(test_loop, node_datas);
-    let mut deployed_accounts = vec![];
     let mut txs = vec![];
     for (i, contract_id) in contract_ids.into_iter().enumerate() {
         tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
         let code = near_test_contracts::sized_contract((i + 1) * 100).to_vec();
         let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, *nonce);
         txs.push(tx);
-        deployed_accounts.push(contract_id.clone());
         *nonce += 1;
     }
     run_until_height(test_loop, node_datas, start_height + 5);
     check_txs(&*test_loop, node_datas, rpc_id, &txs);
-    deployed_accounts
 }
 
-/// Deploy the contract for selected accounts based on turn and wait until the transaction is executed.
-/// Returns the list of accounts for which a contract was deployed.
+/// Makes calls to the contracts from sender accounts to the owners of the contracts and waits until the transactions are executed.
 fn call_contracts(
     test_loop: &mut TestLoopV2,
     node_datas: &Vec<TestData>,
@@ -158,6 +154,7 @@ fn call_contracts(
     check_txs(&*test_loop, node_datas, &rpc_id, &txs);
 }
 
+/// Clears the compiled contract caches for all the clients.
 fn clear_compiled_contract_caches(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) {
     for i in 0..node_datas.len() {
         let client_handle = node_datas[i].client_sender.actor_handle();
@@ -167,12 +164,14 @@ fn clear_compiled_contract_caches(test_loop: &mut TestLoopV2, node_datas: &Vec<T
     }
 }
 
+/// Returns the current height of the chain.
 fn get_current_height(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) -> BlockHeight {
     let client_handle = node_datas[0].client_sender.actor_handle();
     let height = test_loop.data.get(&client_handle).client.chain.head().unwrap().height;
     height
 }
 
+/// Runs the test until it reaches the certain height or a prespecified timeout is reached.
 fn run_until_height(
     test_loop: &mut TestLoopV2,
     node_datas: &Vec<TestData>,
