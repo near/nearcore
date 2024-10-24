@@ -874,7 +874,7 @@ impl Trie {
             eprintln!("Computed is {}", memory_usage);
             match handle {
                 NodeHandle::InMemory(h) => {
-                    eprintln!("TRIE!!!!");
+                    eprintln!("In-memory node:");
                     eprintln!("{}", memory.node_ref(h).node.deep_to_string(memory));
                 }
                 NodeHandle::Hash(_h) => {
@@ -1226,7 +1226,7 @@ impl Trie {
         }
     }
 
-    fn move_node_to_mutable(
+    pub(crate) fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
@@ -1238,6 +1238,17 @@ impl Trie {
                 memory.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }
+        }
+    }
+
+    fn ensure_updated(
+        &self,
+        memory: &mut NodesStorage,
+        handle: NodeHandle,
+    ) -> Result<StorageHandle, StorageError> {
+        match handle {
+            NodeHandle::Hash(hash) => self.move_node_to_mutable(memory, &hash),
+            NodeHandle::InMemory(handle) => Ok(handle),
         }
     }
 
