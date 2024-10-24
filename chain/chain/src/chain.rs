@@ -664,7 +664,8 @@ impl Chain {
         epoch_manager: &dyn EpochManagerAdapter,
         store_update: &mut ChainStoreUpdate,
     ) -> Result<(), Error> {
-        for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+        for (chunk_header, state_root) in genesis.chunks().iter_deprecated().zip(state_roots.iter())
+        {
             let congestion_info =
                 if ProtocolFeature::CongestionControl.enabled(chain_genesis.protocol_version) {
                     genesis
@@ -835,7 +836,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             if chunk_header.height_created() == genesis_block.header().height() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
@@ -1238,7 +1239,7 @@ impl Chain {
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
         for (chunk_header, prev_chunk_header) in
-            block.chunks().iter().zip(prev_chunk_headers.iter())
+            block.chunks().iter_deprecated().zip(prev_chunk_headers.iter())
         {
             if chunk_header.height_included() == block.header().height() {
                 // new chunk
@@ -1266,7 +1267,7 @@ impl Chain {
         let block_height = block.header().height();
         for pair in block
             .chunks()
-            .iter()
+            .iter_deprecated()
             .filter(|chunk| chunk.is_new_chunk(block_height))
             .flat_map(|chunk| chunk.prev_validator_proposals())
             .zip_longest(block.header().prev_validator_proposals())
@@ -1329,13 +1330,14 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
             {
-                let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+                let merkle_paths =
+                    Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
                 let merkle_proof =
                     merkle_paths.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
                 let chunk_proof = ChunkProofs {
@@ -1419,7 +1421,7 @@ impl Chain {
         let block_height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
-        for chunk_header in block.chunks().iter() {
+        for chunk_header in block.chunks().iter_deprecated() {
             if !chunk_header.is_new_chunk(block_height) {
                 continue;
             }
@@ -1698,8 +1700,12 @@ impl Chain {
         // sync hash block. The logic below adjusts the new_tail so that every
         // shard is guaranteed to have at least one new chunk in the blocks
         // leading to the sync hash block.
-        let min_height_included =
-            prev_block.chunks().iter().map(|chunk| chunk.height_included()).min().unwrap();
+        let min_height_included = prev_block
+            .chunks()
+            .iter_deprecated()
+            .map(|chunk| chunk.height_included())
+            .min()
+            .unwrap();
 
         tracing::debug!(target: "sync", ?min_height_included, ?new_tail, "adjusting tail for missing chunks");
         new_tail = std::cmp::min(new_tail, min_height_included.saturating_sub(1));
@@ -1707,8 +1713,12 @@ impl Chain {
         // In order to find the right new_chunk_tail we need to find the minimum
         // of chunk height_created for chunks in the new tail block.
         let new_tail_block = self.get_block_by_height(new_tail)?;
-        let new_chunk_tail =
-            new_tail_block.chunks().iter().map(|chunk| chunk.height_created()).min().unwrap();
+        let new_chunk_tail = new_tail_block
+            .chunks()
+            .iter_deprecated()
+            .map(|chunk| chunk.height_created())
+            .min()
+            .unwrap();
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -2070,11 +2080,27 @@ impl Chain {
 
         self.check_orphans(me, *block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
+        self.check_if_upgrade_needed(&block_hash);
+
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
+    }
+
+    fn check_if_upgrade_needed(&self, block_hash: &CryptoHash) {
+        if let Ok(next_epoch_protocol_version) =
+            self.epoch_manager.get_next_epoch_protocol_version(block_hash)
+        {
+            if PROTOCOL_VERSION < next_epoch_protocol_version {
+                error!(
+                    "The protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new protocol version {}",
+                    PROTOCOL_VERSION,
+                    next_epoch_protocol_version,
+                );
+            }
+        }
     }
 
     /// Gets new flat storage head candidate for given `shard_id` and newly
@@ -2107,7 +2133,7 @@ impl Chain {
 
         let last_final_block_chunks = last_final_block.chunks();
         let chunk_header = last_final_block_chunks
-            .iter()
+            .iter_deprecated()
             .find(|chunk| chunk.shard_id() == shard_id)
             .ok_or_else(|| Error::InvalidShardId(shard_id))?;
         let new_flat_head = *chunk_header.prev_block_hash();
@@ -2148,7 +2174,7 @@ impl Chain {
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
-    /// to process the block an the block is valid.
+    /// to process the block and the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
         &self,
@@ -2182,7 +2208,8 @@ impl Chain {
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.head()?;
-        let is_next = header.prev_hash() == &head.last_block_hash;
+        let prev_hash = header.prev_hash();
+        let is_next = prev_hash == &head.last_block_hash;
 
         // Sandbox allows fast-forwarding, so only enable when not within sandbox
         if !cfg!(feature = "sandbox") {
@@ -2195,7 +2222,7 @@ impl Chain {
         }
 
         // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.block_exists(header.prev_hash())? {
+        if !is_next && !self.block_exists(prev_hash)? {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
@@ -2521,7 +2548,7 @@ impl Chain {
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
-                .iter()
+                .iter_deprecated()
                 .map(|shard_chunk| {
                     ChunkHashHeight(shard_chunk.chunk_hash(), shard_chunk.height_included())
                 })
@@ -2550,7 +2577,7 @@ impl Chain {
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
                     &prev_block
                         .chunks()
-                        .iter()
+                        .iter_deprecated()
                         .map(|shard_chunk| {
                             ChunkHashHeight(shard_chunk.chunk_hash(), shard_chunk.height_included())
                         })
@@ -2597,7 +2624,7 @@ impl Chain {
             let (block_receipts_root, block_receipts_proofs) = merklize(
                 &block
                     .chunks()
-                    .iter()
+                    .iter_deprecated()
                     .map(|chunk| chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
@@ -3140,7 +3167,8 @@ impl Chain {
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
         if !validate_transactions_order(chunk.transactions()) {
-            let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+            let merkle_paths =
+                Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
             let epoch_id = block.header().epoch_id();
             let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
             let shard_id = chunk.shard_id();
@@ -3468,8 +3496,9 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = chunk_header.shard_id();
         let shard_index = shard_layout.get_shard_index(shard_id);
-        let prev_merkle_proofs = Block::compute_chunk_headers_root(prev_block.chunks().iter()).1;
-        let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+        let prev_merkle_proofs =
+            Block::compute_chunk_headers_root(prev_block.chunks().iter_deprecated()).1;
+        let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
         let prev_chunk =
             self.get_chunk_clone_from_header(&prev_block.chunks()[shard_index].clone()).unwrap();
 
@@ -3606,7 +3635,7 @@ impl Chain {
 
         let mut maybe_jobs = vec![];
         for (shard_index, (chunk_header, prev_chunk_header)) in
-            block.chunks().iter().zip(prev_chunk_headers.iter()).enumerate()
+            block.chunks().iter_deprecated().zip(prev_chunk_headers.iter()).enumerate()
         {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.

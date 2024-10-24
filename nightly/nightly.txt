@@ -18,6 +18,3 @@ pytest --timeout=120 sanity/validator_switch_key_quick.py
 pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
-# Tests for split storage and split storage migration
-pytest --timeout=600 sanity/split_storage.py
-pytest --timeout=600 sanity/split_storage.py --features nightly

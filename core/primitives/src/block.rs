@@ -445,7 +445,7 @@ impl Block {
     ) -> bool {
         let mut balance_burnt = 0;
 
-        for chunk in self.chunks().iter() {
+        for chunk in self.chunks().iter_deprecated() {
             if chunk.height_included() == self.header().height() {
                 balance_burnt += chunk.prev_balance_burnt();
             }
@@ -462,8 +462,10 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
-        let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
-        let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
+        let gas_used =
+            Self::compute_gas_used(self.chunks().iter_deprecated(), self.header().height());
+        let gas_limit =
+            Self::compute_gas_limit(self.chunks().iter_deprecated(), self.header().height());
         let expected_price = Self::compute_next_gas_price(
             gas_price,
             gas_used,
@@ -655,7 +657,7 @@ impl Block {
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         let mut result = BTreeMap::new();
 
-        for chunk in self.chunks().iter() {
+        for chunk in self.chunks().iter_deprecated() {
             let shard_id = chunk.shard_id();
 
             if let Some(congestion_info) = chunk.congestion_info() {
@@ -689,31 +691,32 @@ impl Block {
     /// Checks that block content matches block hash, with the possible exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
         // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(self.chunks().iter());
+        let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
         if self.header().prev_state_root() != &state_root {
             return Err(InvalidStateRoot);
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root =
-            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter());
+            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter_deprecated());
         if self.header().prev_chunk_outgoing_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks().iter()).0;
+        let chunk_headers_root =
+            Block::compute_chunk_headers_root(self.chunks().iter_deprecated()).0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter());
+        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter_deprecated());
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
 
-        let outcome_root = Block::compute_outcome_root(self.chunks().iter());
+        let outcome_root = Block::compute_outcome_root(self.chunks().iter_deprecated());
         if self.header().outcome_root() != &outcome_root {
             return Err(InvalidTransactionRoot);
         }
@@ -721,7 +724,7 @@ impl Block {
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunk_mask: Vec<bool> = self
             .chunks()
-            .iter()
+            .iter_deprecated()
             .map(|chunk| chunk.height_included() == self.header().height())
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
@@ -798,7 +801,16 @@ impl<'a> Chunks<'a> {
         }
     }
 
-    pub fn iter(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+    /// Deprecated, use `iter` instead. `iter_raw` is available if there is no need to
+    /// distinguish between old and new headers.
+    pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
+            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
+        }
+    }
+
+    pub fn iter_raw(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
             ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
@@ -806,9 +818,7 @@ impl<'a> Chunks<'a> {
     }
 
     /// Returns an iterator over the shard chunk headers, differentiating between new and old chunks.
-    pub fn iter_annotated(
-        &'a self,
-    ) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
+    pub fn iter(&'a self) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
         match &self.chunks {
             ChunksCollection::V1(chunks) => {
                 Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))

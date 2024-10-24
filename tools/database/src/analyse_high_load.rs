@@ -161,7 +161,7 @@ impl HighLoadStatsCommand {
         let mut tx_by_account = vec![0; 4];
         let mut receipts_by_account = vec![0; 4];
 
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             // Note that this doesn't work if there are missing chunks and resharding.
             let shard_id = chunk_header.shard_id();
             // let mut gas_usage_in_shard = GasUsageInShard::new();

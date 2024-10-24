@@ -55,6 +55,7 @@ use near_store::{
     set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
     TrieChanges, WrappedTrieChanges,
 };
+use near_vm_runner::{ContractRuntimeCache, NoContractRuntimeCache};
 use num_rational::Ratio;
 use rand::Rng;
 use std::cmp::Ordering;
@@ -87,6 +88,7 @@ pub struct KeyValueRuntime {
     state: RwLock<HashMap<StateRoot, KVState>>,
     state_size: RwLock<HashMap<StateRoot, u64>>,
     headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
+    contract_cache: NoContractRuntimeCache,
 }
 
 /// DEPRECATED. DO NOT USE for new tests. Use the real EpochManager, familiarize
@@ -373,6 +375,7 @@ impl KeyValueRuntime {
             headers_cache: RwLock::new(HashMap::new()),
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
+            contract_cache: NoContractRuntimeCache,
         })
     }
 
@@ -1569,5 +1572,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: &CryptoHash,
     ) -> Result<bool, Error> {
         Ok(false)
+    }
+
+    fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
+        &self.contract_cache
     }
 }
