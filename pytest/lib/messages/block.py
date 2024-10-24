@@ -763,7 +763,7 @@ block_schema = [
             'values': [['V1', ShardChunkHeaderInnerV1],
                        ['V2', ShardChunkHeaderInnerV2],
                        ['V3', ShardChunkHeaderInnerV3],
-                       ['V4', ShardChunkHeaderInnerV3]]
+                       ['V4', ShardChunkHeaderInnerV4]]
         }
     ],
     [
@@ -1029,7 +1029,7 @@ block_schema = [
     [
         BandwidthRequestsV1, {
             'kind': 'struct',
-            'fields': ['requests', [BandwidthRequest]]
+            'fields': [['requests', [BandwidthRequest]]]
         }
     ],
     [
