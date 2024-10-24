@@ -1,23 +1,22 @@
 use core::panic;
 
-use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::client_actor::ClientActorInner;
-use near_client::Client;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::views::FinalExecutionStatus;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::transactions::{call_contract, deploy_contract, get_node_data};
-use crate::test_loop::utils::ONE_NEAR;
+use crate::test_loop::utils::transactions::{
+    call_contract, check_txs, deploy_contract, make_accounts,
+};
+use crate::test_loop::utils::{ONE_NEAR, TGAS};
 
+const NUM_ACCOUNTS: usize = 100;
 const NUM_PRODUCERS: usize = 2;
 const NUM_VALIDATORS: usize = 2;
 const NUM_RPC: usize = 1;
@@ -33,7 +32,7 @@ fn test_congestion_control_simple() {
     // Test setup
 
     let contract_id: AccountId = "000".parse().unwrap();
-    let mut accounts = (0..100).map(make_account).collect_vec();
+    let mut accounts = make_accounts(NUM_ACCOUNTS);
     accounts.push(contract_id.clone());
 
     let (env, rpc_id) = setup(&accounts);
@@ -106,7 +105,8 @@ fn do_deploy_contract(
     contract_id: &AccountId,
 ) {
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
-    let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id);
+    let code = near_test_contracts::rs_contract().to_vec();
+    let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 1);
     test_loop.run_for(Duration::seconds(5));
     check_txs(&*test_loop, node_datas, rpc_id, &[tx]);
 }
@@ -120,34 +120,25 @@ fn do_call_contract(
     accounts: &Vec<AccountId>,
 ) {
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "Calling contract.");
+    let method_name = "burn_gas_raw".to_owned();
+    let burn_gas: u64 = 250 * TGAS;
+    let args = burn_gas.to_le_bytes().to_vec();
     let mut txs = vec![];
     for sender_id in accounts {
-        let tx = call_contract(test_loop, node_datas, &sender_id, &contract_id);
+        let tx = call_contract(
+            test_loop,
+            node_datas,
+            rpc_id,
+            &sender_id,
+            &contract_id,
+            method_name.clone(),
+            args.clone(),
+            2,
+        );
         txs.push(tx);
     }
     test_loop.run_for(Duration::seconds(20));
     check_txs(&*test_loop, node_datas, &rpc_id, &txs);
-}
-
-/// Check the status of the transactions and assert that they are successful.
-///
-/// Please note that it's important to use an rpc node that tracks all shards.
-/// Otherwise, the transactions may not be found.
-fn check_txs(
-    test_loop: &TestLoopV2,
-    node_datas: &Vec<TestData>,
-    rpc: &AccountId,
-    txs: &[CryptoHash],
-) {
-    let rpc = rpc_client(test_loop, node_datas, rpc);
-
-    for &tx in txs {
-        let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
-        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-        let status = status.unwrap();
-        tracing::info!(target: "test", ?tx, ?status, "transaction status");
-        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
-    }
 }
 
 /// The condition that can be used for the test loop to wait until the chain
@@ -158,21 +149,4 @@ fn height_condition(
     target_height: BlockHeight,
 ) -> bool {
     test_loop_data.get(&client_handle).client.chain.head().unwrap().height > target_height
-}
-
-/// Get the client for the provided rpd node account id.
-fn rpc_client<'a>(
-    test_loop: &'a TestLoopV2,
-    node_datas: &'a Vec<TestData>,
-    rpc_id: &AccountId,
-) -> &'a Client {
-    let node_data = get_node_data(node_datas, rpc_id);
-    let client_actor_handle = node_data.client_sender.actor_handle();
-    let client_actor = test_loop.data.get(&client_actor_handle);
-    &client_actor.client
-}
-
-/// Make the account id for the provided index.
-fn make_account(i: i32) -> AccountId {
-    format!("account{}", i).parse().unwrap()
 }

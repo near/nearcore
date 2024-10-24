@@ -114,6 +114,7 @@ impl Client {
                     epoch_id,
                     &chunk_header,
                     contract_accesses,
+                    contract_deploys,
                     my_signer.as_ref(),
                 );
             }
@@ -427,6 +428,7 @@ impl Client {
         epoch_id: &EpochId,
         chunk_header: &ShardChunkHeader,
         contract_accesses: BTreeSet<CodeHash>,
+        contract_deploys: BTreeSet<CodeHash>,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_production_key = ChunkProductionKey {
@@ -455,13 +457,21 @@ impl Client {
             .into_iter()
             .collect();
 
+        // Since chunk validators will receive the newly deployed contracts as part of the state witness (as DeployActions in receipts),
+        // they will update their contract cache while applying these deploy actions, thus we can exclude code-hash for these contracts from the message.
+        let predeployed_contract_accesses =
+            contract_accesses.difference(&contract_deploys).cloned().collect();
+        // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.
         let target_chunk_validators =
             chunk_validators.difference(&chunk_producers).cloned().collect();
-        // TODO(#11099): Exclude new deployments from the list of contract accesses.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(chunk_production_key, contract_accesses, my_signer),
+                ChunkContractAccesses::new(
+                    chunk_production_key,
+                    predeployed_contract_accesses,
+                    my_signer,
+                ),
             ),
         ));
     }

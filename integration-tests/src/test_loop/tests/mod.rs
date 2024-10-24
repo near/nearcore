@@ -1,6 +1,7 @@
 mod chunk_validator_kickout;
 pub mod congestion_control;
 pub mod congestion_control_genesis_bootstrap;
+pub mod contract_distribution;
 pub mod epoch_sync;
 pub mod fix_min_stake_ratio;
 pub mod in_memory_tries;
