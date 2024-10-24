@@ -188,6 +188,8 @@ class ShardChunkHeaderV3:
             encoded_merkle_root = inner.V2.encoded_merkle_root
         elif inner.enum == 'V3':
             encoded_merkle_root = inner.V3.encoded_merkle_root
+        elif inner.enum == 'V4':
+            encoded_merkle_root = inner.V4.encoded_merkle_root
         assert encoded_merkle_root is not None, f"Unknown ShardChunkHeaderV3 enum variant: {inner.enum}"
 
         inner_serialized = BinarySerializer(
@@ -246,6 +248,8 @@ class PartialEncodedChunk:
                     return header.V3.inner.V2
                 elif v3_inner_version == 'V3':
                     return header.V3.inner.V3
+                elif v3_inner_version == 'V4':
+                    return header.V3.inner.V4
             assert False, "unknown header version"
 
     def chunk_hash(self):
