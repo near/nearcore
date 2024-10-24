@@ -312,15 +312,16 @@ pub struct TrieMemoryPartialStorage {
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result =
-            self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
+        if let Some(value) = self.recorded_storage.get(hash).cloned() {
+            self.visited_nodes.write().expect("write visited_nodes").insert(*hash);
+            Ok(value)
+        } else {
+            metrics::TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT.inc();
+            Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
                 *hash,
-            ));
-        if result.is_ok() {
-            self.visited_nodes.write().expect("write visited_nodes").insert(*hash);
+            ))
         }
-        result
     }
 
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {

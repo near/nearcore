@@ -225,7 +225,7 @@ fn get_gas_usage_in_block(
     let mut result = GasUsageStats::new();
 
     // Go over every chunk in this block and gather data
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         let shard_id = chunk_header.shard_id();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 

@@ -1049,7 +1049,7 @@ impl BlockView {
         BlockView {
             author,
             header: block.header().clone().into(),
-            chunks: block.chunks().iter().cloned().map(Into::into).collect(),
+            chunks: block.chunks().iter_deprecated().cloned().map(Into::into).collect(),
         }
     }
 }

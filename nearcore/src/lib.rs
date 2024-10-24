@@ -362,7 +362,7 @@ pub fn start_with_config_and_synchronization(
             client_adapter_for_partial_witness_actor.as_multi_sender(),
             config.validator_signer.clone(),
             epoch_manager.clone(),
-            storage.get_hot_store(),
+            runtime.clone(),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(

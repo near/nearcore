@@ -229,7 +229,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                 }
             );
             if let Some(block) = maybe_block {
-                for chunk_header in block.chunks().iter() {
+                for chunk_header in block.chunks().iter_deprecated() {
                     let chunk_producer = epoch_manager
                         .get_chunk_producer(
                             &epoch_id,

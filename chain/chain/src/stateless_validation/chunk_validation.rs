@@ -372,7 +372,7 @@ fn validate_source_receipt_proofs(
         // Collect all receipts coming from this block.
         let mut block_receipt_proofs = Vec::new();
 
-        for chunk in block.chunks().iter() {
+        for chunk in block.chunks().iter_deprecated() {
             if !chunk.is_new_chunk(block.header().height()) {
                 continue;
             }
