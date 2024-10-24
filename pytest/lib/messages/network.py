@@ -1,6 +1,6 @@
 from messages.crypto import Signature, PublicKey, MerklePath, ShardProof
 from messages.tx import SignedTransaction, Receipt
-from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ChunkEndorsement, ChunkEndorsementV1, ChunkStateWitnessAck, PartialEncodedStateWitness
+from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ChunkEndorsement, ChunkEndorsementV1, ChunkStateWitnessAck, PartialEncodedStateWitness, ChunkContractAccesses, ChunkContractDeployments, ContractCodeRequest, ContractCodeResponse
 from messages.shard import StateRootNode
 
 
