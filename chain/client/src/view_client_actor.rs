@@ -1396,8 +1396,11 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
                 can_generate: false,
             }),
         };
-        let info =
-            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
+        let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
+            shard_id,
+            sync_hash,
+            state_response,
+        }));
         Some(StateResponse(Box::new(info)))
     }
 }
@@ -1455,8 +1458,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
             cached_parts: None,
             can_generate,
         });
-        let info =
-            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
+        let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
+            shard_id,
+            sync_hash,
+            state_response,
+        }));
         Some(StateResponse(Box::new(info)))
     }
 }
