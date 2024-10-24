@@ -634,4 +634,33 @@ mod tests {
         );
         assert!(matches!(result, Err("mikan")));
     }
+
+    #[test]
+    fn test_clear_compiled_contract_cache() {
+        let cache = FilesystemContractRuntimeCache::test().unwrap();
+
+        let contract1 = ContractCode::new(near_test_contracts::sized_contract(100).to_vec(), None);
+        let contract2 = ContractCode::new(near_test_contracts::sized_contract(200).to_vec(), None);
+
+        let compiled_contract1 = CompiledContractInfo {
+            wasm_bytes: 100,
+            compiled: CompiledContract::Code(contract1.code().to_vec()),
+        };
+
+        let compiled_contract2 = CompiledContractInfo {
+            wasm_bytes: 200,
+            compiled: CompiledContract::Code(contract2.code().to_vec()),
+        };
+
+        cache.put(contract1.hash(), compiled_contract1.clone()).unwrap();
+        cache.put(contract2.hash(), compiled_contract2.clone()).unwrap();
+
+        assert_eq!(cache.get(contract1.hash()).unwrap().unwrap(), compiled_contract1);
+        assert_eq!(cache.get(contract2.hash()).unwrap().unwrap(), compiled_contract2);
+
+        cache.test_only_clear().unwrap();
+
+        assert_eq!(cache.has(contract1.hash()).unwrap(), false);
+        assert_eq!(cache.has(contract2.hash()).unwrap(), false);
+    }
 }
