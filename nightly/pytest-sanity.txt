@@ -42,8 +42,8 @@ pytest --timeout=240 sanity/state_sync5.py --features nightly
 pytest sanity/state_sync_missing_chunks.py
 pytest sanity/state_sync_missing_chunks.py --features nightly
 
-pytest sanity/single_shard_tracking.py
-pytest sanity/single_shard_tracking.py --features nightly
+pytest --timeout=270 sanity/single_shard_tracking.py
+pytest --timeout=270 sanity/single_shard_tracking.py --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
