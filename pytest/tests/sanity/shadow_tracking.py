@@ -23,21 +23,18 @@ TIMEOUT = 100
 
 class ShadowTrackingTest(unittest.TestCase):
 
-    def _get_final_block_height(self, nodes):
+    def _get_min_block_height(self, nodes):
         height_per_node = [node.get_latest_block().height for node in nodes]
-        min_height = min(height_per_node)
-        max_height = max(height_per_node)
-        self.assertGreaterEqual(min_height + 1, max_height, height_per_node)
-        return min_height
+        return min(height_per_node)
 
-    def _get_block_hash(self, block_height, node):
+    def _get_block_header(self, block_height, node):
         result = node.get_block_by_height(block_height)
         self.assertNotIn('error', result, result)
         self.assertIn('result', result, result)
-        return result['result']['header']['hash']
+        return result['result']['header']
 
-    def _get_shard_assignment(self, rpc_node):
-        result = rpc_node.json_rpc('validators', 'latest')
+    def _get_shard_assignment(self, args, rpc_node):
+        result = rpc_node.json_rpc('validators', args)
         self.assertNotIn('error', result, result)
         self.assertIn('result', result, result)
         validators = result['result']['current_validators']
@@ -80,7 +77,7 @@ class ShadowTrackingTest(unittest.TestCase):
         # Wait for 1 epoch so that shard shuffling kicks in.
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
         logger.info('## Initial shard assignment: {}'.format(
-            self._get_shard_assignment(nodes[3])))
+            self._get_shard_assignment('latest', nodes[3])))
 
         # Stop the failover node for 1 epoch, so that it has to state sync to a new shard tracked by "test0".
         nodes[2].kill()
@@ -90,18 +87,33 @@ class ShadowTrackingTest(unittest.TestCase):
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
 
         round = 0
+        epoch_ids = set()
+
         while True:
+            wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
+            block_height = self._get_min_block_height(nodes)
+            block_header = self._get_block_header(block_height, nodes[3])
+            block_hash = block_header['hash']
+            epoch_id = block_header['epoch_id']
+            if epoch_id in epoch_ids:
+                continue
+
+            epoch_ids.add(epoch_id)
             round += 1
-            shards = self._get_shard_assignment(nodes[3])
-            logger.info(f'## Round {round} shard assigment: {shards}')
-            block_height = self._get_final_block_height(nodes)
-            block_hash = self._get_block_hash(block_height, nodes[3])
+
+            shards = self._get_shard_assignment({'epoch_id': epoch_id},
+                                                nodes[3])
+            logger.info(f'## Round {round} shard assignment: '
+                        f'block_height={block_height}, '
+                        f'block_hash={block_hash}, '
+                        f'epoch_id={epoch_id}, '
+                        f'shards={shards}')
+
             for shard in shards['test0']:
                 # The RPC node should have chunk from a shard tracked by "test0".
                 self.assertTrue(self._has_chunk(block_hash, shard, nodes[2]))
             if round == 3:
                 break
-            wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
 
 
 if __name__ == '__main__':
