@@ -29,8 +29,8 @@ use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::{compression::CompressedData, index_to_bytes};
+use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
-use near_vm_runner::logic::ProtocolVersion;
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -425,66 +425,86 @@ impl EpochSync {
         epoch_ids.reverse();
 
         // Now that we have all epochs, we can fetch the data needed for each epoch.
-        let mut epochs = (0..epoch_ids.len() - 2)
+        let epochs = (0..epoch_ids.len() - 1)
             .into_par_iter()
             .map(|index| -> Result<EpochSyncProofEpochData, Error> {
-                let next_next_epoch_id = epoch_ids[index + 2];
+                let next_epoch_id = epoch_ids[index + 1];
                 let epoch_id = epoch_ids[index];
-                let last_block_header = store
-                    .get_ser::<BlockHeader>(DBCol::BlockHeader, next_next_epoch_id.0.as_bytes())?
-                    .ok_or_else(|| {
-                        Error::Other(format!(
-                            "Could not find last block header for epoch {:?}",
-                            epoch_id
-                        ))
-                    })?;
-                let second_last_block_header = store
-                    .get_ser::<BlockHeader>(
-                        DBCol::BlockHeader,
-                        last_block_header.prev_hash().as_bytes(),
-                    )?
-                    .ok_or_else(|| {
-                        Error::Other(format!(
-                            "Could not find second last block header for epoch {:?}",
-                            epoch_id
-                        ))
-                    })?;
-                let third_last_block_header = store
-                    .get_ser::<BlockHeader>(
-                        DBCol::BlockHeader,
-                        second_last_block_header.prev_hash().as_bytes(),
-                    )?
-                    .ok_or_else(|| {
-                        Error::Other(format!(
-                            "Could not find third last block header for epoch {:?}",
-                            epoch_id
-                        ))
-                    })?;
+                let prev_epoch_id = if index == 0 { after_epoch } else { epoch_ids[index - 1] };
+
+                let (last_final_block_header, approvals_for_last_final_block) =
+                    if index + 2 < epoch_ids.len() {
+                        let next_next_epoch_id = epoch_ids[index + 2];
+                        let last_block_header = store
+                            .get_ser::<BlockHeader>(
+                                DBCol::BlockHeader,
+                                next_next_epoch_id.0.as_bytes(),
+                            )?
+                            .ok_or_else(|| {
+                                Error::Other(format!(
+                                    "Could not find last block header for epoch {:?}",
+                                    epoch_id
+                                ))
+                            })?;
+                        let second_last_block_header = store
+                            .get_ser::<BlockHeader>(
+                                DBCol::BlockHeader,
+                                last_block_header.prev_hash().as_bytes(),
+                            )?
+                            .ok_or_else(|| {
+                                Error::Other(format!(
+                                    "Could not find second last block header for epoch {:?}",
+                                    epoch_id
+                                ))
+                            })?;
+                        let third_last_block_header = store
+                            .get_ser::<BlockHeader>(
+                                DBCol::BlockHeader,
+                                second_last_block_header.prev_hash().as_bytes(),
+                            )?
+                            .ok_or_else(|| {
+                                Error::Other(format!(
+                                    "Could not find third last block header for epoch {:?}",
+                                    epoch_id
+                                ))
+                            })?;
+                        (third_last_block_header, second_last_block_header.approvals().to_vec())
+                    } else {
+                        (
+                            current_epoch_last_final_block_header.clone(),
+                            current_epoch_second_last_block_approvals.clone(),
+                        )
+                    };
+                let prev_epoch_info = all_epoch_infos.get(&prev_epoch_id).ok_or_else(|| {
+                    Error::Other(format!("Could not find epoch info for epoch {:?}", prev_epoch_id))
+                })?;
                 let epoch_info = all_epoch_infos.get(&epoch_id).ok_or_else(|| {
                     Error::Other(format!("Could not find epoch info for epoch {:?}", epoch_id))
                 })?;
+                let next_epoch_info = all_epoch_infos.get(&next_epoch_id).ok_or_else(|| {
+                    Error::Other(format!("Could not find epoch info for epoch {:?}", next_epoch_id))
+                })?;
+
+                let this_epoch_block_producers = Self::get_epoch_info_block_producers(epoch_info);
+                let next_epoch_block_producers =
+                    Self::get_epoch_info_block_producers(next_epoch_info);
+                let approvals_for_this_epoch_block_producers =
+                    Self::get_approvals_for_this_epoch_block_producers(
+                        &approvals_for_last_final_block,
+                        &this_epoch_block_producers,
+                        &next_epoch_block_producers,
+                    );
+
                 Ok(EpochSyncProofEpochData {
                     block_producers: Self::get_epoch_info_block_producers(epoch_info),
-                    last_final_block_header: third_last_block_header,
-                    approvals_for_last_final_block: second_last_block_header.approvals().to_vec(),
-                    protocol_version: epoch_info.protocol_version(),
+                    use_old_bp_hash_format: !ProtocolFeature::BlockHeaderV3
+                        .enabled(prev_epoch_info.protocol_version()),
+                    last_final_block_header,
+                    this_epoch_endorsements_for_last_final_block:
+                        approvals_for_this_epoch_block_producers,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let current_epoch_info = all_epoch_infos
-            .get(current_epoch_last_final_block_header.epoch_id())
-            .ok_or_else(|| {
-                Error::Other(format!(
-                    "Could not find epoch info for epoch {:?}",
-                    current_epoch_last_final_block_header.epoch_id()
-                ))
-            })?;
-        epochs.push(EpochSyncProofEpochData {
-            block_producers: Self::get_epoch_info_block_producers(current_epoch_info),
-            last_final_block_header: current_epoch_last_final_block_header.clone(),
-            approvals_for_last_final_block: current_epoch_second_last_block_approvals,
-            protocol_version: current_epoch_info.protocol_version(),
-        });
         Ok(epochs)
     }
 
@@ -501,6 +521,62 @@ impl EpochSync {
             }
         }
         block_producers
+    }
+
+    /// Gets the ordered list of signatures within the approvals list in a block that correspond
+    /// to this epoch's block producers. The given block is expected to require both the current
+    /// and the next epoch's signatures. The returned list has the exact same length as this
+    /// epoch's block producers (unlike the block's approvals list which may be shorter).
+    fn get_approvals_for_this_epoch_block_producers(
+        approvals: &[Option<Box<Signature>>],
+        this_epoch_block_producers: &[ValidatorStake],
+        next_epoch_block_producers: &[ValidatorStake],
+    ) -> Vec<Option<Box<Signature>>> {
+        let approvers = Self::get_dual_epoch_block_approvers_ordered(
+            this_epoch_block_producers,
+            next_epoch_block_producers,
+        );
+        let mut approver_to_signature = HashMap::new();
+        for (index, approver) in approvers.into_iter().enumerate() {
+            if let Some(Some(approval)) = approvals.get(index) {
+                approver_to_signature.insert(approver.account_id, approval.clone());
+            }
+        }
+        this_epoch_block_producers
+            .iter()
+            .map(|validator| approver_to_signature.get(validator.account_id()).cloned())
+            .collect()
+    }
+
+    /// Computes the ordered list of block approvers for a block that requires signatures from both
+    /// the current epoch's block producers and the next epoch's block producers.
+    fn get_dual_epoch_block_approvers_ordered(
+        current_block_producers: &[ValidatorStake],
+        next_block_producers: &[ValidatorStake],
+    ) -> Vec<ApprovalStake> {
+        let mut settlement = current_block_producers.to_vec();
+        let settlement_epoch_boundary = settlement.len();
+
+        settlement.extend_from_slice(next_block_producers);
+
+        let mut result = vec![];
+        let mut validators: HashMap<AccountId, usize> = HashMap::default();
+        for (ord, validator_stake) in settlement.into_iter().enumerate() {
+            let account_id = validator_stake.account_id();
+            match validators.get(account_id) {
+                None => {
+                    validators.insert(account_id.clone(), result.len());
+                    result
+                        .push(validator_stake.get_approval_stake(ord >= settlement_epoch_boundary));
+                }
+                Some(old_ord) => {
+                    if ord >= settlement_epoch_boundary {
+                        result[*old_ord].stake_next_epoch = validator_stake.stake();
+                    };
+                }
+            };
+        }
+        result
     }
 
     /// Performs the epoch sync logic if applicable in the current state of the blockchain.
@@ -706,25 +782,34 @@ impl EpochSync {
                 "invalid block producers for second epoch after genesis".to_string(),
             ));
         }
+        Self::verify_final_block_endorsement(&all_epochs[0])?;
 
-        Self::verify_final_block_endorsement(&all_epochs[0], &all_epochs[1].block_producers)?;
-
-        // Verify block producer handoff between all past epochs
+        // Verify the data of each epoch, in chronological order. When verifying each epoch,
+        // we assume that the previous epoch has been verified (thereby giving correctness of all
+        // epochs by induction.) For each epoch, we need to verify the following:
+        //
+        // - Its block producers. To verify this, we compare the previous epoch's last final block's
+        //   next_bp_hash against the hash of the current epoch's block producers, taking into
+        //   account the use_old_bp_hash_format flag.
+        // - Its last final block. To verify this, we use the endorsements provided for the final
+        //   block. What we verify is that more than 2/3 of the block producers of the current epoch
+        //   have endorsed the final block.
+        //
+        // See the comments in `EpochSyncProofEpochData` for more detailed information.
         for epoch_index in 1..all_epochs.len() {
             let epoch = &all_epochs[epoch_index];
             let prev_epoch = &all_epochs[epoch_index - 1];
-            let next_epoch_block_producers = if epoch_index + 1 < all_epochs.len() {
-                all_epochs[epoch_index + 1].block_producers.clone()
-            } else {
-                Self::get_epoch_info_block_producers(&proof.last_epoch.next_next_epoch_info)
-            };
-            Self::verify_block_producer_handoff(
-                epoch_index,
+            if !Self::verify_block_producer_handoff(
                 &epoch.block_producers,
-                prev_epoch.protocol_version,
+                epoch.use_old_bp_hash_format,
                 prev_epoch.last_final_block_header.next_bp_hash(),
-            )?;
-            Self::verify_final_block_endorsement(epoch, &next_epoch_block_producers)?;
+            )? {
+                return Err(Error::InvalidEpochSyncProof(format!(
+                    "invalid block producer handoff to epoch index {}",
+                    epoch_index
+                )));
+            }
+            Self::verify_final_block_endorsement(epoch)?;
         }
 
         Self::verify_epoch_sync_data_hash(&last_epoch, &current_epoch.first_block_header_in_epoch)?;
@@ -795,100 +880,42 @@ impl EpochSync {
 
         Ok(())
     }
-
-    // Computes the ordered list of block approvers. For any of the last three blocks of an
-    // epoch, the approvers are the combined block producers of the epoch and its next epoch.
-    // For other blocks, the block approvers are just the block producers.
-    fn get_all_block_approvers_ordered(
-        current_block_producers: &[ValidatorStake],
-        next_block_producers: &[ValidatorStake],
-    ) -> Vec<ApprovalStake> {
-        let mut settlement = current_block_producers.to_vec();
-        let settlement_epoch_boundary = settlement.len();
-
-        settlement.extend_from_slice(next_block_producers);
-
-        let mut result = vec![];
-        let mut validators: HashMap<AccountId, usize> = HashMap::default();
-        for (ord, validator_stake) in settlement.into_iter().enumerate() {
-            let account_id = validator_stake.account_id();
-            match validators.get(account_id) {
-                None => {
-                    validators.insert(account_id.clone(), result.len());
-                    result
-                        .push(validator_stake.get_approval_stake(ord >= settlement_epoch_boundary));
-                }
-                Some(old_ord) => {
-                    if ord >= settlement_epoch_boundary {
-                        result[*old_ord].stake_next_epoch = validator_stake.stake();
-                    };
-                }
-            };
-        }
-        result
-    }
-
-    /// Verifies that EpochSyncProofPastEpochData's block_producers is valid
+    /// Verifies that EpochSyncProofPastEpochData's block_producers is valid,
+    /// returning true if it is.
     fn verify_block_producer_handoff(
-        epoch_index: usize,
         block_producers: &Vec<ValidatorStake>,
-        prev_epoch_protocol_version: ProtocolVersion,
+        use_old_bp_hash_format: bool,
         prev_epoch_next_bp_hash: &CryptoHash,
-    ) -> Result<(), Error> {
-        let bp_hash = Chain::compute_bp_hash_from_validator_stakes(
-            block_producers,
-            prev_epoch_protocol_version,
-        )?;
-        if bp_hash != *prev_epoch_next_bp_hash {
-            return Err(Error::InvalidEpochSyncProof(format!(
-                "invalid block_producers for epoch index {}",
-                epoch_index
-            )));
-        }
-        Ok(())
+    ) -> Result<bool, Error> {
+        let bp_hash =
+            Chain::compute_bp_hash_from_validator_stakes(block_producers, use_old_bp_hash_format)?;
+        Ok(bp_hash == *prev_epoch_next_bp_hash)
     }
 
-    /// Verifies that the epoch's last_final_block_header is correctly endorsed.
-    ///
-    /// Note that we do not trust next_epoch_block_producers. It doesn't matter what's given there;
-    /// it's just so that we can verify the signatures of the last final block of the epoch.
-    /// This block requires signatures from both this epoch's block producers and the next epoch's,
-    /// so we need to know both to verify the signatures; however, we only need this epoch's block
-    /// producers to be valid to verify that the signatures are valid. It is possible to to invent
-    /// an incorrect list (such as one with incorrect stake numbers) for the next epoch's block
-    /// producers so that we still pass the signature verification, but that's fine, as we still do
-    /// not trust the next epoch block producers; those will be verified later.
-    fn verify_final_block_endorsement(
-        epoch: &EpochSyncProofEpochData,
-        next_epoch_block_producers: &[ValidatorStake],
-    ) -> Result<(), Error> {
-        let last_final_block_header = &epoch.last_final_block_header;
-        let approvers_info = Self::get_all_block_approvers_ordered(
-            &epoch.block_producers,
-            next_epoch_block_producers,
-        );
+    /// Verifies that the epoch's last_final_block_header is sufficiently endorsed by the current
+    /// epoch's block producers.
+    fn verify_final_block_endorsement(epoch: &EpochSyncProofEpochData) -> Result<(), Error> {
         Self::verify_block_endorsements(
-            *last_final_block_header.hash(),
-            last_final_block_header.height(),
-            &approvers_info,
-            &epoch.approvals_for_last_final_block,
-        )?;
-        Ok(())
+            *(&epoch.last_final_block_header).hash(),
+            (&epoch.last_final_block_header).height(),
+            &epoch.block_producers,
+            &epoch.this_epoch_endorsements_for_last_final_block,
+        )
     }
 
     /// Verifies that the given block is endorsed properly, and with enough stake.
     fn verify_block_endorsements(
         prev_block_hash: CryptoHash,
         block_height: BlockHeight,
-        approvers: &[ApprovalStake],
-        approvals: &[Option<Box<Signature>>],
+        block_producers: &[ValidatorStake],
+        endorsements: &[Option<Box<Signature>>],
     ) -> Result<(), near_chain::Error> {
-        if approvals.len() > approvers.len() {
+        if endorsements.len() != block_producers.len() {
             return Err(near_chain::Error::InvalidEpochSyncProof(format!(
-                "Block {} should have {} approvers but has {} approvals",
+                "Block {} should be provided with {} endorsements but has {}",
                 block_height,
-                approvers.len(),
-                approvals.len()
+                block_producers.len(),
+                endorsements.len()
             )));
         }
 
@@ -897,24 +924,22 @@ impl EpochSync {
             block_height + 1,
         );
 
-        for (validator, may_be_signature) in approvers.iter().zip(approvals.iter()) {
+        for (validator, may_be_signature) in block_producers.iter().zip(endorsements.iter()) {
             if let Some(signature) = may_be_signature {
-                if !signature.verify(&message_to_sign, &validator.public_key) {
+                if !signature.verify(&message_to_sign, validator.public_key()) {
                     return Err(near_chain::Error::InvalidEpochSyncProof(format!(
                         "Invalid signature for block {} from validator {:?}",
-                        block_height, validator.account_id
+                        block_height,
+                        validator.account_id()
                     )));
                 }
             }
         }
 
-        let stakes = approvers
-            .iter()
-            .map(|x| (x.stake_this_epoch, x.stake_next_epoch, false))
-            .collect::<Vec<_>>();
+        let stakes = block_producers.iter().map(|x| (x.stake(), 0, false)).collect::<Vec<_>>();
         if !Doomslug::can_approved_block_be_produced(
             DoomslugThresholdMode::TwoThirds,
-            approvals,
+            endorsements,
             &stakes,
         ) {
             return Err(near_chain::Error::InvalidEpochSyncProof(format!(

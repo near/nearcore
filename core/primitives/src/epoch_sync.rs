@@ -7,7 +7,6 @@ use crate::{block_header::BlockHeader, merkle::MerklePathItem};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
-use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 
@@ -70,16 +69,25 @@ pub struct EpochSyncProofEpochData {
     /// The block producers and their stake, for this epoch. This is verified
     /// against the `next_bp_hash` of the `last_final_block_header` of the epoch before this.
     pub block_producers: Vec<ValidatorStake>,
+    /// Whether the block producers are encoded in the old format for computing the bp_hash.
+    /// The encodings between old and new format do not collide, so this field does not need
+    /// to be proven.
+    pub use_old_bp_hash_format: bool,
     /// The last final block header of the epoch (i.e. third last block of the epoch).
-    /// This is verified against the `approvals_for_last_final_block`.
+    /// This is verified against `this_epoch_endorsements_for_last_final_block`.
     pub last_final_block_header: BlockHeader,
-    /// Approvals for the last final block, which comes from the second last block of the epoch.
-    /// Since it has a consecutive height from the final block, the approvals are guaranteed to
-    /// be endorsements which directly endorse the final block.
-    pub approvals_for_last_final_block: Vec<Option<Box<Signature>>>,
-    /// Protocol version for this epoch. This is verified together with `block_producers`
-    /// against the `next_bp_hash` of the `last_final_block_header` of the epoch before this.
-    pub protocol_version: ProtocolVersion,
+    /// Endorsements for the last final block, which comes from the second last block of the epoch.
+    /// Since it has a consecutive height from the final block, the approvals included in it are
+    /// are guaranteed to be endorsements which directly endorse the final block.
+    ///
+    /// Note an important subtlety: This is *not* the complete set of approvals included in the
+    /// second last block. This is a subset of them that correspond to only this epoch's block
+    /// producers, as the next epoch's block producers are also required to sign this block. We
+    /// do not include the next epoch's block producers' endorsements here, as we ultimately
+    /// would not have a reliable way to verify the next epoch's block producers (it would result in
+    /// circular reasoning since the next epoch's block producers are verified against this epoch's
+    /// final block), so even if we included them we would not be able to use them meaningfully.
+    pub this_epoch_endorsements_for_last_final_block: Vec<Option<Box<Signature>>>,
 }
 
 /// Data needed to initialize the epoch sync boundary.
