@@ -58,13 +58,6 @@ pub type ShardIndex = usize;
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
-pub const fn shard_id_as_usize(id: ShardId) -> usize {
-    return id.get() as usize;
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
 pub const fn shard_id_as_u16(id: ShardId) -> u16 {
     return id.get() as u16;
 }
@@ -206,6 +199,12 @@ impl From<u16> for ShardId {
 impl Into<u16> for ShardId {
     fn into(self) -> u16 {
         self.0 as u16
+    }
+}
+
+impl Into<usize> for ShardId {
+    fn into(self) -> usize {
+        self.0 as usize
     }
 }
 
