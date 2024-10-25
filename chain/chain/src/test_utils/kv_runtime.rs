@@ -556,7 +556,7 @@ impl EpochManagerAdapter for MockEpochManager {
             HashMap::new(),
             1,
             1,
-            1,
+            PROTOCOL_VERSION,
             RngSeed::default(),
             Default::default(),
         )))
