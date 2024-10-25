@@ -460,7 +460,8 @@ fn test_flat_storage_iter() {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let items: Vec<_> = store.iter(shard_uid).collect();
 
-        match shard_id.get() {
+        let shard_id: u64 = shard_id.into();
+        match shard_id {
             0 => {
                 let expected = 2 + protocol_version_modifier;
                 assert_eq!(expected, items.len());

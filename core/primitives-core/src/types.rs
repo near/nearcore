@@ -55,7 +55,6 @@ pub type ProtocolVersion = u32;
 /// used instead.
 pub type ShardIndex = usize;
 
-// TODO(wacban) Complete the transition to ShardId as a newtype.
 /// The shard identifier. It may be a arbitrary number - it does not need to be
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
 /// sequential or contiguous.
@@ -106,14 +105,12 @@ impl ShardId {
         Self(id)
     }
 
-    /// Get the numerical value of the shard id. This should not be used as an
-    /// index into an array, as the shard id may be any arbitrary number.
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-
     pub fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
+    }
+
+    pub fn to_be_bytes(self) -> [u8; 8] {
+        self.0.to_be_bytes()
     }
 
     pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
@@ -195,6 +192,18 @@ where
 
     fn add(self, rhs: T) -> Self::Output {
         Self(T::add(rhs, self.0))
+    }
+}
+
+impl PartialEq<u64> for ShardId {
+    fn eq(&self, other: &u64) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialOrd<u64> for ShardId {
+    fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
     }
 }
 

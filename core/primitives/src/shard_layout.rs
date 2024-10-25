@@ -265,7 +265,7 @@ impl ShardLayout {
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
-                    assert!(shard_id.get() < num_shards, "shard id should be valid");
+                    assert!(shard_id < num_shards, "shard id should be valid");
                 }
             }
             Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id.into()]).collect())
@@ -885,7 +885,7 @@ mod tests {
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
-            assert!(shard_id.get() < num_shards);
+            assert!(shard_id < num_shards);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
         let expected_distribution: HashMap<ShardId, _> = [
