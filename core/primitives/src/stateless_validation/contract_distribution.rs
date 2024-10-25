@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
-use near_crypto::Signature;
+use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -41,6 +41,12 @@ impl ChunkContractAccesses {
             Self::V1(accesses) => &accesses.inner.next_chunk,
         }
     }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        match self {
+            Self::V1(accesses) => accesses.verify_signature(public_key),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -59,6 +65,10 @@ impl ChunkContractAccessesV1 {
         let inner = ChunkContractAccessesInner::new(next_chunk, contracts);
         let signature = signer.sign_chunk_contract_accesses(&inner);
         Self { inner, signature }
+    }
+
+    fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
