@@ -269,6 +269,7 @@ impl NightshadeRuntime {
             challenges_result,
             random_seed,
             congestion_info,
+            bandwidth_requests,
         } = block;
         let ApplyChunkShardContext {
             shard_id,
@@ -390,6 +391,7 @@ impl NightshadeRuntime {
                 is_first_block_with_chunk_of_version,
             },
             congestion_info,
+            bandwidth_requests,
         };
 
         let instant = Instant::now();
@@ -467,6 +469,8 @@ impl NightshadeRuntime {
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
             contract_accesses: apply_result.contract_accesses,
+            bandwidth_requests: apply_result.bandwidth_requests,
+            bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
             contract_deploys: apply_result.contract_deploys,
         };
 

@@ -75,8 +75,11 @@ impl ColdStoreCommand {
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(storage.get_hot_store(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),
@@ -494,7 +497,7 @@ impl StateRootSelector {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
                     .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
                 let mut hashes = vec![];
-                for chunk in block.chunks().iter() {
+                for chunk in block.chunks().iter_deprecated() {
                     hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(

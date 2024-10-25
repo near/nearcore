@@ -1382,7 +1382,7 @@ impl ClientActorInner {
 
     fn send_chunks_metrics(&mut self, block: &Block) {
         let chunks = block.chunks();
-        for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+        for (chunk, &included) in chunks.iter_deprecated().zip(block.header().chunk_mask().iter()) {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),
@@ -1397,7 +1397,8 @@ impl ClientActorInner {
 
     fn send_block_metrics(&mut self, block: &Block) {
         let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-        let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
+        let gas_used =
+            Block::compute_gas_used(block.chunks().iter_deprecated(), block.header().height());
 
         let last_final_hash = block.header().last_final_block();
         let last_final_ds_hash = block.header().last_ds_final_block();
@@ -1851,7 +1852,8 @@ impl ClientActorInner {
             return vec![];
         };
 
-        let min_height_included = block.chunks().iter().map(|chunk| chunk.height_included()).min();
+        let min_height_included =
+            block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
         let Some(min_height_included) = min_height_included else {
             tracing::warn!(target: "sync", ?block_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
             return vec![];

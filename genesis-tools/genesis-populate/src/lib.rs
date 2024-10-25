@@ -91,7 +91,8 @@ impl GenesisBuilder {
     pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
         initialize_genesis_state(store.clone(), &config.genesis, Some(tmpdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &config.genesis.config, None);
         let runtime = NightshadeRuntime::from_config(
             tmpdir.path(),
             store.clone(),
@@ -272,7 +273,9 @@ impl GenesisBuilder {
         store_update.save_block(genesis.clone());
 
         let protocol_version = self.genesis.config.protocol_version;
-        for (chunk_header, &state_root) in genesis.chunks().iter().zip(self.roots.values()) {
+        for (chunk_header, &state_root) in
+            genesis.chunks().iter_deprecated().zip(self.roots.values())
+        {
             let shard_layout = &self.genesis.config.shard_layout;
             let shard_id = chunk_header.shard_id();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -292,6 +295,7 @@ impl GenesisBuilder {
                     self.genesis.config.gas_limit,
                     0,
                     congestion_info,
+                    chunk_header.bandwidth_requests().cloned(),
                 ),
             );
         }

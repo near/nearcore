@@ -331,7 +331,7 @@ impl ChainStore {
         let prev_block = self.get_block(&prev_hash);
         if let Ok(prev_block) = prev_block {
             let min_height_included =
-                prev_block.chunks().iter().map(|chunk| chunk.height_included()).min();
+                prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
             if let Some(min_height_included) = min_height_included {
                 tracing::debug!(target: "sync", ?min_height_included, ?gc_height, "adjusting gc_height for missing chunks");
                 gc_height = std::cmp::min(gc_height, min_height_included - 1);
@@ -650,7 +650,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks, chunk-indexed data and block headers
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks().iter() {
+                for chunk_header in block.chunks().iter_deprecated() {
                     if min_chunk_height > chunk_header.height_created() {
                         min_chunk_height = chunk_header.height_created();
                     }
@@ -832,8 +832,10 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
-        for chunk_header in
-            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
+        for chunk_header in block
+            .chunks()
+            .iter_deprecated()
+            .filter(|h| h.height_included() == block.header().height())
         {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.

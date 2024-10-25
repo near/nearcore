@@ -56,6 +56,7 @@ pub mod col {
     /// backpressure on the receiving shard.
     /// (`primitives::receipt::Receipt`).
     pub const BUFFERED_RECEIPT: u8 = 14;
+    pub const BANDWIDTH_SCHEDULER_STATE: u8 = 15;
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
 
@@ -73,7 +74,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 14] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 15] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -88,6 +89,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
         (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
         (BUFFERED_RECEIPT, "BufferedReceipt"),
+        (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
     ];
 }
 
@@ -95,46 +97,75 @@ pub mod col {
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
 pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
-    Account { account_id: AccountId },
+    Account {
+        account_id: AccountId,
+    },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
-    ContractCode { account_id: AccountId },
+    ContractCode {
+        account_id: AccountId,
+    },
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
-    AccessKey { account_id: AccountId, public_key: PublicKey },
+    AccessKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
     /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
     /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
     /// NOTE: This is one of the input data for some action receipt.
     /// The action receipt might be still not be received or requires more pending input data.
-    ReceivedData { receiver_id: AccountId, data_id: CryptoHash },
+    ReceivedData {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    },
     /// Used to store receipt ID `primitives::hash::CryptoHash` for a given receiver's `AccountId`
     /// of the receipt and a given `data_id` (the unique identifier for the required input data).
     /// NOTE: This receipt ID indicates the postponed receipt. We store `receipt_id` for performance
     /// purposes to avoid deserializing the entire receipt.
-    PostponedReceiptId { receiver_id: AccountId, data_id: CryptoHash },
+    PostponedReceiptId {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    },
     /// Used to store the number of still missing input data `u32` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
-    PendingDataCount { receiver_id: AccountId, receipt_id: CryptoHash },
+    PendingDataCount {
+        receiver_id: AccountId,
+        receipt_id: CryptoHash,
+    },
     /// Used to store the postponed receipt `primitives::receipt::Receipt` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
-    PostponedReceipt { receiver_id: AccountId, receipt_id: CryptoHash },
+    PostponedReceipt {
+        receiver_id: AccountId,
+        receipt_id: CryptoHash,
+    },
     /// Used to store indices of the delayed receipts queue (`node-runtime::DelayedReceiptIndices`).
     /// NOTE: It is a singleton per shard.
     DelayedReceiptIndices,
     /// Used to store a delayed receipt `primitives::receipt::Receipt` for a given index `u64`
     /// in a delayed receipt queue. The queue is unique per shard.
-    DelayedReceipt { index: u64 },
+    DelayedReceipt {
+        index: u64,
+    },
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
-    ContractData { account_id: AccountId, key: Vec<u8> },
+    ContractData {
+        account_id: AccountId,
+        key: Vec<u8>,
+    },
     /// Used to store head and tail indices of the PromiseYield timeout queue.
     /// NOTE: It is a singleton per shard.
     PromiseYieldIndices,
     /// Used to store the element at given index `u64` in the PromiseYield timeout queue.
     /// The queue is unique per shard.
-    PromiseYieldTimeout { index: u64 },
+    PromiseYieldTimeout {
+        index: u64,
+    },
     /// Used to store the postponed promise yield receipt `primitives::receipt::Receipt`
     /// for a given receiver's `AccountId` and a given `data_id`.
-    PromiseYieldReceipt { receiver_id: AccountId, data_id: CryptoHash },
+    PromiseYieldReceipt {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    },
     /// Used to store indices of the buffered receipts queues per shard.
     /// NOTE: It is a singleton per shard, holding indices for all outgoing shards.
     BufferedReceiptIndices,
@@ -142,7 +173,11 @@ pub enum TrieKey {
     /// given index `u64` and receiving shard. There is one unique queue
     /// per ordered shard pair. The trie for shard X stores all queues for pairs
     /// (X,*) without (X,X).
-    BufferedReceipt { receiving_shard: ShardId, index: u64 },
+    BufferedReceipt {
+        receiving_shard: ShardId,
+        index: u64,
+    },
+    BandwidthSchedulerState,
 }
 
 /// Provides `len` function.
@@ -218,6 +253,7 @@ impl TrieKey {
                     + std::mem::size_of::<u16>()
                     + std::mem::size_of_val(index)
             }
+            TrieKey::BandwidthSchedulerState => col::BANDWIDTH_SCHEDULER_STATE.len(),
         }
     }
 
@@ -299,6 +335,7 @@ impl TrieKey {
                 buf.extend(&shard_id_as_u16(receiving_shard).to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
+            TrieKey::BandwidthSchedulerState => buf.push(col::BANDWIDTH_SCHEDULER_STATE),
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -327,6 +364,7 @@ impl TrieKey {
             TrieKey::PromiseYieldReceipt { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::BufferedReceiptIndices => None,
             TrieKey::BufferedReceipt { .. } => None,
+            TrieKey::BandwidthSchedulerState => None,
         }
     }
 }

@@ -43,13 +43,13 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
 
         let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
         let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager)
             .unwrap_or_else(|e| panic!("could not create the transaction runtime: {e}"));
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
 
         let trie = runtime
