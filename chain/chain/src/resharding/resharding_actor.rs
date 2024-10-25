@@ -1,10 +1,12 @@
 use super::types::ReshardingRequest;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageReshardingTaskStatus};
 use crate::ChainStore;
-use near_async::messaging::{self, Handler};
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
+use near_async::messaging::{self, HandlerWithContext};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_store::{ShardUId, Store};
+use time::Duration;
 
 /// Dedicated actor for resharding V3.
 pub struct ReshardingActor {
@@ -13,8 +15,8 @@ pub struct ReshardingActor {
 
 impl messaging::Actor for ReshardingActor {}
 
-impl Handler<ReshardingRequest> for ReshardingActor {
-    fn handle(&mut self, msg: ReshardingRequest) {
+impl HandlerWithContext<ReshardingRequest> for ReshardingActor {
+    fn handle(&mut self, msg: ReshardingRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
         match msg {
             ReshardingRequest::FlatStorageSplitShard { resharder } => {
                 self.handle_flat_storage_split_shard(resharder);
@@ -24,7 +26,20 @@ impl Handler<ReshardingRequest> for ReshardingActor {
                 shard_uid,
                 flat_head_block_hash,
             } => {
-                self.handle_flat_storage_shard_catchup(resharder, shard_uid, flat_head_block_hash);
+                // Shard catchup task is delayed and could get postponed several times. This must be
+                // done to cover the scenario in which catchup is triggered so fast that the initial
+                // state of the new flat storage is beyond the chain final tip.
+                ctx.run_later(
+                    "ReshardingActor FlatStorageShardCatchup",
+                    Duration::milliseconds(100),
+                    move |act, _| {
+                        act.handle_flat_storage_shard_catchup(
+                            resharder,
+                            shard_uid,
+                            flat_head_block_hash,
+                        );
+                    },
+                );
             }
             ReshardingRequest::MemtrieReload { shard_uid } => self.handle_memtrie_reload(shard_uid),
         }

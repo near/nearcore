@@ -486,6 +486,38 @@ impl FlatStorageResharder {
         chain_store: &ChainStore,
     ) -> FlatStorageReshardingTaskStatus {
         info!(target: "resharding", ?shard_uid, ?flat_head_block_hash, "flat storage shard catchup task started");
+        // If flat storage current status is beyond the chain final block, try again later.
+        let chain_final_head = chain_store.final_head().unwrap();
+        let height_result = chain_store.get_block_height(&flat_head_block_hash);
+        let Ok(height) = height_result else {
+            error!(target: "resharding", ?shard_uid, ?flat_head_block_hash, err = ?height_result.unwrap_err(), "can't find flat head height!");
+            return FlatStorageReshardingTaskStatus::Failed;
+        };
+        if height > chain_final_head.height {
+            info!(target = "resharding", ?height, chain_final_height = ?chain_final_head.height, "flat head beyond chain final tip: postponing flat storage shard catchup task");
+            self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
+                resharder: self.clone(),
+                shard_uid,
+                flat_head_block_hash,
+            });
+            return FlatStorageReshardingTaskStatus::Cancelled;
+        }
+
+        // If the flat head is not in the canonical chain this task has failed.
+        match chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => {
+                if hash != flat_head_block_hash {
+                    error!(target: "resharding", ?shard_uid, ?height, ?flat_head_block_hash, ?hash, "flat head not in canonical chain!");
+                    return FlatStorageReshardingTaskStatus::Failed;
+                }
+            }
+            Err(err) => {
+                error!(target: "resharding", ?shard_uid, ?err, ?height, "can't find block hash by height");
+                return FlatStorageReshardingTaskStatus::Failed;
+            }
+        }
+
+        // Apply deltas and then create the flat storage.
         let apply_result =
             self.shard_catchup_apply_deltas(shard_uid, flat_head_block_hash, chain_store);
         let Ok((num_batches_done, flat_head)) = apply_result else {
@@ -588,6 +620,7 @@ impl FlatStorageResharder {
         // GC deltas from forks which could have appeared on chain during catchup.
         let store = self.runtime.store().flat_store();
         let mut store_update = store.store_update();
+        // Deltas must exist because we applied them previously.
         let deltas_metadata = store.get_all_deltas_metadata(shard_uid).unwrap_or_else(|_| {
             panic!("Cannot read flat state deltas metadata for shard {shard_uid} from storage")
         });
