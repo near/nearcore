@@ -2,7 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::types::{shard_id_as_u64, ShardId};
+use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
@@ -331,7 +331,7 @@ impl TrieKey {
                 let receiving_shard = *receiving_shard;
                 buf.push(col::BUFFERED_RECEIPT);
                 // Use  u16 for shard id to reduce depth in trie.
-                assert!(shard_id_as_u64(receiving_shard) <= u16::MAX as u64, "Shard ID too big.");
+                assert!(receiving_shard.get() <= u16::MAX as u64, "Shard ID too big.");
                 let receiving_shard: u16 = receiving_shard.into();
                 buf.extend(&receiving_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
@@ -892,7 +892,7 @@ mod tests {
         let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
         let max_id = shard_layout.shard_ids().max().unwrap();
         assert!(
-            shard_id_as_u64(max_id) <= u16::MAX as u64,
+            max_id.get() <= u16::MAX as u64,
             "buffered receipt trie key optimization broken, must fit in a u16"
         );
     }
