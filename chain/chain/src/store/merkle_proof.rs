@@ -4,7 +4,7 @@ use near_chain_primitives::Error;
 use near_primitives::{
     hash::CryptoHash,
     merkle::{combine_hash, Direction, MerklePath, MerklePathItem, PartialMerkleTree},
-    types::{MerkleHash, NumBlocks},
+    types::NumBlocks,
     utils::index_to_bytes,
 };
 use near_store::{DBCol, Store};
@@ -43,60 +43,69 @@ pub trait MerkleProofAccess {
                 block_hash, head_block_hash
             )));
         }
-        let mut level: u64 = 0;
-        let mut counter = 1;
-        let mut cur_index = leaf_index;
-        let mut path = vec![];
-        let mut iter = tree_size;
-        // First, keep walking up as long as we're the right child, to get to the root of the
-        // largest subtree whose last leaf is the block to prove. We cover this part of the
-        // proof using the block's own partial merkle tree, and then proceed to prove this
-        // subtree root.
-        //
-        // Note that this is not strictly necessary for correctness, but it is important in
-        // avoiding the need to access any block data older than the block to prove.
-        while iter > 1 && cur_index % 2 == 1 {
-            cur_index /= 2;
-            iter = (iter + 1) / 2;
-            level += 1;
-            counter *= 2;
-        }
-        if level > 0 {
-            let partial_tree_for_self = self.get_block_merkle_tree(block_hash)?;
-            if partial_tree_for_self.get_path().len() < level as usize {
-                return Err(Error::Other(format!(
-                    "Block {} has {} hashes, expected at least {}",
-                    block_hash,
-                    partial_tree_for_self.get_path().len(),
-                    level
-                )));
-            }
-            for hash in partial_tree_for_self.get_path().iter().rev().take(level as usize) {
-                path.push(MerklePathItem { hash: *hash, direction: Direction::Left });
-            }
-        }
 
-        // Continue to prove the aforementioned subtree root.
-        while iter > 1 {
-            if cur_index % 2 == 0 {
-                cur_index += 1
-            } else {
-                cur_index -= 1;
+        let mut path = vec![];
+        let mut level: u64 = 0;
+        let mut index = leaf_index;
+        let mut remaining_size = tree_size;
+
+        while remaining_size > 1 {
+            // Walk left.
+            {
+                let cur_index = index;
+                let cur_level = level;
+                // Go up as long as we're the right child. This finds us a largest subtree for
+                // which our current node is the rightmost descendant of at the current level.
+                while remaining_size > 1 && index % 2 == 1 {
+                    index /= 2;
+                    remaining_size = (remaining_size + 1) / 2;
+                    level += 1;
+                }
+                if level > cur_level {
+                    // To prove this subtree, get the partial tree for the rightmost leaf of the
+                    // subtree. It's OK if we can only go as far as the tree size; we'll aggregate
+                    // whatever we can. Once we have the partial tree, we push in whatever is in
+                    // between the levels we just traversed.
+                    let ordinal = ((cur_index + 1) * (1 << cur_level) - 1).min(tree_size - 1);
+                    let partial_tree_for_node = get_block_merkle_tree_from_ordinal(self, ordinal)?;
+                    partial_tree_for_node.iter_path_from_bottom(|hash, l| {
+                        if l >= cur_level && l < level {
+                            path.push(MerklePathItem { hash, direction: Direction::Left });
+                        }
+                    });
+                }
             }
-            let direction = if cur_index % 2 == 0 { Direction::Left } else { Direction::Right };
-            let maybe_hash = if cur_index % 2 == 1 {
-                // node not immediately available. Needs to be reconstructed
-                reconstruct_merkle_tree_node(self, cur_index, level, counter, tree_size)?
-            } else {
-                get_merkle_tree_node(self, cur_index, level, counter, tree_size)?
-            };
-            if let Some(hash) = maybe_hash {
-                path.push(MerklePathItem { hash, direction });
+            // Walk right.
+            if remaining_size > 1 {
+                let right_sibling_index = index + 1;
+                let ordinal = ((right_sibling_index + 1) * (1 << level) - 1).min(tree_size - 1);
+                // It's possible the right sibling is actually zero, in which case we don't push
+                // anything to the path.
+                if ordinal >= right_sibling_index * (1 << level) {
+                    // To prove a right sibling, get the partial tree for the rightmost leaf of the
+                    // subtree, and also get the block hash of the rightmost leaf; combining these
+                    // two will give us the root of the subtree, i.e. the right sibling.
+                    let leaf_hash = self.get_block_hash_from_ordinal(ordinal)?;
+                    let mut subtree_root_hash = leaf_hash;
+                    if level > 0 {
+                        let partial_tree_for_sibling =
+                            get_block_merkle_tree_from_ordinal(self, ordinal)?;
+                        partial_tree_for_sibling.iter_path_from_bottom(|hash, l| {
+                            if l < level {
+                                subtree_root_hash = combine_hash(&hash, &subtree_root_hash);
+                            }
+                        });
+                    }
+                    path.push(MerklePathItem {
+                        hash: subtree_root_hash,
+                        direction: Direction::Right,
+                    });
+                }
+
+                index = (index + 1) / 2;
+                remaining_size = (remaining_size + 1) / 2;
+                level += 1;
             }
-            cur_index /= 2;
-            iter = (iter + 1) / 2;
-            level += 1;
-            counter *= 2;
         }
         Ok(path)
     }
@@ -108,111 +117,6 @@ fn get_block_merkle_tree_from_ordinal(
 ) -> Result<Arc<PartialMerkleTree>, Error> {
     let block_hash = this.get_block_hash_from_ordinal(block_ordinal)?;
     this.get_block_merkle_tree(&block_hash)
-}
-
-/// Get node at given position (index, level). If the node does not exist, return `None`.
-fn get_merkle_tree_node(
-    this: &(impl MerkleProofAccess + ?Sized),
-    index: u64,
-    level: u64,
-    counter: u64,
-    tree_size: u64,
-) -> Result<Option<MerkleHash>, Error> {
-    if level == 0 {
-        let maybe_hash =
-            if index >= tree_size { None } else { Some(this.get_block_hash_from_ordinal(index)?) };
-        Ok(maybe_hash)
-    } else {
-        let cur_tree_size = (index + 1) * counter;
-        let maybe_hash = if cur_tree_size > tree_size {
-            if index * counter <= tree_size {
-                let left_hash =
-                    get_merkle_tree_node(this, index * 2, level - 1, counter / 2, tree_size)?;
-                let right_hash = reconstruct_merkle_tree_node(
-                    this,
-                    index * 2 + 1,
-                    level - 1,
-                    counter / 2,
-                    tree_size,
-                )?;
-                combine_maybe_hashes(left_hash, right_hash)
-            } else {
-                None
-            }
-        } else {
-            // An intermediate node at level L and index I is available in a partial merkle tree
-            // stored on disk, if I is even (it is the left child of its parent). Every ordinal
-            // between (I+1)*2^L and (I+2)*2^L-1 is able to provide this node (as there is a
-            // corresponding 1 at the L-th bit of the binary representation of all these
-            // ordinals. To satisfy the requirement that we only access block data between the
-            // block to prove and the block to prove against, we need to find an ordinal that is
-            // between this range. So we'll arbitrarily opt to use the largest ordinal in this
-            // range.
-            //
-            // Once we've picked the ordinal, we need to locate the node we want in the partial
-            // merkle tree for this ordinal. To do that, notice that there is one subtree hash
-            // in the partial merkle tree for each 1 in the binary representation of the
-            // ordinal. The number of subtrees that are of a lower level than L is the number of
-            // 1 bits below the L-th bit of the ordinal. The partial merkle tree is stored in
-            // the order from higher level to lower level, so we can find the hash we want by
-            // indexing from the end of the partial merkle tree path.
-            let last_tree_ordinal_providing_node = cur_tree_size + counter - 1;
-            let ordinal_to_provide_node = last_tree_ordinal_providing_node.min(tree_size);
-            let merkle_tree = get_block_merkle_tree_from_ordinal(this, ordinal_to_provide_node)?;
-            let num_lower_subtree_hashes =
-                (ordinal_to_provide_node - cur_tree_size).count_ones() as usize;
-            let hash_index =
-                merkle_tree.get_path().len().checked_sub(1 + num_lower_subtree_hashes).ok_or_else(
-                    || {
-                        Error::Other(format!(
-                            "Ordinal {} merkle tree has {} hashes, expected at least {}",
-                            ordinal_to_provide_node,
-                            merkle_tree.get_path().len(),
-                            num_lower_subtree_hashes + 1
-                        ))
-                    },
-                )?;
-            Some(merkle_tree.get_path()[hash_index])
-        };
-        Ok(maybe_hash)
-    }
-}
-
-/// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
-fn reconstruct_merkle_tree_node(
-    this: &(impl MerkleProofAccess + ?Sized),
-    index: u64,
-    level: u64,
-    counter: u64,
-    tree_size: u64,
-) -> Result<Option<MerkleHash>, Error> {
-    if level == 0 {
-        let maybe_hash =
-            if index >= tree_size { None } else { Some(this.get_block_hash_from_ordinal(index)?) };
-        Ok(maybe_hash)
-    } else {
-        let left_hash = get_merkle_tree_node(this, index * 2, level - 1, counter / 2, tree_size)?;
-        let right_hash =
-            reconstruct_merkle_tree_node(this, index * 2 + 1, level - 1, counter / 2, tree_size)?;
-        let maybe_hash = combine_maybe_hashes(left_hash, right_hash);
-
-        Ok(maybe_hash)
-    }
-}
-
-fn combine_maybe_hashes(
-    hash1: Option<MerkleHash>,
-    hash2: Option<MerkleHash>,
-) -> Option<MerkleHash> {
-    match (hash1, hash2) {
-        (Some(h1), Some(h2)) => Some(combine_hash(&h1, &h2)),
-        (Some(h1), None) => Some(h1),
-        (None, Some(_)) => {
-            debug_assert!(false, "Inconsistent state in merkle proof computation: left node is None but right node exists");
-            None
-        }
-        _ => None,
-    }
 }
 
 impl MerkleProofAccess for Store {
