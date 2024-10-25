@@ -18,7 +18,6 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::shard_id_as_u64;
-use near_primitives::types::shard_id_max;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
@@ -372,7 +371,7 @@ async fn large_shard_id_in_cache() {
     let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
 
     tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
-    let max_shard_id = shard_id_max();
+    let max_shard_id = ShardId::max();
     let max_shard_id_minus_one = shard_id_as_u64(max_shard_id) - 1;
     let max_shard_id_minus_one = ShardId::new(max_shard_id_minus_one);
     let big_shard_info = Arc::new(SnapshotHostInfo::new(

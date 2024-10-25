@@ -55,10 +55,6 @@ pub type ProtocolVersion = u32;
 /// used instead.
 pub type ShardIndex = usize;
 
-pub fn shard_id_max() -> ShardId {
-    return ShardId::max();
-}
-
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
