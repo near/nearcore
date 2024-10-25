@@ -9,8 +9,9 @@ use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitness, MAX_COMPRESSED_STATE_WITNESS_SIZE,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, Store, FINAL_HEAD_KEY, HEAD_KEY};
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
@@ -90,12 +91,19 @@ pub fn validate_chunk_endorsement(
 }
 
 pub fn validate_chunk_contract_accesses(
-    _epoch_manager: &dyn EpochManagerAdapter,
-    _accesses: &ChunkContractAccesses,
-    _signer: &ValidatorSigner,
-    _store: &Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    accesses: &ChunkContractAccesses,
+    signer: &ValidatorSigner,
+    store: &Store,
 ) -> Result<bool, Error> {
-    // TODO(#11099): implement, including version check
+    let key = accesses.chunk_production_key();
+    validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
+    if !validate_chunk_production_key(epoch_manager, key.clone(), signer.validator_id(), store)? {
+        return Ok(false);
+    }
+    if !epoch_manager.verify_witness_contract_accesses_signature(accesses)? {
+        return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
+    }
     Ok(true)
 }
 
@@ -188,4 +196,16 @@ fn validate_chunk_production_key(
     }
 
     Ok(true)
+}
+
+fn validate_exclude_witness_contracts_enabled(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+) -> Result<(), Error> {
+    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
+        Ok(())
+    } else {
+        Err(Error::Other(format!("ProtocolFeature::ExcludeContractCodeFromStateWitness is disabled for protocol version {protocol_version}")))
+    }
 }
