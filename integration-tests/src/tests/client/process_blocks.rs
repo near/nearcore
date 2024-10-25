@@ -1670,12 +1670,33 @@ fn test_process_block_after_state_sync() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let sync_height = epoch_length * 4 + 1;
-    for i in 1..=sync_height {
-        env.produce_block(0, i);
-    }
-    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
-    let sync_hash = *sync_block.hash();
+    let mut sync_hash_attempts = 0;
+    let mut next_height = 1;
+    let sync_hash = loop {
+        let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
+        let block_hash = *block.hash();
+        let prev_hash = *block.header().prev_hash();
+        env.process_block(0, block, Provenance::PRODUCED);
+        next_height += 1;
+
+        let epoch_height =
+            env.clients[0].epoch_manager.get_epoch_height_from_prev_block(&prev_hash).unwrap();
+        if epoch_height < 4 {
+            continue;
+        }
+        let Some(sync_hash) = env.clients[0].chain.get_sync_hash(&block_hash).unwrap() else {
+            sync_hash_attempts += 1;
+            // This should not happen, but we guard against it defensively so we don't have some infinite loop in
+            // case of a bug
+            assert!(sync_hash_attempts <= 2, "sync_hash_attempts: {}", sync_hash_attempts);
+            continue;
+        };
+        // Produce one more block after the sync hash is found so that the snapshot will be created
+        if sync_hash != block_hash {
+            break sync_hash;
+        }
+    };
+    let sync_block = env.clients[0].chain.get_block(&sync_hash).unwrap();
     let shard_id = ShardId::new(0);
 
     let header = env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
@@ -1688,7 +1709,7 @@ fn test_process_block_after_state_sync() {
         .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
         .unwrap();
     // reset cache
-    for i in epoch_length * 3 - 1..sync_height - 1 {
+    for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
@@ -1698,7 +1719,7 @@ fn test_process_block_after_state_sync() {
         .runtime_adapter
         .apply_state_part(shard_id, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
-    let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
+    let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
     env.clients[0].process_block_test(block.into(), Provenance::PRODUCED).unwrap();
 }
 
