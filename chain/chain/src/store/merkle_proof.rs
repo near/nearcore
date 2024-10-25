@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use near_chain_primitives::Error;
 use near_primitives::{
@@ -47,7 +47,6 @@ pub trait MerkleProofAccess {
         let mut counter = 1;
         let mut cur_index = leaf_index;
         let mut path = vec![];
-        let mut tree_nodes = HashMap::new();
         let mut iter = tree_size;
         // First, keep walking up as long as we're the right child, to get to the root of the
         // largest subtree whose last leaf is the block to prove. We cover this part of the
@@ -87,16 +86,9 @@ pub trait MerkleProofAccess {
             let direction = if cur_index % 2 == 0 { Direction::Left } else { Direction::Right };
             let maybe_hash = if cur_index % 2 == 1 {
                 // node not immediately available. Needs to be reconstructed
-                reconstruct_merkle_tree_node(
-                    self,
-                    cur_index,
-                    level,
-                    counter,
-                    tree_size,
-                    &mut tree_nodes,
-                )?
+                reconstruct_merkle_tree_node(self, cur_index, level, counter, tree_size)?
             } else {
-                get_merkle_tree_node(self, cur_index, level, counter, tree_size, &mut tree_nodes)?
+                get_merkle_tree_node(self, cur_index, level, counter, tree_size)?
             };
             if let Some(hash) = maybe_hash {
                 path.push(MerklePathItem { hash, direction });
@@ -125,83 +117,64 @@ fn get_merkle_tree_node(
     level: u64,
     counter: u64,
     tree_size: u64,
-    tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
 ) -> Result<Option<MerkleHash>, Error> {
-    if let Some(hash) = tree_nodes.get(&(index, level)) {
-        Ok(*hash)
+    if level == 0 {
+        let maybe_hash =
+            if index >= tree_size { None } else { Some(this.get_block_hash_from_ordinal(index)?) };
+        Ok(maybe_hash)
     } else {
-        if level == 0 {
-            let maybe_hash = if index >= tree_size {
+        let cur_tree_size = (index + 1) * counter;
+        let maybe_hash = if cur_tree_size > tree_size {
+            if index * counter <= tree_size {
+                let left_hash =
+                    get_merkle_tree_node(this, index * 2, level - 1, counter / 2, tree_size)?;
+                let right_hash = reconstruct_merkle_tree_node(
+                    this,
+                    index * 2 + 1,
+                    level - 1,
+                    counter / 2,
+                    tree_size,
+                )?;
+                combine_maybe_hashes(left_hash, right_hash)
+            } else {
                 None
-            } else {
-                Some(this.get_block_hash_from_ordinal(index)?)
-            };
-            tree_nodes.insert((index, level), maybe_hash);
-            Ok(maybe_hash)
+            }
         } else {
-            let cur_tree_size = (index + 1) * counter;
-            let maybe_hash = if cur_tree_size > tree_size {
-                if index * counter <= tree_size {
-                    let left_hash = get_merkle_tree_node(
-                        this,
-                        index * 2,
-                        level - 1,
-                        counter / 2,
-                        tree_size,
-                        tree_nodes,
-                    )?;
-                    let right_hash = reconstruct_merkle_tree_node(
-                        this,
-                        index * 2 + 1,
-                        level - 1,
-                        counter / 2,
-                        tree_size,
-                        tree_nodes,
-                    )?;
-                    combine_maybe_hashes(left_hash, right_hash)
-                } else {
-                    None
-                }
-            } else {
-                // An intermediate node at level L and index I is available in a partial merkle tree
-                // stored on disk, if I is even (it is the left child of its parent). Every ordinal
-                // between (I+1)*2^L and (I+2)*2^L-1 is able to provide this node (as there is a
-                // corresponding 1 at the L-th bit of the binary representation of all these
-                // ordinals. To satisfy the requirement that we only access block data between the
-                // block to prove and the block to prove against, we need to find an ordinal that is
-                // between this range. So we'll arbitrarily opt to use the largest ordinal in this
-                // range.
-                //
-                // Once we've picked the ordinal, we need to locate the node we want in the partial
-                // merkle tree for this ordinal. To do that, notice that there is one subtree hash
-                // in the partial merkle tree for each 1 in the binary representation of the
-                // ordinal. The number of subtrees that are of a lower level than L is the number of
-                // 1 bits below the L-th bit of the ordinal. The partial merkle tree is stored in
-                // the order from higher level to lower level, so we can find the hash we want by
-                // indexing from the end of the partial merkle tree path.
-                let last_tree_ordinal_providing_node = cur_tree_size + counter - 1;
-                let ordinal_to_provide_node = last_tree_ordinal_providing_node.min(tree_size);
-                let merkle_tree =
-                    get_block_merkle_tree_from_ordinal(this, ordinal_to_provide_node)?;
-                let num_lower_subtree_hashes =
-                    (ordinal_to_provide_node - cur_tree_size).count_ones() as usize;
-                let hash_index = merkle_tree
-                    .get_path()
-                    .len()
-                    .checked_sub(1 + num_lower_subtree_hashes)
-                    .ok_or_else(|| {
+            // An intermediate node at level L and index I is available in a partial merkle tree
+            // stored on disk, if I is even (it is the left child of its parent). Every ordinal
+            // between (I+1)*2^L and (I+2)*2^L-1 is able to provide this node (as there is a
+            // corresponding 1 at the L-th bit of the binary representation of all these
+            // ordinals. To satisfy the requirement that we only access block data between the
+            // block to prove and the block to prove against, we need to find an ordinal that is
+            // between this range. So we'll arbitrarily opt to use the largest ordinal in this
+            // range.
+            //
+            // Once we've picked the ordinal, we need to locate the node we want in the partial
+            // merkle tree for this ordinal. To do that, notice that there is one subtree hash
+            // in the partial merkle tree for each 1 in the binary representation of the
+            // ordinal. The number of subtrees that are of a lower level than L is the number of
+            // 1 bits below the L-th bit of the ordinal. The partial merkle tree is stored in
+            // the order from higher level to lower level, so we can find the hash we want by
+            // indexing from the end of the partial merkle tree path.
+            let last_tree_ordinal_providing_node = cur_tree_size + counter - 1;
+            let ordinal_to_provide_node = last_tree_ordinal_providing_node.min(tree_size);
+            let merkle_tree = get_block_merkle_tree_from_ordinal(this, ordinal_to_provide_node)?;
+            let num_lower_subtree_hashes =
+                (ordinal_to_provide_node - cur_tree_size).count_ones() as usize;
+            let hash_index =
+                merkle_tree.get_path().len().checked_sub(1 + num_lower_subtree_hashes).ok_or_else(
+                    || {
                         Error::Other(format!(
                             "Ordinal {} merkle tree has {} hashes, expected at least {}",
                             ordinal_to_provide_node,
                             merkle_tree.get_path().len(),
                             num_lower_subtree_hashes + 1
                         ))
-                    })?;
-                Some(merkle_tree.get_path()[hash_index])
-            };
-            tree_nodes.insert((index, level), maybe_hash);
-            Ok(maybe_hash)
-        }
+                    },
+                )?;
+            Some(merkle_tree.get_path()[hash_index])
+        };
+        Ok(maybe_hash)
     }
 }
 
@@ -212,41 +185,18 @@ fn reconstruct_merkle_tree_node(
     level: u64,
     counter: u64,
     tree_size: u64,
-    tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
 ) -> Result<Option<MerkleHash>, Error> {
-    if let Some(hash) = tree_nodes.get(&(index, level)) {
-        Ok(*hash)
+    if level == 0 {
+        let maybe_hash =
+            if index >= tree_size { None } else { Some(this.get_block_hash_from_ordinal(index)?) };
+        Ok(maybe_hash)
     } else {
-        if level == 0 {
-            let maybe_hash = if index >= tree_size {
-                None
-            } else {
-                Some(this.get_block_hash_from_ordinal(index)?)
-            };
-            tree_nodes.insert((index, level), maybe_hash);
-            Ok(maybe_hash)
-        } else {
-            let left_hash = get_merkle_tree_node(
-                this,
-                index * 2,
-                level - 1,
-                counter / 2,
-                tree_size,
-                tree_nodes,
-            )?;
-            let right_hash = reconstruct_merkle_tree_node(
-                this,
-                index * 2 + 1,
-                level - 1,
-                counter / 2,
-                tree_size,
-                tree_nodes,
-            )?;
-            let maybe_hash = combine_maybe_hashes(left_hash, right_hash);
-            tree_nodes.insert((index, level), maybe_hash);
+        let left_hash = get_merkle_tree_node(this, index * 2, level - 1, counter / 2, tree_size)?;
+        let right_hash =
+            reconstruct_merkle_tree_node(this, index * 2 + 1, level - 1, counter / 2, tree_size)?;
+        let maybe_hash = combine_maybe_hashes(left_hash, right_hash);
 
-            Ok(maybe_hash)
-        }
+        Ok(maybe_hash)
     }
 }
 
