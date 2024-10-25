@@ -129,7 +129,8 @@ impl ReshardingV2Command {
     fn get_chain(&self, mut config: NearConfig, home_dir: &Path) -> Result<Chain, anyhow::Error> {
         let store = self.get_store(home_dir, &mut config)?;
 
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
         let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
         initialize_sharded_genesis_state(
             store.clone(),

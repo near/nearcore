@@ -38,7 +38,8 @@ fn setup_runtime(
             .unwrap()
             .get_hot_store()
     };
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone())
@@ -187,7 +188,7 @@ pub fn setup_mock_node(
         let prev_hash = *block.header().prev_hash();
         let epoch_id = block.header().epoch_id();
         let shard_layout = client_epoch_manager.get_shard_layout(epoch_id).unwrap();
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let state_root = chunk_header.prev_state_root();
             let state_root_node =
@@ -424,7 +425,7 @@ mod tests {
             .unwrap()
             .get_hot_store();
             let epoch_manager =
-                EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config);
+                EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config, None);
             let chain_store = ChainStore::new(
                 store,
                 near_config1.genesis.config.genesis_height,

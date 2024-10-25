@@ -8,6 +8,7 @@ use crate::{
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
@@ -172,6 +173,7 @@ impl TestTriesBuilder {
                 0,
                 0,
                 congestion_info,
+                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             );
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {

@@ -150,7 +150,7 @@ impl BlocksDelayTracker {
             let height = block.header().height();
             let chunks = block
                 .chunks()
-                .iter()
+                .iter_deprecated()
                 .map(|chunk| {
                     if chunk.height_included() == height {
                         let chunk_hash = chunk.chunk_hash();

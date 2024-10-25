@@ -112,8 +112,11 @@ impl ValidateWitnessCmd {
         let witness: ChunkStateWitness = borsh::BorshDeserialize::try_from_slice(&encoded_witness)
             .expect("Failed to deserialize witness");
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let runtime_adapter =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
                 .expect("could not create the transaction runtime");

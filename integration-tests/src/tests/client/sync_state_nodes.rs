@@ -21,6 +21,7 @@ use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -744,10 +745,17 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         .chain
                         .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
                         .unwrap();
+                    let expected_height = if ProtocolFeature::BandwidthScheduler
+                        .enabled(genesis.config.protocol_version)
+                    {
+                        height
+                    } else {
+                        last_chunk_height
+                    };
                     let expected_chunk_extra = env.clients[0]
                         .chain
                         .get_chunk_extra(
-                            blocks[last_chunk_height as usize].hash(),
+                            blocks[expected_height as usize].hash(),
                             &ShardUId::single_shard(),
                         )
                         .unwrap();

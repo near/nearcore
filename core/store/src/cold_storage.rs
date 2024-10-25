@@ -387,7 +387,7 @@ fn get_keys_from_store(
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
     let chunks = block
         .chunks()
-        .iter()
+        .iter_deprecated()
         .map(|chunk_header| {
             store.get_ser_or_err_for_cold(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
         })

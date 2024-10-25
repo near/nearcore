@@ -58,7 +58,8 @@ fn setup_network_node(
     genesis.config.epoch_length = 5;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = NightshadeRuntime::test(
         tempdir.path(),

@@ -167,7 +167,7 @@ impl StateViewerSubCommand {
             }
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Chain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ClearCache => clear_cache(store),
@@ -389,8 +389,15 @@ pub struct ChainCmd {
 }
 
 impl ChainCmd {
-    pub fn run(self, near_config: NearConfig, store: Store) {
-        print_chain(self.start_index, self.end_index, near_config, store, self.show_full_hashes);
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        print_chain(
+            self.start_index,
+            self.end_index,
+            home_dir,
+            near_config,
+            store,
+            self.show_full_hashes,
+        );
     }
 }
 
@@ -433,8 +440,11 @@ impl DebugUICmd {
         store: Store,
         cold_store: Option<Store>,
     ) {
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let debug_handler = EntityDebugHandlerImpl {
             hot_store: store.clone(),
             cold_store,

@@ -58,7 +58,7 @@ fn test_fix_min_stake_ratio() {
 
     // Take epoch configuration before the protocol upgrade, where minimum
     // stake ratio was 1/6250.
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version() - 1;
 
     // Create chain with version before FixMinStakeRatio was enabled.
