@@ -49,7 +49,7 @@ fn test_contract_distribution_testloop() {
         .collect_vec();
     call_contracts(&mut test_loop, &node_datas, &rpc_id, sender_to_contract_ids, &mut nonce);
 
-    // Clear the contract cache and make the same calls.
+    // Clear the contract cache.
     clear_compiled_contract_caches(&mut test_loop, &node_datas);
 
     // Each account calls one of the previously deployed contracts randomly.
