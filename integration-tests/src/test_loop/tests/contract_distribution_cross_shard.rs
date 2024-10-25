@@ -3,7 +3,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::AccountId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
@@ -28,7 +28,7 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 /// Make 2 accounts from each shard make calls to these contracts.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-fn test_contract_distribution_testloop() {
+fn test_contract_distribution_cross_shard() {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
@@ -38,18 +38,20 @@ fn test_contract_distribution_testloop() {
     let mut nonce = 2;
 
     // Deploy a contract for each shard (account0 from first one, and account4 from second one).
+    // Then take two accounts from each shard (one with a contract deployed and one without) and
+    // make them call both the contracts, so we cover same-shard and cross-shard contract calls.
     let contract_ids = [&accounts[0], &accounts[4]];
+    let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
+
+    // First deploy and call the contracts as described above.
+    // Next, clear the compiled contract cache and repeat the same contract calls.
     deploy_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &mut nonce);
 
-    // Take two accounts from each shard (one with a contract deployed and one without) and
-    // make them call both the contracts, so we cover same-shard and cross-shard contract calls.
-    let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
     call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
     #[cfg(feature = "test_features")]
     clear_compiled_contract_caches(&mut test_loop, &node_datas);
 
-    // Repeat the same calls to the same contracts after clearing the contract cache.
     call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
@@ -102,7 +104,6 @@ fn deploy_contracts(
     contract_ids: &[&AccountId],
     nonce: &mut u64,
 ) {
-    let start_height = get_current_height(test_loop, node_datas);
     let mut txs = vec![];
     for (i, contract_id) in contract_ids.into_iter().enumerate() {
         tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
@@ -111,7 +112,7 @@ fn deploy_contracts(
         txs.push(tx);
         *nonce += 1;
     }
-    run_until_height(test_loop, node_datas, start_height + 5);
+    test_loop.run_for(Duration::seconds(2));
     check_txs(&*test_loop, node_datas, rpc_id, &txs);
 }
 
@@ -124,7 +125,6 @@ fn call_contracts(
     sender_ids: &[&AccountId],
     nonce: &mut u64,
 ) {
-    let start_height = get_current_height(test_loop, node_datas);
     let method_name = "main".to_owned();
     let mut txs = vec![];
     for sender_id in sender_ids.into_iter() {
@@ -144,39 +144,17 @@ fn call_contracts(
             *nonce += 1;
         }
     }
-    run_until_height(test_loop, node_datas, start_height + 5);
+    test_loop.run_for(Duration::seconds(2));
     check_txs(&*test_loop, node_datas, &rpc_id, &txs);
 }
 
 /// Clears the compiled contract caches for all the clients.
 #[cfg(feature = "test_features")]
-fn clear_compiled_contract_caches(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) {
+pub fn clear_compiled_contract_caches(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) {
     for i in 0..node_datas.len() {
         let client_handle = node_datas[i].client_sender.actor_handle();
         let contract_cache_handle =
             test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
         contract_cache_handle.test_only_clear().unwrap();
     }
-}
-
-/// Returns the current height of the chain.
-fn get_current_height(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) -> BlockHeight {
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let height = test_loop.data.get(&client_handle).client.chain.head().unwrap().height;
-    height
-}
-
-/// Runs the test until it reaches the certain height or a prespecified timeout is reached.
-fn run_until_height(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    target_height: BlockHeight,
-) {
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height > target_height
-        },
-        Duration::seconds(60),
-    );
 }
