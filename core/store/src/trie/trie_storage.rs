@@ -10,7 +10,7 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{shard_id_as_u64, ShardId};
+use near_primitives::types::ShardId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -103,7 +103,8 @@ impl TrieCacheInner {
         assert!(total_size_limit > 0);
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
-        let shard_id_str = buffer.format(shard_id_as_u64(shard_id));
+        let shard_id_int: u64 = shard_id.into();
+        let shard_id_str = buffer.format(shard_id_int);
 
         let metrics_labels: [&str; 2] = [&shard_id_str, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {
@@ -613,7 +614,7 @@ mod trie_cache_tests {
     use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::{shard_id_as_u32, ShardId};
+    use near_primitives::types::ShardId;
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());
@@ -714,7 +715,7 @@ mod trie_cache_tests {
         is_view: bool,
         expected_size: bytesize::ByteSize,
     ) {
-        let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
+        let shard_uid = ShardUId::new(0, shard_id);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
         assert_eq!(expected_size.as_u64(), trie_cache.lock().total_size_limit);
         assert_eq!(is_view, trie_cache.lock().is_view);

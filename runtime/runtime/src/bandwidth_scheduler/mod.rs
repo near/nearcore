@@ -29,7 +29,7 @@ pub fn run_bandwidth_scheduler(
         target: "runtime",
         "run_bandwidth_scheduler",
         height = apply_state.block_height,
-        shard_id = apply_state.shard_id.get());
+        shard_id = ?apply_state.shard_id);
 
     // Read the current scheduler state from the Trie
     let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
@@ -100,7 +100,7 @@ pub fn generate_mock_bandwidth_requests(
         target: "runtime",
         "generate_mock_bandwidth_requests",
         height = apply_state.block_height,
-        shard_id = apply_state.shard_id.get());
+        shard_id = ?apply_state.shard_id);
 
     let Some(scheduler_output) = scheduler_output_opt else {
         tracing::debug!(
@@ -112,7 +112,7 @@ pub fn generate_mock_bandwidth_requests(
 
     let mut data = Vec::new();
     data.extend_from_slice(scheduler_output.mock_data.as_slice());
-    data.extend_from_slice(apply_state.shard_id.get().to_be_bytes().as_slice());
+    data.extend_from_slice(apply_state.shard_id.to_be_bytes().as_slice());
     let hash_data: [u8; 32] = hash(data.as_slice()).into();
 
     let mut requests = Vec::new();

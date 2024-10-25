@@ -11,7 +11,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{shard_id_as_u64, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
@@ -460,7 +460,8 @@ fn test_flat_storage_iter() {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let items: Vec<_> = store.iter(shard_uid).collect();
 
-        match shard_id_as_u64(shard_id) {
+        let shard_id: u64 = shard_id.into();
+        match shard_id {
             0 => {
                 let expected = 2 + protocol_version_modifier;
                 assert_eq!(expected, items.len());

@@ -43,8 +43,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    shard_id_as_u32, AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce,
-    NumShards, ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
+    ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -481,7 +481,7 @@ impl EpochManagerAdapter for MockEpochManager {
         shard_id: ShardId,
         _epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError> {
-        Ok(ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) })
+        Ok(ShardUId::new(0, shard_id))
     }
 
     fn shard_id_to_index(
@@ -1165,10 +1165,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: StateRoot,
         _use_flat_storage: bool,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_trie_for_shard(
-            ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
-            state_root,
-        ))
+        Ok(self.tries.get_trie_for_shard(ShardUId::new(0, shard_id), state_root))
     }
 
     fn get_flat_storage_manager(&self) -> near_store::flat::FlatStorageManager {
@@ -1181,10 +1178,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_view_trie_for_shard(
-            ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
-            state_root,
-        ))
+        Ok(self.tries.get_view_trie_for_shard(ShardUId::new(0, shard_id), state_root))
     }
 
     fn validate_tx(
@@ -1367,7 +1361,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
+                ShardUId::new(0, shard_id),
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block.block_hash,

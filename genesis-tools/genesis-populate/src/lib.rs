@@ -18,9 +18,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    shard_id_as_u32, AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot,
-};
+use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreUpdateAdapter;
@@ -146,13 +144,9 @@ impl GenesisBuilder {
             .map(|(&shard_id, root)| {
                 (
                     shard_id,
-                    self.runtime.get_tries().new_trie_update(
-                        ShardUId {
-                            version: genesis_shard_version,
-                            shard_id: shard_id_as_u32(shard_id),
-                        },
-                        *root,
-                    ),
+                    self.runtime
+                        .get_tries()
+                        .new_trie_update(ShardUId::new(genesis_shard_version, shard_id), *root),
                 )
             })
             .collect();
@@ -187,13 +181,13 @@ impl GenesisBuilder {
         Ok(self)
     }
 
-    fn flush_shard_records(&mut self, shard_idx: ShardId) -> Result<()> {
-        let records = self.unflushed_records.insert(shard_idx, vec![]).unwrap_or_default();
+    fn flush_shard_records(&mut self, shard_id: ShardId) -> Result<()> {
+        let records = self.unflushed_records.insert(shard_id, vec![]).unwrap_or_default();
         if records.is_empty() {
             return Ok(());
         }
         let mut state_update =
-            self.state_updates.remove(&shard_idx).expect("State updates are always available");
+            self.state_updates.remove(&shard_id).expect("State updates are always available");
         let protocol_config = self.runtime.get_protocol_config(&EpochId::default())?;
         let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config.clone();
 
@@ -208,16 +202,15 @@ impl GenesisBuilder {
         state_update.commit(StateChangeCause::InitialState);
         let TrieUpdateResult { trie_changes, state_changes, .. } = state_update.finalize()?;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
-        let shard_uid =
-            ShardUId { version: genesis_shard_version, shard_id: shard_id_as_u32(shard_idx) };
+        let shard_uid = ShardUId::new(genesis_shard_version, shard_id);
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
             .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root);
-        self.state_updates.insert(shard_idx, tries.new_trie_update(shard_uid, root));
+        self.roots.insert(shard_id, root);
+        self.state_updates.insert(shard_id, tries.new_trie_update(shard_uid, root));
         Ok(())
     }
 

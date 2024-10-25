@@ -3,7 +3,7 @@
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{shard_id_as_u32, AccountId};
+use near_primitives::types::AccountId;
 use near_store::ShardUId;
 use tracing::error;
 
@@ -77,10 +77,7 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
-                    let parent_shard = ShardUId {
-                        version: next_shard_layout.version(),
-                        shard_id: shard_id_as_u32(*parent_id),
-                    };
+                    let parent_shard = ShardUId::new(next_shard_layout.version(), *parent_id);
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);
                     let right_child_shard =
