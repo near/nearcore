@@ -83,6 +83,7 @@ impl ChunkValidator {
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         let prev_block_hash = state_witness.chunk_header.prev_block_hash();
+        let shard_id = state_witness.chunk_header.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         if epoch_id != state_witness.epoch_id {
             return Err(Error::InvalidChunkStateWitness(format!(
@@ -183,6 +184,9 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
+                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .inc();
                     if panic_on_validation_error {
                         panic!("Failed to validate chunk: {:?}", err);
                     } else {
