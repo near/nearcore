@@ -84,23 +84,22 @@ impl ShardId {
     /// to convert a shard index (a number in 0..num_shards range) to ShardId.
     /// Instead the ShardId should be obtained from the shard_layout.
     ///
+    /// ```rust, ignore
+    /// // BAD USAGE:
+    /// for shard_index in 0..num_shards {
+    ///     let shard_id = ShardId::new(shard_index); // Incorrect!!!
+    /// }
     /// ```
-    // // BAD USAGE:
-    // for shard_index in 1..num_shards {
-    //     let shard_id = ShardId::new(shard_index); // Incorrect!!!
-    // }
-    // ```
-    // ```
-    // // GOOD USAGE 1:
-    // for shard_index in 1..num_shards {
-    //     let shard_id = shard_layout.get_shard_id(shard_index);
-    // }
-    // // GOOD USAGE 2:
-    // for shard_id in shard_layout.shard_ids() {
-    //     let shard_id = shard_layout.get_shard_id(shard_index);
-    // }
-    // ```
-    // TODO - fix doctests
+    /// ```rust, ignore
+    /// // GOOD USAGE 1:
+    /// for shard_index in 0..num_shards {
+    ///     let shard_id = shard_layout.get_shard_id(shard_index);
+    /// }
+    /// // GOOD USAGE 2:
+    /// for shard_id in shard_layout.shard_ids() {
+    ///     let shard_id = shard_layout.get_shard_id(shard_index);
+    /// }
+    /// ```
     pub const fn new(id: u64) -> Self {
         Self(id)
     }
