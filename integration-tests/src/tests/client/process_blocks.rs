@@ -57,7 +57,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
+    AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
 };
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -1419,11 +1419,11 @@ fn test_archival_save_trie_changes() {
 
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
+        let version = shard_layout.version();
         for chunk in chunks.iter_deprecated() {
             let shard_id = chunk.shard_id();
-            let version = shard_layout.version();
+            let shard_uid = ShardUId::new(version, shard_id);
 
-            let shard_uid = ShardUId { version, shard_id: shard_id_as_u32(shard_id) };
             let key = get_block_shard_uid(&block.hash(), &shard_uid);
             let trie_changes: Option<TrieChanges> =
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();

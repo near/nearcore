@@ -58,13 +58,6 @@ pub type ShardIndex = usize;
 // TODO(wacban) This is a temporary solution to aid the transition to having
 // ShardId as a newtype. It should be replaced / removed / inlined once the
 // transition is complete.
-pub const fn shard_id_as_u32(id: ShardId) -> u32 {
-    return id.get() as u32;
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
 pub const fn shard_id_as_u64(id: ShardId) -> u64 {
     return id.get();
 }

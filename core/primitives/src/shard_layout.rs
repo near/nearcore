@@ -2,7 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::types::{shard_id_as_u32, shard_id_as_u64, ShardId, ShardIndex};
+use near_primitives_core::types::{shard_id_as_u64, ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 use std::{fmt, str};
@@ -618,6 +618,10 @@ pub struct ShardUId {
 }
 
 impl ShardUId {
+    pub fn new(version: ShardVersion, shard_id: ShardId) -> Self {
+        Self { version, shard_id: shard_id.into() }
+    }
+
     pub fn single_shard() -> Self {
         Self { version: 0, shard_id: 0 }
     }
@@ -651,7 +655,7 @@ impl ShardUId {
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_layout.shard_ids().any(|i| i == shard_id));
-        Self { shard_id: shard_id_as_u32(shard_id), version: shard_layout.version() }
+        Self::new(shard_layout.version(), shard_id)
     }
 
     /// Returns shard id
