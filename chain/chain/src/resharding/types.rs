@@ -12,11 +12,11 @@ pub enum ReshardingRequest {
     /// Perform catchup on a flat storage shard.
     FlatStorageShardCatchup {
         resharder: FlatStorageResharder,
-        shard: ShardUId,
+        shard_uid: ShardUId,
         flat_head_block_hash: CryptoHash,
     },
     /// Memtrie for a shard is ready to be rebuilt from flat storage.
-    MemtrieReload { shard: ShardUId },
+    MemtrieReload { shard_uid: ShardUId },
 }
 
 /// A multi-sender for the FlatStorageResharder post processing API.
