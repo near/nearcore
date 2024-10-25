@@ -4,8 +4,6 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{AccountId, BlockHeight};
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
@@ -14,17 +12,20 @@ use crate::test_loop::utils::transactions::{
 };
 use crate::test_loop::utils::ONE_NEAR;
 
-const NUM_ACCOUNTS: usize = 40;
+const NUM_ACCOUNTS: usize = 9;
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
 
-const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 8;
-const NUM_CHUNK_VALIDATORS_ONLY: usize = 16;
+const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 4;
+const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_RPC: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
 /// Tests a scenario that different contracts are deployed to a number of accounts and
 /// these contracts are called from a set of accounts.
+/// Test setup: 2 shards with 9 accounts, for 8 validators and 1 RPC node.
+/// Deploys contract to one account from each shard.
+/// Make 2 accounts from each shard make calls to these contracts.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
 fn test_contract_distribution_testloop() {
@@ -36,31 +37,20 @@ fn test_contract_distribution_testloop() {
 
     let mut nonce = 2;
 
-    // Deploy contracts for accounts at index 0, 10, 20, and so on.
-    let contract_ids =
-        accounts.iter().enumerate().filter(|(i, _)| i % 10 == 0).map(|(_, a)| a).collect_vec();
-    deploy_contracts(&mut test_loop, &node_datas, &rpc_id, contract_ids.clone(), &mut nonce);
+    // Deploy a contract for each shard (account0 from first one, and account4 from second one).
+    let contract_ids = [&accounts[0], &accounts[4]];
+    deploy_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &mut nonce);
 
-    let mut rng: StdRng = SeedableRng::seed_from_u64(contract_ids.len() as u64);
-    let num_contracts = contract_ids.len();
+    // Take two accounts from each shard (one with a contract deployed and one without) and
+    // make them call both the contracts, so we cover same-shard and cross-shard contract calls.
+    let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
+    call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
-    // Each account calls one of the previously deployed contracts randomly.
-    let sender_to_contract_ids = accounts
-        .iter()
-        .map(|a| (a, vec![contract_ids[rng.gen_range(0..num_contracts)]]))
-        .collect_vec();
-    call_contracts(&mut test_loop, &node_datas, &rpc_id, sender_to_contract_ids, &mut nonce);
-
-    // Clear the contract cache and make the same calls.
     #[cfg(feature = "test_features")]
     clear_compiled_contract_caches(&mut test_loop, &node_datas);
 
-    // Each account calls one of the previously deployed contracts randomly.
-    let sender_to_contract_ids = accounts
-        .iter()
-        .map(|a| (a, vec![contract_ids[rng.gen_range(0..num_contracts)]]))
-        .collect_vec();
-    call_contracts(&mut test_loop, &node_datas, &rpc_id, sender_to_contract_ids, &mut nonce);
+    // Repeat the same calls to the same contracts after clearing the contract cache.
+    call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -88,7 +78,7 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
         .genesis_height(GENESIS_HEIGHT)
         .gas_prices_free()
         .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&["account9", "account19", "account29"])
+        .shard_layout_simple_v1(&["account4"])
         .transaction_validity_period(1000)
         .epoch_length(EPOCH_LENGTH)
         .validators_desired_roles(&block_and_chunk_producers, &chunk_validators_only)
@@ -104,12 +94,12 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
 }
 
 /// Deploys a contract for the given accounts (`contract_ids`) and waits until the transactions are executed.
-/// Each account gets a fake contract with a different size (thus code-hashes are different)
+/// Each account in `contract_ids` gets a fake contract with a different size (thus code-hashes are different)
 fn deploy_contracts(
     test_loop: &mut TestLoopV2,
     node_datas: &Vec<TestData>,
     rpc_id: &AccountId,
-    contract_ids: Vec<&AccountId>,
+    contract_ids: &[&AccountId],
     nonce: &mut u64,
 ) {
     let start_height = get_current_height(test_loop, node_datas);
@@ -125,19 +115,20 @@ fn deploy_contracts(
     check_txs(&*test_loop, node_datas, rpc_id, &txs);
 }
 
-/// Makes calls to the contracts from sender accounts to the owners of the contracts and waits until the transactions are executed.
+/// Makes calls to the contracts from sender_ids to the contract_ids (at which contracts are deployed).
 fn call_contracts(
     test_loop: &mut TestLoopV2,
     node_datas: &Vec<TestData>,
     rpc_id: &AccountId,
-    sender_to_contract_ids: Vec<(&AccountId, Vec<&AccountId>)>,
+    contract_ids: &[&AccountId],
+    sender_ids: &[&AccountId],
     nonce: &mut u64,
 ) {
     let start_height = get_current_height(test_loop, node_datas);
     let method_name = "main".to_owned();
     let mut txs = vec![];
-    for (sender_id, contract_ids) in sender_to_contract_ids.iter() {
-        for contract_id in contract_ids.iter() {
+    for sender_id in sender_ids.into_iter() {
+        for contract_id in contract_ids.into_iter() {
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
             let tx = call_contract(
                 test_loop,
