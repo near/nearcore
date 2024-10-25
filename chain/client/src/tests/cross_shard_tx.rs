@@ -481,13 +481,6 @@ fn test_cross_shard_tx_common(
             let msg = near_client_primitives::types::GetBlock(block_reference);
             conn[0].view_client_actor.send(msg.with_span_context()).await.unwrap().unwrap()
         };
-        let shard_layout = {
-            let block_reference = BlockReference::BlockId(BlockId::Height(0));
-            let msg = near_client_primitives::types::GetProtocolConfig(block_reference);
-            let msg = msg.with_span_context();
-            let protocol_config = conn[0].view_client_actor.send(msg).await.unwrap().unwrap();
-            protocol_config.shard_layout
-        };
         *connectors.write().unwrap() = conn;
         let block_hash = genesis_block.header.hash;
 
@@ -518,7 +511,7 @@ fn test_cross_shard_tx_common(
             let block_stats1 = block_stats.clone();
 
             let shard_id = account_id_to_shard_id(&validators[i], 8);
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index: ShardIndex = shard_id.into();
 
             let actor =
                 &connectors_[shard_index + *presumable_epoch.read().unwrap() * 8].view_client_actor;
