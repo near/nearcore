@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
@@ -31,18 +33,22 @@ use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::{get_contract_cache_key, ContractRuntimeCache};
+use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    validate_chunk_contract_accesses, validate_partial_encoded_state_witness,
+    validate_chunk_contract_accesses, validate_chunk_contract_deployments,
+    validate_partial_encoded_state_witness,
 };
 
 use super::encoding::WitnessEncoderCache;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
+
+/// Max number of newly deployed contract lists to keep.
+const DEPLOYED_CONTRACTS_CACHE_SIZE: usize = 10;
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -60,6 +66,8 @@ pub struct PartialWitnessActor {
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
     encoders: WitnessEncoderCache,
+    /// Tracks the code hashes for newly deployed code received.
+    deployed_contracts_tracker: LruCache<ChunkProductionKey, BTreeSet<CodeHash>>,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -151,6 +159,8 @@ impl PartialWitnessActor {
     ) -> Self {
         let partial_witness_tracker =
             PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone());
+        let deployed_contracts =
+            LruCache::new(NonZeroUsize::new(DEPLOYED_CONTRACTS_CACHE_SIZE).unwrap());
         Self {
             network_adapter,
             my_signer,
@@ -159,6 +169,7 @@ impl PartialWitnessActor {
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             encoders: WitnessEncoderCache::new(),
             runtime,
+            deployed_contracts_tracker: deployed_contracts,
         }
     }
 
@@ -364,19 +375,7 @@ impl PartialWitnessActor {
             return Ok(());
         }
         let key = accesses.chunk_production_key();
-        let contracts_cache = self.runtime.compiled_contract_cache();
-        let runtime_config = self
-            .runtime
-            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?)?;
-        let missing_contract_hashes = BTreeSet::from_iter(
-            accesses
-                .contracts()
-                .iter()
-                .filter(|&hash| {
-                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
-                })
-                .cloned(),
-        );
+        let missing_contract_hashes = self.get_missing_contracts(accesses.contracts(), key)?;
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
@@ -396,10 +395,33 @@ impl PartialWitnessActor {
     /// of the contracts deployed when applying the previous chunk of the witness.
     fn handle_chunk_contract_deployments(
         &mut self,
-        _deploys: ChunkContractDeployments,
+        deploys: ChunkContractDeployments,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement the handling of this message.
-        unreachable!("code for sending message is not implemented yet")
+        let signer = self.my_validator_signer()?;
+        if !validate_chunk_contract_deployments(
+            self.epoch_manager.as_ref(),
+            &deploys,
+            &signer,
+            self.runtime.store(),
+        )? {
+            return Ok(());
+        }
+        let key = deploys.chunk_production_key();
+        let missing_contract_hashes = self.get_missing_contracts(deploys.contracts(), key)?;
+        if missing_contract_hashes.is_empty() {
+            return Ok(());
+        }
+
+        tracing::debug!(target: "client", ?key, hashes=?missing_contract_hashes, "store deployed contracts");
+        self.deployed_contracts_tracker.put(key.clone(), missing_contract_hashes.clone());
+
+        let random_chunk_producer =
+            self.epoch_manager.get_random_chunk_producer_for_shard(&key.epoch_id, key.shard_id)?;
+        let request = ContractCodeRequest::new(key.clone(), missing_contract_hashes, &signer);
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
+        ));
+        Ok(())
     }
 
     /// Handles contract code requests message from chunk validators.
@@ -442,9 +464,58 @@ impl PartialWitnessActor {
         response: ContractCodeResponse,
     ) -> Result<(), Error> {
         // TODO(#11099): validate response
-        let key = response.chunk_production_key().clone();
+        let key = response.chunk_production_key();
         let contracts = response.decompress_contracts()?;
-        self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
+
+        if let Some(requested_hashes) = self.deployed_contracts_tracker.pop(key) {
+            self.precompile_and_store_contracts(&key.epoch_id, requested_hashes, contracts)
+        } else {
+            self.partial_witness_tracker.store_accessed_contract_codes(key.clone(), contracts)
+        }
+    }
+
+    fn precompile_and_store_contracts(
+        &self,
+        epoch_id: &EpochId,
+        requested_hashes: BTreeSet<CodeHash>,
+        received_codes: Vec<CodeBytes>,
+    ) -> Result<(), Error> {
+        let mut contract_codes = vec![];
+        for code in received_codes.into_iter() {
+            let contract_code = ContractCode::new(code.0.to_vec(), None);
+            if requested_hashes.contains(&CodeHash(*contract_code.hash())) {
+                contract_codes.push(contract_code);
+            } else {
+                tracing::warn!(target: "client", hash=?contract_code.hash(), "received non-requested contract code");
+            }
+        }
+        if !contract_codes.is_empty() {
+            // Note: Precompilation use separate threads, so invoking compilation
+            // in this actor should not have performance implications on witness processing.
+            self.runtime.precompile_contracts(epoch_id, contract_codes)?
+        }
+        Ok(())
+    }
+
+    /// Returns the subset of given contract code-hashes for which there is no entry in compiled contract cache.
+    fn get_missing_contracts(
+        &self,
+        code_hashes: &[CodeHash],
+        key: &ChunkProductionKey,
+    ) -> Result<BTreeSet<CodeHash>, Error> {
+        let contracts_cache = self.runtime.compiled_contract_cache();
+        let runtime_config = self
+            .runtime
+            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?)?;
+        let missing_contract_hashes = BTreeSet::from_iter(
+            code_hashes
+                .iter()
+                .filter(|&hash| {
+                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
+                })
+                .cloned(),
+        );
+        Ok(missing_contract_hashes)
     }
 
     fn my_validator_signer(&self) -> Result<Arc<ValidatorSigner>, Error> {

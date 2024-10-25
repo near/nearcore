@@ -12,7 +12,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, CodeHash,
+    ChunkContractAccesses, ChunkContractDeployments, CodeHash,
 };
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness,
@@ -106,11 +106,8 @@ impl Client {
         }
 
         if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
-            // TODO(#11099): Currently we consume contract_deploys only for the following log message. Distribute it to validators
-            // that will not validate the current witness so that they can follow-up with requesting the contract code.
-            tracing::debug!(target: "client", ?contract_accesses, ?contract_deploys, "Contract accesses and deploys while sending state witness");
-            if !contract_accesses.is_empty() {
-                self.send_contract_accesses_to_chunk_validators(
+            if !contract_accesses.is_empty() || !contract_deploys.is_empty() {
+                self.send_contract_info_to_validators(
                     epoch_id,
                     &chunk_header,
                     contract_accesses,
@@ -423,7 +420,7 @@ impl Client {
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
     /// which will receive the state witness for the new chunk.  
-    fn send_contract_accesses_to_chunk_validators(
+    fn send_contract_info_to_validators(
         &self,
         epoch_id: &EpochId,
         chunk_header: &ShardChunkHeader,
@@ -457,21 +454,53 @@ impl Client {
             .into_iter()
             .collect();
 
-        // Since chunk validators will receive the newly deployed contracts as part of the state witness (as DeployActions in receipts),
-        // they will update their contract cache while applying these deploy actions, thus we can exclude code-hash for these contracts from the message.
-        let predeployed_contract_accesses =
-            contract_accesses.difference(&contract_deploys).cloned().collect();
-        // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.
-        let target_chunk_validators =
-            chunk_validators.difference(&chunk_producers).cloned().collect();
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkContractAccesses(
-                target_chunk_validators,
-                ChunkContractAccesses::new(
-                    chunk_production_key,
-                    predeployed_contract_accesses,
-                    my_signer,
+        if !contract_accesses.is_empty() {
+            // Since chunk validators will receive the newly deployed contracts as part of the state witness (as DeployActions in receipts),
+            // they will update their contract cache while applying these deploy actions, thus we can exclude code-hash for these contracts from the message.
+            let predeployed_contract_accesses =
+                contract_accesses.difference(&contract_deploys).cloned().collect();
+            // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.
+            let target_chunk_validators =
+                chunk_validators.difference(&chunk_producers).cloned().collect();
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::ChunkContractAccesses(
+                    target_chunk_validators,
+                    ChunkContractAccesses::new(
+                        chunk_production_key.clone(),
+                        predeployed_contract_accesses,
+                        my_signer,
+                    ),
                 ),
+            ));
+        }
+
+        // Send the new deployments (if any) to other validators.
+        if contract_deploys.is_empty() {
+            return;
+        }
+
+        // TODO(#11099): Also send this to the next-epoch validators.
+        let target_validators: HashSet<AccountId> = self
+            .epoch_manager
+            .get_epoch_all_validators(epoch_id)
+            .expect("Epoch validators must be defined")
+            .iter()
+            .map(|vs| vs.account_id())
+            .cloned()
+            .collect();
+        // Exclude chunk validators since they will compile and save the newly deployed code
+        // while validating the chunk.
+        let target_validators: HashSet<AccountId> =
+            target_validators.difference(&chunk_validators).cloned().collect();
+        // Exclude chunk producers that track the same shard from the target list,
+        // since they track the state that contains the respective code.
+        let target_validators: Vec<AccountId> =
+            target_validators.difference(&chunk_producers).cloned().collect();
+
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkContractDeployments(
+                target_validators,
+                ChunkContractDeployments::new(chunk_production_key, contract_deploys, my_signer),
             ),
         ));
     }
