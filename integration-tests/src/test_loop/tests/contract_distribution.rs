@@ -4,7 +4,8 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{AccountId, BlockHeight};
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
@@ -24,6 +25,7 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 
 /// Tests a scenario that different contracts are deployed to a number of accounts and
 /// these contracts are called from a set of accounts.
+#[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
 fn test_contract_distribution_testloop() {
     init_test_logger();
@@ -39,7 +41,7 @@ fn test_contract_distribution_testloop() {
         accounts.iter().enumerate().filter(|(i, _)| i % 10 == 0).map(|(_, a)| a).collect_vec();
     deploy_contracts(&mut test_loop, &node_datas, &rpc_id, contract_ids.clone(), &mut nonce);
 
-    let mut rng = rand::thread_rng();
+    let mut rng: StdRng = SeedableRng::seed_from_u64(contract_ids.len() as u64);
     let num_contracts = contract_ids.len();
 
     // Each account calls one of the previously deployed contracts randomly.
@@ -50,6 +52,7 @@ fn test_contract_distribution_testloop() {
     call_contracts(&mut test_loop, &node_datas, &rpc_id, sender_to_contract_ids, &mut nonce);
 
     // Clear the contract cache and make the same calls.
+    #[cfg(feature = "test_features")]
     clear_compiled_contract_caches(&mut test_loop, &node_datas);
 
     // Each account calls one of the previously deployed contracts randomly.
@@ -155,6 +158,7 @@ fn call_contracts(
 }
 
 /// Clears the compiled contract caches for all the clients.
+#[cfg(feature = "test_features")]
 fn clear_compiled_contract_caches(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) {
     for i in 0..node_datas.len() {
         let client_handle = node_datas[i].client_sender.actor_handle();

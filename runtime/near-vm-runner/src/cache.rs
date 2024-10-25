@@ -106,6 +106,7 @@ pub trait ContractRuntimeCache: Send + Sync {
     ///
     /// Default implementation panics; the implementations for which this method is called
     /// should provide a proper implementation.
+    #[cfg(feature = "test_features")]
     fn test_only_clear(&self) -> std::io::Result<()> {
         unimplemented!("test_only_clear is not implemented for this cache");
     }
@@ -392,6 +393,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     /// Clears the in-memory cache and files in the cache directory.
     ///
     /// The cache must be created using `test` method, otherwise this method will panic.
+    #[cfg(feature = "test_features")]
     fn test_only_clear(&self) -> std::io::Result<()> {
         let Some(temp_dir) = &self.state.test_temp_dir else {
             panic!("must be called for testing only");
@@ -439,7 +441,7 @@ impl AnyCache {
         }
     }
 
-    fn clear(&self) {
+    pub fn clear(&self) {
         if let Some(cache) = &self.cache {
             cache.lock().unwrap().clear();
         }
@@ -652,15 +654,25 @@ mod tests {
             compiled: CompiledContract::Code(contract2.code().to_vec()),
         };
 
-        cache.put(contract1.hash(), compiled_contract1.clone()).unwrap();
-        cache.put(contract2.hash(), compiled_contract2.clone()).unwrap();
+        let insert_and_assert_keys_exist = || {
+            cache.put(contract1.hash(), compiled_contract1.clone()).unwrap();
+            cache.put(contract2.hash(), compiled_contract2.clone()).unwrap();
 
-        assert_eq!(cache.get(contract1.hash()).unwrap().unwrap(), compiled_contract1);
-        assert_eq!(cache.get(contract2.hash()).unwrap().unwrap(), compiled_contract2);
+            assert_eq!(cache.get(contract1.hash()).unwrap().unwrap(), compiled_contract1);
+            assert_eq!(cache.get(contract2.hash()).unwrap().unwrap(), compiled_contract2);
+        };
 
+        let assert_keys_absent = || {
+            assert_eq!(cache.has(contract1.hash()).unwrap(), false);
+            assert_eq!(cache.has(contract2.hash()).unwrap(), false);
+        };
+
+        // Insert the keys, and then ckear the cache, and assert that keys no longer exist after clear.
+        insert_and_assert_keys_exist();
         cache.test_only_clear().unwrap();
+        assert_keys_absent();
 
-        assert_eq!(cache.has(contract1.hash()).unwrap(), false);
-        assert_eq!(cache.has(contract2.hash()).unwrap(), false);
+        // Insert the keys again and assert that the cache can be updated after clear.
+        insert_and_assert_keys_exist();
     }
 }
