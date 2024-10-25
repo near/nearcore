@@ -154,6 +154,22 @@ pub struct PartialMerkleTree {
 }
 
 impl PartialMerkleTree {
+    /// A PartialMerkleTree is well formed iff the path would be a valid proof for the next block
+    /// of ordinal `size`. This means that the path contains exactly `size.count_ones()` elements.
+    ///
+    /// The <= direction of this statement is easy to prove, as the subtrees whose roots are being
+    /// combined to form the overall root correspond to the binary 1s in the size.
+    ///
+    /// The => direction is proven by observing that the root is computed as
+    /// hash(path[0], hash(path[1], hash(path[2], ... hash(path[n-1], path[n]) ...))
+    /// and there is only one way to provide an array of paths of the exact same size that would
+    /// produce the same result when combined in this way. (This would not have been true if we
+    /// could provide a path of a different size, e.g. if we could provide just one hash, we could
+    /// provide only the root).
+    pub fn is_well_formed(&self) -> bool {
+        self.path.len() == self.size.count_ones() as usize
+    }
+
     pub fn root(&self) -> MerkleHash {
         if self.path.is_empty() {
             CryptoHash::default()
@@ -273,6 +289,17 @@ mod tests {
         let mut hashes = vec![];
         for i in 0..50 {
             assert_eq!(compute_root(&hashes), tree.root());
+            assert!(tree.is_well_formed());
+
+            let mut tree_copy = tree.clone();
+            tree_copy.path.push(CryptoHash::hash_bytes(&[i]));
+            assert!(!tree_copy.is_well_formed());
+            tree_copy.path.pop();
+            if !tree_copy.path.is_empty() {
+                tree_copy.path.pop();
+                assert!(!tree_copy.is_well_formed());
+            }
+
             let cur_hash = CryptoHash::hash_bytes(&[i]);
             hashes.push(cur_hash);
             tree.insert(cur_hash);
