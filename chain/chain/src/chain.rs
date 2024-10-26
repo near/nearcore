@@ -2503,6 +2503,10 @@ impl Chain {
         if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
             self.get_current_epoch_sync_hash(block_hash)
         } else {
+            // In the first epoch, it doesn't make sense to sync state to the previous epoch.
+            if header.epoch_id() == &EpochId::default() {
+                return Ok(None);
+            }
             self.get_previous_epoch_sync_hash(block_hash).map(Some)
         }
     }
