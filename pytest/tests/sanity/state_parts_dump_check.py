@@ -91,14 +91,6 @@ def main():
         val for metric, val in metrics.items()
         if 'state_sync_dump_check_process_is_up' in metric
     ]) == NUM_SHARDS, f"Dumper process missing for some shards. {metrics}"
-    assert sum([
-        val for metric, val in metrics.items()
-        if 'state_sync_dump_check_num_parts_dumped' in metric
-    ]) == 0, f"No node was supposed to dump parts. {metrics}"
-    assert sum([
-        val for metric, val in metrics.items()
-        if 'state_sync_dump_check_num_header_dumped' in metric
-    ]) == 0, f"No node was supposed to dump headers. {metrics}"
 
     # wait for 10 more blocks.
     list(islice(poll_blocks(boot_node), 10))

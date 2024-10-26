@@ -11,5 +11,6 @@ pub mod multinode_test_loop_example;
 pub mod protocol_upgrade;
 mod resharding_v3;
 pub mod simple_test_loop_example;
+pub mod state_sync;
 pub mod syncing;
 pub mod view_requests_to_archival_node;

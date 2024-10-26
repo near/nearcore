@@ -1676,12 +1676,33 @@ fn test_process_block_after_state_sync() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let sync_height = epoch_length * 4 + 1;
-    for i in 1..=sync_height {
-        env.produce_block(0, i);
-    }
-    let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap();
-    let sync_hash = *sync_block.hash();
+    let mut sync_hash_attempts = 0;
+    let mut next_height = 1;
+    let sync_hash = loop {
+        let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
+        let block_hash = *block.hash();
+        let prev_hash = *block.header().prev_hash();
+        env.process_block(0, block, Provenance::PRODUCED);
+        next_height += 1;
+
+        let epoch_height =
+            env.clients[0].epoch_manager.get_epoch_height_from_prev_block(&prev_hash).unwrap();
+        if epoch_height < 4 {
+            continue;
+        }
+        let Some(sync_hash) = env.clients[0].chain.get_sync_hash(&block_hash).unwrap() else {
+            sync_hash_attempts += 1;
+            // This should not happen, but we guard against it defensively so we don't have some infinite loop in
+            // case of a bug
+            assert!(sync_hash_attempts <= 2, "sync_hash_attempts: {}", sync_hash_attempts);
+            continue;
+        };
+        // Produce one more block after the sync hash is found so that the snapshot will be created
+        if sync_hash != block_hash {
+            break sync_hash;
+        }
+    };
+    let sync_block = env.clients[0].chain.get_block(&sync_hash).unwrap();
     let shard_id = ShardId::new(0);
 
     let header = env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
@@ -1694,7 +1715,7 @@ fn test_process_block_after_state_sync() {
         .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
         .unwrap();
     // reset cache
-    for i in epoch_length * 3 - 1..sync_height - 1 {
+    for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
         assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
@@ -1704,7 +1725,7 @@ fn test_process_block_after_state_sync() {
         .runtime_adapter
         .apply_state_part(shard_id, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
-    let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
+    let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
     env.clients[0].process_block_test(block.into(), Provenance::PRODUCED).unwrap();
 }
 
@@ -2157,6 +2178,7 @@ fn test_data_reset_before_state_sync() {
 
 #[test]
 fn test_sync_hash_validity() {
+    init_test_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2164,11 +2186,18 @@ fn test_sync_hash_validity() {
     for i in 1..19 {
         env.produce_block(0, i);
     }
-    for i in 0..19 {
-        let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
-        let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
-        println!("height {:?} -> {:?}", i, res);
-        assert_eq!(res.unwrap(), i == 0 || (i % epoch_length) == 1);
+    for i in 1..19 {
+        let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
+        let block_hash = *header.hash();
+        let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
+        println!("height {} -> {}", i, valid);
+        if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+            // This assumes that all shards have new chunks in every block, which should be true
+            // with TestEnv::produce_block()
+            assert_eq!(valid, (i % epoch_length) == 3);
+        } else {
+            assert_eq!(valid, header.epoch_id() != &EpochId::default() && (i % epoch_length) == 1);
+        }
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
@@ -2399,7 +2428,9 @@ fn test_catchup_gas_price_change() {
 
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    for i in 3..=6 {
+    // We go up to height 9 because height 6 is the first block of the new epoch, and we want at least
+    // two more blocks (plus one more for nodes to create snapshots) if syncing to the current epoch's state
+    for i in 3..=9 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -2415,8 +2446,18 @@ fn test_catchup_gas_price_change() {
         .is_err());
 
     // Simulate state sync
-    let sync_hash = *blocks[5].hash();
-    assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
+
+    let sync_hash =
+        env.clients[0].chain.get_sync_hash(blocks.last().unwrap().hash()).unwrap().unwrap();
+    let sync_block_idx = blocks
+        .iter()
+        .position(|b| *b.hash() == sync_hash)
+        .expect("block with hash matching sync hash not found");
+    if sync_block_idx == 0 {
+        panic!("sync block should not be the first block produced");
+    }
+    let sync_prev_block = &blocks[sync_block_idx - 1];
+
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let shard_id = ShardId::new(0);
     let state_sync_header =
@@ -2466,10 +2507,14 @@ fn test_catchup_gas_price_change() {
         }
     }
     env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
-    let chunk_extra_after_sync =
-        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
-    let expected_chunk_extra =
-        env.clients[0].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
+    let chunk_extra_after_sync = env.clients[1]
+        .chain
+        .get_chunk_extra(sync_prev_block.hash(), &ShardUId::single_shard())
+        .unwrap();
+    let expected_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(sync_prev_block.hash(), &ShardUId::single_shard())
+        .unwrap();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
@@ -3687,8 +3732,16 @@ mod contract_precompilation_tests {
             start_height,
         );
 
+        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+            // and then one more than that so the node will generate the neede snapshot.
+            produce_blocks_from_height(&mut env, 3, height) - 2
+        } else {
+            height - 1
+        };
+
         // Perform state sync for the second client.
-        state_sync_on_height(&mut env, height - 1);
+        state_sync_on_height(&mut env, sync_height);
 
         // Check existence of contract in both caches.
         let contract_code = ContractCode::new(wasm_code.clone(), None);
@@ -3708,7 +3761,7 @@ mod contract_precompilation_tests {
         // Check that contract function may be successfully called on the second client.
         // Note that we can't test that behaviour is the same on two clients, because
         // compile_module_cached_wasmer0 is cached by contract key via macro.
-        let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap();
+        let block = env.clients[0].chain.get_block_by_height(sync_height - 1).unwrap();
         let shard_uid = ShardUId::single_shard();
         let shard_id = shard_uid.shard_id();
         let chunk_extra =
@@ -3752,6 +3805,7 @@ mod contract_precompilation_tests {
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
+        init_integration_logger();
         let num_clients = 2;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -3792,11 +3846,19 @@ mod contract_precompilation_tests {
             height,
         );
 
+        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+            // and then one more than that so the node will generate the neede snapshot.
+            produce_blocks_from_height(&mut env, 3, height) - 2
+        } else {
+            height - 1
+        };
+
         // Perform state sync for the second client on the last produced height.
-        state_sync_on_height(&mut env, height - 1);
+        state_sync_on_height(&mut env, sync_height);
 
         let epoch_id =
-            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+            *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
             *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
@@ -3863,13 +3925,21 @@ mod contract_precompilation_tests {
             env.clients[0].process_tx(delete_account_tx, false, false),
             ProcessTxResponse::ValidTx
         );
-        height = produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height);
+        // `height` is the first block of a new epoch (which has not been produced yet),
+        // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
+        // to get to produce the first block of the next epoch. If we want to state sync the new
+        // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
+        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 4, height) - 2
+        } else {
+            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1
+        };
 
         // Perform state sync for the second client.
-        state_sync_on_height(&mut env, height - 1);
+        state_sync_on_height(&mut env, sync_height);
 
         let epoch_id =
-            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+            *env.clients[0].chain.get_block_by_height(sync_height).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
             *ContractCode::new(wasm_code.clone(), None).hash(),
