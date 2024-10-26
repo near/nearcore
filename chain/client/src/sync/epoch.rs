@@ -5,7 +5,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Doomslug, DoomslugThresholdMode, Error};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
