@@ -1,13 +1,16 @@
 use near_crypto::Signer;
+use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
 use near_primitives::action::Action;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::account_new;
-use near_primitives::types::{AccountId, Balance, Gas, MerkleHash, StateChangeCause};
+use near_primitives::types::{AccountId, Balance, Compute, Gas, MerkleHash, StateChangeCause};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{get_account, set_account, ShardUId};
 use std::sync::Arc;
 use testlib::runtime_utils::bob_account;
+
+use crate::ApplyState;
 
 mod apply;
 
@@ -23,10 +26,13 @@ fn create_receipt_with_actions(
     signer: Arc<Signer>,
     actions: Vec<Action>,
 ) -> Receipt {
+    // Since different accounts may issue the same actions, we add account_id to the receipt_id.
+    // to the receipt_id to make it unique.
+    let receipt_id = CryptoHash::hash_borsh((account_id.clone(), actions.clone()));
     Receipt::V0(ReceiptV0 {
         predecessor_id: account_id.clone(),
         receiver_id: account_id.clone(),
-        receipt_id: CryptoHash::hash_borsh(actions.clone()),
+        receipt_id,
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: account_id,
             signer_public_key: signer.public_key(),
@@ -36,6 +42,22 @@ fn create_receipt_with_actions(
             actions,
         }),
     })
+}
+
+/// Sets the given gas and compute costs for sha256 in the runtime config.
+/// Sets the rest of the costs to free. Returns the sha256 cost.
+fn set_sha256_cost(
+    apply_state: &mut ApplyState,
+    gas_cost: u64,
+    compute_cost: u64,
+) -> ParameterCost {
+    let mut free_config = RuntimeConfig::free();
+    let sha256_cost =
+        ParameterCost { gas: Gas::from(gas_cost), compute: Compute::from(compute_cost) };
+    let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
+    wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
+    apply_state.config = Arc::new(free_config);
+    sha256_cost
 }
 
 #[test]

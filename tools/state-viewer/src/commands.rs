@@ -115,6 +115,7 @@ pub(crate) fn apply_block(
                     block.header(),
                     prev_block.header().next_gas_price(),
                     prev_block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -140,6 +141,7 @@ pub(crate) fn apply_block(
                     block.header(),
                     block.header().next_gas_price(),
                     prev_block.block_congestion_info(),
+                    prev_block.block_bandwidth_requests(),
                 ),
                 &[],
                 &[],
@@ -163,8 +165,11 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager =
-        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        read_store.clone(),
+        &near_config.genesis.config,
+        Some(home_dir),
+    );
     let runtime =
         NightshadeRuntime::from_config(home_dir, read_store, &near_config, epoch_manager.clone())
             .context("could not create the transaction runtime")?;
@@ -203,7 +208,8 @@ pub(crate) fn apply_chunk(
     target_height: Option<u64>,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -258,8 +264,11 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        read_store.clone(),
+        &near_config.genesis.config,
+        Some(home_dir),
+    );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         read_store.clone(),
@@ -292,7 +301,8 @@ pub(crate) fn apply_receipt(
     hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -318,7 +328,8 @@ pub(crate) fn apply_tx(
     hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -552,6 +563,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 pub(crate) fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
+    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     show_full_hashes: bool,
@@ -561,7 +573,8 @@ pub(crate) fn print_chain(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     // TODO: Split into smaller functions.
@@ -724,7 +737,7 @@ pub(crate) fn view_chain(
 
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
-    for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+    for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
         if chunk_header.height_included() == block.header().height() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -766,7 +779,8 @@ pub(crate) fn view_genesis(
     compare: bool,
 ) {
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime_adapter = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -843,7 +857,7 @@ fn read_genesis_from_store(
     let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
     let genesis_block = chain_store.get_block(&genesis_hash)?;
     let mut genesis_chunks = vec![];
-    for chunk_header in genesis_block.chunks().iter() {
+    for chunk_header in genesis_block.chunks().iter_deprecated() {
         if chunk_header.height_included() == genesis_height {
             genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
         }
@@ -858,7 +872,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
-        for chunk_header in cur_block.chunks().iter() {
+        for chunk_header in cur_block.chunks().iter_deprecated() {
             if chunk_header.height_included() == cur_block.header().height()
                 && chain_store.get_chunk(&chunk_header.chunk_hash()).is_err()
             {
@@ -1521,7 +1535,7 @@ mod tests {
 
         let store = near_store::test_utils::create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             home_dir,
             store.clone(),

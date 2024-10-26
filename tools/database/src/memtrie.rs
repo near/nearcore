@@ -46,7 +46,8 @@ impl LoadMemTrieCommand {
         let block_header = store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
             .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis_config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
 
         let all_shard_uids: Vec<ShardUId> =
             epoch_manager.get_shard_layout(block_header.epoch_id()).unwrap().shard_uids().collect();

@@ -2,9 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::types::{
-    shard_id_as_u32, shard_id_as_u64, shard_id_as_usize, ShardId, ShardIndex,
-};
+use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 use std::{fmt, str};
@@ -267,7 +265,7 @@ impl ShardLayout {
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
-                    assert!(shard_id_as_u64(shard_id) < num_shards, "shard id should be valid");
+                    assert!(shard_id < num_shards, "shard id should be valid");
                 }
             }
             Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id.into()]).collect())
@@ -470,7 +468,10 @@ impl ShardLayout {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
                 Some(shards_split_map) => {
-                    let parent_shard_index = shard_id_as_usize(parent_shard_id);
+                    // In V1 the shard id and the shard index are the same. It
+                    // is ok to cast the id to index here. The same is not the
+                    // case in V2.
+                    let parent_shard_index: ShardIndex = parent_shard_id.into();
                     shards_split_map.get(parent_shard_index).cloned()
                 }
                 None => None,
@@ -552,8 +553,11 @@ impl ShardLayout {
     /// used when indexing into an array of chunk data.
     pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
         match self {
-            Self::V0(_) => shard_id_as_usize(shard_id),
-            Self::V1(_) => shard_id_as_usize(shard_id),
+            // In V0 the shard id and shard index are the same.
+            Self::V0(_) => shard_id.into(),
+            // In V1 the shard id and shard index are the same.
+            Self::V1(_) => shard_id.into(),
+            // In V2 the shard id and shard index are **not** the same.
             Self::V2(v2) => v2.id_to_index_map[&shard_id],
         }
     }
@@ -614,6 +618,10 @@ pub struct ShardUId {
 }
 
 impl ShardUId {
+    pub fn new(version: ShardVersion, shard_id: ShardId) -> Self {
+        Self { version, shard_id: shard_id.into() }
+    }
+
     pub fn single_shard() -> Self {
         Self { version: 0, shard_id: 0 }
     }
@@ -647,7 +655,7 @@ impl ShardUId {
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_layout.shard_ids().any(|i| i == shard_id));
-        Self { shard_id: shard_id_as_u32(shard_id), version: shard_layout.version() }
+        Self::new(shard_layout.version(), shard_id)
     }
 
     /// Returns shard id
@@ -800,7 +808,7 @@ mod tests {
         ShardLayoutV1, ShardUId,
     };
     use itertools::Itertools;
-    use near_primitives_core::types::{shard_id_as_u64, ProtocolVersion};
+    use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::distributions::Alphanumeric;
@@ -877,7 +885,7 @@ mod tests {
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
-            assert!(shard_id_as_u64(shard_id) < num_shards);
+            assert!(shard_id < num_shards);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
         let expected_distribution: HashMap<ShardId, _> = [

@@ -770,7 +770,7 @@ impl ChainStore {
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
-        let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
+        let chunk_headers = block.chunks().iter_deprecated().cloned().collect::<Vec<_>>();
 
         let mut res = HashMap::new();
         for chunk_header in chunk_headers {
@@ -2183,7 +2183,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 source_store.get_chunk_extra(block_hash, &shard_uid)?.clone(),
             );
         }
-        for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let chunk_hash = chunk_header.chunk_hash();
             chain_store_update

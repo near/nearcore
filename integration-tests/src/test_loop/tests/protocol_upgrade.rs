@@ -34,7 +34,7 @@ fn assert_shard_layout(shard_layout: &ShardLayout) {
 /// Test upgrading the blockchain to another protocol version.
 /// Optionally make some chunks around epoch boundary missing.
 /// Uses a hardcoded shard layout, it doesn't change during the test.
-fn test_protocol_upgrade(
+pub(crate) fn test_protocol_upgrade(
     old_protocol: ProtocolVersion,
     new_protocol: ProtocolVersion,
     missing_chunk_ranges: HashMap<ShardId, std::ops::Range<i64>>,
@@ -86,7 +86,7 @@ fn test_protocol_upgrade(
     let (genesis, genesis_epoch_config_store) = genesis_builder.build();
     let genesis_epoch_info = genesis_epoch_config_store.get_config(old_protocol);
 
-    let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let mut old_epoch_config: EpochConfig =
         mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
     let mut new_epoch_config: EpochConfig =
@@ -119,8 +119,8 @@ fn test_protocol_upgrade(
     // Translate shard ids to shard uids
     let chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>> = missing_chunk_ranges
         .iter()
-        .map(|(shard_id, range)| {
-            let shard_uid = ShardUId { version: 1, shard_id: shard_id.get().try_into().unwrap() };
+        .map(|(&shard_id, range)| {
+            let shard_uid = ShardUId::new(1, shard_id);
             (shard_uid, range.clone())
         })
         .collect();

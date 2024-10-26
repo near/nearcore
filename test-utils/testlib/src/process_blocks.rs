@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
     let chunk_headers = vec![prev_block.chunks()[0].clone()];
     let mut balance_burnt = 0;
-    for chunk in block.chunks().iter() {
+    for chunk in block.chunks().iter_deprecated() {
         if chunk.height_included() == block.header().height() {
             balance_burnt += chunk.prev_balance_burnt();
         }

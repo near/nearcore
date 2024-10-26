@@ -120,8 +120,11 @@ impl ReplayController {
         let start_height = start_height.unwrap_or(genesis_height);
         let end_height = end_height.unwrap_or(head_height).min(head_height);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
@@ -451,7 +454,7 @@ impl ReplayController {
         let block_height = block.header().height();
         let block_hash = block.header().hash();
         let mut receipt_proofs_by_shard_id: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
-        for chunk_header in block.chunks().iter() {
+        for chunk_header in block.chunks().iter_deprecated() {
             if !chunk_header.is_new_chunk(block_height) {
                 continue;
             }

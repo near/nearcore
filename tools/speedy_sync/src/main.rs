@@ -232,7 +232,8 @@ fn load_snapshot(load_cmd: LoadCmd) {
         .unwrap()
         .get_hot_store();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime =

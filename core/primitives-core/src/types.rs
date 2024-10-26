@@ -55,39 +55,6 @@ pub type ProtocolVersion = u32;
 /// used instead.
 pub type ShardIndex = usize;
 
-pub fn shard_id_max() -> ShardId {
-    return ShardId::max();
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
-pub const fn shard_id_as_usize(id: ShardId) -> usize {
-    return id.get() as usize;
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
-pub const fn shard_id_as_u16(id: ShardId) -> u16 {
-    return id.get() as u16;
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
-pub const fn shard_id_as_u32(id: ShardId) -> u32 {
-    return id.get() as u32;
-}
-
-// TODO(wacban) This is a temporary solution to aid the transition to having
-// ShardId as a newtype. It should be replaced / removed / inlined once the
-// transition is complete.
-pub const fn shard_id_as_u64(id: ShardId) -> u64 {
-    return id.get();
-}
-
-// TODO(wacban) Complete the transition to ShardId as a newtype.
 /// The shard identifier. It may be a arbitrary number - it does not need to be
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
 /// sequential or contiguous.
@@ -117,35 +84,32 @@ impl ShardId {
     /// to convert a shard index (a number in 0..num_shards range) to ShardId.
     /// Instead the ShardId should be obtained from the shard_layout.
     ///
+    /// ```rust, ignore
+    /// // BAD USAGE:
+    /// for shard_index in 0..num_shards {
+    ///     let shard_id = ShardId::new(shard_index); // Incorrect!!!
+    /// }
     /// ```
-    // // BAD USAGE:
-    // for shard_index in 1..num_shards {
-    //     let shard_id = ShardId::new(shard_index); // Incorrect!!!
-    // }
-    // ```
-    // ```
-    // // GOOD USAGE 1:
-    // for shard_index in 1..num_shards {
-    //     let shard_id = shard_layout.get_shard_id(shard_index);
-    // }
-    // // GOOD USAGE 2:
-    // for shard_id in shard_layout.shard_ids() {
-    //     let shard_id = shard_layout.get_shard_id(shard_index);
-    // }
-    // ```
-    // TODO - fix doctests
+    /// ```rust, ignore
+    /// // GOOD USAGE 1:
+    /// for shard_index in 0..num_shards {
+    ///     let shard_id = shard_layout.get_shard_id(shard_index);
+    /// }
+    /// // GOOD USAGE 2:
+    /// for shard_id in shard_layout.shard_ids() {
+    ///     let shard_id = shard_layout.get_shard_id(shard_index);
+    /// }
+    /// ```
     pub const fn new(id: u64) -> Self {
         Self(id)
     }
 
-    /// Get the numerical value of the shard id. This should not be used as an
-    /// index into an array, as the shard id may be any arbitrary number.
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-
     pub fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
+    }
+
+    pub fn to_be_bytes(self) -> [u8; 8] {
+        self.0.to_be_bytes()
     }
 
     pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
@@ -213,6 +177,12 @@ impl Into<u16> for ShardId {
     }
 }
 
+impl Into<usize> for ShardId {
+    fn into(self) -> usize {
+        self.0 as usize
+    }
+}
+
 impl<T> Add<T> for ShardId
 where
     T: Add<u64, Output = u64>,
@@ -221,6 +191,18 @@ where
 
     fn add(self, rhs: T) -> Self::Output {
         Self(T::add(rhs, self.0))
+    }
+}
+
+impl PartialEq<u64> for ShardId {
+    fn eq(&self, other: &u64) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialOrd<u64> for ShardId {
+    fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
     }
 }
 

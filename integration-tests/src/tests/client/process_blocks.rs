@@ -57,7 +57,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    shard_id_as_u32, AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
+    AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
 };
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -686,7 +686,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+            let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
             let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
             match &mut chunks[0] {
                 ShardChunkHeader::V1(chunk) => {
@@ -1167,6 +1167,7 @@ fn test_bad_orphan() {
                 ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V4(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1259,7 +1260,7 @@ fn test_bad_chunk_mask() {
         {
             let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
-            let mut chunk_headers: Vec<_> = block.chunks().iter().cloned().collect();
+            let mut chunk_headers: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
             chunk_headers[0] = chunk_header;
             block.set_chunks(chunk_headers.clone());
             block
@@ -1418,18 +1419,23 @@ fn test_archival_save_trie_changes() {
 
         // Go through chunks and test that trie changes were correctly saved to the store.
         let chunks = block.chunks();
-        for chunk in chunks.iter() {
+        let version = shard_layout.version();
+        for chunk in chunks.iter_deprecated() {
             let shard_id = chunk.shard_id();
-            let version = shard_layout.version();
+            let shard_uid = ShardUId::new(version, shard_id);
 
-            let shard_uid = ShardUId { version, shard_id: shard_id_as_u32(shard_id) };
             let key = get_block_shard_uid(&block.hash(), &shard_uid);
             let trie_changes: Option<TrieChanges> =
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
 
             if let Some(trie_changes) = trie_changes {
                 // We don't do any transactions in this test so the root should remain unchanged.
-                assert_eq!(trie_changes.old_root, trie_changes.new_root);
+                if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
+                    // After BandwidthScheduler there's a state change at every height, even when there are no transactions
+                    assert!(trie_changes.old_root != trie_changes.new_root);
+                } else {
+                    assert_eq!(trie_changes.old_root, trie_changes.new_root);
+                }
             }
         }
     }
@@ -2311,7 +2317,7 @@ fn test_validate_chunk_extra() {
         block
             .mut_header()
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
-        let outcome_root = Block::compute_outcome_root(block.chunks().iter());
+        let outcome_root = Block::compute_outcome_root(block.chunks().iter_deprecated());
         block.mut_header().set_prev_outcome_root(outcome_root);
         let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), &validator_signer);
         block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature))]]);
@@ -3757,7 +3763,8 @@ mod contract_precompilation_tests {
         let block = env.clients[0].chain.get_block_by_height(sync_height - 1).unwrap();
         let shard_uid = ShardUId::single_shard();
         let shard_id = shard_uid.shard_id();
-        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();

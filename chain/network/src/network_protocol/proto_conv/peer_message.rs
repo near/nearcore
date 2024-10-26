@@ -483,9 +483,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: d.remove_from_connection_store,
             }),
-            ProtoMT::Challenge(c) => PeerMessage::Challenge(
+            ProtoMT::Challenge(c) => PeerMessage::Challenge(Box::new(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
-            ),
+            )),
             ProtoMT::StateRequestHeader(srh) => PeerMessage::StateRequestHeader(
                 srh.shard_id.into(),
                 try_from_required(&srh.sync_hash).map_err(Self::Error::BlockRequest)?,

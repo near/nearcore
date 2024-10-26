@@ -42,8 +42,8 @@ pytest --timeout=240 sanity/state_sync5.py --features nightly
 pytest sanity/state_sync_missing_chunks.py
 pytest sanity/state_sync_missing_chunks.py --features nightly
 
-pytest sanity/single_shard_tracking.py
-pytest sanity/single_shard_tracking.py --features nightly
+pytest --timeout=270 sanity/single_shard_tracking.py
+pytest --timeout=270 sanity/single_shard_tracking.py --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
@@ -71,6 +71,8 @@ pytest --timeout=10m sanity/block_sync_archival.py
 pytest --timeout=10m sanity/block_sync_archival.py --features nightly
 pytest --timeout=120 sanity/block_sync_flat_storage.py
 pytest --timeout=120 sanity/block_sync_flat_storage.py --features nightly
+pytest --timeout=600 sanity/split_storage.py
+pytest --timeout=600 sanity/split_storage.py --features nightly
 pytest --timeout=240 sanity/state_sync_epoch_boundary.py
 pytest --timeout=240 sanity/state_sync_epoch_boundary.py --features nightly
 pytest --timeout=240 sanity/state_sync_then_catchup.py
@@ -113,8 +115,8 @@ pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly
 pytest --timeout=120 sanity/validator_remove_key_quick.py
 pytest --timeout=120 sanity/validator_remove_key_quick.py --features nightly
-pytest --timeout=60 sanity/shadow_tracking.py
-pytest --timeout=60 sanity/shadow_tracking.py --features nightly
+pytest --timeout=150 sanity/shadow_tracking.py
+pytest --timeout=150 sanity/shadow_tracking.py --features nightly
 pytest sanity/proxy_simple.py
 pytest sanity/proxy_simple.py --features nightly
 pytest sanity/proxy_restart.py

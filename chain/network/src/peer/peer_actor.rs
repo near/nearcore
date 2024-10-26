@@ -1082,7 +1082,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.send_async(RecvChallenge(challenge)).await.ok();
+                    network_state.client.send_async(RecvChallenge(*challenge)).await.ok();
                     None
                 }
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state

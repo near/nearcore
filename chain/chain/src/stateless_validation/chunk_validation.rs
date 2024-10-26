@@ -372,7 +372,7 @@ fn validate_source_receipt_proofs(
         // Collect all receipts coming from this block.
         let mut block_receipt_proofs = Vec::new();
 
-        for chunk in block.chunks().iter() {
+        for chunk in block.chunks().iter_deprecated() {
             if !chunk.is_new_chunk(block.header().height()) {
                 continue;
             }
@@ -593,6 +593,7 @@ pub fn apply_result_to_chunk_extra(
         chunk.gas_limit(),
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.bandwidth_requests,
     )
 }
 
@@ -668,7 +669,8 @@ impl Chain {
                     );
                 }
                 Err(err) => {
-                    crate::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
+                    crate::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
                         parent: &parent_span,
