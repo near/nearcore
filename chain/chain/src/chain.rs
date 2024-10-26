@@ -589,15 +589,15 @@ impl Chain {
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         Self::compute_bp_hash_from_validator_stakes(
             &validator_stakes,
-            !ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
+            ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
         )
     }
 
     pub fn compute_bp_hash_from_validator_stakes(
         validator_stakes: &Vec<ValidatorStake>,
-        use_old_bp_has_format: bool,
+        use_versioned_bp_hash_format: bool,
     ) -> Result<CryptoHash, Error> {
-        if !use_old_bp_has_format {
+        if use_versioned_bp_hash_format {
             Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
             let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());

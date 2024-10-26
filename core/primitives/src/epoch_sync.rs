@@ -69,16 +69,33 @@ pub struct EpochSyncProofEpochData {
     /// The block producers and their stake, for this epoch. This is verified
     /// against the `next_bp_hash` of the `last_final_block_header` of the epoch before this.
     pub block_producers: Vec<ValidatorStake>,
-    /// Whether the block producers are encoded in the old format for computing the bp_hash.
-    /// The encodings between old and new format do not collide, so this field does not need
-    /// to be proven.
-    pub use_old_bp_hash_format: bool,
+    /// Whether the block producers are encoded in the versioned format for computing the bp_hash.
+    /// This is verified together with `block_producers` against `next_bp_hash` of the
+    /// `last_final_block_header` of the epoch before this. This field does not need to be trusted,
+    /// because given any valid bp hash, there is only one possible value of this boolean that
+    /// could pass verification, because the two encodings do not collide.
+    ///
+    /// Specifically, the reason that the two encodings do not collide is:
+    ///  - The old version is the borsh encoding of a vector of `ValidatorStakeV1`, meaning the
+    ///    first few bytes are:
+    ///       | vec length (4 bytes) | account id len (4 bytes) | account id (variable length) | ...
+    ///  - The old version is the borsh encoding of a vector of `ValidatorStake` which is an enum,
+    ///    so the first few bytes are:
+    ///       | vec length (4 bytes) | enum tag (1 byte) | ...
+    ///  - Right now, the enum tag is always 0 because there's only ValidatorStakeV2, so
+    ///     - The only way for these two to collide is if the account id length has a lowest byte of
+    ///       zero, which is impossible because a valid AccountId has length between 2 and 64.
+    ///  - In the future, the enum tag can be larger. However, assuming that the first element of
+    ///    ValidatorStakeVx is always AccountId, then the next 4 bytes after enum tag is the length
+    ///    of the account id, but to have a collision the first 3 bytes of that must be zeros, which
+    ///    is again impossible.
+    pub use_versioned_bp_hash_format: bool,
     /// The last final block header of the epoch (i.e. third last block of the epoch).
     /// This is verified against `this_epoch_endorsements_for_last_final_block`.
     pub last_final_block_header: BlockHeader,
     /// Endorsements for the last final block, which comes from the second last block of the epoch.
     /// Since it has a consecutive height from the final block, the approvals included in it are
-    /// are guaranteed to be endorsements which directly endorse the final block.
+    /// guaranteed to be endorsements which directly endorse the final block.
     ///
     /// Note an important subtlety: This is *not* the complete set of approvals included in the
     /// second last block. This is a subset of them that correspond to only this epoch's block

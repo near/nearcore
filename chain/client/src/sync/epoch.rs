@@ -27,7 +27,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, BlockHeightDelta, EpochId};
+use near_primitives::types::{
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId,
+};
 use near_primitives::utils::{compression::CompressedData, index_to_bytes};
 use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, Store, FINAL_HEAD_KEY};
@@ -497,7 +499,7 @@ impl EpochSync {
 
                 Ok(EpochSyncProofEpochData {
                     block_producers: Self::get_epoch_info_block_producers(epoch_info),
-                    use_old_bp_hash_format: !ProtocolFeature::BlockHeaderV3
+                    use_versioned_bp_hash_format: ProtocolFeature::BlockHeaderV3
                         .enabled(prev_epoch_info.protocol_version()),
                     last_final_block_header,
                     this_epoch_endorsements_for_last_final_block:
@@ -790,7 +792,7 @@ impl EpochSync {
         //
         // - Its block producers. To verify this, we compare the previous epoch's last final block's
         //   next_bp_hash against the hash of the current epoch's block producers, taking into
-        //   account the use_old_bp_hash_format flag.
+        //   account the use_versioned_bp_hash_format flag.
         // - Its last final block. To verify this, we use the endorsements provided for the final
         //   block. What we verify is that more than 2/3 of the block producers of the current epoch
         //   have endorsed the final block.
@@ -801,7 +803,7 @@ impl EpochSync {
             let prev_epoch = &all_epochs[epoch_index - 1];
             if !Self::verify_block_producer_handoff(
                 &epoch.block_producers,
-                epoch.use_old_bp_hash_format,
+                epoch.use_versioned_bp_hash_format,
                 prev_epoch.last_final_block_header.next_bp_hash(),
             )? {
                 return Err(Error::InvalidEpochSyncProof(format!(
@@ -884,11 +886,13 @@ impl EpochSync {
     /// returning true if it is.
     fn verify_block_producer_handoff(
         block_producers: &Vec<ValidatorStake>,
-        use_old_bp_hash_format: bool,
+        use_versioned_bp_hash_format: bool,
         prev_epoch_next_bp_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        let bp_hash =
-            Chain::compute_bp_hash_from_validator_stakes(block_producers, use_old_bp_hash_format)?;
+        let bp_hash = Chain::compute_bp_hash_from_validator_stakes(
+            block_producers,
+            use_versioned_bp_hash_format,
+        )?;
         Ok(bp_hash == *prev_epoch_next_bp_hash)
     }
 
@@ -924,6 +928,9 @@ impl EpochSync {
             block_height + 1,
         );
 
+        let mut total_stake: Balance = 0;
+        let mut endorsed_stake: Balance = 0;
+
         for (validator, may_be_signature) in block_producers.iter().zip(endorsements.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(&message_to_sign, validator.public_key()) {
@@ -933,17 +940,14 @@ impl EpochSync {
                         validator.account_id()
                     )));
                 }
+                endorsed_stake += validator.stake();
             }
+            total_stake += validator.stake();
         }
 
-        let stakes = block_producers.iter().map(|x| (x.stake(), 0, false)).collect::<Vec<_>>();
-        if !Doomslug::can_approved_block_be_produced(
-            DoomslugThresholdMode::TwoThirds,
-            endorsements,
-            &stakes,
-        ) {
+        if endorsed_stake <= total_stake * 2 / 3 {
             return Err(near_chain::Error::InvalidEpochSyncProof(format!(
-                "Block {} does not have enough approvals",
+                "Block {} does not have enough endorsements",
                 block_height
             )));
         }
