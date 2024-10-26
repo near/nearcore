@@ -2187,7 +2187,8 @@ fn test_sync_hash_validity() {
         env.produce_block(0, i);
     }
     for i in 1..19 {
-        let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
+        let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
+        let block_hash = *header.hash();
         let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
         println!("height {} -> {}", i, valid);
         if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
@@ -2195,7 +2196,7 @@ fn test_sync_hash_validity() {
             // with TestEnv::produce_block()
             assert_eq!(valid, (i % epoch_length) == 3);
         } else {
-            assert_eq!(valid, (i % epoch_length) == 1);
+            assert_eq!(valid, header.epoch_id() != &EpochId::default() && (i % epoch_length) == 1);
         }
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
