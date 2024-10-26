@@ -513,6 +513,11 @@ pub mod validator_stake {
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
+        // Warning: if you're adding a new version, make sure that the borsh encoding of
+        // any `ValidatorStake` cannot be equal to the borsh encoding of any `ValidatorStakeV1`.
+        // See `EpochSyncProofEpochData::use_versioned_bp_hash_format` for an explanation.
+        // The simplest way to ensure that is to make sure that any new `ValidatorStakeVx`
+        // begins with a field of type `AccountId`.
     }
 
     pub struct ValidatorStakeIter<'a> {
