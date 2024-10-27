@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_parameters::RuntimeConfig;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
+
+pub type Bandwidth = u64;
 
 /// A list of shard's bandwidth requests.
 /// Describes how much the shard would like to send to other shards.
@@ -105,4 +109,139 @@ impl BlockBandwidthRequests {
 pub struct BandwidthSchedulerState {
     /// Random data for now
     pub mock_data: [u8; 32],
+}
+
+/// Parameters used in the bandwidth scheduler algorithm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BandwidthSchedulerParams {
+    /// This much bandwidth is granted by default.
+    pub base_bandwidth: Bandwidth,
+    /// The maximum amount of data that a shard can send or receive at a single height.
+    pub max_shard_bandwidth: Bandwidth,
+    /// Maximum size of a single receipt.
+    pub max_receipt_size: Bandwidth,
+    /// Maximum bandwidth allowance that a link can accumulate.
+    pub max_allowance: Bandwidth,
+}
+
+impl BandwidthSchedulerParams {
+    pub fn calculate_from_config(
+        num_shards: NonZeroU64,
+        runtime_config: &RuntimeConfig,
+    ) -> BandwidthSchedulerParams {
+        // TODO(bandwidth_scheduler) - put these parameters in RuntimeConfig.
+        let max_shard_bandwidth: Bandwidth = 4_500_000;
+        let max_allowance = max_shard_bandwidth;
+        let max_base_bandwidth = 100_000;
+
+        let max_receipt_size = runtime_config.wasm_config.limit_config.max_receipt_size;
+
+        if max_shard_bandwidth < max_receipt_size {
+            panic!(
+                "max_shard_bandwidth is smaller than max_receipt_size! ({} < {}).
+                Invalid configuration - it'll be impossible to send a maximum size receipt.",
+                max_shard_bandwidth, max_receipt_size
+            );
+        }
+
+        // A receipt with maximum size must still be able to get through
+        // after base bandwidth is granted to everyone. We have to ensure that:
+        // base_bandwidth * num_shards + max_receipt_size <= max_shard_bandwidth
+        let available_bandwidth = max_shard_bandwidth - max_receipt_size;
+        let mut base_bandwidth = available_bandwidth / num_shards;
+        if base_bandwidth > max_base_bandwidth {
+            base_bandwidth = max_base_bandwidth;
+        }
+
+        BandwidthSchedulerParams {
+            base_bandwidth,
+            max_shard_bandwidth,
+            max_receipt_size,
+            max_allowance,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+    use std::ops::Deref;
+    use std::sync::Arc;
+
+    use near_parameters::RuntimeConfig;
+
+    use super::BandwidthSchedulerParams;
+
+    fn make_runtime_config(max_receipt_size: u64) -> RuntimeConfig {
+        let mut runtime_config = RuntimeConfig::test();
+
+        // wasm_config is in Arc, need to clone, modify and set new Arc to modify parameter
+        let mut wasm_config = runtime_config.wasm_config.deref().clone();
+        wasm_config.limit_config.max_receipt_size = max_receipt_size;
+        runtime_config.wasm_config = Arc::new(wasm_config);
+
+        runtime_config
+    }
+
+    /// Ensure that a maximum size receipt can still be sent after granting everyone
+    /// base bandwidth without going over the max_shard_bandwidth limit.
+    fn assert_max_size_can_get_through(params: &BandwidthSchedulerParams, num_shards: u64) {
+        assert!(
+            num_shards * params.base_bandwidth + params.max_receipt_size
+                <= params.max_shard_bandwidth
+        )
+    }
+
+    #[test]
+    fn test_scheduler_params_one_shard() {
+        let max_receipt_size = 4 * 1024 * 1024;
+        let num_shards = 1;
+
+        let runtime_config = make_runtime_config(max_receipt_size);
+        let scheduler_params = BandwidthSchedulerParams::calculate_from_config(
+            NonZeroU64::new(num_shards).unwrap(),
+            &runtime_config,
+        );
+        let expected = BandwidthSchedulerParams {
+            base_bandwidth: 100_000,
+            max_shard_bandwidth: 4_500_000,
+            max_receipt_size,
+            max_allowance: 4_500_000,
+        };
+        assert_eq!(scheduler_params, expected);
+        assert_max_size_can_get_through(&scheduler_params, num_shards);
+    }
+
+    #[test]
+    fn test_scheduler_params_six_shards() {
+        let max_receipt_size = 4 * 1024 * 1024;
+        let num_shards = 6;
+
+        let runtime_config = make_runtime_config(max_receipt_size);
+        let scheduler_params = BandwidthSchedulerParams::calculate_from_config(
+            NonZeroU64::new(num_shards).unwrap(),
+            &runtime_config,
+        );
+        let expected = BandwidthSchedulerParams {
+            base_bandwidth: (4_500_000 - max_receipt_size) / 6,
+            max_shard_bandwidth: 4_500_000,
+            max_receipt_size,
+            max_allowance: 4_500_000,
+        };
+        assert_eq!(scheduler_params, expected);
+        assert_max_size_can_get_through(&scheduler_params, num_shards);
+    }
+
+    /// max_receipt_size is larger than max_shard_bandwidth - incorrect configuration
+    #[test]
+    #[should_panic]
+    fn test_scheduler_params_invalid_config() {
+        let max_receipt_size = 40 * 1024 * 1024;
+        let num_shards = 6;
+        let runtime_config = make_runtime_config(max_receipt_size);
+        BandwidthSchedulerParams::calculate_from_config(
+            NonZeroU64::new(num_shards).unwrap(),
+            &runtime_config,
+        );
+    }
 }
