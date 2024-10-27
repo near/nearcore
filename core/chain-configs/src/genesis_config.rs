@@ -194,6 +194,7 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
     #[serde(default = "default_shard_layout")]
+    // FIXME eagr what should be the default?
     #[default(ShardLayout::v0(1, 0))]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_num_chunk_only_producer_seats")]

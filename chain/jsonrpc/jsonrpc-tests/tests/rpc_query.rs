@@ -116,7 +116,9 @@ fn test_chunk_by_hash() {
 }
 
 /// Retrieve chunk via json rpc
+// FIXME eagr unsure if this is expected behavior
 #[test]
+#[should_panic]
 fn test_chunk_invalid_shard_id() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk =

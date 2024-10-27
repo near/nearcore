@@ -355,6 +355,7 @@ fn test_protocol_upgrade_81() {
 }
 
 /// Test that Client rejects ChunkStateWitnesses with invalid shard_id
+// FIXME eagr unsure if this is expected behavior
 #[test]
 #[should_panic(expected = "no entry found for key")]
 fn test_chunk_state_witness_bad_shard_id() {

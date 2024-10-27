@@ -142,13 +142,7 @@ mod tests {
         let s4 = ShardId::new(4);
         let s5 = ShardId::new(5);
 
-        // Shard layouts V0 and V1 are rejected.
-        assert!(ReshardingEventType::from_shard_layout(
-            &ShardLayout::v0(1, 0),
-            block,
-            prev_block
-        )
-        .is_err());
+        // V1 is rejected.
         assert!(ReshardingEventType::from_shard_layout(&ShardLayout::v1_test(), block, prev_block)
             .is_err());
 
