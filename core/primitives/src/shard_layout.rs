@@ -241,9 +241,34 @@ pub enum ShardLayoutError {
 }
 
 impl ShardLayout {
-    /* Some constructors */
-    pub fn v0_single_shard() -> Self {
-        Self::v0(1, 0)
+    /// Construct a layout with a single shard
+    pub fn single_shard() -> Self {
+        Self::of_num_shards(1, 0)
+    }
+
+    /// Construct a layout with given number of shards
+    pub fn of_num_shards(num_shards: NumShards, version: ShardVersion) -> Self {
+        assert!(num_shards > 0, "at least 1 shard is required");
+
+        let boundary_accounts = (0..num_shards - 1)
+            .map(|i| format!("shard{}.test.near", i).parse().unwrap())
+            .collect::<Vec<AccountId>>();
+        let shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        let (id_to_index_map, index_to_id_map) = shard_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &shard_id)| ((shard_id, i), (i, shard_id)))
+            .unzip();
+
+        Self::V2(ShardLayoutV2 {
+            boundary_accounts,
+            shard_ids,
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map: None,
+            shards_parent_map: None,
+            version,
+        })
     }
 
     /// Return a V0 Shardlayout

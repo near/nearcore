@@ -975,7 +975,7 @@ pub fn init_configs(
                     1,
                 )
             } else {
-                ShardLayout::v0_single_shard()
+                ShardLayout::v0(1, 0)
             };
 
             let genesis_config = GenesisConfig {

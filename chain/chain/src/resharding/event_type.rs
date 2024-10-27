@@ -144,7 +144,7 @@ mod tests {
 
         // Shard layouts V0 and V1 are rejected.
         assert!(ReshardingEventType::from_shard_layout(
-            &ShardLayout::v0_single_shard(),
+            &ShardLayout::v0(1, 0),
             block,
             prev_block
         )
