@@ -8,9 +8,10 @@ use crate::client::{
 };
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
+    ChunkContractAccessesMessage, ChunkContractDeploymentsMessage, ChunkStateWitnessAckMessage,
+    ContractCodeRequestMessage, ContractCodeResponseMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    PartialWitnessSenderForNetwork,
 };
 use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -361,12 +362,21 @@ fn network_message_to_partial_witness_handler(
             }
             None
         }
-        NetworkRequests::ChunkContractAccesses(chunk_validators, contract_accesses) => {
+        NetworkRequests::ChunkContractAccesses(chunk_validators, accesses) => {
             for target in chunk_validators {
                 shared_state
                     .senders_for_account(&target)
                     .partial_witness_sender
-                    .send(ChunkContractAccessesMessage(contract_accesses.clone()));
+                    .send(ChunkContractAccessesMessage(accesses.clone()));
+            }
+            None
+        }
+        NetworkRequests::ChunkContractDeployments(validators, deploys) => {
+            for target in validators {
+                shared_state
+                    .senders_for_account(&target)
+                    .partial_witness_sender
+                    .send(ChunkContractDeploymentsMessage(deploys.clone()));
             }
             None
         }
