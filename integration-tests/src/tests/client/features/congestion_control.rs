@@ -159,7 +159,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
         let protocol_config = client.runtime_adapter.get_protocol_config(&epoch_id).unwrap();
         let runtime_config = protocol_config.runtime_config;
 
-        for (shard_index, chunk) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
 
             let prev_state_root = chunk.prev_state_root();
@@ -239,7 +239,7 @@ fn test_protocol_upgrade_simple() {
     assert!(chunks.len() > 0);
 
     let config = head_congestion_control_config(&env);
-    for chunk_header in chunks.iter() {
+    for chunk_header in chunks.iter_deprecated() {
         let congestion_info = chunk_header
             .congestion_info()
             .expect("chunk header must have congestion info after upgrade");
@@ -320,7 +320,7 @@ fn test_protocol_upgrade_under_congestion() {
     // check congestion info is available
     let block = env.clients[0].chain.get_head_block().unwrap();
     let chunks = block.chunks();
-    for chunk_header in chunks.iter() {
+    for chunk_header in chunks.iter_deprecated() {
         chunk_header
             .congestion_info()
             .expect("chunk header must have congestion info after upgrade");
@@ -403,7 +403,7 @@ fn check_old_protocol(env: &TestEnv) {
     let block = env.clients[0].chain.get_head_block().unwrap();
     let chunks = block.chunks();
     assert!(chunks.len() > 0, "no chunks in block");
-    for chunk_header in chunks.iter() {
+    for chunk_header in chunks.iter_deprecated() {
         assert!(
             chunk_header.congestion_info().is_none(),
             "old protocol should not have congestion info but found {:?}",

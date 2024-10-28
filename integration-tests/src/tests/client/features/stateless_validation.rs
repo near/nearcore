@@ -348,7 +348,7 @@ fn test_protocol_upgrade_81() {
         chunk_producer_kickout_threshold: 90,
         ..Default::default()
     };
-    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
+    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config, None);
     let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
     assert_eq!(config.block_producer_kickout_threshold, 90);
     assert_eq!(config.chunk_producer_kickout_threshold, 90);

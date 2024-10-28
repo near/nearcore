@@ -64,7 +64,7 @@ fn change_shard_id_to_invalid() {
     // 1. Corrupt chunks
     let bad_shard_id = ShardId::new(100);
     let mut new_chunks = vec![];
-    for chunk in block.chunks().iter() {
+    for chunk in block.chunks().iter_deprecated() {
         let mut new_chunk = chunk.clone();
         match &mut new_chunk {
             ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
@@ -73,6 +73,7 @@ fn change_shard_id_to_invalid() {
                 ShardChunkHeaderInner::V1(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V2(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V3(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V4(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);

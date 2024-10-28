@@ -85,6 +85,7 @@ impl<'a> ChainUpdate<'a> {
         should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing", height=block.header().height()).entered();
+        Self::bandwidth_scheduler_state_sanity_check(&apply_results);
         for result in apply_results {
             self.process_apply_chunk_result(block, result, should_save_state_transition_data)?;
         }
@@ -123,6 +124,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_limit,
                         apply_result.total_balance_burnt,
                         apply_result.congestion_info,
+                        apply_result.bandwidth_requests,
                     ),
                 );
 
@@ -156,6 +158,7 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
                         apply_result.contract_accesses,
+                        apply_result.contract_deploys,
                     );
                 }
             }
@@ -186,11 +189,30 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
                         apply_result.contract_accesses,
+                        apply_result.contract_deploys,
                     );
                 }
             }
         };
         Ok(())
+    }
+
+    /// Extra sanity check for bandwdith scheduler - the scheduler state should be the same on all shards.
+    fn bandwidth_scheduler_state_sanity_check(apply_results: &[ShardUpdateResult]) {
+        let state_hashes: Vec<CryptoHash> = apply_results
+            .iter()
+            .map(|r| match r {
+                ShardUpdateResult::NewChunk(new_res) => {
+                    new_res.apply_result.bandwidth_scheduler_state_hash
+                }
+                ShardUpdateResult::OldChunk(old_res) => {
+                    old_res.apply_result.bandwidth_scheduler_state_hash
+                }
+            })
+            .collect();
+        for hash in &state_hashes {
+            assert_eq!(*hash, state_hashes[0]);
+        }
     }
 
     /// This is the last step of process_block_single, where we take the preprocess block info
@@ -527,6 +549,7 @@ impl<'a> ChainUpdate<'a> {
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
                 congestion_info: block.block_congestion_info(),
+                bandwidth_requests: block.block_bandwidth_requests(),
             },
             &receipts,
             chunk.transactions(),
@@ -562,6 +585,7 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_balance_burnt,
             apply_result.congestion_info,
+            apply_result.bandwidth_requests,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
@@ -633,6 +657,7 @@ impl<'a> ChainUpdate<'a> {
                 &block_header,
                 prev_block_header.next_gas_price(),
                 block.block_congestion_info(),
+                block.block_bandwidth_requests(),
             ),
             &[],
             &[],

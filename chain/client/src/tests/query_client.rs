@@ -1,18 +1,13 @@
-use crate::test_utils::{setup_no_network, setup_only_view};
+use crate::test_utils::setup_no_network;
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
-use near_async::messaging::IntoMultiSender;
 use near_async::time::{Clock, Duration};
-use near_chain::test_utils::ValidatorSchedule;
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::client::{
-    BlockResponse, ProcessTxRequest, ProcessTxResponse, StateRequestHeader,
-};
-use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -20,7 +15,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockId, BlockReference, EpochId, ShardId};
+use near_primitives::types::{BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
@@ -215,63 +210,5 @@ fn test_execution_outcome_for_chunk() {
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(5000);
-    });
-}
-
-#[test]
-fn test_state_request() {
-    run_actix(async {
-        let vs =
-            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let view_client = setup_only_view(
-            Clock::real(),
-            vs,
-            10000000,
-            "test".parse().unwrap(),
-            true,
-            200,
-            400,
-            false,
-            true,
-            true,
-            MockPeerManagerAdapter::default().into_multi_sender(),
-            100,
-        );
-        actix::spawn(async move {
-            actix::clock::sleep(std::time::Duration::from_millis(500)).await;
-            let block_hash = view_client
-                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
-                .await
-                .unwrap()
-                .unwrap()
-                .header
-                .hash;
-            for _ in 0..30 {
-                let res = view_client
-                    .send(
-                        StateRequestHeader { shard_id: ShardId::new(0), sync_hash: block_hash }
-                            .with_span_context(),
-                    )
-                    .await
-                    .unwrap();
-                assert!(res.is_some());
-            }
-
-            // immediately query again, should be rejected
-            let shard_id = ShardId::new(0);
-            let res = view_client
-                .send(StateRequestHeader { shard_id, sync_hash: block_hash }.with_span_context())
-                .await
-                .unwrap();
-            assert!(res.is_none());
-            actix::clock::sleep(std::time::Duration::from_secs(40)).await;
-            let res = view_client
-                .send(StateRequestHeader { shard_id, sync_hash: block_hash }.with_span_context())
-                .await
-                .unwrap();
-            assert!(res.is_some());
-            System::current().stop();
-        });
-        near_network::test_utils::wait_or_panic(50000);
     });
 }

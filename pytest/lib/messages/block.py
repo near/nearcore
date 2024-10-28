@@ -188,6 +188,8 @@ class ShardChunkHeaderV3:
             encoded_merkle_root = inner.V2.encoded_merkle_root
         elif inner.enum == 'V3':
             encoded_merkle_root = inner.V3.encoded_merkle_root
+        elif inner.enum == 'V4':
+            encoded_merkle_root = inner.V4.encoded_merkle_root
         assert encoded_merkle_root is not None, f"Unknown ShardChunkHeaderV3 enum variant: {inner.enum}"
 
         inner_serialized = BinarySerializer(
@@ -210,6 +212,10 @@ class ShardChunkHeaderInnerV2:
 
 
 class ShardChunkHeaderInnerV3:
+    pass
+
+
+class ShardChunkHeaderInnerV4:
     pass
 
 
@@ -242,6 +248,8 @@ class PartialEncodedChunk:
                     return header.V3.inner.V2
                 elif v3_inner_version == 'V3':
                     return header.V3.inner.V3
+                elif v3_inner_version == 'V4':
+                    return header.V3.inner.V4
             assert False, "unknown header version"
 
     def chunk_hash(self):
@@ -305,6 +313,18 @@ class CongestionInfo:
 
 
 class CongestionInfoV1:
+    pass
+
+
+class BandwidthRequests:
+    pass
+
+
+class BandwidthRequestsV1:
+    pass
+
+
+class BandwidthRequest:
     pass
 
 
@@ -746,7 +766,8 @@ block_schema = [
                 'enum',
             'values': [['V1', ShardChunkHeaderInnerV1],
                        ['V2', ShardChunkHeaderInnerV2],
-                       ['V3', ShardChunkHeaderInnerV3]]
+                       ['V3', ShardChunkHeaderInnerV3],
+                       ['V4', ShardChunkHeaderInnerV4]]
         }
     ],
     [
@@ -810,6 +831,29 @@ block_schema = [
                 ['tx_root', [32]],
                 ['validator_proposals', [ValidatorStake]],
                 ['congestion_info', CongestionInfo],
+            ]
+        }
+    ],
+    [
+        ShardChunkHeaderInnerV4, {
+            'kind':
+                'struct',
+            'fields': [
+                ['prev_block_hash', [32]],
+                ['prev_state_root', [32]],
+                ['outcome_root', [32]],
+                ['encoded_merkle_root', [32]],
+                ['encoded_length', 'u64'],
+                ['height_created', 'u64'],
+                ['shard_id', 'u64'],
+                ['gas_used', 'u64'],
+                ['gas_limit', 'u64'],
+                ['balance_burnt', 'u128'],
+                ['outgoing_receipt_root', [32]],
+                ['tx_root', [32]],
+                ['validator_proposals', [ValidatorStake]],
+                ['congestion_info', CongestionInfo],
+                ['bandwidth_requests', BandwidthRequests],
             ]
         }
     ],
@@ -977,6 +1021,29 @@ block_schema = [
                 ['receipt_bytes', 'u64'],
                 ['allowed_shard', 'u16'],
             ]
+        }
+    ],
+    [
+        BandwidthRequests, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', BandwidthRequestsV1]]
+        }
+    ],
+    [
+        BandwidthRequestsV1, {
+            'kind': 'struct',
+            'fields': [['requests', [BandwidthRequest]]]
+        }
+    ],
+    [
+        BandwidthRequest,
+        {
+            'kind':
+                'struct',
+            'fields': [['to_shard', 'u8'
+                       ]  # TODO(bandwidth_scheduler) - add requested values
+                      ]
         }
     ],
     [

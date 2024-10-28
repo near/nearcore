@@ -141,6 +141,10 @@ impl ChainStore {
         let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
         let tries = runtime_adapter.get_tries();
         let head = self.head()?;
+        if head.height == self.get_genesis_height() {
+            // Nothing to do if head is at genesis. Return early because some of the later queries would fail.
+            return Ok(());
+        }
         let tail = self.tail()?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
@@ -318,6 +322,7 @@ impl ChainStore {
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
         let sync_height = header.height();
+        // TODO(current_epoch_state_sync): fix this when syncing to the current epoch's state
         // The congestion control added a dependency on the prev block when
         // applying chunks in a block. This means that we need to keep the
         // blocks at sync hash, prev hash and prev prev hash. The heigh of that
@@ -331,7 +336,7 @@ impl ChainStore {
         let prev_block = self.get_block(&prev_hash);
         if let Ok(prev_block) = prev_block {
             let min_height_included =
-                prev_block.chunks().iter().map(|chunk| chunk.height_included()).min();
+                prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
             if let Some(min_height_included) = min_height_included {
                 tracing::debug!(target: "sync", ?min_height_included, ?gc_height, "adjusting gc_height for missing chunks");
                 gc_height = std::cmp::min(gc_height, min_height_included - 1);
@@ -650,7 +655,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks, chunk-indexed data and block headers
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks().iter() {
+                for chunk_header in block.chunks().iter_deprecated() {
                     if min_chunk_height > chunk_header.height_created() {
                         min_chunk_height = chunk_header.height_created();
                     }
@@ -832,8 +837,10 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
-        for chunk_header in
-            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
+        for chunk_header in block
+            .chunks()
+            .iter_deprecated()
+            .filter(|h| h.height_included() == block.header().height())
         {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.

@@ -599,9 +599,10 @@ pub(crate) async fn start(
                                     header: None,
                                     part,
                                 });
-                            let result = Some(StateResponse(Box::new(StateResponseInfo::V2(
-                                StateResponseInfoV2 { shard_id, sync_hash, state_response },
-                            ))));
+                            let result =
+                                Some(StateResponse(Box::new(StateResponseInfo::V2(Box::new(
+                                    StateResponseInfoV2 { shard_id, sync_hash, state_response },
+                                )))));
                             (msg.callback)(std::future::ready(Ok(result)).boxed());
                             send.send(Event::Client(
                                 ClientSenderForNetworkInput::_state_request_part(msg.message),
