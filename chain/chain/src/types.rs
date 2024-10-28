@@ -570,7 +570,7 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Default::default(); shard_ids.len()],
+            vec![Some(Default::default()); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
