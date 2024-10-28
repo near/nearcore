@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, RngSeed};
@@ -16,8 +17,10 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
+use near_vm_runner::{get_contract_cache_key, CompiledContract, CompiledContractInfo};
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -1844,4 +1847,46 @@ fn stake(
         CryptoHash::default(),
         0,
     )
+}
+
+/// Tests that precompiling a set of contracts updates the compiled contract cache.
+#[test]
+fn test_precompilation_updates_compiled_contract_cache() {
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let store = near_store::test_utils::create_test_store();
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+
+    let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
+    let runtime = NightshadeRuntime::test_with_runtime_config_store(
+        tempdir.path(),
+        store.clone(),
+        contract_cache.handle(),
+        &genesis.config,
+        epoch_manager.clone(),
+        RuntimeConfigStore::new(None),
+        StateSnapshotType::EveryEpoch,
+    );
+
+    let contracts = vec![
+        ContractCode::new(near_test_contracts::sized_contract(100).to_vec(), None),
+        ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
+        ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None),
+    ];
+    let code_hashes: Vec<CryptoHash> = contracts.iter().map(|c| c.hash()).cloned().collect();
+
+    runtime.precompile_contracts(&EpochId::default(), contracts).unwrap();
+
+    for code_hash in code_hashes.into_iter() {
+        let cache_key = get_contract_cache_key(
+            code_hash,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+        );
+        let contract = contract_cache.get(&cache_key).unwrap();
+        assert_matches!(
+            contract,
+            Some(CompiledContractInfo { compiled: CompiledContract::Code(_), .. })
+        );
+    }
 }

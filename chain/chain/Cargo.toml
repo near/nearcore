@@ -57,6 +57,7 @@ near-mainnet-res.workspace = true
 near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
+near-test-contracts.workspace = true
 near-primitives = { workspace = true, features = ["clock"] }
 serde_json.workspace = true
 primitive-types.workspace = true
