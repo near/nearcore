@@ -119,8 +119,8 @@ pub(crate) fn test_protocol_upgrade(
     // Translate shard ids to shard uids
     let chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>> = missing_chunk_ranges
         .iter()
-        .map(|(shard_id, range)| {
-            let shard_uid = ShardUId { version: 1, shard_id: shard_id.get().try_into().unwrap() };
+        .map(|(&shard_id, range)| {
+            let shard_uid = ShardUId::new(1, shard_id);
             (shard_uid, range.clone())
         })
         .collect();

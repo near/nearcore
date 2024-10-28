@@ -1,8 +1,10 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
+use crate::block::Block;
 use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
+use crate::shard_layout::ShardLayout;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -58,16 +60,121 @@ impl From<CryptoHash> for ChunkHash {
     }
 }
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
-/// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct StateSyncInfo {
-    /// The first block of the epoch for which syncing is happening
-    pub epoch_tail_hash: CryptoHash,
+impl ShardInfo {
+    fn new(prev_block: &Block, shard_layout: &ShardLayout, shard_id: ShardId) -> Self {
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk = &prev_block.chunks()[shard_index];
+        Self(shard_id, chunk.chunk_hash())
+    }
+}
+
+/// This version of the type is used in the old state sync, where we sync to the state right before the new epoch
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct StateSyncInfoV0 {
+    /// The "sync_hash" block referred to in the state sync algorithm. This is the first block of the
+    /// epoch we want to state sync for. This field is not strictly required since this struct is keyed
+    /// by this hash in the database, but it's a small amount of data that makes the info in this type more complete.
+    pub sync_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
+}
+
+/// This version of the type is used when syncing to the current epoch's state, and `sync_hash` is an
+/// Option because it is not known at the beginning of the epoch, but only until a few more blocks are produced.
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct StateSyncInfoV1 {
+    /// The first block of the epoch we want to state sync for. This field is not strictly required since
+    /// this struct is keyed by this hash in the database, but it's a small amount of data that makes
+    /// the info in this type more complete.
+    pub epoch_first_block: CryptoHash,
+    /// The block we'll use as the "sync_hash" when state syncing. Previously, state sync
+    /// used the first block of an epoch as the "sync_hash", and synced state to the epoch before.
+    /// Now that state sync downloads the state of the current epoch, we need to wait a few blocks
+    /// after applying the first block in an epoch to know what "sync_hash" we'll use, so this field
+    /// is first set to None until we find the right "sync_hash".
+    pub sync_hash: Option<CryptoHash>,
+    /// Shards to fetch state
+    pub shards: Vec<ShardInfo>,
+}
+
+/// Contains the information that is used to sync state for shards as epochs switch
+/// Currently there is only one version possible, but an improvement we might want to make in the future
+/// is that when syncing to the current epoch's state, we currently wait for two new chunks in each shard, but
+/// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
+/// in order to allow for this change in the future without needing another database migration.
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub enum StateSyncInfo {
+    /// Old state sync: sync to the state right before the new epoch
+    V0(StateSyncInfoV0),
+    /// New state sync: sync to the state right after the new epoch
+    V1(StateSyncInfoV1),
+}
+
+fn shard_infos(
+    prev_block: &Block,
+    shard_layout: &ShardLayout,
+    shards: &[ShardId],
+) -> Vec<ShardInfo> {
+    shards.iter().map(|shard_id| ShardInfo::new(prev_block, shard_layout, *shard_id)).collect()
+}
+
+impl StateSyncInfo {
+    pub fn new_previous_epoch(
+        epoch_first_block: CryptoHash,
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shards: &[ShardId],
+    ) -> Self {
+        Self::V0(StateSyncInfoV0 {
+            sync_hash: epoch_first_block,
+            shards: shard_infos(prev_block, shard_layout, shards),
+        })
+    }
+
+    fn new_current_epoch(
+        epoch_first_block: CryptoHash,
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shards: &[ShardId],
+    ) -> Self {
+        Self::V1(StateSyncInfoV1 {
+            epoch_first_block,
+            sync_hash: None,
+            shards: shard_infos(prev_block, shard_layout, shards),
+        })
+    }
+
+    pub fn new(
+        protocol_version: ProtocolVersion,
+        epoch_first_block: CryptoHash,
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shards: &[ShardId],
+    ) -> Self {
+        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+            Self::new_current_epoch(epoch_first_block, prev_block, shard_layout, shards)
+        } else {
+            Self::new_previous_epoch(epoch_first_block, prev_block, shard_layout, shards)
+        }
+    }
+
+    /// Block hash that identifies this state sync struct on disk
+    pub fn epoch_first_block(&self) -> &CryptoHash {
+        match self {
+            Self::V0(info) => &info.sync_hash,
+            Self::V1(info) => &info.epoch_first_block,
+        }
+    }
+
+    pub fn shards(&self) -> &[ShardInfo] {
+        match self {
+            Self::V0(info) => &info.shards,
+            Self::V1(info) => &info.shards,
+        }
+    }
 }
 
 pub mod shard_chunk_header_inner;

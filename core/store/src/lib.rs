@@ -335,6 +335,15 @@ impl Store {
         self.storage.iter(col)
     }
 
+    pub fn iter_ser<'a, T: BorshDeserialize>(
+        &'a self,
+        col: DBCol,
+    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+        self.storage
+            .iter(col)
+            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
+    }
+
     /// Fetches raw key/value pairs from the database.
     ///
     /// Practically, this means that for rc columns rc is included in the value.

@@ -27,8 +27,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    shard_id_as_u32, AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, ShardId,
-    StateChangeCause,
+    AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
@@ -2018,7 +2017,7 @@ fn test_congestion_buffering() {
     // want local forwarding in the test, hence we need to use a different
     // shard id.
     let local_shard = ShardId::new(1);
-    let local_shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(local_shard) };
+    let local_shard_uid = ShardUId::new(0, local_shard);
     let receiver_shard = ShardId::new(0);
 
     let initial_balance = to_yocto(1_000_000);
@@ -2172,7 +2171,7 @@ fn commit_apply_result(
 ) -> CryptoHash {
     // congestion control requires an update on
     let shard_id = apply_state.shard_id;
-    let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
+    let shard_uid = ShardUId::new(0, shard_id);
     if let Some(congestion_info) = apply_result.congestion_info {
         apply_state
             .congestion_info

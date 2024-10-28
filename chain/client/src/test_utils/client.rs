@@ -5,7 +5,7 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
-use crate::client::ProduceChunkResult;
+use crate::client::{CatchupState, ProduceChunkResult};
 use crate::Client;
 use actix_rt::System;
 use itertools::Itertools;
@@ -308,11 +308,11 @@ pub fn run_catchup(
                 .into_iter()
                 .map(|res| res.1)
                 .collect_vec();
-            if let Some((_, _, blocks_catch_up_state)) =
+            if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
-                assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-                blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
+                assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+                catchup.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }

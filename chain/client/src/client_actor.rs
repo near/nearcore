@@ -7,7 +7,7 @@
 
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
-use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
@@ -15,7 +15,7 @@ use crate::stateless_validation::partial_witness::partial_witness_actor::Partial
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
-use crate::sync::state::{get_epoch_start_sync_hash, StateSyncResult};
+use crate::sync::state::StateSyncResult;
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{metrics, StatusResponse};
 use actix::Actor;
@@ -623,7 +623,9 @@ impl Handler<StateResponseReceived> for ClientActorInner {
         }
 
         // ... Or one of the catchups
-        if let Some((state_sync, _, _)) = self.client.catchup_state_syncs.get_mut(&hash) {
+        if let Some(CatchupState { state_sync, .. }) =
+            self.client.catchup_state_syncs.get_mut(&hash)
+        {
             if let Err(err) = state_sync.apply_peer_message(peer_id, shard_id, hash, state_response)
             {
                 tracing::error!(?err, "Error applying catchup state sync response");
@@ -1574,21 +1576,22 @@ impl ClientActorInner {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
+    fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
-        let sync_hash = header_head.last_block_hash;
-        let epoch_start_sync_hash = get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+        let sync_hash = match self.client.chain.get_sync_hash(&header_head.last_block_hash)? {
+            Some(h) => h,
+            None => return Ok(None),
+        };
 
         let genesis_hash = self.client.chain.genesis().hash();
         tracing::debug!(
             target: "sync",
             ?header_head,
             ?sync_hash,
-            ?epoch_start_sync_hash,
             ?genesis_hash,
             "find_sync_hash");
-        assert_ne!(&epoch_start_sync_hash, genesis_hash);
-        Ok(epoch_start_sync_hash)
+        assert_ne!(&sync_hash, genesis_hash);
+        Ok(Some(sync_hash))
     }
 
     /// Runs catchup on repeat, if this client is a validator.
@@ -1729,7 +1732,8 @@ impl ClientActorInner {
 
         let sync_hash = match &self.client.sync_status {
             SyncStatus::StateSync(s) => s.sync_hash,
-            _ => unreachable!("Sync status should have been StateSync!"),
+            // sync hash isn't known yet. Return and try again later.
+            _ => return,
         };
 
         let me = signer.as_ref().map(|x| x.validator_id().clone());
@@ -1885,7 +1889,11 @@ impl ClientActorInner {
             return Ok(());
         }
 
-        let sync_hash = self.find_sync_hash()?;
+        let sync_hash = if let Some(sync_hash) = self.find_sync_hash()? {
+            sync_hash
+        } else {
+            return Ok(());
+        };
         if !self.client.config.archive {
             self.client.chain.mut_chain_store().reset_data_pre_state_sync(
                 sync_hash,
@@ -2093,11 +2101,11 @@ impl ClientActorInner {
 impl Handler<BlockCatchUpResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockCatchUpResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((_, _, blocks_catch_up_state)) =
+        if let Some(CatchupState { catchup, .. }) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
-            assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-            blocks_catch_up_state.processed_blocks.insert(
+            assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+            catchup.processed_blocks.insert(
                 msg.block_hash,
                 msg.results.into_iter().map(|res| res.1).collect::<Vec<_>>(),
             );
