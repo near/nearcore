@@ -5,7 +5,10 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
-use crate::bandwidth_scheduler::{BandwidthRequest, BandwidthRequests, BandwidthRequestsV1};
+use crate::bandwidth_scheduler::{
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
+    BANDWIDTH_REQUEST_BITMAP_SIZE,
+};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
@@ -2452,9 +2455,14 @@ pub struct BandwidthRequestsV1View {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BandwidthRequestBitmapView {
+    pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BandwidthRequestView {
     pub to_shard: u8,
-    // TODO(bandwidth_scheduler) - include requested values in the view.
+    pub requested_values_bitmap: BandwidthRequestBitmapView,
 }
 
 impl From<&BandwidthRequests> for BandwidthRequestsView {
@@ -2471,7 +2479,16 @@ impl From<&BandwidthRequests> for BandwidthRequestsView {
 
 impl From<&BandwidthRequest> for BandwidthRequestView {
     fn from(request: &BandwidthRequest) -> BandwidthRequestView {
-        BandwidthRequestView { to_shard: request.to_shard }
+        BandwidthRequestView {
+            to_shard: request.to_shard,
+            requested_values_bitmap: request.requested_values_bitmap.clone().into(),
+        }
+    }
+}
+
+impl From<BandwidthRequestBitmap> for BandwidthRequestBitmapView {
+    fn from(bitmap: BandwidthRequestBitmap) -> BandwidthRequestBitmapView {
+        BandwidthRequestBitmapView { data: bitmap.data }
     }
 }
 
@@ -2493,7 +2510,16 @@ impl From<BandwidthRequestsView> for BandwidthRequests {
 
 impl From<BandwidthRequestView> for BandwidthRequest {
     fn from(request_view: BandwidthRequestView) -> BandwidthRequest {
-        BandwidthRequest { to_shard: request_view.to_shard }
+        BandwidthRequest {
+            to_shard: request_view.to_shard,
+            requested_values_bitmap: request_view.requested_values_bitmap.into(),
+        }
+    }
+}
+
+impl From<BandwidthRequestBitmapView> for BandwidthRequestBitmap {
+    fn from(bitmap_view: BandwidthRequestBitmapView) -> BandwidthRequestBitmap {
+        BandwidthRequestBitmap { data: bitmap_view.data }
     }
 }
 

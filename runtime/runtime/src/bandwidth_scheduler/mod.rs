@@ -1,8 +1,8 @@
 use std::num::NonZeroU64;
 
 use near_primitives::bandwidth_scheduler::{
-    BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
-    BandwidthSchedulerState,
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
+    BandwidthSchedulerParams, BandwidthSchedulerState,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateChangeCause};
@@ -131,7 +131,10 @@ pub fn generate_mock_bandwidth_requests(
     let mut requests = Vec::new();
     let mut debug_ids = Vec::new();
     for hash_byte in hash_data.iter().take(4) {
-        requests.push(BandwidthRequest { to_shard: *hash_byte });
+        requests.push(BandwidthRequest {
+            to_shard: *hash_byte,
+            requested_values_bitmap: BandwidthRequestBitmap::new(),
+        });
         debug_ids.push(*hash_byte);
     }
     tracing::debug!(

@@ -73,8 +73,63 @@ pub struct BandwidthRequestsV1 {
     ProtocolSchema,
 )]
 pub struct BandwidthRequest {
+    /// Requesting bandwidth to this shard.
     pub to_shard: u8,
-    // TODO(bandwidth_scheduler) - store requested bandwidth values inside the BandwidthRequest
+    /// Bitmap which describes what values of bandwidth are requested.
+    pub requested_values_bitmap: BandwidthRequestBitmap,
+}
+
+/// There are this many predefined values of bandwidth that can be requested in a BandwidthRequest.
+pub const BANDWIDTH_REQUEST_VALUES_NUM: usize = 40;
+
+/// Bitmap which describes which values from the predefined list are being requested.
+/// The nth bit is set to 1 when the nth value from the list is being requested.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
+pub struct BandwidthRequestBitmap {
+    pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],
+}
+
+pub const BANDWIDTH_REQUEST_BITMAP_SIZE: usize = BANDWIDTH_REQUEST_VALUES_NUM / 8;
+const _: () = assert!(
+    BANDWIDTH_REQUEST_VALUES_NUM % 8 == 0,
+    "Every bit in the bitmap should be used. It's wasteful to have unused bits.
+    And having unused bits would require extra validation logic"
+);
+
+impl BandwidthRequestBitmap {
+    pub fn new() -> BandwidthRequestBitmap {
+        BandwidthRequestBitmap { data: [0u8; BANDWIDTH_REQUEST_BITMAP_SIZE] }
+    }
+
+    pub fn get_bit(&self, idx: usize) -> bool {
+        assert!(idx < self.len());
+
+        (self.data[idx / 8] >> (idx % 8)) & 1 == 1
+    }
+
+    pub fn set_bit(&mut self, idx: usize, val: bool) {
+        assert!(idx < self.len());
+
+        if val {
+            self.data[idx / 8] |= 1 << (idx % 8);
+        } else {
+            self.data[idx / 8] &= !(1 << (idx % 8));
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        BANDWIDTH_REQUEST_VALUES_NUM
+    }
 }
 
 /// `BandwidthRequests` from all chunks in a block.
@@ -169,8 +224,12 @@ mod tests {
     use std::sync::Arc;
 
     use near_parameters::RuntimeConfig;
+    use rand::{Rng, SeedableRng};
 
-    use super::BandwidthSchedulerParams;
+    use crate::bandwidth_scheduler::BANDWIDTH_REQUEST_VALUES_NUM;
+
+    use super::{BandwidthRequestBitmap, BandwidthSchedulerParams};
+    use rand_chacha::ChaCha20Rng;
 
     fn make_runtime_config(max_receipt_size: u64) -> RuntimeConfig {
         let mut runtime_config = RuntimeConfig::test();
@@ -243,5 +302,26 @@ mod tests {
             NonZeroU64::new(num_shards).unwrap(),
             &runtime_config,
         );
+    }
+
+    #[test]
+    fn test_bandwidth_request_bitmap() {
+        let mut bitmap = BandwidthRequestBitmap::new();
+        assert_eq!(bitmap.len(), BANDWIDTH_REQUEST_VALUES_NUM);
+
+        let mut fake_bitmap = [false; BANDWIDTH_REQUEST_VALUES_NUM];
+        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+
+        for _ in 0..(BANDWIDTH_REQUEST_VALUES_NUM * 5) {
+            let random_index = rng.gen_range(0..BANDWIDTH_REQUEST_VALUES_NUM);
+            let value = rng.gen_bool(0.5);
+
+            bitmap.set_bit(random_index, value);
+            fake_bitmap[random_index] = value;
+
+            for i in 0..BANDWIDTH_REQUEST_VALUES_NUM {
+                assert_eq!(bitmap.get_bit(i), fake_bitmap[i]);
+            }
+        }
     }
 }
