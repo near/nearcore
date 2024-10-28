@@ -610,7 +610,7 @@ impl ShardChunkHeader {
                 // the bandwidth scheduler version will be v3 because the chunk extra for the
                 // last chunk of previous version doesn't have bandwidth requests.
                 // v2 is also allowed in the bandwidth scheduler version because there
-                // are multiple tests which upgrade from an old version directtly to the
+                // are multiple tests which upgrade from an old version directly to the
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
                 ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
                 ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
