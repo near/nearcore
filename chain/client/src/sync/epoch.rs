@@ -5,9 +5,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{
-    BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess,
-};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
@@ -869,7 +867,7 @@ impl EpochSync {
             ));
         }
         if current_epoch.second_last_block_header_in_prev_epoch.hash()
-            != current_epoch.first_block_header_in_epoch.prev_hash()
+            != current_epoch.last_block_header_in_prev_epoch.prev_hash()
         {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid second_last_block_header_in_prev_epoch".to_string(),
