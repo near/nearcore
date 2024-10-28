@@ -1,6 +1,6 @@
-use crate::metrics;
 use super::task_tracker::TaskHandle;
 use super::StateSyncDownloadSource;
+use crate::metrics;
 use crate::sync::state::util::increment_download_count;
 use futures::future::BoxFuture;
 use futures::FutureExt;
