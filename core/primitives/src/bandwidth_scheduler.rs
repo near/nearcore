@@ -82,6 +82,55 @@ pub struct BandwidthRequest {
 /// There are this many predefined values of bandwidth that can be requested in a BandwidthRequest.
 pub const BANDWIDTH_REQUEST_VALUES_NUM: usize = 40;
 
+/// Values of bandwidth that can be requested in a bandwidth request.
+/// When the nth bit is set in a request bitmap, it means that a shard is requesting the nth value from this list.
+/// The list is sorted, from smallest to largest values.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BandwidthRequestValues {
+    pub values: [Bandwidth; BANDWIDTH_REQUEST_VALUES_NUM],
+}
+
+impl BandwidthRequestValues {
+    pub fn new(params: &BandwidthSchedulerParams) -> BandwidthRequestValues {
+        // values[-1] = base_bandwidth
+        // values[values.len() - 1] = max_shard_bandwidth
+        // values[i] = linear interpolation between values[-1] and values[values.len() - 1]
+        let mut values = [0; BANDWIDTH_REQUEST_VALUES_NUM];
+
+        for i in 0..values.len() {
+            let values_len_u64: u64 =
+                values.len().try_into().expect("Converting usize to u64 shouldn't fail");
+            let i_u64: u64 = i.try_into().expect("Converting usize to u64 shouldn't fail");
+
+            values[i] = params.base_bandwidth
+                + (params.max_shard_bandwidth - params.base_bandwidth) * (i_u64 + 1)
+                    / values_len_u64;
+        }
+
+        // The value that is closest to max_receipt_size is set to max_receipt_size.
+        // Without this we could end up in a situation where one shard wants to send
+        // a maximum size receipt to another and requests the corresponding value from the list,
+        // but the sum of this value and base bandwidth exceeds max_shard_bandwidth.
+        // There's a guarantee that num_shards*base_bandwidth + max_receipt_size <= max_shard_bandwidth,
+        // but there's no guarantee that num_shards*base_bandwidth + request_value <= max_shard_banwdidth.
+        let mut closest_to_max: Bandwidth = 0;
+        for value in &values {
+            if value.abs_diff(params.max_receipt_size)
+                < closest_to_max.abs_diff(params.max_receipt_size)
+            {
+                closest_to_max = *value;
+            }
+        }
+        for value in values.iter_mut() {
+            if *value == closest_to_max {
+                *value = params.max_receipt_size;
+            }
+        }
+
+        BandwidthRequestValues { values }
+    }
+}
+
 /// Bitmap which describes which values from the predefined list are being requested.
 /// The nth bit is set to 1 when the nth value from the list is being requested.
 #[derive(
@@ -228,7 +277,7 @@ mod tests {
 
     use crate::bandwidth_scheduler::BANDWIDTH_REQUEST_VALUES_NUM;
 
-    use super::{BandwidthRequestBitmap, BandwidthSchedulerParams};
+    use super::{BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams};
     use rand_chacha::ChaCha20Rng;
 
     fn make_runtime_config(max_receipt_size: u64) -> RuntimeConfig {
@@ -323,5 +372,32 @@ mod tests {
                 assert_eq!(bitmap.get_bit(i), fake_bitmap[i]);
             }
         }
+    }
+
+    #[test]
+    fn test_bandwidth_request_values() {
+        let max_receipt_size = 4 * 1024 * 1024;
+
+        let params = BandwidthSchedulerParams::calculate_from_config(
+            NonZeroU64::new(6).unwrap(),
+            &make_runtime_config(max_receipt_size),
+        );
+        let values = BandwidthRequestValues::new(&params);
+
+        assert!(values.values[0] > params.base_bandwidth);
+        assert_eq!(values.values[BANDWIDTH_REQUEST_VALUES_NUM - 1], params.max_shard_bandwidth);
+        assert!(values.values.contains(&max_receipt_size));
+
+        assert_eq!(params.base_bandwidth, 50949);
+        assert_eq!(
+            values.values,
+            [
+                162175, 273401, 384627, 495854, 607080, 718306, 829532, 940759, 1051985, 1163211,
+                1274438, 1385664, 1496890, 1608116, 1719343, 1830569, 1941795, 2053021, 2164248,
+                2275474, 2386700, 2497927, 2609153, 2720379, 2831605, 2942832, 3054058, 3165284,
+                3276510, 3387737, 3498963, 3610189, 3721416, 3832642, 3943868, 4055094, 4194304,
+                4277547, 4388773, 4500000
+            ]
+        );
     }
 }
