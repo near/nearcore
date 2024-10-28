@@ -115,8 +115,8 @@ fn test_chunk_by_hash() {
     });
 }
 
+// TODO(wacban) should not panic when V2 is ready
 /// Retrieve chunk via json rpc
-// FIXME eagr unsure if this is expected behavior
 #[test]
 #[should_panic]
 fn test_chunk_invalid_shard_id() {
