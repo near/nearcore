@@ -4,6 +4,8 @@
 //! See #12324.
 //! For now we keep the old types together with new ones to change logic
 //! incrementally (for example, `GenericNodeOrIndex` and `OldOrUpdatedNodeId`).
+//! New methods will be prefixed with `generic_` to distinguish them from the
+//! old ones. When the old methods are removed, the prefix will be dropped.
 
 use super::arena::{ArenaMemory, ArenaMut};
 use super::flexible_data::children::ChildrenView;
