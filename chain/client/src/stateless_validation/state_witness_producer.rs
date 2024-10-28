@@ -106,7 +106,7 @@ impl Client {
             // that will not validate the current witness so that they can follow-up with requesting the contract code.
             tracing::debug!(target: "client", ?contract_updates, "Contract accesses and deploys while sending state witness");
             if !contract_updates.contract_accesses.is_empty() {
-                self.send_contract_updates_to_validators(
+                self.send_contract_accesses_to_chunk_validators(
                     epoch_id,
                     &chunk_header,
                     contract_updates,
@@ -415,7 +415,7 @@ impl Client {
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
     /// which will receive the state witness for the new chunk.  
-    fn send_contract_updates_to_validators(
+    fn send_contract_accesses_to_chunk_validators(
         &self,
         epoch_id: &EpochId,
         chunk_header: &ShardChunkHeader,
