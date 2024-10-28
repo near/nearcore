@@ -186,6 +186,24 @@ impl PartialMerkleTree {
     pub fn get_path(&self) -> &[MerkleHash] {
         &self.path
     }
+
+    /// Iterate over the path from the bottom to the top, calling `f` with the hash and the level.
+    /// The level is 0 for the leaf and increases by 1 for each level in the actual tree.
+    pub fn iter_path_from_bottom(&self, mut f: impl FnMut(MerkleHash, u64)) {
+        let mut level = 0;
+        let mut index = self.size;
+        for node in self.path.iter().rev() {
+            if index == 0 {
+                // shouldn't happen
+                return;
+            }
+            let trailing_zeros = index.trailing_zeros();
+            level += trailing_zeros;
+            index >>= trailing_zeros;
+            index -= 1;
+            f(*node, level as u64);
+        }
+    }
 }
 
 #[cfg(test)]
