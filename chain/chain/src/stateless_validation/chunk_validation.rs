@@ -669,7 +669,8 @@ impl Chain {
                     );
                 }
                 Err(err) => {
-                    crate::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
+                    crate::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
                         parent: &parent_span,

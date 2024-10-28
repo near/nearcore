@@ -561,6 +561,16 @@ pub static TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT: LazyLock<IntCounter
         .unwrap()
     });
 
+/// This metrics is useful to track witness contract distribution failures.
+pub static STORAGE_MISSING_CONTRACTS_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_storage_missing_contracts_count",
+        "Number of contract reads from storage resulted in MissingTrieValue error",
+        &["context"],
+    )
+    .unwrap()
+});
+
 fn export_store_stats(store: &Store, temperature: Temperature) {
     if let Some(stats) = store.get_store_statistics() {
         tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store.");

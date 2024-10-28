@@ -31,6 +31,21 @@ pub(crate) struct BalanceMismatchError {
     pub actual: u128,
 }
 
+// Transactions have to be built on top of some block in chain. To make
+// sure all clients accept them, we select the head of the client with
+// the smallest height.
+pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
+    let (_, anchor_hash) = clients
+        .iter()
+        .map(|client| {
+            let head = client.chain.head().unwrap();
+            (head.height, head.last_block_hash)
+        })
+        .min_by_key(|&(height, _)| height)
+        .unwrap();
+    anchor_hash
+}
+
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
@@ -74,17 +89,7 @@ pub(crate) fn execute_money_transfers(
                     .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
                     .collect_vec();
 
-                // Transactions have to be built on top of some block in chain. To make
-                // sure all clients accept them, we select the head of the client with
-                // the smallest height.
-                let (_, anchor_hash) = clients
-                    .iter()
-                    .map(|client| {
-                        let head = client.chain.head().unwrap();
-                        (head.height, head.last_block_hash)
-                    })
-                    .min_by_key(|&(height, _)| height)
-                    .unwrap();
+                let anchor_hash = get_anchor_hash(&clients);
 
                 let tx = SignedTransaction::send_money(
                     // TODO: set correct nonce.

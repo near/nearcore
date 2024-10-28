@@ -100,6 +100,17 @@ pub enum MissingTrieValueContext {
     TrieStorage,
 }
 
+impl MissingTrieValueContext {
+    pub fn metrics_label(&self) -> &str {
+        match self {
+            Self::TrieIterator => "trie_iterator",
+            Self::TriePrefetchingStorage => "trie_prefetching_storage",
+            Self::TrieMemoryPartialStorage => "trie_memory_partial_storage",
+            Self::TrieStorage => "trie_storage",
+        }
+    }
+}
+
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
 #[derive(

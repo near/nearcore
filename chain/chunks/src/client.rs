@@ -6,7 +6,6 @@ use itertools::Itertools;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
-use near_primitives::types::shard_id_as_u16;
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -76,7 +75,7 @@ impl ShardedTransactionPool {
     /// For better security we want the seed to different in each shard.
     /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
-        let shard_id = shard_id_as_u16(shard_id);
+        let shard_id: u16 = shard_id.into();
         let mut res = *base_seed;
         res[0] = shard_id as u8;
         res[1] = (shard_id / 256) as u8;
@@ -164,7 +163,7 @@ mod tests {
         hash::CryptoHash,
         shard_layout::{account_id_to_shard_uid, ShardLayout},
         transaction::SignedTransaction,
-        types::{shard_id_as_u32, AccountId, ShardId},
+        types::{AccountId, ShardId},
     };
     use near_store::ShardUId;
     use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -238,10 +237,7 @@ mod tests {
                 CryptoHash::default(),
             );
 
-            let shard_uid = ShardUId {
-                shard_id: shard_id_as_u32(signer_shard_id),
-                version: old_shard_layout.version(),
-            };
+            let shard_uid = ShardUId::new(old_shard_layout.version(), signer_shard_id);
             pool.insert_transaction(shard_uid, tx);
         }
 
@@ -256,8 +252,7 @@ mod tests {
         {
             let shard_ids: Vec<_> = new_shard_layout.shard_ids().collect();
             for &shard_id in shard_ids.iter() {
-                let shard_id = shard_id_as_u32(shard_id);
-                let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
+                let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();
                 tracing::debug!("checking shard_uid {shard_uid:?}, the pool len is {pool_len}");
@@ -266,8 +261,7 @@ mod tests {
 
             let mut total = 0;
             for shard_id in shard_ids {
-                let shard_id = shard_id_as_u32(shard_id);
-                let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
+                let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();
                 while let Some(group) = pool_iter.next() {
                     while let Some(tx) = group.next() {

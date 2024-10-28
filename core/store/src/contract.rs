@@ -1,4 +1,5 @@
-use crate::TrieStorage;
+use crate::{metrics, TrieStorage};
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_vm_runner::ContractCode;
@@ -124,6 +125,12 @@ impl ContractStorage {
 
         match self.storage.retrieve_raw_bytes(&code_hash) {
             Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
+            Err(StorageError::MissingTrieValue(context, _)) => {
+                metrics::STORAGE_MISSING_CONTRACTS_COUNT
+                    .with_label_values(&[context.metrics_label()])
+                    .inc();
+                None
+            }
             Err(_) => None,
         }
     }
