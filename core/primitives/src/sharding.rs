@@ -583,7 +583,7 @@ impl ShardChunkHeader {
     }
 
     /// Returns whether the header is valid for given `ProtocolVersion`.
-    pub fn valid_for(
+    pub fn validate_version(
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
