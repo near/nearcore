@@ -4,6 +4,7 @@ use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
@@ -178,6 +179,10 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     }
 
     validate_congestion_info(&prev_chunk_extra.congestion_info(), &chunk_header.congestion_info())?;
+    validate_bandwidth_requests(
+        prev_chunk_extra.bandwidth_requests(),
+        chunk_header.bandwidth_requests(),
+    )?;
 
     Ok(())
 }
@@ -209,6 +214,41 @@ fn validate_congestion_info(
                 ))
             }),
     }
+}
+
+fn validate_bandwidth_requests(
+    extra_bandwidth_requests: Option<&BandwidthRequests>,
+    header_bandwidth_requests: Option<&BandwidthRequests>,
+) -> Result<(), Error> {
+    if extra_bandwidth_requests.is_none()
+        && header_bandwidth_requests == Some(&BandwidthRequests::empty())
+    {
+        // This corner case happens for the first chunk that has the BandwidthScheduler feature enabled.
+        // The previous chunk was applied with a protocol version which doesn't have bandwidth scheduler
+        // enabled and because of that the bandwidth requests in ChunkExtra are None.
+        // The header was produced in the new protocol version, and the newer version of header always
+        // has some bandwidth requests, it's not an `Option`. Because of that the header requests are `Some(BandwidthRequests::empty())`.
+        return Ok(());
+    }
+
+    if extra_bandwidth_requests != header_bandwidth_requests {
+        fn requests_len(requests_opt: Option<&BandwidthRequests>) -> usize {
+            match requests_opt {
+                Some(BandwidthRequests::V1(requests_v1)) => requests_v1.requests.len(),
+                None => 0,
+            }
+        }
+        let error_info_str = format!(
+            "chunk extra: (is_some: {}, len: {}) chunk header: (is_some: {}, len: {})",
+            extra_bandwidth_requests.is_some(),
+            requests_len(extra_bandwidth_requests),
+            header_bandwidth_requests.is_some(),
+            requests_len(header_bandwidth_requests)
+        );
+        return Err(Error::InvalidBandwidthRequests(error_info_str));
+    }
+
+    Ok(())
 }
 
 /// Validates a double sign challenge.

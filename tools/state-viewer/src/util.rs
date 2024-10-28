@@ -40,7 +40,8 @@ pub fn load_trie_stop_at_height(
         near_config.client_config.save_trie_changes,
     );
 
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime =
         NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
     let runtime = runtime.expect("could not create the transaction runtime");
@@ -58,7 +59,7 @@ pub fn load_trie_stop_at_height(
     };
     let shard_layout = epoch_manager.get_shard_layout(&block.header().epoch_id()).unwrap();
     let mut state_roots = vec![];
-    for chunk in block.chunks().iter() {
+    for chunk in block.chunks().iter_deprecated() {
         let shard_uid = ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout);
         let chunk_extra = chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();
@@ -105,10 +106,13 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
         (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
+        (ChunkExtra::V4(l), ChunkExtra::V4(r)) => return l == r,
         (ChunkExtra::V1(_), ChunkExtra::V2(_))
         | (ChunkExtra::V2(_), ChunkExtra::V1(_))
         | (_, ChunkExtra::V3(_))
-        | (ChunkExtra::V3(_), _) => {}
+        | (ChunkExtra::V3(_), _)
+        | (_, ChunkExtra::V4(_))
+        | (ChunkExtra::V4(_), _) => {}
     };
     if l.state_root() != r.state_root() {
         return false;
@@ -126,6 +130,9 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         return false;
     }
     if l.congestion_info() != r.congestion_info() {
+        return false;
+    }
+    if l.bandwidth_requests() != r.bandwidth_requests() {
         return false;
     }
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
@@ -146,6 +153,7 @@ pub fn resulting_chunk_extra(
         gas_limit,
         result.total_balance_burnt,
         result.congestion_info,
+        result.bandwidth_requests.clone(),
     )
 }
 

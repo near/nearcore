@@ -755,7 +755,7 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());

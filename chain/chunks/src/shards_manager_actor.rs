@@ -107,6 +107,7 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
@@ -1994,6 +1995,7 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
+        bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -2014,6 +2016,7 @@ impl ShardsManagerActor {
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
             congestion_info,
+            bandwidth_requests,
             signer,
             protocol_version,
         )

@@ -3,8 +3,9 @@ use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 use near_time::Duration;
 use std::sync::LazyLock;
@@ -531,6 +532,7 @@ pub mod flat_state_metrics {
         });
     }
 }
+
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_initial_writes",
@@ -539,12 +541,32 @@ pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = Laz
     )
     .unwrap()
 });
+
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_cold_migration_initial_writes_time",
         "Time spent on writing initial migration batches by column.",
         &["column"],
         None,
+    )
+    .unwrap()
+});
+
+pub static TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_trie_memory_partial_storage_missing_values_count",
+            "Number of accesses to TrieMemoryPartialStorage resulted in MissingTrieValue error",
+        )
+        .unwrap()
+    });
+
+/// This metrics is useful to track witness contract distribution failures.
+pub static STORAGE_MISSING_CONTRACTS_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_storage_missing_contracts_count",
+        "Number of contract reads from storage resulted in MissingTrieValue error",
+        &["context"],
     )
     .unwrap()
 });

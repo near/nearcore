@@ -42,10 +42,11 @@ pub(crate) fn replay_headers(
         start_height.unwrap_or_else(|| chain_store.get_genesis_height());
     let end_height: BlockHeight = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
 
-    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let replay_store = create_replay_store(home_dir, &near_config);
     let epoch_manager_replay =
-        EpochManager::new_arc_handle(replay_store, &near_config.genesis.config);
+        EpochManager::new_arc_handle(replay_store, &near_config.genesis.config, Some(home_dir));
 
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
@@ -239,7 +240,7 @@ fn get_block_info(
             let height = header.height();
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
-            for (shard_index, chunk_header) in chunks.iter().enumerate() {
+            for (shard_index, chunk_header) in chunks.iter_deprecated().enumerate() {
                 let shard_id = shard_layout.get_shard_id(shard_index);
                 let endorsements = &endorsement_signatures[shard_index];
                 if !chunk_header.is_new_chunk(height) {

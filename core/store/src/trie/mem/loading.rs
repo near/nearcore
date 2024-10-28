@@ -190,6 +190,7 @@ mod tests {
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -527,6 +528,7 @@ mod tests {
             0,
             0,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut store_update = store.store_update();
         store_update

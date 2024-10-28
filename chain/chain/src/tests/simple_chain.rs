@@ -33,7 +33,7 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"Hc3bWEd7ikHf9BAe2SknvH2jAAakEtBRU1FBu6Udocm3");
+        insta::assert_snapshot!(hash, @"2V6auEJDpFWUadSMYwAUg68tn9KmoMmHw2JnHizYicwc");
     } else {
         insta::assert_snapshot!(hash, @"GHZFAFiMdGzAfnWTcS9u9wqFvxMrgFpyEr6Use7jk2Lo");
     }
@@ -51,7 +51,7 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"39R6bDFXkPfwdYs4crV3RyCde85ecycqP5DBwdtwyjcJ");
+        insta::assert_snapshot!(hash, @"8yW4usbwYcRDKmKmDkHTFpzggDZBGu6avKLu1iTf4Lr6");
     } else {
         insta::assert_snapshot!(hash, @"3Pdm44L71Bk8EokPHF1pxakHojsriNadBdZZSpcoDv9q");
     }
@@ -74,7 +74,7 @@ fn build_chain_with_orphans() {
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
-        last_block.chunks().iter().cloned().collect(),
+        last_block.chunks().iter_deprecated().cloned().collect(),
         vec![vec![]; last_block.chunks().len()],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
@@ -268,7 +268,7 @@ fn block_chunk_headers_iter() {
     let chunks = block.chunks();
 
     let new_headers: Vec<&ShardChunkHeader> = chunks
-        .iter_annotated()
+        .iter()
         .filter_map(|chunk| match chunk {
             MaybeNew::New(chunk) => Some(chunk),
             _ => None,
@@ -276,13 +276,16 @@ fn block_chunk_headers_iter() {
         .collect();
 
     let old_headers: Vec<&ShardChunkHeader> = chunks
-        .iter_annotated()
+        .iter()
         .filter_map(|chunk| match chunk {
             MaybeNew::Old(chunk) => Some(chunk),
             _ => None,
         })
         .collect();
 
+    let raw_headers: Vec<&ShardChunkHeader> = chunks.iter_raw().collect();
+
     assert_eq!(old_headers.len(), 8);
     assert_eq!(new_headers.len(), 8);
+    assert_eq!(raw_headers.len(), old_headers.len() + new_headers.len());
 }

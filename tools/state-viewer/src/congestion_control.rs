@@ -58,7 +58,7 @@ impl PrintCmd {
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
 
-        for chunk_header in block.chunks().iter() {
+        for chunk_header in block.chunks().iter_deprecated() {
             let congestion_info = chunk_header.congestion_info();
             println!(
                 "{:?} - {:?} - {:?}",

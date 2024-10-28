@@ -369,14 +369,14 @@ fn sanity_check_epoch_sync_proof(
     // EpochSyncProof starts with epoch height 2 because the first height is proven by
     // genesis.
     let mut epoch_height = 2;
-    for past_epoch in &proof.past_epochs {
+    for past_epoch in &proof.all_epochs {
         assert_eq!(
             past_epoch.last_final_block_header.height(),
             genesis_config.genesis_height + epoch_height * genesis_config.epoch_length - 2
         );
         epoch_height += 1;
     }
-    assert_eq!(epoch_height, expected_current_epoch_height);
+    assert_eq!(epoch_height, expected_current_epoch_height + 1);
 }
 
 #[test]

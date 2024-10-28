@@ -1169,6 +1169,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::runtime::migration_data::MigrationFlags;
@@ -1433,6 +1434,7 @@ mod tests {
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
             congestion_info: BlockCongestionInfo::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         }
     }
 

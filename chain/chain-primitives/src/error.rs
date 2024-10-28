@@ -185,6 +185,9 @@ pub enum Error {
     /// Invalid Congestion Info
     #[error("Invalid Congestion Info: {0}")]
     InvalidCongestionInfo(String),
+    /// Invalid bandwidth requests
+    #[error("Invalid bandwidth requests - chunk extra doesn't match chunk header: {0}")]
+    InvalidBandwidthRequests(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -315,6 +318,7 @@ impl Error {
             | Error::InvalidGasUsed
             | Error::InvalidBalanceBurnt
             | Error::InvalidCongestionInfo(_)
+            | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
@@ -393,6 +397,7 @@ impl Error {
             Error::InvalidGasUsed => "invalid_gas_used",
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
+            Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",

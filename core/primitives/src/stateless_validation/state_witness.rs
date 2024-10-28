@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use super::{ChunkProductionKey, SignatureDifferentiator};
+use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
@@ -205,6 +206,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             &EmptyValidatorSigner::default().into(),
         ));
         Self::new(

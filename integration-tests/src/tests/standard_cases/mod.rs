@@ -251,11 +251,8 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
 pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    let root = node_user.get_state_root();
     node_user.send_money(account_id.clone(), bob_account(), TESTING_INIT_BALANCE + 1).unwrap_err();
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
-    let new_root = node_user.get_state_root();
-    assert_eq!(root, new_root);
 }
 
 pub fn test_upload_contract(node: impl Node) {
@@ -498,11 +495,8 @@ pub fn test_smart_contract_reward(node: impl Node) {
 pub fn test_send_money_over_balance(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    let root = node_user.get_state_root();
     let money_used = TESTING_INIT_BALANCE + 1;
     node_user.send_money(account_id.clone(), bob_account(), money_used).unwrap_err();
-    let new_root = node_user.get_state_root();
-    assert_eq!(root, new_root);
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
