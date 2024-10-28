@@ -85,10 +85,33 @@ impl ReshardingManager {
 
         let resharding_event_type =
             ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
-        let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
-            tracing::debug!(target: "resharding", ?resharding_event_type, "resharding event type is not split shard, skipping");
-            return Ok(());
+        match resharding_event_type {
+            Some(ReshardingEventType::SplitShard(split_shard_event)) => {
+                self.split_shard(
+                    chain_store_update,
+                    block,
+                    shard_uid,
+                    tries,
+                    split_shard_event,
+                    next_shard_layout,
+                )?;
+            }
+            None => {
+                tracing::debug!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
+            }
         };
+        Ok(())
+    }
+
+    fn split_shard(
+        &mut self,
+        chain_store_update: ChainStoreUpdate,
+        block: &Block,
+        shard_uid: ShardUId,
+        tries: ShardTries,
+        split_shard_event: ReshardingSplitShardParams,
+        next_shard_layout: ShardLayout,
+    ) -> Result<(), Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
             tracing::debug!(target: "resharding", ?parent_shard, "shard uid does not match event parent shard, skipping");
@@ -124,7 +147,7 @@ impl ReshardingManager {
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
-        // TODO(reshardingV3) Leave tracked shards only?
+        // TODO(reshardingV3) No need to set the mapping for children shards that we won't track just after resharding?
         let children_shard_uids =
             [split_shard_event.left_child_shard, split_shard_event.right_child_shard];
 

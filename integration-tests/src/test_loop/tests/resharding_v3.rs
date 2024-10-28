@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -9,11 +10,11 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
-use near_store::ShardUId;
+use near_store::db::refcount::decode_value_with_rc;
+use near_store::{DBCol, ShardUId};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -63,32 +64,8 @@ fn print_and_assert_shard_accounts(client: &Client) {
     }
 }
 
-/// Get hash of the node associated with given `account_id` in current trie for `shard_uid`.
-fn get_account_node_hash(
-    client: &Client,
-    shard_uid: ShardUId,
-    account_id: &AccountId,
-) -> CryptoHash {
-    let tip = client.chain.head().unwrap();
-    let chunk_extra = client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
-    let trie = client
-        .chain
-        .runtime_adapter
-        .get_tries()
-        .get_view_trie_for_shard(shard_uid, *chunk_extra.state_root());
-    let trie_key = TrieKey::Account { account_id: account_id.clone() }.to_vec();
-    let account_node_ref =
-        trie.get_optimized_ref(&trie_key, near_store::KeyLookupMode::FlatStorage).unwrap().unwrap();
-    account_node_ref.into_value_ref().hash
-}
-
-/// Assert that `node_hash` is accessible from parent and children shards.
-/// It should be the case, according to State mapping strategy in Resharding V3.
-fn check_state_shard_uid_mapping_after_resharding(
-    client: &Client,
-    parent_shard_uid: ShardUId,
-    node_hash: CryptoHash,
-) {
+/// Asserts that all parent shard State is accessible via parent and children shards.
+fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_uid: ShardUId) {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
     let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
@@ -97,13 +74,24 @@ fn check_state_shard_uid_mapping_after_resharding(
     assert_eq!(children_shard_uids.len(), 2);
 
     let store = client.chain.chain_store.store().trie_store();
-    let parent_value = store.get(parent_shard_uid, &node_hash).unwrap();
-
-    // Because of the mapping strategy for the State column,
-    // all parent shard data is available to both children shards.
-    for child_shard_uid in children_shard_uids {
-        let child_value = store.get(child_shard_uid, &node_hash);
-        assert_eq!(child_value.unwrap(), parent_value);
+    for kv in store.store().iter_raw_bytes(DBCol::State) {
+        let (key, value) = kv.unwrap();
+        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
+        // Just after resharding, no State data must be keyed using children shard UIDs.
+        assert!(!children_shard_uids.contains(&shard_uid));
+        if shard_uid != parent_shard_uid {
+            continue;
+        }
+        let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
+        let (value, _) = decode_value_with_rc(&value);
+        let parent_value = store.get(parent_shard_uid, &node_hash);
+        // Parent shard data must still be accessible using parent shard UID.
+        assert_eq!(&parent_value.unwrap()[..], value.unwrap());
+        // All parent shard data is available via both children shards.
+        for child_shard_uid in &children_shard_uids {
+            let child_value = store.get(*child_shard_uid, &node_hash);
+            assert_eq!(&child_value.unwrap()[..], value.unwrap());
+        }
     }
 }
 
@@ -179,9 +167,6 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     let boundary_account_id: AccountId = boundary_account.parse().unwrap();
     let parent_shard_uid = account_id_to_shard_uid(&boundary_account_id, &base_shard_layout);
     let client_handle = node_datas[0].client_sender.actor_handle();
-    let client = &test_loop.data.get(&client_handle).client;
-    let boundary_account_node_hash =
-        get_account_node_hash(client, parent_shard_uid, &boundary_account_id);
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
@@ -214,12 +199,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
 
         println!("State after resharding:");
         print_and_assert_shard_accounts(client);
-
-        check_state_shard_uid_mapping_after_resharding(
-            &client,
-            parent_shard_uid,
-            boundary_account_node_hash,
-        );
+        check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
         return true;
     };
 
