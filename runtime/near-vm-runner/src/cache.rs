@@ -637,6 +637,7 @@ mod tests {
         assert!(matches!(result, Err("mikan")));
     }
 
+    #[cfg(feature = "test_features")]
     #[test]
     fn test_clear_compiled_contract_cache() {
         let cache = FilesystemContractRuntimeCache::test().unwrap();
