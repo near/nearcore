@@ -57,7 +57,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -964,19 +963,8 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-            let shards = if num_shards > 1 {
-                ShardLayout::v1(
-                    (1..num_shards)
-                        .map(|f| {
-                            AccountId::from_str(format!("shard{f}.test.near").as_str()).unwrap()
-                        })
-                        .collect(),
-                    None,
-                    1,
-                )
-            } else {
-                ShardLayout::v0(1, 0)
-            };
+            // FIXME eagr version?
+            let shards = ShardLayout::of_num_shards(num_shards, 3);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
