@@ -242,7 +242,6 @@ impl UpdatedMemTrieNode {
 impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
     for MemTrieUpdate<'a, M>
 {
-    /// If the ID was old, converts it to an updated one.
     fn generic_ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<MemTrieNodeId>,
@@ -250,14 +249,18 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
         Ok(self.ensure_updated(node))
     }
 
-    /// Internal function to take a node from the array of updated nodes, setting it
-    /// to None. It is expected that place_node is then called to return the node to
-    /// the same slot.
     fn generic_take_node(&mut self, index: UpdatedMemTrieNodeId) -> UpdatedMemTrieNodeWithSize {
+        // TODO(#12324): IMPORTANT: now, we don't compute memory usage on the
+        // fly for memtries. This happens in `compute_hashes_and_serialized_nodes`.
+        // Memory usages here are zeroed and ignored.
+        // However, this is fundamentally wrong because the current approach
+        // needs ALL children of any changed branch in memtrie. In reality, it
+        // is enough to have only children that are changed.
+        // So, we need to change `MemTrieUpdate` to store current memory usages
+        // and retrieve them correctly.
         UpdatedMemTrieNodeWithSize { node: self.take_node(index), memory_usage: 0 }
     }
 
-    /// Does the opposite of take_node; returns the node to the specified ID.
     fn generic_place_node(
         &mut self,
         index: UpdatedMemTrieNodeId,
