@@ -1087,7 +1087,7 @@ pub fn create_localnet_configs_from_seeds(
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
 
-    let shard_layout = ShardLayout::v0(num_shards, 0);
+    let shard_layout = ShardLayout::of_num_shards(num_shards, 0);
     let accounts_to_add_to_genesis: Vec<AccountId> =
         seeds.iter().map(|s| s.parse().unwrap()).collect();
 
