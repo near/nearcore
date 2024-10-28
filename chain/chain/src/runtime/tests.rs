@@ -1861,10 +1861,10 @@ fn test_precompilation_updates_compiled_contract_cache() {
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime = NightshadeRuntime::test_with_runtime_config_store(
         tempdir.path(),
-        store.clone(),
+        store,
         contract_cache.handle(),
         &genesis.config,
-        epoch_manager.clone(),
+        epoch_manager,
         RuntimeConfigStore::new(None),
         StateSnapshotType::EveryEpoch,
     );
