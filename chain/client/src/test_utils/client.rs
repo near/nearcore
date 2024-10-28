@@ -5,7 +5,7 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
-use crate::client::ProduceChunkResult;
+use crate::client::{CatchupState, ProduceChunkResult};
 use crate::Client;
 use actix_rt::System;
 use itertools::Itertools;
@@ -21,7 +21,7 @@ use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{new_shard_id_tmp, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
@@ -158,7 +158,7 @@ fn create_chunk_on_height_for_shard(
 }
 
 pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> ProduceChunkResult {
-    create_chunk_on_height_for_shard(client, next_height, new_shard_id_tmp(0))
+    create_chunk_on_height_for_shard(client, next_height, ShardId::new(0))
 }
 
 pub fn create_chunk_with_transactions(
@@ -189,7 +189,7 @@ pub fn create_chunk(
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
-            new_shard_id_tmp(0),
+            ShardId::new(0),
             signer.as_ref(),
         )
         .unwrap()
@@ -227,6 +227,7 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
+            header.bandwidth_requests().cloned(),
             &*signer,
             PROTOCOL_VERSION,
         )
@@ -307,11 +308,11 @@ pub fn run_catchup(
                 .into_iter()
                 .map(|res| res.1)
                 .collect_vec();
-            if let Some((_, _, blocks_catch_up_state)) =
+            if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
-                assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-                blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
+                assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+                catchup.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }

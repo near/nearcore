@@ -2,6 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -10,7 +11,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{new_shard_id_tmp, AccountId, AccountInfo, Balance};
+use near_primitives::types::{AccountId, AccountInfo, Balance, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::genesis::GenesisStateApplier;
@@ -82,7 +83,7 @@ impl StandaloneRuntime {
         });
         let writers = std::sync::atomic::AtomicUsize::new(0);
         let shard_uid =
-            ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &genesis.config.shard_layout);
+            ShardUId::from_shard_id_and_layout(ShardId::new(0), &genesis.config.shard_layout);
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),
@@ -123,6 +124,7 @@ impl StandaloneRuntime {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
             congestion_info,
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         };
 
         Self {

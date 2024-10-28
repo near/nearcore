@@ -23,11 +23,9 @@ use near_chain::state_snapshot_actor::{
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ReshardingHandle;
-use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
-use near_client::sync::adapter::SyncAdapter;
 use near_client::{
     start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
     ViewClientActor, ViewClientActorInner,
@@ -44,7 +42,7 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 pub mod append_only_map;
@@ -56,7 +54,7 @@ mod config_validate;
 mod download_file;
 pub mod dyn_config;
 #[cfg(feature = "json_rpc")]
-mod entity_debug;
+pub mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
@@ -257,7 +255,7 @@ pub fn start_with_config_and_synchronization(
     )?;
 
     let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config, None);
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
@@ -285,7 +283,7 @@ pub fn start_with_config_and_synchronization(
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
             let view_epoch_manager =
-                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config);
+                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config, None);
             let view_shard_tracker = ShardTracker::new(
                 TrackedConfig::from_config(&config.client_config),
                 epoch_manager.clone(),
@@ -318,15 +316,6 @@ pub fn start_with_config_and_synchronization(
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
-
-    // State Sync actors
-    let client_adapter_for_sync = LateBoundSender::new();
-    let network_adapter_for_sync = LateBoundSender::new();
-    let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        client_adapter_for_sync.as_sender(),
-        network_adapter_for_sync.as_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
 
     let node_id = config.network_config.node_id();
     let network_adapter = LateBoundSender::new();
@@ -373,7 +362,7 @@ pub fn start_with_config_and_synchronization(
             client_adapter_for_partial_witness_actor.as_multi_sender(),
             config.validator_signer.clone(),
             epoch_manager.clone(),
-            storage.get_hot_store(),
+            runtime.clone(),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
@@ -398,7 +387,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        sync_adapter,
         Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone())),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
@@ -413,9 +401,6 @@ pub fn start_with_config_and_synchronization(
         None,
         resharding_sender.into_multi_sender(),
     );
-    if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
-    };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
@@ -458,9 +443,6 @@ pub fn start_with_config_and_synchronization(
     )
     .context("PeerManager::spawn()")?;
     network_adapter.bind(network_actor.clone().with_auto_span_context());
-    if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        network_adapter_for_sync.bind(network_actor.clone().with_auto_span_context())
-    }
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
         let entity_debug_handler = EntityDebugHandlerImpl {

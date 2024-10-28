@@ -120,7 +120,7 @@ fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> an
     let block = chain_store.get_block(&head.last_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
 
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         let shard_id = chunk_header.shard_id();
         if chunk_header.height_included() != block.header().height() {
             tracing::trace!(target: "metrics", "trie-stats - chunk for shard {shard_id} is missing, skipping it.");

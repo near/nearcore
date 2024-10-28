@@ -1,7 +1,7 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
-use crate::contract::ContractStorage;
+use crate::contract::{ContractStorage, ContractStorageResult};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -10,7 +10,7 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
     TrieCacheMode,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod iterator;
 
@@ -58,7 +58,10 @@ pub struct TrieUpdateResult {
     pub trie: Trie,
     pub trie_changes: TrieChanges,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
-    pub contract_accesses: Vec<CodeHash>,
+    /// Code-hashes of the contracts accessed (called).
+    pub contract_accesses: BTreeSet<CodeHash>,
+    /// Code-hashes of the contracts deployed.
+    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 impl TrieUpdate {
@@ -143,10 +146,12 @@ impl TrieUpdate {
                 .changes
                 .push(RawStateChange { cause: event.clone(), data: value });
         }
+        self.contract_storage.commit_deploys();
     }
 
     pub fn rollback(&mut self) {
         self.prospective.clear();
+        self.contract_storage.rollback_deploys();
     }
 
     /// Prepare the accumulated state changes to be applied to the underlying storage.
@@ -187,8 +192,15 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        let contract_accesses = contract_storage.finalize().contract_accesses;
-        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses })
+        let ContractStorageResult { contract_calls, contract_deploys } =
+            contract_storage.finalize();
+        Ok(TrieUpdateResult {
+            trie,
+            trie_changes,
+            state_changes,
+            contract_accesses: contract_calls,
+            contract_deploys,
+        })
     }
 
     /// Returns Error if the underlying storage fails

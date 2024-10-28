@@ -28,9 +28,11 @@ use near_primitives::views::{
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
+use rand::Rng;
 use reward_calculator::ValidatorOnlineThresholds;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
 use validator_stats::{
@@ -190,12 +192,20 @@ impl EpochManager {
         )
     }
 
-    pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
+    /// Creates a new instance of `EpochManager` from the given `store`, `genesis_config`, and `home_dir`.
+    /// For production environments such as mainnet ant testnet, the epoch config files will be ignored.
+    /// In the test environment, the epoch config files will be loaded from the `home_dir` if it is not `None`.
+    pub fn new_arc_handle(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        home_dir: Option<&Path>,
+    ) -> Arc<EpochManagerHandle> {
         let chain_id = genesis_config.chain_id.as_str();
         if chain_id == near_primitives::chains::MAINNET
             || chain_id == near_primitives::chains::TESTNET
         {
-            let epoch_config_store = EpochConfigStore::for_chain_id(chain_id).unwrap();
+            // Do not load epoch config files for mainnet and testnet.
+            let epoch_config_store = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
             return Self::new_arc_handle_from_epoch_config_store(
                 store,
                 genesis_config,
@@ -203,23 +213,26 @@ impl EpochManager {
             );
         }
 
-        let epoch_config = if chain_id.starts_with("test-chain-") {
-            // We still do this for localnet as nayduck depends on it.
-            // TODO(#11265): remove this dependency for tests using
-            // `random_chain_id`.
-            EpochConfig::from(genesis_config)
+        let config_dir = home_dir.map(|home_dir| home_dir.join("epoch_configs"));
+        let epoch_config_store = if config_dir.as_ref().map_or(false, |dir| dir.exists()) {
+            EpochConfigStore::for_chain_id(chain_id, config_dir).unwrap()
+        } else if chain_id.starts_with("test-chain-") {
+            let epoch_config = EpochConfig::from(genesis_config);
+            EpochConfigStore::test(BTreeMap::from_iter(vec![(
+                genesis_config.protocol_version,
+                Arc::new(epoch_config),
+            )]))
         } else {
-            Genesis::test_epoch_config(
+            let epoch_config = Genesis::test_epoch_config(
                 genesis_config.num_block_producer_seats,
                 genesis_config.shard_layout.clone(),
                 genesis_config.epoch_length,
-            )
+            );
+            EpochConfigStore::test(BTreeMap::from_iter(vec![(
+                genesis_config.protocol_version,
+                Arc::new(epoch_config),
+            )]))
         };
-
-        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
-            genesis_config.protocol_version,
-            Arc::new(epoch_config),
-        )]));
         Self::new_arc_handle_from_epoch_config_store(store, genesis_config, epoch_config_store)
     }
 
@@ -1071,6 +1084,43 @@ impl EpochManager {
 
             Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
         })
+    }
+
+    /// Returns AccountIds of chunk producers that are assigned to a given shard-id in a given epoch.
+    pub fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        Ok(chunk_producers
+            .iter()
+            .map(|index| epoch_info.validator_account_id(*index).clone())
+            .collect())
+    }
+
+    pub fn get_random_chunk_producer_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let chunk_producers = epoch_info
+            .chunk_producers_settlement()
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        let random_index = rand::thread_rng().gen_range(0..chunk_producers.len());
+        Ok(epoch_info.validator_account_id(chunk_producers[random_index]).clone())
     }
 
     /// Returns the list of chunk_validators for the given shard_id and height and set of account ids.

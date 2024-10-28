@@ -11,8 +11,8 @@ use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::new_shard_id_tmp;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::ShardId;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
@@ -64,7 +64,7 @@ fn test_bad_shard_id() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap(); // modify the block and resign it
     let validator_signer = create_test_signer("test0");
-    let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+    let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
@@ -79,7 +79,7 @@ fn test_bad_shard_id() {
         chunk.encoded_merkle_root(),
         chunk.encoded_length(),
         2,
-        new_shard_id_tmp(1),
+        ShardId::new(1),
         chunk.prev_gas_used(),
         chunk.gas_limit(),
         chunk.prev_balance_burnt(),
@@ -87,6 +87,7 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
+        chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -104,7 +105,7 @@ fn test_bad_shard_id() {
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
         .unwrap_err();
     if let near_chain::Error::InvalidShardId(shard_id) = err {
-        assert!(shard_id == new_shard_id_tmp(1));
+        assert!(shard_id == ShardId::new(1));
     } else {
         panic!("Expected InvalidShardId error, got {:?}", err);
     }
@@ -212,7 +213,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 
     let validator_signer = create_test_signer("test0");
 
-    let chunks: Vec<_> = block.chunks().iter().cloned().collect();
+    let chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
     let chunk = chunks.get(0).unwrap();
 
     let mut congestion_info = chunk.congestion_info().unwrap_or_default();
@@ -234,6 +235,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         Some(congestion_info),
+        chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;

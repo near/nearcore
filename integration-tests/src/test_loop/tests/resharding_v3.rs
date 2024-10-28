@@ -53,8 +53,8 @@ fn print_and_assert_shard_accounts(client: &Client) {
         let mut shard_accounts = vec![];
         for item in trie.lock_for_iter().iter().unwrap() {
             let (key, value) = item.unwrap();
-            let state_record = StateRecord::from_raw_key_value(key, value).unwrap();
-            if let StateRecord::Account { account_id, .. } = state_record {
+            let state_record = StateRecord::from_raw_key_value(key, value);
+            if let Some(StateRecord::Account { account_id, .. }) = state_record {
                 shard_accounts.push(account_id.to_string());
             }
         }
@@ -134,7 +134,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         clients.iter().map(|account: &AccountId| account.as_str()).collect_vec();
 
     // Prepare shard split configuration.
-    let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
     let mut base_epoch_config =
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
@@ -239,16 +239,30 @@ fn test_resharding_v3() {
 }
 
 #[test]
-fn test_resharding_v3_drop_chunks() {
+fn test_resharding_v3_drop_chunks_before() {
+    let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 1, version: 3 }, -2..0)]);
+    test_resharding_v3_base(chunk_ranges_to_drop);
+}
+
+#[test]
+fn test_resharding_v3_drop_chunks_after() {
+    let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 2, version: 3 }, 0..2)]);
+    test_resharding_v3_base(chunk_ranges_to_drop);
+}
+
+#[test]
+fn test_resharding_v3_drop_chunks_before_and_after() {
+    let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 0, version: 3 }, -2..2)]);
+    test_resharding_v3_base(chunk_ranges_to_drop);
+}
+
+#[test]
+fn test_resharding_v3_drop_chunks_all() {
     let chunk_ranges_to_drop = HashMap::from([
-        // TODO(resharding): doesn't work because of "Missing main transition
-        // state proof"
-        // (ShardUId { shard_id: 1, version: 3 }, -2..0),
-        // TODO(resharding): hangs. Something is wrong with skipping the first
-        // chunk for non-split shard.
-        // (ShardUId { shard_id: 0, version: 3 }, -2..2),
-        // TODO(resharding): for some reason, leads to skipped blocks as well.
-        (ShardUId { shard_id: 2, version: 3 }, 0..2),
+        (ShardUId { shard_id: 0, version: 3 }, -1..2),
+        (ShardUId { shard_id: 1, version: 3 }, -3..0),
+        (ShardUId { shard_id: 2, version: 3 }, 0..3),
+        (ShardUId { shard_id: 3, version: 3 }, 0..1),
     ]);
     test_resharding_v3_base(chunk_ranges_to_drop);
 }

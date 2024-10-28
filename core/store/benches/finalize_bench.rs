@@ -19,6 +19,7 @@ use borsh::BorshSerialize;
 use near_chain::Chain;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePathItem};
@@ -30,7 +31,7 @@ use near_primitives::sharding::{
     ShardChunkV2, ShardProof,
 };
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{new_shard_id_tmp, AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;
@@ -136,6 +137,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         CryptoHash::default(),
         vec![],
         congestion_info,
+        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         &validator_signer().into(),
     ))
 }
@@ -177,7 +179,7 @@ fn create_shard_chunk(
 ) -> ShardChunk {
     ShardChunk::V2(ShardChunkV2 {
         chunk_hash: chunk_hash.clone(),
-        header: create_chunk_header(0, new_shard_id_tmp(0)),
+        header: create_chunk_header(0, ShardId::new(0)),
         transactions,
         prev_outgoing_receipts: receipts,
     })
@@ -198,7 +200,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        new_shard_id_tmp(0),
+        ShardId::new(0),
         Default::default(),
         Default::default(),
         Default::default(),
@@ -208,6 +210,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         congestion_info,
+        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         &validator_signer().into(),
         &rs,
         100,

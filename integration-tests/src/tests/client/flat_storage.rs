@@ -11,7 +11,8 @@ use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{new_shard_id_tmp, shard_id_as_u64, AccountId};
+use near_primitives::types::{AccountId, ShardId};
+use near_primitives::version::ProtocolFeature;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
@@ -312,7 +313,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         let trie = env.clients[0]
             .chain
             .runtime_adapter
-            .get_trie_for_shard(new_shard_id_tmp(0), &block_hash, state_root, true)
+            .get_trie_for_shard(ShardId::new(0), &block_hash, state_root, true)
             .unwrap();
         (0..NUM_PARTS)
             .map(|part_id| {
@@ -372,7 +373,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         let trie = env.clients[0]
             .chain
             .runtime_adapter
-            .get_trie_for_shard(new_shard_id_tmp(0), &block_hash, state_root, true)
+            .get_trie_for_shard(ShardId::new(0), &block_hash, state_root, true)
             .unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
@@ -445,15 +446,27 @@ fn test_flat_storage_iter() {
         env.produce_block(0, height);
     }
 
+    // Since the BandwidthScheduler feature there is one more entry on every shard - BandwidthSchedulerState
+    // The test should expect one more entry on every shard.
+    let protocol_version_modifier =
+        if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
+            1
+        } else {
+            0
+        };
+
     for shard_index in 0..3 {
         let shard_id = shard_layout.get_shard_id(shard_index);
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let items: Vec<_> = store.iter(shard_uid).collect();
 
-        match shard_id_as_u64(shard_id) {
+        let shard_id: u64 = shard_id.into();
+        match shard_id {
             0 => {
-                assert_eq!(2, items.len());
+                let expected = 2 + protocol_version_modifier;
+                assert_eq!(expected, items.len());
                 // Two entries - one for 'near' system account, the other for the contract.
+                // (with newer protocol: +1 for BandwidthSchedulerState)
                 assert_eq!(
                     TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
@@ -461,7 +474,9 @@ fn test_flat_storage_iter() {
             }
             1 => {
                 // Two entries - one for account, the other for contract.
-                assert_eq!(2, items.len());
+                // (with newer protocol: +1 for BandwidthSchedulerState)
+                let expected = 2 + protocol_version_modifier;
+                assert_eq!(expected, items.len());
                 assert_eq!(
                     TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
@@ -469,7 +484,9 @@ fn test_flat_storage_iter() {
             }
             2 => {
                 // Test1 account was not created yet - so no entries.
-                assert_eq!(0, items.len());
+                // (with newer protocol: +1 for BandwidthSchedulerState)
+                let expected = 0 + protocol_version_modifier;
+                assert_eq!(expected, items.len());
             }
             _ => {
                 panic!("Unexpected shard_id");
@@ -525,7 +542,7 @@ fn test_not_supported_block() {
             .chain
             .get_chunk_extra(
                 &block_hash,
-                &ShardUId::from_shard_id_and_layout(new_shard_id_tmp(0), &shard_layout),
+                &ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout),
             )
             .unwrap()
             .state_root();

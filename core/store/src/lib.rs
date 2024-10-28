@@ -25,6 +25,7 @@ use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -332,6 +333,15 @@ impl Store {
 
     pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.storage.iter(col)
+    }
+
+    pub fn iter_ser<'a, T: BorshDeserialize>(
+        &'a self,
+        col: DBCol,
+    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+        self.storage
+            .iter(col)
+            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -961,6 +971,19 @@ pub fn get_buffered_receipt_indices(
     trie: &dyn TrieAccess,
 ) -> Result<BufferedReceiptIndices, StorageError> {
     Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
+}
+
+pub fn get_bandwidth_scheduler_state(
+    trie: &dyn TrieAccess,
+) -> Result<Option<BandwidthSchedulerState>, StorageError> {
+    get(trie, &TrieKey::BandwidthSchedulerState)
+}
+
+pub fn set_bandwidth_scheduler_state(
+    state_update: &mut TrieUpdate,
+    scheduler_state: &BandwidthSchedulerState,
+) {
+    set(state_update, TrieKey::BandwidthSchedulerState, scheduler_state);
 }
 
 pub fn set_access_key(

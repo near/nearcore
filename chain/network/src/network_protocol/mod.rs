@@ -10,6 +10,7 @@ pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::ChunkContractDeployments;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
@@ -439,12 +440,15 @@ pub enum PeerMessage {
 
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
-    Challenge(Challenge),
+    Challenge(Box<Challenge>),
 
     SyncSnapshotHosts(SyncSnapshotHosts),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
+
+    EpochSyncRequest,
+    EpochSyncResponse(CompressedEpochSyncProof),
 }
 
 impl fmt::Display for PeerMessage {
@@ -554,10 +558,12 @@ pub enum RoutedMessageBody {
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
-    EpochSyncRequest,
-    EpochSyncResponse(CompressedEpochSyncProof),
+    /// Not used, but needed for borsh backward compatibility.
+    _UnusedEpochSyncRequest,
+    _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
     ChunkContractAccesses(ChunkContractAccesses),
+    ChunkContractDeployments(ChunkContractDeployments),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
 }
@@ -585,8 +591,6 @@ impl RoutedMessageBody {
             RoutedMessageBody::ChunkEndorsement(_)
             | RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
-            // TODO(#11099): Remove this when we filter the targets of message at the sender side.
-            | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -651,16 +655,20 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
             }
-            RoutedMessageBody::EpochSyncRequest => write!(f, "EpochSyncRequest"),
-            RoutedMessageBody::EpochSyncResponse(_) => {
+            RoutedMessageBody::_UnusedEpochSyncRequest => write!(f, "EpochSyncRequest"),
+            RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
-            // TODO(#11099): Add more details to debug message.
-            RoutedMessageBody::ChunkContractAccesses(_) => write!(f, "ChunkContractAccesses"),
-            // TODO(#11099): Add more details to debug message.
-            RoutedMessageBody::ContractCodeRequest(_) => write!(f, "ContractCodeRequest"),
-            // TODO(#11099): Add more details to debug message.
+            RoutedMessageBody::ChunkContractAccesses(accesses) => {
+                write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
+            }
+            RoutedMessageBody::ChunkContractDeployments(deploys) => {
+                write!(f, "ChunkContractDeployments(code_hashes={:?}", deploys.contracts())
+            }
+            RoutedMessageBody::ContractCodeRequest(request) => {
+                write!(f, "ContractCodeRequest(code_hashes={:?})", request.contracts())
+            }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
         }
     }
@@ -747,7 +755,6 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::EpochSyncRequest
         )
     }
 
@@ -889,8 +896,8 @@ pub struct StateResponseInfoV2 {
     PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
 )]
 pub enum StateResponseInfo {
-    V1(StateResponseInfoV1),
-    V2(StateResponseInfoV2),
+    V1(Box<StateResponseInfoV1>),
+    V2(Box<StateResponseInfoV2>),
 }
 
 impl StateResponseInfo {

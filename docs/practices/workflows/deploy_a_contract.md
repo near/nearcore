@@ -167,7 +167,7 @@ $ cargo install wasm-tools
 ## Rust Contract
 
 Finally, let's implement an actual contract. We'll need an `extern "C"` block to
-declare the `value_return` import, and a `#[no_mangle] extern "C"` function to
+declare the `value_return` import, and a `#[unsafe(no_mangle)] extern "C"` function to
 declare the `hello` export:
 
 ```rust
@@ -179,7 +179,7 @@ extern "C" {
     fn value_return(len: u64, ptr: u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hello() {
     let msg = "hello world";
     unsafe { value_return(msg.len() as u64, msg.as_ptr() as u64) }

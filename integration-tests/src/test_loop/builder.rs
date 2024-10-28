@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
@@ -20,8 +20,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
-use near_client::{Client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
+use near_client::{Client, PartialWitnessActor, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
@@ -30,7 +29,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{new_shard_id_tmp, AccountId};
+use near_primitives::types::{AccountId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
@@ -42,7 +41,7 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, partial_encoded_chunks_dropper};
+use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -54,6 +53,12 @@ enum DropConditionKind {
     /// Whether test loop should drop all chunks in the given range of heights
     /// relative to first block height where protocol version changes.
     ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
+    /// Specifies the chunks that should be produced by their appearance in the
+    /// chain with respect to the start of an epoch. That is, a given chunk at height
+    /// `height_created` for shard `shard_id` will be produced if
+    /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
+    /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
+    ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -103,6 +108,33 @@ fn is_chunk_validated_by(
         .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
         .unwrap();
     return chunk_validators.contains(&account_id);
+}
+
+/// returns !chunks_produced[shard_id][height_created - epoch_start].
+fn should_drop_chunk_by_height(
+    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
+    chunk: ShardChunkHeader,
+    chunks_produced: HashMap<ShardId, Vec<bool>>,
+) -> bool {
+    let prev_block_hash = chunk.prev_block_hash();
+    let shard_id = chunk.shard_id();
+    let height_created = chunk.height_created();
+
+    let height_in_epoch =
+        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap() {
+            0
+        } else {
+            let epoch_start =
+                epoch_manager_adapter.get_epoch_start_height(prev_block_hash).unwrap();
+            height_created - epoch_start
+        };
+    let Some(chunks_produced) = chunks_produced.get(&shard_id) else {
+        return false;
+    };
+    let Some(should_produce) = chunks_produced.get(height_in_epoch as usize) else {
+        return false;
+    };
+    !*should_produce
 }
 
 /// Returns true if the chunk should be dropped based on the
@@ -192,7 +224,7 @@ fn register_drop_condition(
                 )
             });
 
-            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
                 chunks_storage,
                 epoch_manager_adapter.clone(),
                 drop_chunks_condition,
@@ -215,7 +247,23 @@ fn register_drop_condition(
                     chunk_ranges.clone(),
                 )
             });
-            peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
+                chunks_storage,
+                epoch_manager_adapter.clone(),
+                drop_chunks_condition,
+            ));
+        }
+        DropConditionKind::ChunksProducedByHeight(chunks_produced) => {
+            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
+            let chunks_produced = chunks_produced.clone();
+            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
+                should_drop_chunk_by_height(
+                    inner_epoch_manager_adapter.clone(),
+                    chunk,
+                    chunks_produced.clone(),
+                )
+            });
+            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
                 chunks_storage,
                 epoch_manager_adapter.clone(),
                 drop_chunks_condition,
@@ -308,6 +356,17 @@ impl TestLoopBuilder {
                 protocol_version,
                 chunk_ranges,
             )));
+        }
+        self
+    }
+
+    pub(crate) fn drop_chunks_by_height(
+        mut self,
+        chunks_produced: HashMap<ShardId, Vec<bool>>,
+    ) -> Self {
+        if !chunks_produced.is_empty() {
+            self.drop_condition_kinds
+                .push(DropConditionKind::ChunksProducedByHeight(chunks_produced));
         }
         self
     }
@@ -449,7 +508,7 @@ impl TestLoopBuilder {
         if is_validator && !self.track_all_shards {
             client_config.tracked_shards = Vec::new();
         } else {
-            client_config.tracked_shards = vec![new_shard_id_tmp(666)];
+            client_config.tracked_shards = vec![ShardId::new(666)];
         }
 
         if let Some(config_modifier) = &self.config_modifier {
@@ -487,11 +546,6 @@ impl TestLoopBuilder {
         let shard_tracker =
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
-        let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-            client_adapter.as_sender(),
-            network_adapter.as_sender(),
-            test_loop_sync_actor_maker(idx, self.test_loop.sender().for_index(idx)),
-        )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache");
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -542,7 +596,6 @@ impl TestLoopBuilder {
             chain_genesis.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            state_sync_adapter,
             runtime_adapter.clone(),
             network_adapter.as_multi_sender(),
             client_to_shards_manager_sender.as_sender(),
@@ -633,7 +686,7 @@ impl TestLoopBuilder {
             client_adapter.as_multi_sender(),
             validator_signer.clone(),
             epoch_manager.clone(),
-            store,
+            runtime_adapter.clone(),
         );
 
         let gc_actor = GCActor::new(

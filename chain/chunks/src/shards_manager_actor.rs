@@ -107,6 +107,7 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
@@ -1994,6 +1995,7 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
+        bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -2014,6 +2016,7 @@ impl ShardsManagerActor {
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
             congestion_info,
+            bandwidth_requests,
             signer,
             protocol_version,
         )
@@ -2263,7 +2266,7 @@ mod test {
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{new_shard_id_tmp, EpochId};
+    use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -2322,7 +2325,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: new_shard_id_tmp(0),
+                shard_id: ShardId::new(0),
                 added,
                 last_requested: added,
             },

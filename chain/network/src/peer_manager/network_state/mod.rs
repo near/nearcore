@@ -1,8 +1,8 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
-    EpochSyncResponseMessage, ProcessTxRequest, TxStatusRequest, TxStatusResponse,
+    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
+    TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -22,9 +22,10 @@ use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
+    ChunkContractAccessesMessage, ChunkContractDeploymentsMessage, ChunkStateWitnessAckMessage,
+    ContractCodeRequestMessage, ContractCodeResponseMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    PartialWitnessSenderForNetwork,
 };
 use crate::stats::metrics;
 use crate::store;
@@ -779,14 +780,6 @@ impl NetworkState {
                 self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
-            RoutedMessageBody::EpochSyncRequest => {
-                self.client.send(EpochSyncRequestMessage { route_back: msg_hash });
-                None
-            }
-            RoutedMessageBody::EpochSyncResponse(proof) => {
-                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
-                None
-            }
             RoutedMessageBody::StatePartRequest(request) => {
                 let mut queue = self.tier3_requests.lock();
                 if queue.len() < LIMIT_TIER3_REQUESTS {
@@ -807,6 +800,10 @@ impl NetworkState {
             }
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                None
+            }
+            RoutedMessageBody::ChunkContractDeployments(deploys) => {
+                self.partial_witness_adapter.send(ChunkContractDeploymentsMessage(deploys));
                 None
             }
             RoutedMessageBody::ContractCodeRequest(request) => {

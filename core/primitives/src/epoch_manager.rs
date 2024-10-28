@@ -12,7 +12,9 @@ use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
 use std::ops::Bound;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
@@ -162,7 +164,7 @@ impl AllEpochConfig {
     ) -> Self {
         // Use the config store only for production configs and outside of tests.
         let config_store = if use_production_config && test_overrides.is_none() {
-            EpochConfigStore::for_chain_id(chain_id)
+            EpochConfigStore::for_chain_id(chain_id, None)
         } else {
             None
         };
@@ -476,8 +478,27 @@ pub struct EpochConfigStore {
 
 impl EpochConfigStore {
     /// Creates a config store to contain the EpochConfigs for the given chain parsed from the JSON files.
-    /// Returns None if there is no epoch config file stored for the given chain.
-    pub fn for_chain_id(chain_id: &str) -> Option<Self> {
+    /// If no configs are found for the given chain, try to load the configs from the file system.
+    /// If there are no configs found, return None.
+    pub fn for_chain_id(chain_id: &str, config_dir: Option<PathBuf>) -> Option<Self> {
+        let mut store = Self::load_default_epoch_configs(chain_id);
+
+        if !store.is_empty() {
+            return Some(Self { store });
+        }
+        if let Some(config_dir) = config_dir {
+            store = Self::load_epoch_config_from_file_system(config_dir.to_str().unwrap());
+        }
+
+        if store.is_empty() {
+            None
+        } else {
+            Some(Self { store })
+        }
+    }
+
+    /// Loads the default epoch configs for the given chain from the CONFIGS array.
+    fn load_default_epoch_configs(chain_id: &str) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
         let mut store = BTreeMap::new();
         for (chain, version, content) in CONFIGS.iter() {
             if *chain == chain_id {
@@ -490,11 +511,43 @@ impl EpochConfigStore {
                 store.insert(*version, Arc::new(config));
             }
         }
-        if store.is_empty() {
-            None
-        } else {
-            Some(Self { store })
+        store
+    }
+
+    /// Reads the json files from the epoch config directory.
+    fn load_epoch_config_from_file_system(
+        directory: &str,
+    ) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
+        let mut store = BTreeMap::new();
+        let entries = fs::read_dir(directory).expect("Failed opening epoch config directory");
+
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+
+                // Check if the file has a .json extension
+                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                    // Extract the file name (without extension)
+                    if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        let version: ProtocolVersion =
+                            file_stem.parse().expect("Invalid protocol version");
+
+                        let content = fs::read_to_string(&path).expect("Failed to read file");
+                        let config: EpochConfig =
+                            serde_json::from_str(&content).unwrap_or_else(|e| {
+                                panic!(
+                                "Failed to load epoch config from file system for version {}: {:#}",
+                                version, e
+                            )
+                            });
+
+                        store.insert(version, Arc::new(config));
+                    }
+                }
+            }
         }
+
+        store
     }
 
     pub fn test(store: BTreeMap<ProtocolVersion, Arc<EpochConfig>>) -> Self {
@@ -541,7 +594,7 @@ mod tests {
             None,
         );
 
-        let config_store = EpochConfigStore::for_chain_id(chain_id).unwrap();
+        let config_store = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);

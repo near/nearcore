@@ -13,6 +13,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::{
     ChunkEndorsementV1, ChunkEndorsementV2,
 };
+use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -215,6 +216,18 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError>;
+
+    fn get_random_chunk_producer_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, EpochError>;
+
     /// Returns all validators for a given epoch.
     fn get_epoch_all_validators(
         &self,
@@ -279,6 +292,22 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId)
         -> Result<ProtocolVersion, EpochError>;
+
+    /// Get protocol version of next epoch.
+    fn get_next_epoch_protocol_version(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<ProtocolVersion, EpochError> {
+        self.get_epoch_protocol_version(&self.get_next_epoch_id(block_hash)?)
+    }
+
+    /// Get protocol version of next epoch with hash of previous block.network
+    fn get_next_epoch_protocol_version_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ProtocolVersion, EpochError> {
+        self.get_epoch_protocol_version(&self.get_next_epoch_id_from_prev_block(parent_hash)?)
+    }
 
     // TODO #3488 this likely to be updated
     /// Data that is necessary for prove Epochs in Epoch Sync.
@@ -462,6 +491,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_partial_witness_signature(
         &self,
         partial_witness: &PartialEncodedStateWitness,
+    ) -> Result<bool, Error>;
+
+    fn verify_witness_contract_accesses_signature(
+        &self,
+        accesses: &ChunkContractAccesses,
     ) -> Result<bool, Error>;
 
     fn cares_about_shard_in_epoch(
@@ -774,6 +808,24 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
+    }
+
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
+    }
+
+    fn get_random_chunk_producer_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<AccountId, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_random_chunk_producer_for_shard(epoch_id, shard_id)
     }
 
     fn get_block_producer(
@@ -1166,6 +1218,18 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let chunk_producer =
             epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)?;
         Ok(partial_witness.verify(chunk_producer.public_key()))
+    }
+
+    fn verify_witness_contract_accesses_signature(
+        &self,
+        accesses: &ChunkContractAccesses,
+    ) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        let ChunkProductionKey { shard_id, epoch_id, height_created } =
+            accesses.chunk_production_key();
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(epoch_id, *height_created, *shard_id)?;
+        Ok(accesses.verify_signature(chunk_producer.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(

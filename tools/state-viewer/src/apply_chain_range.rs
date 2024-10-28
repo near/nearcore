@@ -196,6 +196,7 @@ fn apply_block_from_range(
                     block.header(),
                     prev_block.header().next_gas_price(),
                     block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -222,6 +223,7 @@ fn apply_block_from_range(
                     block.header(),
                     block.header().next_gas_price(),
                     block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &[],
                 &[],
@@ -241,6 +243,7 @@ fn apply_block_from_range(
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.bandwidth_requests.clone(),
     );
 
     let state_update =
@@ -496,7 +499,7 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{new_shard_id_tmp, BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -513,7 +516,7 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let nightshade_runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -583,7 +586,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -597,7 +600,7 @@ mod test {
             &genesis,
             None,
             None,
-            new_shard_id_tmp(0),
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,
@@ -627,7 +630,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -642,7 +645,7 @@ mod test {
             &genesis,
             None,
             None,
-            new_shard_id_tmp(0),
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,

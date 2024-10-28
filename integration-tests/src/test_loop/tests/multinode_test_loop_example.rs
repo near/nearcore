@@ -51,7 +51,7 @@ fn test_client_with_multi_test_loop() {
     };
     tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
 
-    execute_money_transfers(&mut test_loop, &node_datas, &accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();

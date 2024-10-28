@@ -25,7 +25,7 @@ impl Chain {
         let final_block = chain_store.get_block(&final_block_hash)?;
         let final_block_chunk_created_heights = final_block
             .chunks()
-            .iter()
+            .iter_deprecated()
             .map(|chunk| (chunk.shard_id(), chunk.height_created()))
             .collect::<Vec<_>>();
         clear_before_last_final_block(chain_store, &final_block_chunk_created_heights)?;
@@ -116,9 +116,9 @@ mod tests {
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-        StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+        StoredChunkStateTransitionData, StoredChunkStateTransitionDataV2,
     };
-    use near_primitives::types::{new_shard_id_tmp, BlockHeight, EpochId, ShardId};
+    use near_primitives::types::{BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
     use near_store::test_utils::create_test_store;
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn initial_state_transition_data_gc() {
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = ShardId::new(0);
         let block_at_1 = hash(&[1]);
         let block_at_2 = hash(&[2]);
         let block_at_3 = hash(&[3]);
@@ -148,7 +148,7 @@ mod tests {
     }
     #[test]
     fn multiple_state_transition_data_gc() {
-        let shard_id = new_shard_id_tmp(0);
+        let shard_id = ShardId::new(0);
         let store = create_test_store();
         let chain_store = create_chain_store(&store);
         save_state_transition_data(&store, hash(&[1]), 1, shard_id);
@@ -204,11 +204,11 @@ mod tests {
             .set_ser(
                 DBCol::StateTransitionData,
                 &get_block_shard_id(&block_hash, shard_id),
-                &StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                &StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
-                    // TODO(#11099): Revisit this.
-                    contract_accesses: vec![],
+                    contract_accesses: Default::default(),
+                    contract_deploys: Default::default(),
                 }),
             )
             .unwrap();
