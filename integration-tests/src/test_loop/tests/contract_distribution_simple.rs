@@ -28,8 +28,8 @@ fn test_contract_distribution(clear_cache: bool) {
 
     do_deploy_contract(&mut test_loop, &node_datas, 1);
 
-    #[cfg(feature = "test_features")]
     if clear_cache {
+        #[cfg(feature = "test_features")]
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
