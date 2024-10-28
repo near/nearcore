@@ -79,6 +79,54 @@ pub struct BandwidthRequest {
     pub requested_values_bitmap: BandwidthRequestBitmap,
 }
 
+impl BandwidthRequest {
+    /// Creates a bandwidth request based on the sizes of receipts in the outgoing buffer.
+    /// Returns None when a request is not needed (receipt size below base bandwidth).
+    pub fn make_from_receipt_sizes(
+        to_shard: u8,
+        receipt_sizes: impl Iterator<Item = u64>,
+        params: &BandwidthSchedulerParams,
+    ) -> Option<BandwidthRequest> {
+        let values = BandwidthRequestValues::new(params).values;
+        let mut bitmap = BandwidthRequestBitmap::new();
+
+        // For every receipt find out how much bandwidth would be needed to send out
+        // all the receipts up to this one. Then find the value that is at least as
+        // large as the required bandwidth and request it in the request bitmap.
+        let mut total_size: u64 = 0;
+        let mut cur_value_idx: usize = 0;
+        for receipt_size in receipt_sizes {
+            total_size = total_size.checked_add(receipt_size).expect(
+                "Total size of receipts doesn't fit in u64, are there exabytes of receipts?",
+            );
+
+            if total_size <= params.base_bandwidth {
+                continue;
+            }
+
+            // Find a value that is at least as big as the total_size
+            while cur_value_idx < values.len() && values[cur_value_idx] < total_size {
+                cur_value_idx += 1;
+            }
+
+            if cur_value_idx == values.len() {
+                // There is no value to request this much, stop the loop.
+                break;
+            }
+
+            // Request the value that is at least as large as total_size
+            bitmap.set_bit(cur_value_idx, true);
+        }
+
+        if bitmap.is_all_zeros() {
+            // No point in making a bandwidth request that doesn't request anything
+            return None;
+        }
+
+        Some(BandwidthRequest { to_shard, requested_values_bitmap: bitmap })
+    }
+}
+
 /// There are this many predefined values of bandwidth that can be requested in a BandwidthRequest.
 pub const BANDWIDTH_REQUEST_VALUES_NUM: usize = 40;
 
@@ -179,6 +227,10 @@ impl BandwidthRequestBitmap {
     pub fn len(&self) -> usize {
         BANDWIDTH_REQUEST_VALUES_NUM
     }
+
+    pub fn is_all_zeros(&self) -> bool {
+        self.data == [0u8; BANDWIDTH_REQUEST_BITMAP_SIZE]
+    }
 }
 
 /// `BandwidthRequests` from all chunks in a block.
@@ -277,7 +329,9 @@ mod tests {
 
     use crate::bandwidth_scheduler::BANDWIDTH_REQUEST_VALUES_NUM;
 
-    use super::{BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams};
+    use super::{
+        BandwidthRequest, BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams,
+    };
     use rand_chacha::ChaCha20Rng;
 
     fn make_runtime_config(max_receipt_size: u64) -> RuntimeConfig {
@@ -399,5 +453,158 @@ mod tests {
                 4277547, 4388773, 4500000
             ]
         );
+    }
+
+    // Make a bandwidth request to shard 0 with a bitmap which has ones at the specified indices.
+    fn make_request_with_ones(ones_indexes: &[usize]) -> BandwidthRequest {
+        let mut req = BandwidthRequest {
+            to_shard: 0,
+            requested_values_bitmap: BandwidthRequestBitmap::new(),
+        };
+        for i in ones_indexes {
+            req.requested_values_bitmap.set_bit(*i, true);
+        }
+        req
+    }
+
+    #[test]
+    fn test_make_bandwidth_request_from_receipt_sizes() {
+        let max_receipt_size = 4 * 1024 * 1024;
+        let params = BandwidthSchedulerParams::calculate_from_config(
+            NonZeroU64::new(6).unwrap(),
+            &make_runtime_config(max_receipt_size),
+        );
+        let values = BandwidthRequestValues::new(&params).values;
+
+        let get_request = |receipt_sizes: &[u64]| {
+            BandwidthRequest::make_from_receipt_sizes(0, receipt_sizes.iter().copied(), &params)
+        };
+
+        // No receipts - no bandwidth request.
+        assert_eq!(get_request(&[]), None);
+
+        // Receipts with total size smaller than base_bandwidth don't need a bandwidth request.
+        let below_base_bandwidth_receipts = [10_000, 20, 999, 2362, 3343, 232, 22];
+        assert!(below_base_bandwidth_receipts.iter().sum::<u64>() < params.base_bandwidth);
+        assert_eq!(get_request(&below_base_bandwidth_receipts), None);
+
+        // Receipts with total size equal to base_bandwidth don't need a bandwidth_request
+        let equal_to_base_bandwidth_receipts = [10_000, 20_000, params.base_bandwidth - 30_000];
+        assert_eq!(equal_to_base_bandwidth_receipts.iter().sum::<u64>(), params.base_bandwidth);
+        assert_eq!(get_request(&equal_to_base_bandwidth_receipts), None);
+
+        // Receipts with total size barely larger than base_bandwidth need a bandwidth request.
+        // Only the first bit in the bitmap should be set to 1.
+        let above_base_bandwidth_receipts = [10_000, 20_000, params.base_bandwidth - 30_000, 1];
+        assert_eq!(above_base_bandwidth_receipts.iter().sum::<u64>(), params.base_bandwidth + 1);
+        assert_eq!(get_request(&above_base_bandwidth_receipts), Some(make_request_with_ones(&[0])));
+
+        // A single receipt which is slightly larger than base_bandwidth needs a bandwidth request.
+        let above_base_bandwidth_one_receipt = [params.base_bandwidth + 1];
+        assert_eq!(
+            get_request(&above_base_bandwidth_one_receipt),
+            Some(make_request_with_ones(&[0]))
+        );
+
+        // When requesting bandwidth that is between two values on the list, the request
+        // should ask for the first value that is bigger than the needed bandwidth.
+        let inbetween_value = (values[values.len() / 2] + values[values.len() / 2 + 1]) / 2;
+        assert!(!values.contains(&inbetween_value));
+        let inbetween_size_receipt = [inbetween_value];
+        assert_eq!(
+            get_request(&inbetween_size_receipt),
+            Some(make_request_with_ones(&[values.len() / 2 + 1]))
+        );
+
+        // A single max size receipt should have the corresponding value set to one.
+        let max_size_receipt = [max_receipt_size];
+        let max_size_receipt_value_idx =
+            values.iter().position(|v| *v == max_receipt_size).unwrap();
+        assert_eq!(
+            get_request(&max_size_receipt),
+            Some(make_request_with_ones(&[max_size_receipt_value_idx]))
+        );
+
+        // Two max size receipts should produce the same bandwidth request as one max size receipt.
+        // 2 * max_size_receipt > max_shard_bandwidth, so it doesn't make sense to request more bandwidth.
+        assert!(2 * params.max_receipt_size > params.max_shard_bandwidth);
+        let two_max_size_receipts = [max_receipt_size, max_receipt_size];
+        assert_eq!(
+            get_request(&two_max_size_receipts),
+            Some(make_request_with_ones(&[max_size_receipt_value_idx]))
+        );
+
+        // A ton of small receipts should cause all bits to be set to one.
+        // 10_000 receipts, each with size 1000. More than a shard can send out at a single height.
+        let lots_of_small_receipts: Vec<u64> = (0..10_000).into_iter().map(|_| 1_000).collect();
+        assert!(lots_of_small_receipts.iter().sum::<u64>() > params.max_shard_bandwidth);
+        let all_bitmap_indices: Vec<usize> = (0..BANDWIDTH_REQUEST_VALUES_NUM).collect();
+        assert_eq!(
+            get_request(&lots_of_small_receipts),
+            Some(make_request_with_ones(&all_bitmap_indices))
+        );
+    }
+
+    /// Generate random receipt sizes and create a bandwidth request from them.
+    /// Compare the created bandwidth request with a request created using simpler logic.
+    #[test]
+    fn test_make_bandwidth_request_random() {
+        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+        let max_receipt_size = 4 * 1024 * 1024;
+        let params = BandwidthSchedulerParams::calculate_from_config(
+            NonZeroU64::new(6).unwrap(),
+            &make_runtime_config(max_receipt_size),
+        );
+
+        let min_receipt_size = 5_000;
+        let max_receipts_num = params.max_shard_bandwidth / min_receipt_size * 3 / 2;
+
+        for _test_idx in 0..100 {
+            let num_receipts = rng.gen_range(0..=max_receipts_num);
+            let receipt_sizes: Vec<u64> = (0..num_receipts)
+                .map(|_| rng.gen_range(min_receipt_size..=max_receipt_size))
+                .collect();
+
+            let request = BandwidthRequest::make_from_receipt_sizes(
+                0,
+                receipt_sizes.iter().copied(),
+                &params,
+            );
+
+            let expected_request =
+                make_bandwidth_request_slow(receipt_sizes.iter().copied(), &params);
+            assert_eq!(request, expected_request);
+        }
+    }
+
+    /// A more naive implementation of bandwidth request generation.
+    /// For every total_size find the value that is at least this large and request it.
+    fn make_bandwidth_request_slow(
+        receipt_sizes: impl Iterator<Item = u64>,
+        params: &BandwidthSchedulerParams,
+    ) -> Option<BandwidthRequest> {
+        let mut request = BandwidthRequest {
+            to_shard: 0,
+            requested_values_bitmap: BandwidthRequestBitmap::new(),
+        };
+        let values = BandwidthRequestValues::new(params).values;
+
+        let mut total_size = 0;
+        for receipt_size in receipt_sizes {
+            total_size += receipt_size;
+
+            for i in 0..values.len() {
+                if values[i] >= total_size {
+                    request.requested_values_bitmap.set_bit(i, true);
+                    break;
+                }
+            }
+        }
+
+        if request.requested_values_bitmap.is_all_zeros() {
+            return None;
+        }
+
+        Some(request)
     }
 }
