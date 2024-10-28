@@ -604,7 +604,7 @@ impl Trie {
                             i += 1;
                         }
                         let new_value =
-                            value.clone().map(|value| Trie::flatten_value(&mut memory, value));
+                            (*value).map(|value| Trie::flatten_value(&mut memory, value));
                         RawTrieNode::branch(*new_children, new_value)
                     }
                     FlattenNodesCrumb::Exiting => unreachable!(),
@@ -623,7 +623,7 @@ impl Trie {
                 },
                 TrieNode::Leaf(key, value) => {
                     let key = key.clone();
-                    let value = value.clone();
+                    let value = *value;
                     let value = Trie::flatten_value(&mut memory, value);
                     RawTrieNode::Leaf(key, value)
                 }

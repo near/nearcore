@@ -91,7 +91,7 @@ impl FlatStateValue {
 
     pub fn to_value_ref(&self) -> ValueRef {
         match self {
-            Self::Ref(value_ref) => value_ref.clone(),
+            Self::Ref(value_ref) => *value_ref,
             Self::Inlined(value) => ValueRef::new(value),
         }
     }
