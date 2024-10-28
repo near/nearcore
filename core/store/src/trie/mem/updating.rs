@@ -103,6 +103,10 @@ impl<GenericTrieNodePtr, FlatStateValue: HasLength>
         value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
     }
 
+    /// Returns the memory usage of the **single** node, in Near's trie cost
+    /// terms, not in terms of the physical memory usage.
+    /// TODO(#12324): replace `TrieNode::memory_usage_direct_internal` and
+    ///`MemTrieNodeView::memory_usage` by this method.
     pub fn memory_usage_direct(&self) -> u64 {
         match self {
             Self::Empty => {

@@ -195,14 +195,14 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasLe
                         child_key_nibbles,
                         intervals_nibbles,
                     )?;
-                    if matches!(
-                        self.generic_get_node(new_child_id).node,
-                        GenericUpdatedTrieNode::Empty
-                    ) {
+
+                    let GenericUpdatedTrieNodeWithSize { node, memory_usage: child_memory_usage } =
+                        self.generic_get_node(new_child_id);
+                    if matches!(node, GenericUpdatedTrieNode::Empty) {
                         *child = None;
                     } else {
                         *child = Some(GenericNodeOrIndex::Updated(new_child_id));
-                        memory_usage += self.generic_get_node(new_child_id).memory_usage;
+                        memory_usage += child_memory_usage;
                     }
                 }
 
