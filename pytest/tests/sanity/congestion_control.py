@@ -216,7 +216,10 @@ class CongestionControlTest(unittest.TestCase):
         # feature. Occasionally the contract is not rebuilt properly and cargo
         # clean is needed.
         status = result['result']['status']
-        self.assertIn('SuccessValue', status)
+        self.assertIn(
+            'SuccessValue', status,
+            "The transaction failed, please check that the contract was built with `test_features` enabled."
+        )
 
     def __start_load(self, node: BaseNode, accounts):
         logger.info("Starting load threads")
