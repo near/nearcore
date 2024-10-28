@@ -1388,8 +1388,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
-            contract_accesses: Default::default(),
-            contract_deploys: Default::default(),
+            contract_updates: Default::default(),
         })
     }
 

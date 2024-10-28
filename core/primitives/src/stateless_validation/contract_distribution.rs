@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
@@ -24,7 +24,7 @@ pub enum ChunkContractAccesses {
 impl ChunkContractAccesses {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, signer))
@@ -59,7 +59,7 @@ pub struct ChunkContractAccessesV1 {
 impl ChunkContractAccessesV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkContractAccessesInner::new(next_chunk, contracts);
@@ -85,7 +85,7 @@ pub struct ChunkContractAccessesInner {
 }
 
 impl ChunkContractAccessesInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: BTreeSet<CodeHash>) -> Self {
+    fn new(next_chunk: ChunkProductionKey, contracts: HashSet<CodeHash>) -> Self {
         Self {
             next_chunk,
             contracts: contracts.into_iter().collect(),
@@ -107,7 +107,7 @@ pub enum ChunkContractDeployments {
 impl ChunkContractDeployments {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ChunkContractDeploymentsV1::new(next_chunk, contracts, signer))
@@ -136,7 +136,7 @@ pub struct ChunkContractDeploymentsV1 {
 impl ChunkContractDeploymentsV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkContractDeploymentsInner::new(next_chunk, contracts);
@@ -158,7 +158,7 @@ pub struct ChunkContractDeploymentsInner {
 }
 
 impl ChunkContractDeploymentsInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: BTreeSet<CodeHash>) -> Self {
+    fn new(next_chunk: ChunkProductionKey, contracts: HashSet<CodeHash>) -> Self {
         Self {
             next_chunk,
             contracts: contracts.into_iter().collect(),
@@ -179,7 +179,7 @@ pub enum ContractCodeRequest {
 impl ContractCodeRequest {
     pub fn new(
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, signer))
@@ -214,7 +214,7 @@ pub struct ContractCodeRequestV1 {
 impl ContractCodeRequestV1 {
     fn new(
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
         let inner =
@@ -243,7 +243,7 @@ impl ContractCodeRequestInner {
     fn new(
         requester: AccountId,
         next_chunk: ChunkProductionKey,
-        contracts: BTreeSet<CodeHash>,
+        contracts: HashSet<CodeHash>,
     ) -> Self {
         Self {
             requester,
@@ -382,3 +382,12 @@ impl Into<CryptoHash> for CodeHash {
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct CodeBytes(pub std::sync::Arc<[u8]>);
+
+/// Contains the accesses and changes (eg. deployments) to the contracts while applying a chunk.
+#[derive(Debug, Default)]
+pub struct ContractUpdates {
+    /// Code-hashes of the contracts accessed (called) while applying the chunk.
+    pub contract_accesses: HashSet<CodeHash>,
+    /// Code-hashes of the contracts deployed while applying the chunk.
+    pub contract_deploys: HashSet<CodeHash>,
+}

@@ -1,9 +1,9 @@
 use crate::{metrics, TrieStorage};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_vm_runner::ContractCode;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 /// Tracks the uncommitted and committed deployments and calls to contracts, while applying the receipts in a chunk.
@@ -35,7 +35,7 @@ struct ContractsTracker {
     ///
     /// We do not distinguish between committed and uncommitted calls, because we need
     /// to record all calls to validate both successful and failing function calls.
-    contract_calls: BTreeSet<CodeHash>,
+    contract_calls: HashSet<CodeHash>,
 }
 
 impl ContractsTracker {
@@ -68,20 +68,12 @@ impl ContractsTracker {
     }
 
     /// Finalizes this tracker and returns the calls and committed deployments.
-    fn finalize(mut self) -> ContractStorageResult {
-        ContractStorageResult {
-            contract_calls: std::mem::take(&mut self.contract_calls),
+    fn finalize(mut self) -> ContractUpdates {
+        ContractUpdates {
+            contract_accesses: std::mem::take(&mut self.contract_calls),
             contract_deploys: self.committed_deploys.into_keys().collect(),
         }
     }
-}
-
-/// Result of finalizing the contract storage, containing the contract calls and committed deployments.
-pub struct ContractStorageResult {
-    /// List of code-hashes for the contract calls while applying the chunk.
-    pub contract_calls: BTreeSet<CodeHash>,
-    /// List of code-hashes for the (committed) contract deployments while applying the chunk.
-    pub contract_deploys: BTreeSet<CodeHash>,
 }
 
 /// Reads contract code from the trie by its hash.
@@ -178,7 +170,7 @@ impl ContractStorage {
     ///
     /// It also finalizes and destructs the inner`ContractsTracker` so there must be no other deployments or
     /// calls to contracts after this returns.
-    pub(crate) fn finalize(self) -> ContractStorageResult {
+    pub(crate) fn finalize(self) -> ContractUpdates {
         let mut guard = self.tracker.lock().expect("no panics");
         let tracker = guard.take().expect("finalize must be called only once");
         tracker.finalize()
