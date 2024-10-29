@@ -3,7 +3,7 @@ use near_async::messaging::Sender;
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
 
-/// Represents a request to start a flat storage resharding task.
+/// Represents a request to start various stages of resharding.
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub enum ReshardingRequest {
