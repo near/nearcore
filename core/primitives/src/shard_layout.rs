@@ -1056,6 +1056,32 @@ mod tests {
     }
 
     #[test]
+    fn test_shard_layout_v0() {
+        let num_shards = 4;
+        let shard_layout = ShardLayout::v0(num_shards, 0);
+        let mut shard_id_distribution: HashMap<ShardId, _> =
+            shard_layout.shard_ids().map(|shard_id| (shard_id.into(), 0)).collect();
+        let mut rng = StdRng::from_seed([0; 32]);
+        for _i in 0..1000 {
+            let s: Vec<u8> = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();
+            let s = String::from_utf8(s).unwrap();
+            let account_id = s.to_lowercase().parse().unwrap();
+            let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+            assert!(shard_id < num_shards);
+            *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
+        }
+        let expected_distribution: HashMap<ShardId, _> = [
+            (ShardId::new(0), 247),
+            (ShardId::new(1), 268),
+            (ShardId::new(2), 233),
+            (ShardId::new(3), 252),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(shard_id_distribution, expected_distribution);
+    }
+
+    #[test]
     fn test_shard_layout_v1() {
         let aid = |s: &str| s.parse().unwrap();
         let sid = |s: u64| ShardId::new(s);
