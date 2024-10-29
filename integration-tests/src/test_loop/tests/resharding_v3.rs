@@ -77,7 +77,7 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
     for kv in store.store().iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-        // Just after resharding, no State data must be keyed using children shard UIDs.
+        // Just after resharding, no State data must be keyed using children ShardUIds.
         assert!(!children_shard_uids.contains(&shard_uid));
         if shard_uid != parent_shard_uid {
             continue;
@@ -85,7 +85,7 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         let (value, _) = decode_value_with_rc(&value);
         let parent_value = store.get(parent_shard_uid, &node_hash);
-        // Parent shard data must still be accessible using parent shard UID.
+        // Parent shard data must still be accessible using parent ShardUId.
         assert_eq!(&parent_value.unwrap()[..], value.unwrap());
         // All parent shard data is available via both children shards.
         for child_shard_uid in &children_shard_uids {

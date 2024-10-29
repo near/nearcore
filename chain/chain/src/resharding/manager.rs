@@ -97,7 +97,7 @@ impl ReshardingManager {
                 )?;
             }
             None => {
-                tracing::debug!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
+                tracing::warn!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
             }
         };
         Ok(())
@@ -114,11 +114,11 @@ impl ReshardingManager {
     ) -> Result<(), Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
-            tracing::debug!(target: "resharding", ?parent_shard, "shard uid does not match event parent shard, skipping");
+            tracing::debug!(target: "resharding", ?parent_shard, "ShardUId does not match event parent shard, skipping");
             return Ok(());
         }
 
-        // Reshard state by setting shard UId mapping from children to parent.
+        // Reshard the State column by setting ShardUId mapping from children to parent.
         self.set_state_shard_uid_mapping(&split_shard_event)?;
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
@@ -139,7 +139,7 @@ impl ReshardingManager {
         Ok(())
     }
 
-    /// Store in the database the mapping of shard UId from children to the parent shard,
+    /// Store in the database the mapping of ShardUId from children to the parent shard,
     /// so that subsequent accesses to the State will use the parent shard's UId as a prefix for the database key.
     fn set_state_shard_uid_mapping(
         &mut self,
@@ -148,10 +148,7 @@ impl ReshardingManager {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         // TODO(reshardingV3) No need to set the mapping for children shards that we won't track just after resharding?
-        let children_shard_uids =
-            [split_shard_event.left_child_shard, split_shard_event.right_child_shard];
-
-        for child_shard_uid in children_shard_uids {
+        for child_shard_uid in split_shard_event.children_shards() {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid);
         }
         store_update.commit()
@@ -178,10 +175,7 @@ impl ReshardingManager {
         // processing?
         // TODO(resharding): fork handling. if epoch is finalized on different
         // blocks, the second finalization will crash.
-        tries.freeze_mem_tries(
-            parent_shard_uid,
-            vec![split_shard_event.left_child_shard, split_shard_event.right_child_shard],
-        )?;
+        tries.freeze_mem_tries(parent_shard_uid, split_shard_event.children_shards())?;
 
         let chunk_extra = self.get_chunk_extra(block_hash, &parent_shard_uid)?;
         let boundary_account = split_shard_event.boundary_account;

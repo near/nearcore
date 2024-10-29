@@ -32,6 +32,12 @@ pub struct ReshardingSplitShardParams {
     pub prev_block_hash: CryptoHash,
 }
 
+impl ReshardingSplitShardParams {
+    pub fn children_shards(&self) -> Vec<ShardUId> {
+        vec![self.left_child_shard, self.right_child_shard]
+    }
+}
+
 impl ReshardingEventType {
     /// Takes as input a [ShardLayout] definition and deduces which kind of resharding operation
     /// must be performed.
