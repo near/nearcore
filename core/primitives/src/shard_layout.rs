@@ -666,14 +666,18 @@ impl ShardLayout {
 
     /// Returns the shard index for a given shard id. The shard index should be
     /// used when indexing into an array of chunk data.
-    pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
+    pub fn get_shard_index(&self, shard_id: ShardId) -> Result<ShardIndex, ShardLayoutError> {
         match self {
             // In V0 the shard id and shard index are the same.
-            Self::V0(_) => shard_id.into(),
+            Self::V0(_) => Ok(shard_id.into()),
             // In V1 the shard id and shard index are the same.
-            Self::V1(_) => shard_id.into(),
+            Self::V1(_) => Ok(shard_id.into()),
             // In V2 the shard id and shard index are **not** the same.
-            Self::V2(v2) => v2.id_to_index_map[&shard_id],
+            Self::V2(v2) => v2
+                .id_to_index_map
+                .get(&shard_id)
+                .copied()
+                .ok_or_else(|| ShardLayoutError::InvalidShardIdError { shard_id }),
         }
     }
 
