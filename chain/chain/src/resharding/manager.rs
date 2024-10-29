@@ -85,7 +85,7 @@ impl ReshardingManager {
             return Ok(());
         }
         let resharding_event_type =
-            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash)?;
         let Some(ReshardingEventType::SplitShard(split_shard_event)) = resharding_event_type else {
             tracing::debug!(target: "resharding", ?resharding_event_type, "resharding event type is not split shard, skipping");
             return Ok(());

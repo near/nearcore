@@ -155,7 +155,6 @@ impl FlatStorageResharder {
             left_child_shard,
             right_child_shard,
             resharding_hash,
-            prev_block_hash,
             ..
         } = split_params;
         info!(target: "resharding", ?split_params, "initiating flat storage shard split");
@@ -170,7 +169,6 @@ impl FlatStorageResharder {
             right_child_shard,
             shard_layout: shard_layout.clone(),
             resharding_hash,
-            prev_block_hash,
             flat_head,
         };
         store_update.set_flat_storage_status(
@@ -1080,7 +1078,6 @@ mod tests {
         ReshardingEventType::from_shard_layout(
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
-            chain.head().unwrap().prev_block_hash,
         )
         .unwrap()
         .unwrap()
@@ -1173,7 +1170,6 @@ mod tests {
                 right_child_shard,
                 shard_layout: new_shard_layout,
                 resharding_hash: CryptoHash::default(),
-                prev_block_hash: CryptoHash::default(),
                 flat_head: BlockInfo {
                     hash: CryptoHash::default(),
                     height: 1,
