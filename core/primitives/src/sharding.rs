@@ -644,10 +644,12 @@ impl ShardChunkHeader {
     pub(crate) fn inner_version_number(&self) -> u64 {
         match self {
             ShardChunkHeader::V1(v1) => {
+                // Shows that Header V1 contains Inner V1
                 let _inner_v1: &ShardChunkHeaderInnerV1 = &v1.inner;
                 1
             }
             ShardChunkHeader::V2(v2) => {
+                // Shows that Header V2 also contains Inner V1, not Inner V2
                 let _inner_v1: &ShardChunkHeaderInnerV1 = &v2.inner;
                 1
             }
