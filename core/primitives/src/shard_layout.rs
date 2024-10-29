@@ -613,7 +613,12 @@ impl ShardLayout {
                 None => panic!("shard_layout has no parent shard"),
             },
             Self::V2(v2) => match &v2.shards_parent_map {
-                Some(to_parent_shard_map) => *to_parent_shard_map.get(&shard_id).unwrap(),
+                Some(to_parent_shard_map) => {
+                    let parent_shard_id = to_parent_shard_map.get(&shard_id);
+                    let parent_shard_id = parent_shard_id
+                        .ok_or_else(|| ShardLayoutError::InvalidShardIdError { shard_id })?;
+                    *parent_shard_id
+                }
                 None => panic!("shard_layout has no parent shard"),
             },
         };
