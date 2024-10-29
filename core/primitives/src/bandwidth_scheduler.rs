@@ -186,7 +186,6 @@ impl BandwidthRequestValues {
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
-    Debug,
     Clone,
     PartialEq,
     Eq,
@@ -194,6 +193,20 @@ impl BandwidthRequestValues {
 )]
 pub struct BandwidthRequestBitmap {
     pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],
+}
+
+impl std::fmt::Debug for BandwidthRequestBitmap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BandwidthRequestBitmap(")?;
+        for i in 0..self.len() {
+            if self.get_bit(i) {
+                write!(f, "1")?;
+            } else {
+                write!(f, "0")?;
+            }
+        }
+        write!(f, ")")
+    }
 }
 
 pub const BANDWIDTH_REQUEST_BITMAP_SIZE: usize = BANDWIDTH_REQUEST_VALUES_NUM / 8;
