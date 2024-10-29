@@ -280,6 +280,9 @@ pub struct Chain {
 
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
+
+    // TODO: move. multiple chains for view client and client.
+    sync_hash_tracker: crate::state_sync::SyncHashTracker,
 }
 
 impl Drop for Chain {
@@ -376,6 +379,11 @@ impl Chain {
             MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
+        let sync_hash_tracker = crate::state_sync::SyncHashTracker::new(
+            &chain_store,
+            epoch_manager.as_ref(),
+            genesis.hash(),
+        )?;
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -400,6 +408,7 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
             resharding_manager,
+            sync_hash_tracker,
         })
     }
 
@@ -555,6 +564,11 @@ impl Chain {
             chain_config.resharding_config,
             resharding_sender,
         );
+        let sync_hash_tracker = crate::state_sync::SyncHashTracker::new(
+            &chain_store,
+            epoch_manager.as_ref(),
+            genesis.hash(),
+        )?;
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -579,6 +593,7 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks,
             resharding_manager,
+            sync_hash_tracker,
         })
     }
 
@@ -1937,6 +1952,11 @@ impl Chain {
             should_save_state_transition_data,
         )?;
         chain_update.commit()?;
+        self.sync_hash_tracker.add_block(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            block.header(),
+        )?;
         Ok(new_head)
     }
 

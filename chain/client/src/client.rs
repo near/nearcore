@@ -244,7 +244,7 @@ pub struct ProduceChunkResult {
 /// in each shard from scratch every time we call it, but in the unlikely and unfortunate case where a shard
 /// hasn't had any chunks for a very long time, it would end up being a nontrivial inefficiency to do that
 /// every time run_catchup() is called
-pub struct NewChunkTracker {
+struct NewChunkTracker {
     last_checked_hash: CryptoHash,
     last_checked_height: BlockHeight,
     num_new_chunks: HashMap<ShardId, usize>,
