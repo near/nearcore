@@ -1553,10 +1553,17 @@ mod tests {
         );
         assert_eq!(
             account_id_to_shard_id(
-                &AccountId::from_str("shard1.test.near").unwrap(),
+                &AccountId::from_str("shard0.test.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
             ShardId::new(1)
+        );
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("shard1.test.near").unwrap(),
+                &genesis.config.shard_layout,
+            ),
+            ShardId::new(2)
         );
         assert_eq!(
             account_id_to_shard_id(
