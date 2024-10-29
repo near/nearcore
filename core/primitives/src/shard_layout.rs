@@ -996,7 +996,10 @@ mod tests {
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
-    use std::collections::BTreeMap;
+    use rand::distributions::Alphanumeric;
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+    use std::collections::{BTreeMap, HashMap};
 
     use super::{new_shards_split_map_v2, ShardVersion, ShardsSplitMap};
 
