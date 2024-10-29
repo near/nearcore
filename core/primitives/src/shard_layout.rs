@@ -401,13 +401,13 @@ pub enum ShardLayoutError {
 }
 
 impl ShardLayout {
-    /// Construct a layout with a single shard
+    /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {
-        Self::of_num_shards(1, 0)
+        Self::multi_shard(1, 0)
     }
 
-    /// Construct a layout with given number of shards
-    pub fn of_num_shards(num_shards: NumShards, version: ShardVersion) -> Self {
+    /// Can be used to construct a multi-shard layout, mostly for test purposes
+    pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
         let boundary_accounts = (0..num_shards - 1)

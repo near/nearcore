@@ -404,7 +404,7 @@ impl KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    let shard_layout = ShardLayout::of_num_shards(num_shards, 0);
+    let shard_layout = ShardLayout::multi_shard(num_shards, 0);
     shard_layout::account_id_to_shard_id(account_id, &shard_layout)
 }
 
@@ -564,7 +564,7 @@ impl EpochManagerAdapter for MockEpochManager {
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
-        Ok(ShardLayout::of_num_shards(self.num_shards, 0))
+        Ok(ShardLayout::multi_shard(self.num_shards, 0))
     }
 
     fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
@@ -648,7 +648,7 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _parent_hash: &CryptoHash,
     ) -> Result<ShardLayout, EpochError> {
-        Ok(ShardLayout::of_num_shards(self.num_shards, 0))
+        Ok(ShardLayout::multi_shard(self.num_shards, 0))
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
