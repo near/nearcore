@@ -92,7 +92,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
         // TODO(#12074): consider handling the case when no changes are made.
         // TODO(#12074): restore proof as well.
-        self.generic_retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+        self.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
         self.to_trie_changes()
     }
 }
@@ -114,7 +114,7 @@ impl Trie {
         let mut memory = NodesStorage::new(&self);
         let root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
 
-        memory.generic_retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+        memory.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
 
         #[cfg(test)]
         {
@@ -135,7 +135,7 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
     /// `node_id` is the root of subtree being explored.
     /// `key_nibbles` is the key corresponding to `root`.
     /// `intervals_nibbles` is the list of ranges to be retained.
-    fn generic_retain_multi_range_recursive(
+    fn retain_multi_range_recursive(
         &mut self,
         node_id: GenericUpdatedNodeId,
         key_nibbles: Vec<u8>,
@@ -191,7 +191,7 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
 
                     let new_child_id = self.generic_ensure_updated(old_child_id)?;
                     let child_key_nibbles = [key_nibbles.clone(), vec![i as u8]].concat();
-                    self.generic_retain_multi_range_recursive(
+                    self.retain_multi_range_recursive(
                         new_child_id,
                         child_key_nibbles,
                         intervals_nibbles,
@@ -219,11 +219,7 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
                 let extension_nibbles =
                     NibbleSlice::from_encoded(&extension).0.iter().collect_vec();
                 let child_key = [key_nibbles, extension_nibbles].concat();
-                self.generic_retain_multi_range_recursive(
-                    new_child_id,
-                    child_key,
-                    intervals_nibbles,
-                )?;
+                self.retain_multi_range_recursive(new_child_id, child_key, intervals_nibbles)?;
 
                 let node = GenericUpdatedTrieNode::Extension {
                     extension,

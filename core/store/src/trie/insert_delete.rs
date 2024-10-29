@@ -1,4 +1,5 @@
 use super::TrieRefcountDeltaMap;
+use crate::trie::mem::updating::GenericTrieUpdateSquash;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     Children, NodeHandle, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle,
@@ -308,6 +309,152 @@ impl Trie {
         let new_memory_usage = children_memory_usage + new_node.memory_usage_direct(memory)
             - old_child.map(|child| memory.node_ref(child).memory_usage()).unwrap_or_default();
         memory.store_at(handle, TrieNodeWithSize::new(new_node, new_memory_usage));
+    }
+
+    /// Deletes a node from the trie which has key = `partial` given root node.
+    /// Returns (new root node or `None` if this was the node to delete, was it updated).
+    /// While deleting keeps track of all the removed / updated nodes in `death_row`.
+    pub(crate) fn delete(
+        &self,
+        memory: &mut NodesStorage,
+        node: StorageHandle,
+        partial: NibbleSlice<'_>,
+    ) -> Result<StorageHandle, StorageError> {
+        let mut handle = node;
+        let mut partial = partial;
+        let root_node = handle;
+        let mut path: Vec<StorageHandle> = Vec::new();
+        let mut key_deleted = true;
+        loop {
+            path.push(handle);
+            let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
+            let children_memory_usage = memory_usage - node.memory_usage_direct(memory);
+            match node {
+                TrieNode::Empty => {
+                    memory.store_at(handle, TrieNodeWithSize::empty());
+                    key_deleted = false;
+                    break;
+                }
+                TrieNode::Leaf(key, value) => {
+                    if NibbleSlice::from_encoded(&key).0 == partial {
+                        self.delete_value(memory, &value)?;
+                        memory.store_at(handle, TrieNodeWithSize::empty());
+                        break;
+                    } else {
+                        let leaf_node = TrieNode::Leaf(key, value);
+                        let memory_usage = leaf_node.memory_usage_direct(memory);
+                        memory.store_at(handle, TrieNodeWithSize::new(leaf_node, memory_usage));
+                        key_deleted = false;
+                        break;
+                    }
+                }
+                TrieNode::Branch(mut children, value) => {
+                    if partial.is_empty() {
+                        if value.is_none() {
+                            // Key being deleted doesn't exist.
+                            memory.store_at(
+                                handle,
+                                TrieNodeWithSize::new(
+                                    TrieNode::Branch(children, value),
+                                    memory_usage,
+                                ),
+                            );
+                            key_deleted = false;
+                            break;
+                        }
+                        self.delete_value(memory, &value.unwrap())?;
+                        Trie::calc_memory_usage_and_store(
+                            memory,
+                            handle,
+                            children_memory_usage,
+                            TrieNode::Branch(children, None),
+                            None,
+                        );
+                        // if needed, branch will be squashed at the end of the function.
+                        break;
+                    } else {
+                        let child = &mut children[partial.at(0)];
+                        if let Some(node_or_hash) = child.take() {
+                            let new_handle = match node_or_hash {
+                                NodeHandle::Hash(hash) => {
+                                    self.move_node_to_mutable(memory, &hash)?
+                                }
+                                NodeHandle::InMemory(handle) => handle,
+                            };
+                            *child = Some(NodeHandle::InMemory(new_handle));
+                            Trie::calc_memory_usage_and_store(
+                                memory,
+                                handle,
+                                children_memory_usage,
+                                TrieNode::Branch(children, value),
+                                Some(new_handle),
+                            );
+                            handle = new_handle;
+                            partial = partial.mid(1);
+                            continue;
+                        } else {
+                            memory.store_at(
+                                handle,
+                                TrieNodeWithSize::new(
+                                    TrieNode::Branch(children, value),
+                                    memory_usage,
+                                ),
+                            );
+                            key_deleted = false;
+                            break;
+                        }
+                    }
+                }
+                TrieNode::Extension(key, child) => {
+                    let (common_prefix, existing_len) = {
+                        let existing_key = NibbleSlice::from_encoded(&key).0;
+                        (existing_key.common_prefix(&partial), existing_key.len())
+                    };
+                    if common_prefix == existing_len {
+                        let child = match child {
+                            NodeHandle::Hash(hash) => self.move_node_to_mutable(memory, &hash)?,
+                            NodeHandle::InMemory(node) => node,
+                        };
+                        Trie::calc_memory_usage_and_store(
+                            memory,
+                            handle,
+                            children_memory_usage,
+                            TrieNode::Extension(key, NodeHandle::InMemory(child)),
+                            Some(child),
+                        );
+                        partial = partial.mid(existing_len);
+                        handle = child;
+                        continue;
+                    } else {
+                        memory.store_at(
+                            handle,
+                            TrieNodeWithSize::new(TrieNode::Extension(key, child), memory_usage),
+                        );
+                        key_deleted = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut child_memory_usage = 0;
+        for handle in path.into_iter().rev() {
+            // First, recompute memory usage, emulating the recursive descent.
+            let TrieNodeWithSize { node, mut memory_usage } = memory.destroy(handle);
+            memory_usage += child_memory_usage;
+            memory.store_at(handle, TrieNodeWithSize { node, memory_usage });
+
+            // Then, squash node to ensure unique trie structure, changing its
+            // type if needed. If `key_deleted` is false, trie structure is
+            // untouched.
+            if key_deleted {
+                memory.squash_node(handle.0)?;
+            }
+
+            child_memory_usage = memory.node_ref(handle).memory_usage;
+        }
+
+        Ok(root_node)
     }
 
     #[tracing::instrument(level = "debug", target = "store::trie", "Trie::flatten_nodes", skip_all)]
