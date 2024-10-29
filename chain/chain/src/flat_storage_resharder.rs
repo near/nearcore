@@ -857,10 +857,13 @@ mod tests {
         state::FlatStateValue,
         test_utils::{create_test_signer, TestBlockBuilder},
         trie_key::TrieKey,
-        types::{AccountId, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause},
+        types::{
+            AccountId, BlockHeight, RawStateChange, RawStateChangesWithTrieKey, ShardId,
+            StateChangeCause,
+        },
     };
     use near_store::{
-        flat::{BlockInfo, FlatStorageReadyStatus},
+        flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus},
         genesis::initialize_genesis_state,
         test_utils::create_test_store,
     };
@@ -1842,46 +1845,22 @@ mod tests {
         for height in 1..NUM_BLOCKS + 1 {
             let prev_hash = *chain.get_block_by_height(height).unwrap().header().prev_hash();
             let block_hash = *chain.get_block_by_height(height).unwrap().hash();
-
-            let new_account_left_child = account!(format!("oo{}", height));
-            let state_changes_left_child = vec![RawStateChangesWithTrieKey {
-                trie_key: TrieKey::Account { account_id: new_account_left_child.clone() },
-                changes: vec![RawStateChange {
-                    cause: StateChangeCause::InitialState,
-                    data: Some(new_account_left_child.as_bytes().to_vec()),
-                }],
-            }];
-            manager
-                .save_flat_state_changes(
-                    block_hash,
-                    prev_hash,
-                    height,
-                    left_child_shard,
-                    &state_changes_left_child,
-                )
-                .unwrap()
-                .commit()
-                .unwrap();
-
-            let new_account_right_child = account!(format!("zz{}", height));
-            let state_changes_right_child = vec![RawStateChangesWithTrieKey {
-                trie_key: TrieKey::Account { account_id: new_account_right_child.clone() },
-                changes: vec![RawStateChange {
-                    cause: StateChangeCause::InitialState,
-                    data: Some(new_account_right_child.as_bytes().to_vec()),
-                }],
-            }];
-            manager
-                .save_flat_state_changes(
-                    block_hash,
-                    prev_hash,
-                    height,
-                    right_child_shard,
-                    &state_changes_right_child,
-                )
-                .unwrap()
-                .commit()
-                .unwrap();
+            create_new_account_through_deltas(
+                &manager,
+                account!(format!("oo{}", height)),
+                block_hash,
+                prev_hash,
+                height,
+                left_child_shard,
+            );
+            create_new_account_through_deltas(
+                &manager,
+                account!(format!("zz{}", height)),
+                block_hash,
+                prev_hash,
+                height,
+                right_child_shard,
+            );
         }
 
         // If this test is checking a node restart scenario: rebuild the resharder from scratch.
@@ -1984,6 +1963,29 @@ mod tests {
         }
         // In the end there should be two requests for memtrie reloading.
         assert_eq!(scheduler.memtrie_reload_requests(), vec![left_child_shard, right_child_shard]);
+    }
+
+    /// Creates a new account through a state change saved as flat storage deltas.  
+    fn create_new_account_through_deltas(
+        manager: &FlatStorageManager,
+        account: AccountId,
+        block_hash: CryptoHash,
+        prev_hash: CryptoHash,
+        height: BlockHeight,
+        shard_uid: ShardUId,
+    ) {
+        let state_changes = vec![RawStateChangesWithTrieKey {
+            trie_key: TrieKey::Account { account_id: account.clone() },
+            changes: vec![RawStateChange {
+                cause: StateChangeCause::InitialState,
+                data: Some(account.as_bytes().to_vec()),
+            }],
+        }];
+        manager
+            .save_flat_state_changes(block_hash, prev_hash, height, shard_uid, &state_changes)
+            .unwrap()
+            .commit()
+            .unwrap();
     }
 
     /// Tests the correctness of children catchup operation after a shard split.
