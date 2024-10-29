@@ -134,6 +134,7 @@ impl FlatStorageResharder {
             }
             FlatStorageReshardingStatus::CatchingUp(block_hash) => {
                 info!(target: "resharding", ?shard_uid, ?status, "resuming flat storage shard catchup");
+                // Send a request to schedule the execution of `shard_catchup_task` for this shard.
                 self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
                     resharder: self.clone(),
                     shard_uid,
@@ -217,6 +218,8 @@ impl FlatStorageResharder {
         self.set_resharding_event(event);
         info!(target: "resharding", ?parent_shard, ?status,"scheduling flat storage shard split");
         let resharder = self.clone();
+        // Send a request to schedule the execution of `split_shard_task`, to do the bulk of the
+        // splitting work.
         self.scheduler.send(ReshardingRequest::FlatStorageSplitShard { resharder });
     }
 
@@ -398,6 +401,8 @@ impl FlatStorageResharder {
                             resharding_hash,
                         )),
                     );
+                    // Catchup will happen in a separate task, so send a request to schedule the
+                    // execution of `shard_catchup_task` for the child shard.
                     self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
                         resharder: self.clone(),
                         shard_uid: child_shard,
@@ -497,6 +502,8 @@ impl FlatStorageResharder {
         };
         if height > chain_final_head.height {
             info!(target = "resharding", ?height, chain_final_height = ?chain_final_head.height, "flat head beyond chain final tip: postponing flat storage shard catchup task");
+            // Cancel this task and send a request to re-schedule the execution of
+            // `shard_catchup_task` some time later.
             self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
                 resharder: self.clone(),
                 shard_uid,
