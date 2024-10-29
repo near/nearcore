@@ -379,11 +379,7 @@ impl Chain {
             MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
-        let sync_hash_tracker = crate::state_sync::SyncHashTracker::new(
-            &chain_store,
-            epoch_manager.as_ref(),
-            genesis.hash(),
-        )?;
+        let sync_hash_tracker = crate::state_sync::SYNC_TRACKER.get().unwrap().clone();
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -564,11 +560,7 @@ impl Chain {
             chain_config.resharding_config,
             resharding_sender,
         );
-        let sync_hash_tracker = crate::state_sync::SyncHashTracker::new(
-            &chain_store,
-            epoch_manager.as_ref(),
-            genesis.hash(),
-        )?;
+        let sync_hash_tracker = crate::state_sync::SYNC_TRACKER.get().unwrap().clone();
         Ok(Chain {
             clock: clock.clone(),
             chain_store,

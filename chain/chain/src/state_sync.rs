@@ -3,8 +3,10 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockHeight;
 use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
+use near_store::Store;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -144,7 +146,7 @@ impl SyncHashTrackerInner {
     fn new(
         chain_store: &ChainStore,
         epoch_manager: &dyn EpochManagerAdapter,
-        genesis_hash: &CryptoHash,
+        genesis_height: BlockHeight,
     ) -> Result<Self, Error> {
         let mut me = Self(HashMap::new());
 
@@ -154,7 +156,7 @@ impl SyncHashTrackerInner {
             Err(e) => return Err(e),
         };
 
-        if &head.last_block_hash == genesis_hash {
+        if head.height == genesis_height {
             return Ok(me);
         }
 
@@ -162,8 +164,8 @@ impl SyncHashTrackerInner {
         me.init_epoch(chain_store, epoch_manager, block_info.epoch_first_block())?;
 
         let first_block = chain_store.get_block_header(block_info.epoch_first_block())?;
-        if first_block.prev_hash() != genesis_hash {
-            let block_info = epoch_manager.get_block_info(first_block.prev_hash())?;
+        let block_info = epoch_manager.get_block_info(first_block.prev_hash())?;
+        if block_info.height() != genesis_height {
             me.init_epoch(chain_store, epoch_manager, block_info.epoch_first_block())?;
         }
 
@@ -205,15 +207,16 @@ impl SyncHashTrackerInner {
     }
 }
 
+#[derive(Clone)]
 pub struct SyncHashTracker(Arc<RwLock<SyncHashTrackerInner>>);
 
 impl SyncHashTracker {
     pub fn new(
         chain_store: &ChainStore,
         epoch_manager: &dyn EpochManagerAdapter,
-        genesis_hash: &CryptoHash,
+        genesis_height: BlockHeight,
     ) -> Result<Self, Error> {
-        let t = SyncHashTrackerInner::new(chain_store, epoch_manager, genesis_hash)?;
+        let t = SyncHashTrackerInner::new(chain_store, epoch_manager, genesis_height)?;
         Ok(Self(Arc::new(RwLock::new(t))))
     }
 
@@ -253,4 +256,19 @@ impl SyncHashTracker {
         }
         Ok(())
     }
+}
+
+pub static SYNC_TRACKER: once_cell::sync::OnceCell<SyncHashTracker> =
+    once_cell::sync::OnceCell::new();
+
+pub fn set_tracker(
+    store: Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    genesis_height: BlockHeight,
+) {
+    let chain_store = ChainStore::new(store, genesis_height, false);
+    let sync_hash_tracker =
+        SyncHashTracker::new(&chain_store, epoch_manager, genesis_height).unwrap();
+    let old = SYNC_TRACKER.set(sync_hash_tracker);
+    assert!(old.is_ok());
 }
