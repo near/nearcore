@@ -6,7 +6,7 @@ use crate::{NibbleSlice, Trie, TrieChanges};
 use super::arena::ArenaMemory;
 use super::updating::{
     GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedNodeId, GenericUpdatedTrieNode,
-    GenericUpdatedTrieNodeWithSize, HasLength, MemTrieUpdate, TrieAccesses,
+    GenericUpdatedTrieNodeWithSize, HasValueLength, MemTrieUpdate, TrieAccesses,
 };
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
@@ -124,7 +124,7 @@ impl Trie {
     }
 }
 
-trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasLength>:
+trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasValueLength>:
     GenericTrieUpdate<'a, N, V>
 {
     /// Recursive implementation of the algorithm of retaining keys belonging to
@@ -242,8 +242,12 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasLe
     }
 }
 
-impl<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasLength, T: GenericTrieUpdate<'a, N, V>>
-    GenericTrieUpdateRetain<'a, N, V> for T
+impl<
+        'a,
+        N: std::fmt::Debug,
+        V: std::fmt::Debug + HasValueLength,
+        T: GenericTrieUpdate<'a, N, V>,
+    > GenericTrieUpdateRetain<'a, N, V> for T
 {
 }
 
