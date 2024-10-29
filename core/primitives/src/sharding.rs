@@ -583,7 +583,10 @@ impl ShardChunkHeader {
     }
 
     /// Returns whether the header is valid for given `ProtocolVersion`.
-    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
+    pub fn validate_version(
+        &self,
+        version: ProtocolVersion,
+    ) -> Result<(), BadHeaderForProtocolVersionError> {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
@@ -591,7 +594,7 @@ impl ShardChunkHeader {
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
             ProtocolFeature::BandwidthScheduler.protocol_version();
 
-        match &self {
+        let is_valid = match &self {
             ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
             ShardChunkHeader::V2(_) => {
                 SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
@@ -606,12 +609,54 @@ impl ShardChunkHeader {
                 // In bandwidth scheduler version v3 and v4 are allowed. The first chunk in
                 // the bandwidth scheduler version will be v3 because the chunk extra for the
                 // last chunk of previous version doesn't have bandwidth requests.
-                ShardChunkHeaderInner::V2(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION && version < BANDWIDTH_SCHEDULER_VERSION
-                }
+                // v2 is also allowed in the bandwidth scheduler version because there
+                // are multiple tests which upgrade from an old version directly to the
+                // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
+                ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
                 ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
+        };
+
+        if is_valid {
+            Ok(())
+        } else {
+            Err(BadHeaderForProtocolVersionError {
+                protocol_version: version,
+                header_version: self.header_version_number(),
+                header_inner_version: self.inner_version_number(),
+            })
+        }
+    }
+
+    /// Used for error messages, use `match` for other code.
+    #[inline]
+    pub(crate) fn header_version_number(&self) -> u64 {
+        match self {
+            ShardChunkHeader::V1(_) => 1,
+            ShardChunkHeader::V2(_) => 2,
+            ShardChunkHeader::V3(_) => 3,
+        }
+    }
+
+    /// Used for error messages, use `match` for other code.
+    #[inline]
+    pub(crate) fn inner_version_number(&self) -> u64 {
+        match self {
+            ShardChunkHeader::V1(v1) => {
+                // Shows that Header V1 contains Inner V1
+                let _inner_v1: &ShardChunkHeaderInnerV1 = &v1.inner;
+                1
+            }
+            ShardChunkHeader::V2(v2) => {
+                // Shows that Header V2 also contains Inner V1, not Inner V2
+                let _inner_v1: &ShardChunkHeaderInnerV1 = &v2.inner;
+                1
+            }
+            ShardChunkHeader::V3(v3) => {
+                let inner_enum: &ShardChunkHeaderInner = &v3.inner;
+                inner_enum.version_number()
+            }
         }
     }
 
@@ -622,6 +667,14 @@ impl ShardChunkHeader {
             ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
         }
     }
+}
+
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[error("Invalid chunk header version for protocol version {protocol_version}. (header: {header_version}, inner: {header_inner_version})")]
+pub struct BadHeaderForProtocolVersionError {
+    pub protocol_version: ProtocolVersion,
+    pub header_version: u64,
+    pub header_inner_version: u64,
 }
 
 #[derive(

@@ -191,6 +191,11 @@ pub fn pre_validate_chunk_state_witness(
 ) -> Result<PreValidationOutput, Error> {
     let store = chain.chain_store();
 
+    // Ensure that the chunk header version is supported in this protocol version
+    let protocol_version =
+        epoch_manager.get_epoch_info(&state_witness.epoch_id)?.protocol_version();
+    state_witness.chunk_header.validate_version(protocol_version)?;
+
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
     let StateWitnessBlockRange {

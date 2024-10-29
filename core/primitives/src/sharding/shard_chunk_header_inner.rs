@@ -164,6 +164,17 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => Some(&inner.bandwidth_requests),
         }
     }
+
+    /// Used for error messages, use `match` for other code.
+    #[inline]
+    pub(crate) fn version_number(&self) -> u64 {
+        match self {
+            Self::V1(_) => 1,
+            Self::V2(_) => 2,
+            Self::V3(_) => 3,
+            Self::V4(_) => 4,
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
