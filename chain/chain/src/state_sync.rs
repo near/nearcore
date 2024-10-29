@@ -220,6 +220,10 @@ impl SyncHashTracker {
         Ok(Self(Arc::new(RwLock::new(t))))
     }
 
+    /// If the StateSyncHashUpdate protocol feature is enabled, this returns the hash of the first block for which at least
+    /// two new chunks have been produced for every shard in the epoch after the first block. Otherwise, it returns
+    /// the hash of the first block in the epoch. This is the "sync_hash" that will be used as a reference point
+    /// when state syncing the current epoch's state.
     pub fn get_sync_hash(
         &self,
         chain_store: &ChainStore,
