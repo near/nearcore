@@ -159,7 +159,8 @@ pub type UpdatedMemTrieNodeWithSize = GenericUpdatedTrieNodeWithSize<MemTrieNode
 /// - So, first, we call `take_node` to get `GenericUpdatedTrieNodeWithSize`
 /// back;
 /// - We possibly descend into its children and modify the node;
-/// - Then, we call `place_node` to put the node back.
+/// - Then, we call `place_node` to put the node back and return to the
+/// node parent.
 /// - Finally, we end up with storage of new nodes, which are used to produce
 /// new state root. The exact logic depends on trait implementation.
 ///
