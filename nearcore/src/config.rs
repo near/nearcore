@@ -963,7 +963,6 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-            // FIXME eagr version?
             let shards = ShardLayout::of_num_shards(num_shards, 3);
 
             let genesis_config = GenesisConfig {
