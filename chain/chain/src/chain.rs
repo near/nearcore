@@ -3965,11 +3965,7 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    // TODO(current_epoch_state_sync): this needs to be fixed. can't be iterating over the whole chain inside of preprocess
-                    // block like that if there are many missed chunks
-                    let Some(sync_hash) =
-                        self.get_sync_hash(&head.last_block_hash)?
-                    else {
+                    let Some(sync_hash) = self.get_sync_hash(&head.last_block_hash)? else {
                         return Ok(SnapshotAction::None);
                     };
                     if sync_hash == head.last_block_hash {
