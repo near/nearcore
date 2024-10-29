@@ -2,14 +2,14 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    TxStatusRequest, TxStatusResponse,
+    StateRequestPart, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
+    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo, StatePartRequest,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
@@ -30,9 +30,7 @@ use crate::state_witness::{
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::types::{
-    ChainInfo, PeerType, ReasonForBan, StatePartRequestBody, Tier3Request, Tier3RequestBody,
-};
+use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
@@ -43,7 +41,6 @@ use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
-use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
@@ -69,9 +66,6 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
-
-/// Limit number of pending tier3 requests to avoid OOM.
-pub(crate) const LIMIT_TIER3_REQUESTS: usize = 60;
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -154,9 +148,6 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
-    /// Queue of received requests to which a response should be made over TIER3.
-    pub tier3_requests: Mutex<VecDeque<Tier3Request>>,
-
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
@@ -219,7 +210,6 @@ impl NetworkState {
             account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            tier3_requests: Mutex::new(VecDeque::<Tier3Request>::new()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
@@ -697,7 +687,7 @@ impl NetworkState {
     }
 
     pub async fn receive_routed_message(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         peer_id: PeerId,
         msg_hash: CryptoHash,
@@ -781,21 +771,7 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {
-                let mut queue = self.tier3_requests.lock();
-                if queue.len() < LIMIT_TIER3_REQUESTS {
-                    queue.push_back(Tier3Request {
-                        peer_info: PeerInfo {
-                            id: peer_id,
-                            addr: Some(request.addr),
-                            account_id: None,
-                        },
-                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                            shard_id: request.shard_id,
-                            sync_hash: request.sync_hash,
-                            part_id: request.part_id,
-                        }),
-                    });
-                }
+                self.handle_state_part_request(clock, peer_id, request).await;
                 None
             }
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
@@ -876,6 +852,64 @@ impl NetworkState {
         })
         .await
         .unwrap()
+    }
+
+    pub async fn handle_state_part_request(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        request: StatePartRequest,
+    ) {
+        let this = self.clone();
+        let clock = clock.clone();
+        self.spawn(async move {
+            // Get the requested state part from the client
+            let client_request = StateRequestPart {
+                shard_id: request.shard_id,
+                sync_hash: request.sync_hash,
+                part_id: request.part_id
+            };
+            tracing::debug!(target: "network", ?request, "handling state part request");
+            let state_response = match this.client.send_async(client_request).await {
+                Ok(Some(client_response)) => {
+                    PeerMessage::VersionedStateResponse(*client_response.0)
+                }
+                Ok(None) => {
+                    tracing::debug!(target: "network", "client declined to respond to {:?}", request);
+                    return;
+                }
+                Err(err) => {
+                    tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
+                    return;
+                }
+            };
+            tracing::debug!(target: "network", ?request, "prepared state response");
+
+            // Establish an ad-hoc tier3 connection to the peer if we don't have one already
+            let peer_info = PeerInfo {
+                id: peer_id,
+                addr: Some(request.addr),
+                account_id: None
+            };
+            if !this.tier3.load().ready.contains_key(&peer_info.id) {
+                let result = async {
+                    let stream = tcp::Stream::connect(
+                        &peer_info,
+                        tcp::Tier::T3,
+                        &this.config.socket_options
+                    ).await.context("tcp::Stream::connect()")?;
+                    PeerActor::spawn_and_handshake(clock.clone(),stream,None,this.clone()).await.context("PeerActor::spawn()")?;
+                    anyhow::Ok(())
+                }.await;
+
+                if let Err(ref err) = result {
+                    tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", peer_info);
+                }
+            }
+
+            tracing::debug!(target: "network", ?request, "sending response over tier3 connection");
+            this.tier3.send_message(peer_info.id, Arc::new(state_response));
+        });
     }
 
     /// a) there is a peer we should be connected to, but we aren't
