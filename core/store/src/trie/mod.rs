@@ -72,8 +72,10 @@ pub struct PartialStorage {
 #[derive(Clone, Hash, Debug, Copy)]
 pub(crate) struct StorageHandle(usize);
 
+/// Stores index of value in the array of new values and its length for memory
+/// counting.
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageValueHandle(usize);
+pub(crate) struct StorageValueHandle(usize, usize);
 
 pub struct TrieCosts {
     pub byte_of_key: u64,
@@ -114,8 +116,8 @@ impl std::fmt::Debug for NodeHandle {
     }
 }
 
-#[derive(Clone, Hash)]
-enum ValueHandle {
+#[derive(Clone, Copy, Hash)]
+pub(crate) enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(ValueRef),
 }
@@ -124,7 +126,7 @@ impl std::fmt::Debug for ValueHandle {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
-            Self::InMemory(StorageValueHandle(num)) => write!(fmtr, "@{num}"),
+            Self::InMemory(StorageValueHandle(num, _)) => write!(fmtr, "@{num}"),
         }
     }
 }
@@ -874,7 +876,7 @@ impl Trie {
             eprintln!("Computed is {}", memory_usage);
             match handle {
                 NodeHandle::InMemory(h) => {
-                    eprintln!("TRIE!!!!");
+                    eprintln!("In-memory node:");
                     eprintln!("{}", memory.node_ref(h).node.deep_to_string(memory));
                 }
                 NodeHandle::Hash(_h) => {
@@ -1226,7 +1228,7 @@ impl Trie {
         }
     }
 
-    fn move_node_to_mutable(
+    pub(crate) fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
@@ -1665,7 +1667,7 @@ impl Trie {
                 Ok(trie_changes)
             }
             None => {
-                let mut memory = NodesStorage::new();
+                let mut memory = NodesStorage::new(&self);
                 let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
                 for (key, value) in changes {
                     let key = NibbleSlice::new(&key);
