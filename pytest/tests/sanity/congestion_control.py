@@ -26,15 +26,15 @@ ACCESS_KEY_NONCE_RANGE_MULTIPLIER = 1_000_000
 
 GOOD_FINAL_EXECUTION_STATUS = ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC']
 
+# boundary accounts for the shard layout
+BOUNDARY_ACCOUNT_LIST = ["fff", "kkk", "ppp", "uuu"]
+# account prefix for each shard
+SHARD_ACCOUNT_LIST = ["aaa", "ggg", "lll", "rrr", "vvv"]
+
 # Shard layout with 5 roughly equal size shards for convenience.
 SHARD_LAYOUT = {
     "V1": {
-        "boundary_accounts": [
-            "fff",
-            "kkk",
-            "ppp",
-            "uuu",
-        ],
+        "boundary_accounts": BOUNDARY_ACCOUNT_LIST,
         "version": 2,
         "shards_split_map": [],
         "to_parent_shard_map": [],
@@ -293,10 +293,9 @@ class CongestionControlTest(unittest.TestCase):
         logger.info("Preparing accounts")
 
         # Each prefix belongs to a different shard.
-        prefix_list = ["aaa", "ggg", "lll", "rrr", "vvv"]
         accounts = []
         for i in range(n):
-            prefix = prefix_list[i % NUM_SHARDS]
+            prefix = SHARD_ACCOUNT_LIST[i % NUM_SHARDS]
             account_id = f"{prefix}_{i:02}.test0"
             account_key = Key.from_random(account_id)
             accounts.append(account_key)
