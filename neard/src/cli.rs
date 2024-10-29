@@ -20,7 +20,7 @@ use near_o11y::{
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
-use near_primitives::types::{Gas, NumSeats, NumShards, ShardId};
+use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -300,6 +300,10 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
+    /// Dump epoch config from the given protocol version onwards.
+    /// If the argument is provided with no value, the latest protocol version will be used.
+    #[clap(long)]
+    dump_epoch_config: Option<Option<ProtocolVersion>>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -357,6 +361,12 @@ impl InitCmd {
             None
         };
 
+        let dump_epoch_config = match self.dump_epoch_config {
+            Some(Some(version)) => Some(version),
+            Some(None) => Some(near_primitives::version::PROTOCOL_VERSION),
+            None => None,
+        };
+
         nearcore::init_configs(
             home_dir,
             self.chain_id,
@@ -372,6 +382,7 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
+            dump_epoch_config,
         )
         .context("Failed to initialize configs")
     }

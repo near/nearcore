@@ -566,6 +566,33 @@ impl EpochConfigStore {
             })
             .1
     }
+
+    fn dump_epoch_config(directory: &str, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
+        let content = serde_json::to_string_pretty(config.as_ref()).unwrap();
+        let path = PathBuf::from(directory).join(format!("{}.json", version));
+        fs::write(path, content).unwrap();
+    }
+
+    /// Dumps all the configs between the beginning and end protocol versions to the given directory.
+    /// If the beginning version doesn't exist, the closest config to it will be dumped.
+    pub fn dump_epoch_configs_between(
+        &self,
+        beginning: &ProtocolVersion,
+        end: &ProtocolVersion,
+        directory: &str,
+    ) {
+        // Dump all the configs between the beginning and end versions, inclusive.
+        self.store.iter().filter(|(version, _)| *version >= beginning && *version <= end).for_each(
+            |(version, config)| {
+                Self::dump_epoch_config(directory, version, config);
+            },
+        );
+        // Dump the closest config to the beginning version if it doesn't exist.
+        if !self.store.contains_key(&beginning) {
+            let config = self.get_config(*beginning);
+            Self::dump_epoch_config(directory, beginning, config);
+        }
+    }
 }
 
 #[cfg(test)]
