@@ -27,7 +27,7 @@ pub struct ReshardingSplitShardParams {
     /// The account at the boundary between the two children.
     pub boundary_account: AccountId,
     /// Hash of the last block having the old shard layout.
-    pub block_hash: CryptoHash,
+    pub resharding_hash: CryptoHash,
     /// The block before `block_hash`.
     pub prev_block_hash: CryptoHash,
 }
@@ -38,14 +38,14 @@ impl ReshardingEventType {
     ///
     /// # Args:
     /// * `next_shard_layout`: the new shard layout
-    /// * `block_hash`: hash of the last block with the shard layout before `next_shard_layout`
+    /// * `resharding_hash`: hash of the last block with the shard layout before `next_shard_layout`
     /// * `prev_block_hash`: hash of the block preceding `block_hash`
     ///
     /// Returns a [ReshardingEventType] if exactly one resharding change is contained in
     /// `next_shard_layout`, otherwise returns `None`.
     pub fn from_shard_layout(
         next_shard_layout: &ShardLayout,
-        block_hash: CryptoHash,
+        resharding_hash: CryptoHash,
         prev_block_hash: CryptoHash,
     ) -> Result<Option<ReshardingEventType>, Error> {
         let log_and_error = |err_msg: &str| {
@@ -97,7 +97,7 @@ impl ReshardingEventType {
                         left_child_shard,
                         right_child_shard,
                         boundary_account,
-                        block_hash,
+                        resharding_hash,
                         prev_block_hash,
                     }));
                 }
@@ -174,7 +174,7 @@ mod tests {
                 parent_shard: ShardUId { version: 3, shard_id: 1 },
                 left_child_shard: ShardUId { version: 3, shard_id: 2 },
                 right_child_shard: ShardUId { version: 3, shard_id: 3 },
-                block_hash: block,
+                resharding_hash: block,
                 prev_block_hash: prev_block,
                 boundary_account: account!("pp")
             }))

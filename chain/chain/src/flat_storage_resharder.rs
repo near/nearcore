@@ -154,7 +154,7 @@ impl FlatStorageResharder {
             parent_shard,
             left_child_shard,
             right_child_shard,
-            block_hash,
+            resharding_hash,
             prev_block_hash,
             ..
         } = split_params;
@@ -169,7 +169,7 @@ impl FlatStorageResharder {
             left_child_shard,
             right_child_shard,
             shard_layout: shard_layout.clone(),
-            block_hash,
+            resharding_hash,
             prev_block_hash,
             flat_head,
         };
@@ -289,11 +289,11 @@ impl FlatStorageResharder {
         let mut iter = match self.flat_storage_iterator(
             &flat_store,
             &parent_shard,
-            &status.block_hash,
+            &status.resharding_hash,
         ) {
             Ok(iter) => iter,
             Err(err) => {
-                error!(target: "resharding", ?parent_shard, block_hash=?status.block_hash, ?err, "failed to build flat storage iterator");
+                error!(target: "resharding", ?parent_shard, block_hash=?status.resharding_hash, ?err, "failed to build flat storage iterator");
                 return FlatStorageReshardingTaskStatus::Failed;
             }
         };
@@ -372,7 +372,7 @@ impl FlatStorageResharder {
             left_child_shard,
             right_child_shard,
             flat_head,
-            block_hash,
+            resharding_hash,
             ..
         } = split_status;
         let flat_store = self.runtime.store().flat_store();
@@ -397,13 +397,13 @@ impl FlatStorageResharder {
                     store_update.set_flat_storage_status(
                         child_shard,
                         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
-                            block_hash,
+                            resharding_hash,
                         )),
                     );
                     self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
                         resharder: self.clone(),
                         shard_uid: child_shard,
-                        flat_head_block_hash: block_hash,
+                        flat_head_block_hash: resharding_hash,
                     });
                 }
             }
@@ -1172,7 +1172,7 @@ mod tests {
                 left_child_shard,
                 right_child_shard,
                 shard_layout: new_shard_layout,
-                block_hash: CryptoHash::default(),
+                resharding_hash: CryptoHash::default(),
                 prev_block_hash: CryptoHash::default(),
                 flat_head: BlockInfo {
                     hash: CryptoHash::default(),
@@ -1815,7 +1815,7 @@ mod tests {
             parent_shard,
             left_child_shard,
             right_child_shard,
-            block_hash,
+            resharding_hash,
             ..
         } = match resharding_event_type.clone() {
             ReshardingEventType::SplitShard(params) => params,
@@ -1898,10 +1898,13 @@ mod tests {
                 resharder.resharding_config,
             );
             assert!(resharder
-                .resume(left_child_shard, &FlatStorageReshardingStatus::CatchingUp(block_hash))
+                .resume(left_child_shard, &FlatStorageReshardingStatus::CatchingUp(resharding_hash))
                 .is_ok());
             assert!(resharder
-                .resume(right_child_shard, &FlatStorageReshardingStatus::CatchingUp(block_hash))
+                .resume(
+                    right_child_shard,
+                    &FlatStorageReshardingStatus::CatchingUp(resharding_hash)
+                )
                 .is_ok());
         }
 

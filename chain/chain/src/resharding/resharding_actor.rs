@@ -57,11 +57,15 @@ impl ReshardingActor {
 
     fn handle_flat_storage_split_shard(&self, resharder: FlatStorageResharder) {
         match resharder.split_shard_task() {
-            FlatStorageReshardingTaskStatus::Successful { .. } => {}
+            FlatStorageReshardingTaskStatus::Successful { .. } => {
+                // All good.
+            }
             FlatStorageReshardingTaskStatus::Failed => {
                 panic!("impossible to recover from a flat storage split shard failure!")
             }
-            FlatStorageReshardingTaskStatus::Cancelled => {}
+            FlatStorageReshardingTaskStatus::Cancelled => {
+                // The task has been cancelled. Nothing else to do.
+            }
         }
     }
 
@@ -72,11 +76,15 @@ impl ReshardingActor {
         flat_head_block_hash: CryptoHash,
     ) {
         match resharder.shard_catchup_task(shard_uid, flat_head_block_hash, &self.chain_store) {
-            FlatStorageReshardingTaskStatus::Successful { .. } => {}
+            FlatStorageReshardingTaskStatus::Successful { .. } => {
+                // All good.
+            }
             FlatStorageReshardingTaskStatus::Failed => {
                 panic!("impossible to recover from a flat storage shard catchup failure!")
             }
-            FlatStorageReshardingTaskStatus::Cancelled => {}
+            FlatStorageReshardingTaskStatus::Cancelled => {
+                // The task has been cancelled. Nothing else to do.
+            }
         }
     }
 }
