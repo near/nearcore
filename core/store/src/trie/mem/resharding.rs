@@ -5,8 +5,9 @@ use crate::{NibbleSlice, Trie, TrieChanges};
 
 use super::arena::ArenaMemory;
 use super::updating::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedNodeId, GenericUpdatedTrieNode,
-    GenericUpdatedTrieNodeWithSize, HasValueLength, MemTrieUpdate, TrieAccesses,
+    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieUpdateSquash, GenericUpdatedNodeId,
+    GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength, MemTrieUpdate,
+    TrieAccesses,
 };
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
@@ -125,7 +126,7 @@ impl Trie {
 }
 
 trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasValueLength>:
-    GenericTrieUpdate<'a, N, V>
+    GenericTrieUpdateSquash<'a, N, V>
 {
     /// Recursive implementation of the algorithm of retaining keys belonging to
     /// any of the ranges given in `intervals` from the trie. All changes are
@@ -238,7 +239,7 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
         }
 
         // We may need to change node type to keep the trie structure unique.
-        self.generic_squash_node(node_id)
+        self.squash_node(node_id)
     }
 }
 
