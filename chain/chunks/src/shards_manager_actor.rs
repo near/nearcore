@@ -1398,7 +1398,7 @@ impl ShardsManagerActor {
 
         // 2. check protocol version
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if header.valid_for(protocol_version) {
+        if header.validate_version(protocol_version).is_ok() {
             Ok(())
         } else if epoch_id_confirmed {
             Err(Error::InvalidChunkHeader)

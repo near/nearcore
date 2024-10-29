@@ -594,6 +594,13 @@ impl EpochSync {
             return Ok(());
         }
         let tip_height = chain.chain_store().header_head()?.height;
+        if tip_height != chain.genesis().height() {
+            // Epoch Sync only supports bootstrapping at genesis. This is because there is no reason
+            // to use Epoch Sync on an already existing node; we would have to carefully delete old
+            // data and then the result would be the same as if we just started the node from
+            // scratch.
+            return Ok(());
+        }
         if tip_height + self.config.epoch_sync_horizon >= highest_height {
             return Ok(());
         }
