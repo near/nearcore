@@ -768,7 +768,9 @@ impl Chain {
         // the block might not have been what the block producer originally produced. Either way, it's
         // OK if we miss some cases here because this is just an optimization to avoid reprocessing
         // known invalid blocks so the network recovers faster in case of any issues.
-        if error.is_bad_data() && !matches!(error, Error::InvalidSignature) {
+        if error.is_bad_data()
+            && !matches!(error, Error::InvalidSignature | Error::InvalidBlockHeight(_))
+        {
             metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
             self.invalid_blocks.put(block_hash, ());
         }
@@ -2027,7 +2029,7 @@ impl Chain {
 
             if need_storage_update {
                 // TODO(resharding): consider adding to catchup flow.
-                self.resharding_manager.process_memtrie_resharding_storage_update(
+                self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
                     shard_uid,

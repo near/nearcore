@@ -4,7 +4,7 @@ use near_primitives_core::hash::{hash, CryptoHash};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Hash, ProtocolSchema)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, PartialEq, Eq, Hash, ProtocolSchema)]
 pub struct ValueRef {
     /// Value length in bytes.
     pub length: u32,
@@ -91,7 +91,7 @@ impl FlatStateValue {
 
     pub fn to_value_ref(&self) -> ValueRef {
         match self {
-            Self::Ref(value_ref) => value_ref.clone(),
+            Self::Ref(value_ref) => *value_ref,
             Self::Inlined(value) => ValueRef::new(value),
         }
     }

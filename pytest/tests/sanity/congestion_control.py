@@ -88,6 +88,8 @@ class CongestionControlTest(unittest.TestCase):
 
     def __run(self, node, accounts):
 
+        self.__check_setup(node, accounts)
+
         self.__start_load(node, accounts)
 
         self.__run_under_congestion(node)
@@ -97,6 +99,19 @@ class CongestionControlTest(unittest.TestCase):
         self.__run_after_congestion(node)
 
         self.__check_txs(node)
+
+    def __check_setup(self, node, accounts):
+        logger.info("Checking that the setup is correct")
+
+        target_account = accounts[0]
+        sender_account = accounts[0]
+        result = self.__call_contract_sync(
+            node,
+            sender_account,
+            target_account,
+        )
+
+        self.__check_tx(result)
 
     def __run_under_congestion(self, node):
         logger.info("Checking the chain under congestion")
@@ -173,11 +188,7 @@ class CongestionControlTest(unittest.TestCase):
                 # TODO It would be better to check the transactions in parallel.
                 result = node.get_tx(tx_hash, tx_sender, timeout=1)
 
-                status = result['result']['final_execution_status']
-                self.assertIn(status, GOOD_FINAL_EXECUTION_STATUS)
-
-                status = result['result']['status']
-                self.assertIn('SuccessValue', status)
+                self.__check_tx(result)
 
                 accepted_count += 1
             except:
@@ -193,6 +204,22 @@ class CongestionControlTest(unittest.TestCase):
         )
         self.assertGreater(accepted_count, 0)
         self.assertGreater(rejected_count, 0)
+
+    def __check_tx(self, result):
+        self.assertIn('result', result)
+
+        status = result['result']['final_execution_status']
+        self.assertIn(status, GOOD_FINAL_EXECUTION_STATUS)
+
+        # The common reason for this failure is `MethodResolveError` which
+        # happens if the test contract is built without the `test_features`
+        # feature. Occasionally the contract is not rebuilt properly and cargo
+        # clean is needed.
+        status = result['result']['status']
+        self.assertIn(
+            'SuccessValue', status,
+            "The transaction failed, please check that the contract was built with `test_features` enabled."
+        )
 
     def __start_load(self, node: BaseNode, accounts):
         logger.info("Starting load threads")
@@ -334,6 +361,20 @@ class CongestionControlTest(unittest.TestCase):
         logger.debug(
             f"Calling contract. {sender.account_id} -> {receiver.account_id}")
 
+        tx = self.__prepare_tx(node, sender, receiver)
+        result = node.send_tx(tx)
+        self.assertIn('result', result, result)
+        return result['result']
+
+    def __call_contract_sync(self, node: BaseNode, sender: Key, receiver: Key):
+        logger.debug(
+            f"Calling contract. {sender.account_id} -> {receiver.account_id}")
+
+        tx = self.__prepare_tx(node, sender, receiver)
+        result = node.send_tx_and_wait(tx, 5)
+        return result
+
+    def __prepare_tx(self, node, sender, receiver):
         block_hash = node.get_latest_block().hash_bytes
 
         gas_amount = 250 * TGAS
@@ -350,9 +391,7 @@ class CongestionControlTest(unittest.TestCase):
             block_hash,
         )
         self.nonce += 1
-        result = node.send_tx(tx)
-        self.assertIn('result', result, result)
-        return result['result']
+        return tx
 
     def __wait_for_txs(self, node: BaseNode, tx_list: list[AccountId, TxHash]):
         (height, _) = wait_for_blocks(node, count=3)

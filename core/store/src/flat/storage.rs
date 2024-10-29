@@ -305,7 +305,7 @@ impl FlatStorage {
             let changes = guard.get_block_changes(block_hash)?;
             match changes.get(key) {
                 Some(value_ref) => {
-                    return Ok(value_ref.clone().map(|value_ref| FlatStateValue::Ref(value_ref)));
+                    return Ok((*value_ref).map(|value_ref| FlatStateValue::Ref(value_ref)));
                 }
                 None => {}
             };
