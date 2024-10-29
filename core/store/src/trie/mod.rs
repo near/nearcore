@@ -93,7 +93,7 @@ pub enum KeyLookupMode {
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Hash)]
-pub(crate) enum NodeHandle {
+enum NodeHandle {
     InMemory(StorageHandle),
     Hash(CryptoHash),
 }
@@ -132,7 +132,7 @@ impl std::fmt::Debug for ValueHandle {
 }
 
 #[derive(Clone, Hash)]
-pub(crate) enum TrieNode {
+enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
     Empty,
     /// Key and value of the leaf node.

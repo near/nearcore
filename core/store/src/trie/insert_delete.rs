@@ -299,7 +299,7 @@ impl Trie {
     /// Memory usage is recalculated in two steps:
     /// 1. go down the trie, modify the node and subtract the next child on the path from memory usage
     /// 2. go up the path and add new child's memory usage
-    pub(crate) fn calc_memory_usage_and_store(
+    fn calc_memory_usage_and_store(
         memory: &mut NodesStorage,
         handle: StorageHandle,
         children_memory_usage: u64,
