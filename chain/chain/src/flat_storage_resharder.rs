@@ -40,20 +40,24 @@ use std::iter;
 ///
 /// On an high level, the events supported are:
 /// - #### Shard splitting
-///     Parent shard must be split into two children. The entire operation freezes the flat storage
-///     for the involved shards. Children shards are created empty and the key-values of the parent
-///     will be copied into one of them, in the background.
+///     Parent shard must be split into two children. This operation does not explicitly freeze the
+///     shard, but instead relies on the fact that no new chunk will be processed for it. Children
+///     shards are created empty and the key-values of the parent will be copied into them, in a
+///     background task.
 ///
-///     After the copy is finished the children shard will have the correct state at some past block
-///     height. It'll be necessary to perform catchup before the flat storage can be put again in
-///     Ready state. The parent shard storage is not needed anymore and can be removed.
+///     After the copy is finished, the children shards will have their state at the height of the
+///     last block of the old shard layout. It'll be necessary to perform catchup before their flat
+///     storages can be put in Ready state. The parent shard storage is not needed anymore and
+///     can be removed.
 ///
 /// The resharder has also the following properties:
-/// - Background processing: the bulk of resharding is done in a separate task.
+/// - Background processing: the bulk of resharding is done in separate tasks, see
+///   [FlatStorageResharder::split_shard_task] and [FlatStorageResharder::shard_catchup_task].
 /// - Interruptible: a reshard operation can be cancelled through a
 ///   [FlatStorageResharderController].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
 ///       previously.
+///     - Note that once the split is completed children shard catchup can't be manually cancelled.
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
