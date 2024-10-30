@@ -4759,6 +4759,7 @@ dependencies = [
  "sha3",
  "smart-default",
  "strum",
+ "tempfile",
  "thiserror",
  "tracing",
  "zstd",
