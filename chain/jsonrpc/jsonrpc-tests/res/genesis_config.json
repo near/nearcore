@@ -70,7 +70,7 @@
       },
       "shards_split_map": null,
       "shards_parent_map": null,
-      "version": 3
+      "version": 0
     }
   },
   "num_chunk_only_producer_seats": 300,
