@@ -476,49 +476,6 @@ impl NightshadeRuntime {
         Ok(result)
     }
 
-    fn precompile_contracts(
-        &self,
-        epoch_id: &EpochId,
-        contract_codes: Vec<ContractCode>,
-    ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "precompile_contracts",
-            num_contracts = contract_codes.len())
-        .entered();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
-            Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel but prevent it from using more than half of all
-        // threads so that node will still function normally.
-        rayon::scope(|scope| {
-            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
-            // Use up-to half of the threads for the compilation.
-            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
-            for _ in 0..max_threads {
-                slot_sender.send(()).expect("both sender and receiver are owned here");
-            }
-            for code in contract_codes {
-                slot_receiver.recv().expect("could not receive a slot to compile contract");
-                let contract_cache = compiled_contract_cache.as_deref();
-                let slot_sender = slot_sender.clone();
-                scope.spawn(move |_| {
-                    precompile_contract(
-                        &code,
-                        Arc::clone(&runtime_config.wasm_config),
-                        contract_cache,
-                    )
-                    .ok();
-                    // If this fails, it just means there won't be any more attempts to recv the
-                    // slots
-                    let _ = slot_sender.send(());
-                });
-            }
-        });
-        Ok(())
-    }
-
     fn get_gc_stop_height_impl(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_manager = self.epoch_manager.read();
         // an epoch must have a first block.
@@ -1348,6 +1305,49 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
         self.compiled_contract_cache.as_ref()
+    }
+
+    fn precompile_contracts(
+        &self,
+        epoch_id: &EpochId,
+        contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "precompile_contracts",
+            num_contracts = contract_codes.len())
+        .entered();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
+            Some(Box::new(self.compiled_contract_cache.handle()));
+        // Execute precompile_contract in parallel but prevent it from using more than half of all
+        // threads so that node will still function normally.
+        rayon::scope(|scope| {
+            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
+            // Use up-to half of the threads for the compilation.
+            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
+            for _ in 0..max_threads {
+                slot_sender.send(()).expect("both sender and receiver are owned here");
+            }
+            for code in contract_codes {
+                slot_receiver.recv().expect("could not receive a slot to compile contract");
+                let contract_cache = compiled_contract_cache.as_deref();
+                let slot_sender = slot_sender.clone();
+                scope.spawn(move |_| {
+                    precompile_contract(
+                        &code,
+                        Arc::clone(&runtime_config.wasm_config),
+                        contract_cache,
+                    )
+                    .ok();
+                    // If this fails, it just means there won't be any more attempts to recv the
+                    // slots
+                    let _ = slot_sender.send(());
+                });
+            }
+        });
+        Ok(())
     }
 }
 
