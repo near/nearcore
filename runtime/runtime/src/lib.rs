@@ -36,7 +36,7 @@ use near_primitives::receipt::{
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use near_primitives::transaction::NonrefundableStorageTransferAction;
 use near_primitives::transaction::{
@@ -72,7 +72,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use pipelining::ReceiptPreparationPipeline;
 use std::cmp::max;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
@@ -202,8 +202,8 @@ pub struct ApplyResult {
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
-    pub contract_accesses: BTreeSet<CodeHash>,
-    pub contract_deploys: BTreeSet<CodeHash>,
+    /// Contracts accessed and deployed while applying the chunk.
+    pub contract_updates: ContractUpdates,
 }
 
 #[derive(Debug)]
@@ -2080,13 +2080,8 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound);
-        let TrieUpdateResult {
-            trie,
-            trie_changes,
-            state_changes,
-            contract_accesses,
-            contract_deploys,
-        } = state_update.finalize()?;
+        let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
+            state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -2146,8 +2141,7 @@ impl Runtime {
                 .as_ref()
                 .map(|o| o.scheduler_state_hash)
                 .unwrap_or_default(),
-            contract_accesses,
-            contract_deploys,
+            contract_updates,
         })
     }
 }
@@ -2235,7 +2229,7 @@ fn missing_chunk_apply_result(
     processing_state: ApplyProcessingState,
     bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
 ) -> Result<ApplyResult, RuntimeError> {
-    let TrieUpdateResult { trie, trie_changes, state_changes, contract_accesses, contract_deploys } =
+    let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
         processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
 
@@ -2276,8 +2270,7 @@ fn missing_chunk_apply_result(
             .as_ref()
             .map(|o| o.scheduler_state_hash)
             .unwrap_or_default(),
-        contract_accesses,
-        contract_deploys,
+        contract_updates,
     });
 }
 

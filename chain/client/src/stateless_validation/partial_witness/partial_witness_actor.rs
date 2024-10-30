@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -368,7 +368,7 @@ impl PartialWitnessActor {
         let runtime_config = self
             .runtime
             .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?)?;
-        let missing_contract_hashes = BTreeSet::from_iter(
+        let missing_contract_hashes = HashSet::from_iter(
             accesses
                 .contracts()
                 .iter()
