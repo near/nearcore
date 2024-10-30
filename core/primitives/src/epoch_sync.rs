@@ -113,9 +113,10 @@ pub struct EpochSyncProofEpochData {
 /// Data needed to initialize the epoch sync boundary.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct EpochSyncProofLastEpochData {
-    /// The following six fields are used to derive the epoch_sync_data_hash included in any
-    /// BlockHeaderV3. This is used to verify all the data we need around the epoch sync
-    /// boundary, against `last_final_block_header` in the second last entry of `all_epochs`.
+    /// The following six fields are used to derive the epoch_sync_data_hash included in the
+    /// first block of the epoch right after (assuming it is a BlockHeaderV3 or newer). This
+    /// is used to verify all the data we need around the epoch sync boundary, against
+    /// `first_block_header_in_epoch` in `current_epoch`.
     pub epoch_info: EpochInfo,
     pub next_epoch_info: EpochInfo,
     pub next_next_epoch_info: EpochInfo,
