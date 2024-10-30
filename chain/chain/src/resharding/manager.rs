@@ -226,10 +226,7 @@ impl ReshardingManager {
                 new_shard_uid.shard_id(),
                 Some(partial_storage),
                 CryptoHash::default(),
-                // No contract code is accessed during resharding.
-                // TODO(#11099): Confirm if sending no contracts is ok here.
-                Default::default(),
-                // No contract code is deployed during resharding.
+                // No contract code is accessed or deployed during resharding.
                 // TODO(#11099): Confirm if sending no contracts is ok here.
                 Default::default(),
             );

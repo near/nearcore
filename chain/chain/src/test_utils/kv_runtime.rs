@@ -57,7 +57,7 @@ use near_store::{
     set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
     TrieChanges, WrappedTrieChanges,
 };
-use near_vm_runner::{ContractRuntimeCache, NoContractRuntimeCache};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use num_rational::Ratio;
 use rand::Rng;
 use std::cmp::Ordering;
@@ -1388,8 +1388,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
-            contract_accesses: Default::default(),
-            contract_deploys: Default::default(),
+            contract_updates: Default::default(),
         })
     }
 
@@ -1580,5 +1579,14 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
         &self.contract_cache
+    }
+
+    fn precompile_contracts(
+        &self,
+        _epoch_id: &EpochId,
+        _contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error> {
+        // Note that KeyValueRuntime does not use compiled contract cache, so this is no-op.
+        Ok(())
     }
 }
