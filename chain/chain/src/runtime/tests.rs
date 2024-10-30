@@ -1867,7 +1867,7 @@ fn test_precompile_contracts_updates_cache() {
             &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
         );
         let contract = contract_cache.get(&cache_key).unwrap();
-        assert!(contract.is_none(),);
+        assert!(contract.is_none());
     }
 
     runtime.precompile_contracts(&EpochId::default(), contracts).unwrap();
