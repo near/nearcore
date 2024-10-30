@@ -97,7 +97,6 @@ impl Trie {
         let ValueToInsert::Full(value) = value else {
             unimplemented!("Trie::insert doesn't support value {value:?}, partial = {partial:?}");
         };
-        let mut value = Some(value);
 
         let root_handle = node;
         let mut handle = node;
@@ -109,7 +108,7 @@ impl Trie {
             let children_memory_usage = memory_usage - node.memory_usage_direct(memory);
             match node {
                 TrieNode::Empty => {
-                    let value_handle = memory.store_value(value.take().unwrap());
+                    let value_handle = memory.store_value(value);
                     let leaf_node = TrieNode::Leaf(
                         partial.encoded(true).into_vec(),
                         ValueHandle::InMemory(value_handle),
@@ -124,7 +123,7 @@ impl Trie {
                         if let Some(value) = &existing_value {
                             self.delete_value(memory, value)?;
                         }
-                        let value_handle = memory.store_value(value.take().unwrap());
+                        let value_handle = memory.store_value(value);
                         let new_node =
                             TrieNode::Branch(children, Some(ValueHandle::InMemory(value_handle)));
                         let new_memory_usage =
@@ -159,7 +158,7 @@ impl Trie {
                     if common_prefix == existing_key.len() && common_prefix == partial.len() {
                         // Equivalent leaf.
                         self.delete_value(memory, &existing_value)?;
-                        let value_handle = memory.store_value(value.take().unwrap());
+                        let value_handle = memory.store_value(value);
                         let node = TrieNode::Leaf(key, ValueHandle::InMemory(value_handle));
                         let memory_usage = node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize { node, memory_usage });

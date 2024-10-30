@@ -555,11 +555,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// the way to achieve that. This takes care of refcounting changes for existing
     /// nodes as well as values, but will not yet increment refcount for any newly
     /// created nodes - that's done at the end.
-    ///
-    /// Note that `value` must be Some if we're keeping track of on-disk changes, but can
-    /// be None if we're only keeping track of in-memory changes.
     fn insert_impl(&mut self, key: &[u8], value: ValueToInsert) {
-        // flat_value: FlatStateValue, value: Option<Vec<u8>>
         let mut node_id = 0; // root
         let mut partial = NibbleSlice::new(key);
         let flat_value = match &value {
