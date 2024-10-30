@@ -42,6 +42,7 @@ use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use num_rational::Rational32;
 use tracing::instrument;
@@ -540,6 +541,13 @@ pub trait RuntimeAdapter: Send + Sync {
         -> Result<RuntimeConfig, Error>;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
+
+    /// Precompiles the contracts and stores them in the compiled contract cache.
+    fn precompile_contracts(
+        &self,
+        epoch_id: &EpochId,
+        contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error>;
 }
 
 /// The last known / checked height and time when we have processed it.
