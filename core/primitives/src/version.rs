@@ -85,7 +85,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
         let protocol_version = 72;
         // Monday
         let datetime =
-            ProtocolUpgradeVotingSchedule::parse_datetime("2024-10-07 10:00:00").unwrap();
+            ProtocolUpgradeVotingSchedule::parse_datetime("2024-11-05 10:00:00").unwrap();
         let schedule = vec![(datetime, protocol_version)];
         ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
     });
