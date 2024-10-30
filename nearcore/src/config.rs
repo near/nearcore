@@ -963,7 +963,7 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-            let shards = ShardLayout::multi_shard(num_shards, 3);
+            let shards = ShardLayout::multi_shard(num_shards, 0);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
