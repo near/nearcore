@@ -248,7 +248,7 @@ pub fn setup_mock_node(
         mock_network_runtime.store().clone(),
         mock_network_epoch_manager.as_ref(),
         chain_genesis.height,
-    )?;
+    ).unwrap();
     let chain = Chain::new_for_view_client(
         Clock::real(),
         mock_network_epoch_manager.clone(),
