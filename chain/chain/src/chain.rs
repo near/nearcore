@@ -280,9 +280,6 @@ pub struct Chain {
 
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
-
-    // TODO: move. multiple chains for view client and client.
-    sync_hash_tracker: crate::state_sync::SyncHashTracker,
 }
 
 impl Drop for Chain {
@@ -379,7 +376,6 @@ impl Chain {
             MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
-        let sync_hash_tracker = crate::state_sync::SYNC_TRACKER.get().unwrap().clone();
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -404,7 +400,6 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
             resharding_manager,
-            sync_hash_tracker,
         })
     }
 
@@ -560,7 +555,6 @@ impl Chain {
             chain_config.resharding_config,
             resharding_sender,
         );
-        let sync_hash_tracker = crate::state_sync::SYNC_TRACKER.get().unwrap().clone();
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -585,7 +579,6 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks,
             resharding_manager,
-            sync_hash_tracker,
         })
     }
 
@@ -1946,7 +1939,7 @@ impl Chain {
         chain_update.commit()?;
         // We just log the error instead of returning it because an error here is not an error in block processing,
         // and shouldn't result in us marking the block as having an error
-        if let Err(err) = self.sync_hash_tracker.add_block(
+        if let Err(err) = crate::state_sync::SYNC_TRACKER.get().unwrap().add_block(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             block.header(),
@@ -2544,7 +2537,7 @@ impl Chain {
     /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
     /// it's the hash of the first block in that epoch.
     pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
-        self.sync_hash_tracker.get_sync_hash(
+        crate::state_sync::SYNC_TRACKER.get().unwrap().get_sync_hash(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             self.genesis().hash(),
