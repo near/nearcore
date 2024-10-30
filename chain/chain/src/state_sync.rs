@@ -56,6 +56,9 @@ impl NewChunkTracker {
         Ok(())
     }
 
+    /// If the sync hash is not already found, adds this block's hash and the number of new
+    /// chunks seen so far to self.num_new_chunks. This also removes any state associated with blocks
+    /// before the last final block, which keeps the memory usage bounded.
     fn add_block(
         &mut self,
         chain_store: &ChainStore,
@@ -82,7 +85,8 @@ impl NewChunkTracker {
 
         let done = add_new_chunks(epoch_manager, &mut num_new_chunks, header)?;
         if done {
-            // TODO(current_epoch_state_sync): this will not be correct if this block doesn't end up finalized on the main chain
+            // TODO(current_epoch_state_sync): this will not be correct if this block doesn't end up finalized on the main chain.
+            // We should fix it by setting the sync hash when it's finalized, which requires making changes to how we take state snapshots.
             self.sync_hash = Some(*header.hash());
             self.num_new_chunks = HashMap::new();
             return Ok(());
@@ -113,6 +117,8 @@ impl NewChunkTracker {
 struct SyncHashTrackerInner(HashMap<EpochId, NewChunkTracker>);
 
 impl SyncHashTrackerInner {
+    /// Finds the sync hash for the given epoch if it already exists in our chain. Otherwise
+    /// initializes all the state necessary to find it later as we add blocks to the chain.
     fn init_epoch(
         &mut self,
         chain_store: &ChainStore,
@@ -143,6 +149,7 @@ impl SyncHashTrackerInner {
         Ok(())
     }
 
+    // Initializes state for the last couple epochs
     fn new(
         chain_store: &ChainStore,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -207,6 +214,7 @@ impl SyncHashTrackerInner {
     }
 }
 
+/// Keeps state associated with finding a suitable sync hash for each epoch.
 #[derive(Clone)]
 pub struct SyncHashTracker(Arc<RwLock<SyncHashTrackerInner>>);
 
@@ -249,6 +257,8 @@ impl SyncHashTracker {
         }
     }
 
+    /// This should be called when a new block is added to the chain. If the StateSyncHashUpdate feature
+    /// is enabled, it adds the current block's new chunks to the number of new chunks per shard for that epoch.
     pub fn add_block(
         &self,
         chain_store: &ChainStore,
