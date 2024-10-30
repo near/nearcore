@@ -1,6 +1,7 @@
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{ClientConfig, MutableConfigValue};
@@ -83,6 +84,9 @@ fn test_client_with_simple_test_loop() {
 
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
+    let sync_hash_tracker =
+        SyncHashTracker::new(store.clone(), epoch_manager.as_ref(), chain_genesis.height).unwrap();
+
     let client = Client::new(
         test_loop.clock(),
         client_config,
@@ -101,6 +105,7 @@ fn test_client_with_simple_test_loop() {
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner()),
         noop().into_multi_sender(),
+        sync_hash_tracker,
     )
     .unwrap();
 

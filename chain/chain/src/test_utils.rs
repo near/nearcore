@@ -8,6 +8,7 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
+use crate::state_sync::SyncHashTracker;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
@@ -64,8 +65,14 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
+    let sync_hash_tracker =
+        SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
     Chain::new(
         clock,
         epoch_manager,
@@ -78,6 +85,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        sync_hash_tracker,
     )
     .unwrap()
 }
@@ -149,20 +157,28 @@ pub fn setup_with_tx_validity_period(
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let sync_hash_tracker =
+        SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
     let chain = Chain::new(
         clock,
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
-        &ChainGenesis::new(&genesis.config),
+        &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        sync_hash_tracker,
     )
     .unwrap();
 

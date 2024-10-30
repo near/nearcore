@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::state_sync::SyncHashTracker;
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1637,6 +1638,12 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             create_flat_storage: false,
         },
     );
+    let sync_hash_tracker = SyncHashTracker::new(
+        env.runtime.store().clone(),
+        env.epoch_manager.as_ref(),
+        chain_genesis.height,
+    )
+    .unwrap();
 
     let chain = Chain::new(
         Clock::real(),
@@ -1650,6 +1657,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        sync_hash_tracker,
     )
     .unwrap();
 

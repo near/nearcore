@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -117,13 +118,19 @@ impl ValidateWitnessCmd {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let runtime_adapter =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-                .expect("could not create the transaction runtime");
+        let runtime_adapter = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .expect("could not create the transaction runtime");
         let shard_tracker = ShardTracker::new(
             TrackedConfig::from_config(&near_config.client_config),
             epoch_manager.clone(),
         );
+        let sync_hash_tracker =
+            SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
         // TODO(stateless_validation): consider using `ChainStore` instead of
         // `Chain`.
         let chain = Chain::new_for_view_client(
@@ -134,6 +141,7 @@ impl ValidateWitnessCmd {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            sync_hash_tracker,
         )
         .unwrap();
         let processing_done_tracker = ProcessingDoneTracker::new();

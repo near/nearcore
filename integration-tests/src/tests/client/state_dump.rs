@@ -68,7 +68,7 @@ fn test_state_dump() {
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         handle: None,
     };
-    state_sync_dumper.start().unwrap();
+    state_sync_dumper.start(&chain.sync_hash_tracker).unwrap();
 
     const MAX_HEIGHT: BlockHeight = 37;
     for i in 1..=MAX_HEIGHT {
@@ -173,7 +173,7 @@ fn run_state_sync_with_dumped_parts(
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         handle: None,
     };
-    state_sync_dumper.start().unwrap();
+    state_sync_dumper.start(&chain.sync_hash_tracker).unwrap();
 
     let account_creation_at_height = (account_creation_at_epoch_height - 1) * epoch_length + 2;
 

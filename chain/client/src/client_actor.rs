@@ -32,6 +32,7 @@ use near_chain::chain::{
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
@@ -141,6 +142,7 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    sync_hash_tracker: SyncHashTracker,
 ) -> StartClientResult {
     let client_arbiter = actix::Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -166,6 +168,7 @@ pub fn start_client(
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
+        sync_hash_tracker,
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();

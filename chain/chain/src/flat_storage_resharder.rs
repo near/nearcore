@@ -675,7 +675,8 @@ mod tests {
 
     use crate::{
         rayon_spawner::RayonAsyncComputationSpawner, resharding::types::ReshardingSender,
-        runtime::NightshadeRuntime, types::ChainConfig, Chain, ChainGenesis, DoomslugThresholdMode,
+        runtime::NightshadeRuntime, state_sync::SyncHashTracker, types::ChainConfig, Chain,
+        ChainGenesis, DoomslugThresholdMode,
     };
 
     use super::*;
@@ -757,9 +758,15 @@ mod tests {
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime =
-            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+        let runtime = NightshadeRuntime::test(
+            tempdir.path(),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let chain_genesis = ChainGenesis::new(&genesis.config);
+        let sync_hash_tracker =
+            SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
         let chain = Chain::new(
             Clock::real(),
             epoch_manager,
@@ -772,6 +779,7 @@ mod tests {
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
             resharding_sender,
+            sync_hash_tracker,
         )
         .unwrap();
         for shard_uid in shard_layout.shard_uids() {

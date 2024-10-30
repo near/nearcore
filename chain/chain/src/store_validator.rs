@@ -400,6 +400,7 @@ mod tests {
 
     use crate::rayon_spawner::RayonAsyncComputationSpawner;
     use crate::runtime::NightshadeRuntime;
+    use crate::state_sync::SyncHashTracker;
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
@@ -420,6 +421,9 @@ mod tests {
             epoch_manager.clone(),
         );
         let chain_genesis = ChainGenesis::new(&genesis.config);
+        let sync_hash_tracker =
+            SyncHashTracker::new(store.clone(), epoch_manager.as_ref(), chain_genesis.height)
+                .unwrap();
         let chain = Chain::new(
             Clock::real(),
             epoch_manager.clone(),
@@ -432,6 +436,7 @@ mod tests {
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
+            sync_hash_tracker,
         )
         .unwrap();
         (

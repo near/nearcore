@@ -15,6 +15,7 @@ use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::state_sync::SyncHashTracker;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
@@ -281,8 +282,9 @@ pub struct Chain {
     /// Manages all tasks related to resharding.
     pub resharding_manager: ReshardingManager,
 
-    // TODO: move. multiple chains for view client and client.
-    sync_hash_tracker: crate::state_sync::SyncHashTracker,
+    /// Keeps track of the number of new chunks in each epoch for the purpose of finding a suitable
+    /// "sync_hash" for state sync. This is pub for convenience in tests.
+    pub sync_hash_tracker: SyncHashTracker,
 }
 
 impl Drop for Chain {
@@ -360,6 +362,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
+        sync_hash_tracker: SyncHashTracker,
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
         let chain_store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
@@ -379,7 +382,6 @@ impl Chain {
             MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
-        let sync_hash_tracker = crate::state_sync::SYNC_TRACKER.get().unwrap().clone();
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -420,6 +422,7 @@ impl Chain {
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
+        sync_hash_tracker: SyncHashTracker,
     ) -> Result<Chain, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
@@ -560,7 +563,6 @@ impl Chain {
             chain_config.resharding_config,
             resharding_sender,
         );
-        let sync_hash_tracker = crate::state_sync::SYNC_TRACKER.get().unwrap().clone();
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -2533,7 +2535,6 @@ impl Chain {
         )
     }
 
-    // TODO(current_epoch_state_sync): move state sync related code to state sync files
     /// Find the hash that should be used as the reference point when requesting state sync
     /// headers and parts from other nodes for the epoch the block with hash `block_hash` belongs to.
     /// If syncing to the state of that epoch (the new way), this block hash might not yet be known,

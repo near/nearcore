@@ -10,6 +10,7 @@ use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::{
@@ -590,6 +591,10 @@ impl TestLoopBuilder {
         // the account ID, so that it is stable across multiple runs in the same test.
         let peer_id = PeerId::new(create_test_signer(self.clients[idx].as_str()).public_key());
 
+        let sync_hash_tracker =
+            SyncHashTracker::new(store.clone(), epoch_manager.as_ref(), chain_genesis.height)
+                .unwrap();
+
         let client = Client::new(
             self.test_loop.clock(),
             client_config.clone(),
@@ -608,6 +613,7 @@ impl TestLoopBuilder {
             resharding_sender.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
             client_adapter.as_multi_sender(),
+            sync_hash_tracker.clone(),
         )
         .unwrap();
 
@@ -649,6 +655,7 @@ impl TestLoopBuilder {
             network_adapter.as_multi_sender(),
             client_config.clone(),
             near_client::adversarial::Controls::default(),
+            sync_hash_tracker.clone(),
         )
         .unwrap();
 
@@ -742,7 +749,10 @@ impl TestLoopBuilder {
         self.test_loop.send_adhoc_event(
             "start_state_sync_dumper".to_owned(),
             move |test_loop_data| {
-                test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
+                test_loop_data
+                    .get_mut(&state_sync_dumper_handle_clone)
+                    .start(&sync_hash_tracker)
+                    .unwrap();
             },
         );
 

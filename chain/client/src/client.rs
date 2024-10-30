@@ -24,6 +24,7 @@ use near_chain::chain::{
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::test_utils::format_hash;
 use near_chain::types::PrepareTransactionsChunkContext;
 use near_chain::types::{
@@ -255,6 +256,7 @@ impl Client {
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
         chain_sender_for_state_sync: ChainSenderForStateSync,
+        sync_hash_tracker: SyncHashTracker,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -278,6 +280,7 @@ impl Client {
             async_computation_spawner.clone(),
             validator_signer.clone(),
             resharding_sender.clone(),
+            sync_hash_tracker,
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(

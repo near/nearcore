@@ -25,6 +25,7 @@ use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -143,6 +144,9 @@ pub fn setup(
 
     let adv = crate::adversarial::Controls::default();
 
+    let sync_hash_tracker =
+        SyncHashTracker::new(store.clone(), epoch_manager.as_ref(), chain_genesis.height).unwrap();
+
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
         signer.clone(),
@@ -153,6 +157,7 @@ pub fn setup(
         network_adapter.clone(),
         config.clone(),
         adv.clone(),
+        sync_hash_tracker.clone(),
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
@@ -191,6 +196,7 @@ pub fn setup(
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
+        sync_hash_tracker,
     );
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
@@ -234,7 +240,7 @@ pub fn setup_only_view(
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new_with_no_gc(store, epoch_manager.as_ref(), archive);
+    let runtime = KeyValueRuntime::new_with_no_gc(store.clone(), epoch_manager.as_ref(), archive);
     let chain_genesis = ChainGenesis {
         time: clock.now_utc(),
         height: 0,
@@ -253,6 +259,8 @@ pub fn setup_only_view(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
+    let sync_hash_tracker =
+        SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
     Chain::new(
         clock.clone(),
         epoch_manager.clone(),
@@ -272,6 +280,7 @@ pub fn setup_only_view(
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        sync_hash_tracker.clone(),
     )
     .unwrap();
 
@@ -302,6 +311,7 @@ pub fn setup_only_view(
         network_adapter,
         config,
         adv,
+        sync_hash_tracker,
     )
 }
 
@@ -1067,6 +1077,9 @@ pub fn setup_client_with_runtime(
     let mut config =
         ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
+    let sync_hash_tracker =
+        SyncHashTracker::new(runtime.store().clone(), epoch_manager.as_ref(), chain_genesis.height)
+            .unwrap();
     let mut client = Client::new(
         clock,
         config,
@@ -1085,6 +1098,7 @@ pub fn setup_client_with_runtime(
         resharding_sender,
         Arc::new(ActixFutureSpawner),
         noop().into_multi_sender(), // state sync ignored for these tests
+        sync_hash_tracker,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1107,6 +1121,9 @@ pub fn setup_synchronous_shards_manager(
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
     let chunk_store = runtime.store().chunk_store();
+    let sync_hash_tracker =
+        SyncHashTracker::new(runtime.store().clone(), epoch_manager.as_ref(), chain_genesis.height)
+            .unwrap();
     let chain = Chain::new(
         clock.clone(),
         epoch_manager.clone(),
@@ -1126,6 +1143,7 @@ pub fn setup_synchronous_shards_manager(
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
+        sync_hash_tracker,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

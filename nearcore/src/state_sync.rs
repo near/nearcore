@@ -5,6 +5,7 @@ use borsh::BorshSerialize;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
@@ -49,7 +50,7 @@ pub struct StateSyncDumper {
 impl StateSyncDumper {
     /// Starts one a thread per tracked shard.
     /// Each started thread will be dumping state parts of a single epoch to external storage.
-    pub fn start(&mut self) -> anyhow::Result<()> {
+    pub fn start(&mut self, sync_hash_tracker: &SyncHashTracker) -> anyhow::Result<()> {
         assert!(self.handle.is_none(), "StateSyncDumper already started");
 
         let dump_config = if let Some(dump_config) = self.client_config.state_sync.dump.clone() {
@@ -96,6 +97,7 @@ impl StateSyncDumper {
                 &self.chain_genesis,
                 DoomslugThresholdMode::TwoThirds,
                 false,
+                sync_hash_tracker.clone(),
             )?;
             let epoch_id = chain.head()?.epoch_id;
             self.epoch_manager.shard_ids(&epoch_id)
@@ -117,6 +119,7 @@ impl StateSyncDumper {
                     &chain_genesis,
                     DoomslugThresholdMode::TwoThirds,
                     false,
+                    sync_hash_tracker.clone(),
                 )
                 .unwrap();
                 (self.dump_future_runner)(
