@@ -48,7 +48,7 @@ pub(crate) struct CreateWitnessResult {
     /// State witness created.
     pub(crate) state_witness: ChunkStateWitness,
     /// Contracts accessed and deployed while applying the chunk.
-    pub contract_updates: ContractUpdates,
+    pub(crate) contract_updates: ContractUpdates,
 }
 
 impl Client {
