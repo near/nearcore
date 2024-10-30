@@ -220,12 +220,11 @@ pub struct SyncHashTracker(Arc<RwLock<SyncHashTrackerInner>>);
 
 impl SyncHashTracker {
     pub fn new(
-        store: Store,
+        chain_store: &ChainStore,
         epoch_manager: &dyn EpochManagerAdapter,
         genesis_height: BlockHeight,
     ) -> Result<Self, Error> {
-        let chain_store = ChainStore::new(store, genesis_height, false);
-        let t = SyncHashTrackerInner::new(&chain_store, epoch_manager, genesis_height)?;
+        let t = SyncHashTrackerInner::new(chain_store, epoch_manager, genesis_height)?;
         Ok(Self(Arc::new(RwLock::new(t))))
     }
 
@@ -271,4 +270,19 @@ impl SyncHashTracker {
         }
         Ok(())
     }
+}
+
+pub static SYNC_TRACKER: once_cell::sync::OnceCell<SyncHashTracker> =
+    once_cell::sync::OnceCell::new();
+
+pub fn set_tracker(
+    store: Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    genesis_height: BlockHeight,
+) {
+    let chain_store = ChainStore::new(store, genesis_height, false);
+    let sync_hash_tracker =
+        SyncHashTracker::new(&chain_store, epoch_manager, genesis_height).unwrap();
+    let old = SYNC_TRACKER.set(sync_hash_tracker);
+    assert!(old.is_ok());
 }

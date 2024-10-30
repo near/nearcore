@@ -5,7 +5,6 @@ use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::futures::ActixFutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
@@ -96,9 +95,6 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let sync_hash_tracker =
-        SyncHashTracker::new(runtime.store().clone(), epoch_manager.as_ref(), chain_genesis.height)
-            .unwrap();
     let client_actor = start_client(
         Clock::real(),
         client_config.clone(),
@@ -120,7 +116,6 @@ fn setup_network_node(
         true,
         None,
         noop().into_multi_sender(),
-        sync_hash_tracker.clone(),
     )
     .client_actor;
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
@@ -133,7 +128,6 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         client_config.clone(),
         adv,
-        sync_hash_tracker,
     );
     let (shards_manager_actor, _) = start_shards_manager(
         epoch_manager.clone(),

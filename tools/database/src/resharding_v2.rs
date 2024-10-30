@@ -6,7 +6,6 @@ use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::v2::ReshardingResponse;
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::MutableConfigValue;
@@ -143,12 +142,8 @@ impl ReshardingV2Command {
             TrackedConfig::from_config(&config.client_config),
             epoch_manager.clone(),
         );
-        let runtime_adapter = NightshadeRuntime::from_config(
-            home_dir,
-            store.clone(),
-            &config,
-            epoch_manager.clone(),
-        )?;
+        let runtime_adapter =
+            NightshadeRuntime::from_config(home_dir, store, &config, epoch_manager.clone())?;
         let chain_genesis = ChainGenesis::new(&config.genesis.config);
         let client_config = config.client_config;
         let chain_config = ChainConfig {
@@ -156,8 +151,6 @@ impl ReshardingV2Command {
             background_migration_threads: client_config.client_background_migration_threads,
             resharding_config: client_config.resharding_config,
         };
-        let sync_hash_tracker =
-            SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
         let chain = Chain::new(
             Clock::real(),
             epoch_manager,
@@ -171,7 +164,6 @@ impl ReshardingV2Command {
             MutableConfigValue::new(None, "validator_signer"),
             // Resharding sender is not used in resharding-v2.
             noop().into_multi_sender(),
-            sync_hash_tracker,
         )
         .unwrap();
         Ok(chain)

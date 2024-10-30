@@ -20,7 +20,6 @@ pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ReshardingHandle;
@@ -318,12 +317,11 @@ pub fn start_with_config_and_synchronization(
         hash: *genesis_block.header().hash(),
     };
 
-    let sync_hash_tracker = SyncHashTracker::new(
+    near_chain::state_sync::set_tracker(
         storage.get_hot_store(),
         epoch_manager.as_ref(),
         chain_genesis.height,
-    )?;
-
+    );
     let node_id = config.network_config.node_id();
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
@@ -341,7 +339,6 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         config.client_config.clone(),
         adv.clone(),
-        sync_hash_tracker.clone(),
     );
 
     let state_snapshot_sender = LateBoundSender::new();
@@ -408,7 +405,6 @@ pub fn start_with_config_and_synchronization(
         true,
         None,
         resharding_sender.into_multi_sender(),
-        sync_hash_tracker.clone(),
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
@@ -435,7 +431,7 @@ pub fn start_with_config_and_synchronization(
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         handle: None,
     };
-    state_sync_dumper.start(&sync_hash_tracker)?;
+    state_sync_dumper.start()?;
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();

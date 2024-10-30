@@ -2,7 +2,6 @@
 
 use crate::{MockNetworkConfig, MockPeer};
 use anyhow::Context;
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
@@ -244,12 +243,6 @@ pub fn setup_mock_node(
         }
     }
 
-    let sync_hash_tracker = SyncHashTracker::new(
-        mock_network_runtime.store().clone(),
-        mock_network_epoch_manager.as_ref(),
-        chain_genesis.height,
-    )
-    .unwrap();
     let chain = Chain::new_for_view_client(
         Clock::real(),
         mock_network_epoch_manager.clone(),
@@ -258,7 +251,6 @@ pub fn setup_mock_node(
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,
-        sync_hash_tracker,
     )
     .unwrap();
     let head = chain.head().unwrap();

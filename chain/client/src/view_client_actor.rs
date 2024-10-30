@@ -9,7 +9,6 @@ use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -133,7 +132,6 @@ impl ViewClientActorInner {
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
-        sync_hash_tracker: SyncHashTracker,
     ) -> Addr<ViewClientActor> {
         SyncArbiter::start(config.view_client_threads, move || {
             let view_client_actor = ViewClientActorInner::new(
@@ -146,7 +144,6 @@ impl ViewClientActorInner {
                 network_adapter.clone(),
                 config.clone(),
                 adv.clone(),
-                sync_hash_tracker.clone(),
             )
             .unwrap();
             SyncActixWrapper::new(view_client_actor)
@@ -163,7 +160,6 @@ impl ViewClientActorInner {
         network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         adv: crate::adversarial::Controls,
-        sync_hash_tracker: SyncHashTracker,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -174,7 +170,6 @@ impl ViewClientActorInner {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.save_trie_changes,
-            sync_hash_tracker,
         )?;
         Ok(Self {
             clock,

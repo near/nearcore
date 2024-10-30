@@ -1,6 +1,5 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
     create_bucket_readonly, create_bucket_readwrite, external_storage_location,
@@ -118,9 +117,6 @@ impl StatePartsSubCommand {
         )
         .expect("could not create the transaction runtime");
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
-        let sync_hash_tracker =
-            SyncHashTracker::new(store.clone(), epoch_manager.as_ref(), chain_genesis.height)
-                .unwrap();
         let mut chain = Chain::new_for_view_client(
             Clock::real(),
             epoch_manager,
@@ -129,7 +125,6 @@ impl StatePartsSubCommand {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
-            sync_hash_tracker,
         )
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;

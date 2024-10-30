@@ -1,7 +1,6 @@
 use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, MutableConfigValue};
@@ -29,9 +28,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
-        NightshadeRuntime::test(dir.path(), store.clone(), &genesis.config, epoch_manager.clone());
-    let sync_hash_tracker =
-        SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
+        NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         Clock::real(),
         epoch_manager,
@@ -44,7 +41,6 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        sync_hash_tracker,
     )
     .unwrap();
     chain.genesis().clone()
@@ -59,9 +55,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
-        NightshadeRuntime::test(dir.path(), store.clone(), &genesis.config, epoch_manager.clone());
-    let sync_hash_tracker =
-        SyncHashTracker::new(store, epoch_manager.as_ref(), chain_genesis.height).unwrap();
+        NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         Clock::real(),
         epoch_manager,
@@ -74,7 +68,6 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        sync_hash_tracker,
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

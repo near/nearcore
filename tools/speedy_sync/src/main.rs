@@ -1,7 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::messaging::{noop, IntoMultiSender};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-use near_chain::state_sync::SyncHashTracker;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -240,8 +239,6 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let runtime =
         NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone())
             .expect("could not create transaction runtime");
-    let sync_hash_tracker =
-        SyncHashTracker::new(store.clone(), epoch_manager.as_ref(), chain_genesis.height).unwrap();
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
@@ -262,7 +259,6 @@ fn load_snapshot(load_cmd: LoadCmd) {
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        sync_hash_tracker,
     )
     .unwrap();
 
