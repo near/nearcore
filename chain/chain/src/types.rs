@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -26,7 +24,7 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -112,10 +110,8 @@ pub struct ApplyChunkResult {
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
-    /// Code-hashes of the contracts accessed (called) while applying the chunk.
-    pub contract_accesses: BTreeSet<CodeHash>,
-    /// Code-hashes of the contracts deployed while applying the chunk.
-    pub contract_deploys: BTreeSet<CodeHash>,
+    /// Contracts accessed and deployed while applying the chunk.
+    pub contract_updates: ContractUpdates,
 }
 
 impl ApplyChunkResult {
