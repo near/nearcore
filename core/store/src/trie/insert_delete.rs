@@ -7,7 +7,7 @@ use crate::trie::{
 use crate::{StorageError, Trie, TrieChanges};
 use borsh::BorshSerialize;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::ValueRef;
+use near_primitives::state::{ValueRef, ValueToInsert};
 
 pub(crate) struct NodesStorage<'a> {
     nodes: Vec<Option<TrieNodeWithSize>>,
@@ -92,11 +92,15 @@ impl Trie {
         memory: &mut NodesStorage,
         node: StorageHandle,
         partial: NibbleSlice<'_>,
-        value: Vec<u8>,
+        value: ValueToInsert,
     ) -> Result<StorageHandle, StorageError> {
+        let ValueToInsert::Full(value) = value else {
+            unimplemented!("Trie::insert doesn't support value {value:?}, partial = {partial:?}");
+        };
+        let mut value = Some(value);
+
         let root_handle = node;
         let mut handle = node;
-        let mut value = Some(value);
         let mut partial = partial;
         let mut path = Vec::new();
         loop {

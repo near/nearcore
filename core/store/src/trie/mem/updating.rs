@@ -19,7 +19,7 @@ use crate::trie::{
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::FlatStateValue;
+use near_primitives::state::{FlatStateValue, ValueToInsert};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -519,10 +519,16 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         }
     }
 
-    fn add_refcount_to_value(&mut self, hash: CryptoHash, value: Option<Vec<u8>>) {
-        if let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() {
-            tracked_node_changes.refcount_changes.add(hash, value.unwrap(), 1);
-        }
+    // We change refcount only when we also make disk updates.
+    // In this case, we must have Full value.
+    fn add_refcount_to_value(&mut self, value: ValueToInsert) {
+        let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() else {
+            return;
+        };
+        let ValueToInsert::Full(value) = value else {
+            return;
+        };
+        tracked_node_changes.refcount_changes.add(hash(&value), value, 1);
     }
 
     fn subtract_refcount_for_value(&mut self, value: FlatStateValue) {
@@ -535,13 +541,13 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
     /// Inserts the given key value pair into the trie.
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) {
-        self.insert_impl(key, FlatStateValue::on_disk(&value), Some(value));
+        self.insert_impl(key, ValueToInsert::Full(value));
     }
 
     /// Inserts the given key value pair into the trie, but the value may be a reference.
     /// This is used to update the in-memory trie only, without caring about on-disk changes.
     pub fn insert_memtrie_only(&mut self, key: &[u8], value: FlatStateValue) {
-        self.insert_impl(key, value, None);
+        self.insert_impl(key, ValueToInsert::Flat(value));
     }
 
     /// Insertion logic. We descend from the root down to whatever node corresponds to
@@ -552,10 +558,14 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     ///
     /// Note that `value` must be Some if we're keeping track of on-disk changes, but can
     /// be None if we're only keeping track of in-memory changes.
-    fn insert_impl(&mut self, key: &[u8], flat_value: FlatStateValue, value: Option<Vec<u8>>) {
+    fn insert_impl(&mut self, key: &[u8], value: ValueToInsert) {
+        // flat_value: FlatStateValue, value: Option<Vec<u8>>
         let mut node_id = 0; // root
         let mut partial = NibbleSlice::new(key);
-        let value_ref = flat_value.to_value_ref();
+        let flat_value = match &value {
+            ValueToInsert::Flat(value) => value.clone(),
+            ValueToInsert::Full(value) => FlatStateValue::on_disk(value.as_slice()),
+        };
 
         loop {
             // Take out the current node; we'd have to change it no matter what.
@@ -570,7 +580,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                             value: flat_value,
                         },
                     );
-                    self.add_refcount_to_value(value_ref.hash, value);
+                    self.add_refcount_to_value(value);
                     break;
                 }
                 UpdatedMemTrieNode::Branch { children, value: old_value } => {
@@ -583,7 +593,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                             node_id,
                             UpdatedMemTrieNode::Branch { children, value: Some(flat_value) },
                         );
-                        self.add_refcount_to_value(value_ref.hash, value);
+                        self.add_refcount_to_value(value);
                         break;
                     } else {
                         // Continue descending into the branch, possibly adding a new child.
@@ -613,7 +623,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                             node_id,
                             UpdatedMemTrieNode::Leaf { extension, value: flat_value },
                         );
-                        self.add_refcount_to_value(value_ref.hash, value);
+                        self.add_refcount_to_value(value);
                         break;
                     } else if common_prefix == 0 {
                         // Convert the leaf to an equivalent branch. We are not adding

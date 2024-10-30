@@ -1672,7 +1672,12 @@ impl Trie {
                 for (key, value) in changes {
                     let key = NibbleSlice::new(&key);
                     root_node = match value {
-                        Some(arr) => self.insert(&mut memory, root_node, key, arr),
+                        Some(arr) => self.insert(
+                            &mut memory,
+                            root_node,
+                            key,
+                            near_primitives::state::ValueToInsert::Full(arr),
+                        ),
                         None => self.delete(&mut memory, root_node, key),
                     }?;
                 }
