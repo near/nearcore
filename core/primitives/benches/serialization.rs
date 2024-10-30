@@ -42,7 +42,7 @@ fn create_block() -> Block {
     let shard_ids = vec![ShardId::new(0)];
     let genesis_chunks = genesis_chunks(
         vec![StateRoot::new()],
-        vec![Default::default(); shard_ids.len()],
+        vec![Some(Default::default()); shard_ids.len()],
         &shard_ids,
         1_000,
         0,

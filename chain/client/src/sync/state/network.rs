@@ -1,5 +1,6 @@
 use super::task_tracker::TaskHandle;
 use super::StateSyncDownloadSource;
+use crate::metrics;
 use crate::sync::state::util::increment_download_count;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -179,6 +180,10 @@ impl StateSyncDownloadSourcePeer {
             PartIdOrHeader::Part { .. } => "part",
             PartIdOrHeader::Header => "header",
         };
+
+        let _timer = metrics::STATE_SYNC_P2P_REQUEST_DELAY
+            .with_label_values(&[&key.shard_id.to_string(), &typ])
+            .start_timer();
 
         handle.set_status("Sending network request");
         match request_sender.send_async(network_request).await {

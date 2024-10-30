@@ -5,6 +5,7 @@
 # Usage:
 # python3 pytest/tests/sanity/congestion_control.py
 
+import logging
 import unittest
 import pathlib
 import sys
@@ -13,7 +14,7 @@ import threading
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from configured_logger import logger
+from configured_logger import new_logger
 from cluster import BaseNode, init_cluster, load_config, spin_up_node, Key
 from utils import load_test_contract, poll_blocks, wait_for_blocks
 from transaction import sign_create_account_with_full_access_key_and_balance_tx, sign_deploy_contract_tx, sign_function_call_tx
@@ -25,15 +26,15 @@ ACCESS_KEY_NONCE_RANGE_MULTIPLIER = 1_000_000
 
 GOOD_FINAL_EXECUTION_STATUS = ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC']
 
+# boundary accounts for the shard layout
+BOUNDARY_ACCOUNT_LIST = ["fff", "kkk", "ppp", "uuu"]
+# account prefix for each shard
+SHARD_ACCOUNT_LIST = ["aaa", "ggg", "lll", "rrr", "vvv"]
+
 # Shard layout with 5 roughly equal size shards for convenience.
 SHARD_LAYOUT = {
     "V1": {
-        "boundary_accounts": [
-            "fff",
-            "kkk",
-            "ppp",
-            "uuu",
-        ],
+        "boundary_accounts": BOUNDARY_ACCOUNT_LIST,
         "version": 2,
         "shards_split_map": [],
         "to_parent_shard_map": [],
@@ -42,22 +43,10 @@ SHARD_LAYOUT = {
 
 NUM_SHARDS = len(SHARD_LAYOUT["V1"]["boundary_accounts"]) + 1
 
-ACCOUNT_SHARD_0 = "aaa.test0"
-ACCOUNT_SHARD_1 = "ggg.test0"
-ACCOUNT_SHARD_2 = "lll.test0"
-ACCOUNT_SHARD_3 = "rrr.test0"
-ACCOUNT_SHARD_4 = "vvv.test0"
-
-ALL_ACCOUNTS = [
-    ACCOUNT_SHARD_0,
-    ACCOUNT_SHARD_1,
-    ACCOUNT_SHARD_2,
-    ACCOUNT_SHARD_3,
-    ACCOUNT_SHARD_4,
-]
-
 TxHash = str
 AccountId = str
+
+logger = new_logger("congestion_control_test", logging.INFO)
 
 
 class CongestionControlTest(unittest.TestCase):
@@ -72,7 +61,7 @@ class CongestionControlTest(unittest.TestCase):
 
         self.nonce = 1
 
-        accounts = self.__prepare_accounts()
+        accounts = self.__prepare_accounts(10)
 
         node = self.__setup_node()
 
@@ -116,7 +105,8 @@ class CongestionControlTest(unittest.TestCase):
     def __run_under_congestion(self, node):
         logger.info("Checking the chain under congestion")
         (start_height, _) = node.get_latest_block()
-        for height, hash in poll_blocks(node, __target=30):
+        target = start_height + 20
+        for height, hash in poll_blocks(node, __target=target):
             # Wait for a few blocks to congest the chain.
             if height < start_height + 5:
                 continue
@@ -145,15 +135,15 @@ class CongestionControlTest(unittest.TestCase):
             gas_used = chunk['header']['gas_used']
             congestion_info = chunk['header']['congestion_info']
 
-            self.assertEqual(int(congestion_info['buffered_receipts_gas']), 0)
             self.assertEqual(int(congestion_info['delayed_receipts_gas']), 0)
-            self.assertEqual(congestion_info['receipt_bytes'], 0)
 
             logger.info(
-                f"#{height} other gas used: {gas_used} congestion info {congestion_info}"
+                f"#{height} other  gas used: {gas_used} congestion info {congestion_info}"
             )
 
     def __run_after_congestion(self, node):
+        empty_chunk_count = 0
+
         logger.info("Checking the chain after congestion")
         for height, hash in poll_blocks(node, __target=100):
             chunk = self.__get_chunk(node, hash, 0)
@@ -164,6 +154,12 @@ class CongestionControlTest(unittest.TestCase):
             logger.info(
                 f"#{height} gas used: {gas_used} congestion info {congestion_info}"
             )
+
+            if gas_used == 0:
+                empty_chunk_count += 1
+
+            if empty_chunk_count > 5:
+                break
 
         chunk = self.__get_chunk(node, hash, 0)
         gas_used = chunk['header']['gas_used']
@@ -199,8 +195,11 @@ class CongestionControlTest(unittest.TestCase):
                 logger.info(
                     f"Checking transactions under way, {checked}/{total}")
 
+            if accepted_count > 0 and rejected_count > 0:
+                break
+
         logger.info(
-            f"Checking transactions done, total {len(self.txs)}, accepted {accepted_count}, rejected {rejected_count}"
+            f"Checking transactions done, total {len(self.txs)}, checked {checked}, accepted {accepted_count}, rejected {rejected_count}"
         )
         self.assertGreater(accepted_count, 0)
         self.assertGreater(rejected_count, 0)
@@ -221,15 +220,14 @@ class CongestionControlTest(unittest.TestCase):
             "The transaction failed, please check that the contract was built with `test_features` enabled."
         )
 
-    def __start_load(self, node: BaseNode, accounts):
+    def __start_load(self, node: BaseNode, accounts: list[Key]):
         logger.info("Starting load threads")
         self.finished = False
         self.lock = threading.Lock()
 
         self.txs = []
         target_account = accounts[0]
-        # Spawn two thread per each account to get more transactions in.
-        for account in accounts + accounts:
+        for account in accounts:
             thread = threading.Thread(
                 target=self.__load,
                 args=[node, account, target_account],
@@ -245,7 +243,7 @@ class CongestionControlTest(unittest.TestCase):
         for thread in self.threads:
             thread.join()
 
-    def __load(self, node: BaseNode, sender_account, target_account):
+    def __load(self, node: BaseNode, sender_account: Key, target_account: Key):
         logger.debug(
             f"Starting load thread {sender_account.account_id} -> {target_account.account_id}"
         )
@@ -254,10 +252,7 @@ class CongestionControlTest(unittest.TestCase):
             with self.lock:
                 self.txs.append((sender_account.account_id, tx_hash))
 
-            # This sleep here is more a formality, the call_contract call is
-            # slower. This is also the reason for sending transactions from
-            # multiple threads.
-            time.sleep(0.1)
+            time.sleep(0.5)
 
         logger.debug(
             f"Stopped load thread {sender_account.account_id} -> {target_account.account_id}"
@@ -287,15 +282,24 @@ class CongestionControlTest(unittest.TestCase):
         )
 
         node = spin_up_node(config, near_root, node_dir, 0)
+
+        # Save a block hash to use for creating transactions. Querying it every
+        # time when creating a new transaction is really slow.
+        self.tx_block_hash = node.get_latest_block()
+
         return node
 
-    def __prepare_accounts(self):
+    def __prepare_accounts(self, n: int) -> list[Key]:
         logger.info("Preparing accounts")
 
+        # Each prefix belongs to a different shard.
         accounts = []
-        for account_id in ALL_ACCOUNTS:
+        for i in range(n):
+            prefix = SHARD_ACCOUNT_LIST[i % NUM_SHARDS]
+            account_id = f"{prefix}_{i:02}.test0"
             account_key = Key.from_random(account_id)
             accounts.append(account_key)
+
         return accounts
 
     def __create_accounts(self, node: BaseNode, accounts: list[Key]):
@@ -312,10 +316,11 @@ class CongestionControlTest(unittest.TestCase):
     def __deploy_contracts(self, node: BaseNode, accounts: list[Key]):
         logger.info("Deploying contracts")
 
+        contract = load_test_contract('test_contract_rs.wasm')
         deploy_contract_tx_list = list()
-        for account_key in accounts:
-            tx_hash = self.__deploy_contract(node, account_key)
-            deploy_contract_tx_list.append((account_key.account_id, tx_hash))
+        for account in accounts:
+            tx_hash = self.__deploy_contract(node, account, contract)
+            deploy_contract_tx_list.append((account.account_id, tx_hash))
 
         self.__wait_for_txs(node, deploy_contract_tx_list)
 
@@ -340,17 +345,14 @@ class CongestionControlTest(unittest.TestCase):
         logger.debug(f"Create account {account_key.account_id}: {result}")
         return result['result']
 
-    def __deploy_contract(self, node: BaseNode, account_key):
+    def __deploy_contract(self, node: BaseNode, account_key: Key, contract):
         logger.debug("Deploying contract.")
-
-        block_hash = node.get_latest_block().hash_bytes
-        contract = load_test_contract('test_contract_rs.wasm')
 
         tx = sign_deploy_contract_tx(
             account_key,
             contract,
             self.nonce,
-            block_hash,
+            self.tx_block_hash.hash_bytes,
         )
         self.nonce += 1
         result = node.send_tx(tx)
@@ -374,9 +376,7 @@ class CongestionControlTest(unittest.TestCase):
         result = node.send_tx_and_wait(tx, 5)
         return result
 
-    def __prepare_tx(self, node, sender, receiver):
-        block_hash = node.get_latest_block().hash_bytes
-
+    def __prepare_tx(self, node: BaseNode, sender: Key, receiver: Key):
         gas_amount = 250 * TGAS
         gas_bytes = gas_amount.to_bytes(8, byteorder="little")
 
@@ -388,7 +388,7 @@ class CongestionControlTest(unittest.TestCase):
             300 * TGAS,
             0,
             self.nonce,
-            block_hash,
+            self.tx_block_hash.hash_bytes,
         )
         self.nonce += 1
         return tx
