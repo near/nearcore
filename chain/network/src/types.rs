@@ -305,7 +305,7 @@ pub enum NetworkRequests {
     /// Message from chunk producer to chunk validators to send the contract code as response to ContractCodeRequest.
     ContractCodeResponse(AccountId, ContractCodeResponse),
     /// Message originates from the chunk producer and distributed among other validators,
-    /// containing the code-hashes of contracts deployed during the main state transition of the witness.
+    /// containing the code of the newly-deployed contracts during the main state transition of the witness.
     PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
 }
 

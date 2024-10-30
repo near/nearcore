@@ -24,8 +24,7 @@ pub struct PartialEncodedStateWitnessForwardMessage(pub PartialEncodedStateWitne
 #[rtype(result = "()")]
 pub struct ChunkContractAccessesMessage(pub ChunkContractAccesses);
 
-/// Message to partial witness actor (on a chunk validator) that contains part of
-/// code-hashes of the contracts that are deployed when applying the previous chunk.
+/// Message to partial witness actor that contains part of code for newly-deployed contracts.
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct PartialEncodedContractDeploysMessage(pub PartialEncodedContractDeploys);
