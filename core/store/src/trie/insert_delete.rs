@@ -58,7 +58,14 @@ impl<'a> NodesStorage<'a> {
         StorageHandle(self.nodes.len() - 1)
     }
 
-    pub(crate) fn store_value(&mut self, value: Vec<u8>) -> StorageValueHandle {
+    pub(crate) fn store_value(&mut self, value: ValueToInsert) -> StorageValueHandle {
+        let ValueToInsert::Full(value) = value else {
+            unimplemented!(
+                "NodesStorage for Trie doesn't support value {value:?} \
+                because disk updates must be generated."
+            );
+        };
+
         let value_len = value.len();
         self.values.push(Some(value));
         StorageValueHandle(self.values.len() - 1, value_len)
@@ -94,10 +101,6 @@ impl Trie {
         partial: NibbleSlice<'_>,
         value: ValueToInsert,
     ) -> Result<StorageHandle, StorageError> {
-        let ValueToInsert::Full(value) = value else {
-            unimplemented!("Trie::insert doesn't support value {value:?}, partial = {partial:?}");
-        };
-
         let root_handle = node;
         let mut handle = node;
         let mut partial = partial;
