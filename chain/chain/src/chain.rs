@@ -2029,7 +2029,7 @@ impl Chain {
 
             if need_storage_update {
                 // TODO(resharding): consider adding to catchup flow.
-                self.resharding_manager.process_memtrie_resharding_storage_update(
+                self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
                     shard_uid,

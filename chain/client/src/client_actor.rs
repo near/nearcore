@@ -1809,7 +1809,7 @@ impl ClientActorInner {
 
         let mut needed_block_hashes = vec![prev_hash, sync_hash];
         let mut extra_block_hashes = self.get_extra_sync_block_hashes(prev_hash);
-        tracing::debug!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
+        tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
         needed_block_hashes.append(&mut extra_block_hashes);
 
         for hash in needed_block_hashes.clone().into_iter() {
@@ -1836,7 +1836,7 @@ impl ClientActorInner {
             self.client.request_block(hash, peer_id);
         }
 
-        tracing::debug!(target: "sync", ?have_all, "request_sync_blocks: done");
+        tracing::trace!(target: "sync", ?have_all, "request_sync_blocks: done");
 
         Ok(have_all)
     }

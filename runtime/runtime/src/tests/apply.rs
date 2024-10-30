@@ -38,7 +38,7 @@ use near_store::{
     Trie,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1272,9 +1272,12 @@ fn test_exclude_contract_code_from_witness() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     // Since both accounts deploy the same contract, we expect only one contract deploy.
-    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
 
     let mut store_update = tries.store_update();
     let root =
@@ -1311,8 +1314,11 @@ fn test_exclude_contract_code_from_witness() {
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
     // Since both accounts call the same contract, we expect only one contract access.
-    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
-    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
 
     // Check that both contracts are excluded from the storage proof.
     let partial_storage = apply_result.proof.unwrap();
@@ -1374,9 +1380,12 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     // Since both accounts deploy the same contract, we expect only one contract deploy.
-    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash())]));
+    assert_eq!(
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
 
     let mut store_update = tries.store_update();
     let root =
@@ -1413,8 +1422,11 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     assert_eq!(apply_result.delayed_receipts_count, 1);
     // Since both accounts call the same contract, we expect only one contract access.
-    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
-    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
 
     // Check that both contracts are excluded from the storage proof.
     let partial_storage = apply_result.proof.unwrap();
@@ -1502,10 +1514,10 @@ fn test_deploy_and_call_different_contracts() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
-        apply_result.contract_deploys,
-        BTreeSet::from([
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
@@ -1530,13 +1542,13 @@ fn test_deploy_and_call_different_contracts() {
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
     assert_eq!(
-        apply_result.contract_accesses,
-        BTreeSet::from([
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
     );
-    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
 }
 
 // Similar to test_deploy_and_call_different_contracts, but one of the function calls fails.
@@ -1611,10 +1623,10 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, BTreeSet::new());
+    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(
-        apply_result.contract_deploys,
-        BTreeSet::from([
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
@@ -1639,10 +1651,10 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
     assert_eq!(apply_result.delayed_receipts_count, 1);
     assert_eq!(
-        apply_result.contract_accesses,
-        BTreeSet::from([CodeHash(*first_contract_code.hash())])
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*first_contract_code.hash())])
     );
-    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
 }
 
 // Tests excluding contract code from state witness and recording of contract deployments and function calls
@@ -1718,15 +1730,15 @@ fn test_deploy_and_call_in_apply() {
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
     assert_eq!(
-        apply_result.contract_accesses,
-        BTreeSet::from([
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
     );
     assert_eq!(
-        apply_result.contract_deploys,
-        BTreeSet::from([
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
@@ -1806,13 +1818,13 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 
     assert_eq!(apply_result.delayed_receipts_count, 1);
     assert_eq!(
-        apply_result.contract_accesses,
-        BTreeSet::from([CodeHash(*first_contract_code.hash())])
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*first_contract_code.hash())])
     );
     // We record both deployments even if the function call to one of them fails.
     assert_eq!(
-        apply_result.contract_deploys,
-        BTreeSet::from([
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
@@ -1862,8 +1874,14 @@ fn test_deploy_and_call_in_same_receipt() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
-    assert_eq!(apply_result.contract_deploys, BTreeSet::from([CodeHash(*contract_code.hash()),]));
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    assert_eq!(
+        apply_result.contract_updates.contract_deploys,
+        HashSet::from([CodeHash(*contract_code.hash()),])
+    );
 }
 
 // Tests the case in which deploy and call are contained in the same receipt and function call fails due to exceeding gas limit.
@@ -1911,8 +1929,11 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_accesses, BTreeSet::from([CodeHash(*contract_code.hash())]));
-    assert_eq!(apply_result.contract_deploys, BTreeSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
 }
 
 /// Check that applying nothing does not change the state trie.

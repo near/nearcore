@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -43,7 +43,7 @@ enum AccessedContractsState {
     Unknown,
     /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`,
     /// waiting for response from the chunk producer.
-    Requested { contract_hashes: BTreeSet<CodeHash>, requested_at: Instant },
+    Requested { contract_hashes: HashSet<CodeHash>, requested_at: Instant },
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
 }
@@ -145,7 +145,7 @@ struct CacheEntry {
 
 enum CacheUpdate {
     WitnessPart(PartialEncodedStateWitness, Arc<WitnessEncoder>),
-    AccessedContractHashes(BTreeSet<CodeHash>),
+    AccessedContractHashes(HashSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
 
@@ -234,7 +234,7 @@ impl CacheEntry {
         }
     }
 
-    fn set_requested_contracts(&mut self, contract_hashes: BTreeSet<CodeHash>) {
+    fn set_requested_contracts(&mut self, contract_hashes: HashSet<CodeHash>) {
         match &self.accessed_contracts {
             AccessedContractsState::Unknown => {
                 self.accessed_contracts = AccessedContractsState::Requested {
@@ -251,7 +251,7 @@ impl CacheEntry {
     fn set_received_contracts(&mut self, contract_codes: Vec<CodeBytes>) {
         match &self.accessed_contracts {
             AccessedContractsState::Requested { contract_hashes, requested_at } => {
-                let actual = BTreeSet::from_iter(
+                let actual = HashSet::from_iter(
                     contract_codes.iter().map(|code| CodeHash(CryptoHash::hash_bytes(&code.0))),
                 );
                 let expected = contract_hashes;
@@ -380,7 +380,7 @@ impl PartialEncodedStateWitnessTracker {
     pub fn store_accessed_contract_hashes(
         &mut self,
         key: ChunkProductionKey,
-        hashes: BTreeSet<CodeHash>,
+        hashes: HashSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
         let update = CacheUpdate::AccessedContractHashes(hashes);
