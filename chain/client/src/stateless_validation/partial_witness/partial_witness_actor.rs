@@ -17,6 +17,7 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
+use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeployments, CodeBytes, CodeHash, ContractCodeRequest,
@@ -40,7 +41,7 @@ use crate::stateless_validation::validate::{
     validate_chunk_contract_accesses, validate_partial_encoded_state_witness,
 };
 
-use super::encoding::WitnessEncoderCache;
+use super::encoding::WITNESS_RATIO_DATA_PARTS;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
 
@@ -59,7 +60,7 @@ pub struct PartialWitnessActor {
     state_witness_tracker: ChunkStateWitnessTracker,
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
-    encoders: WitnessEncoderCache,
+    witness_encoders: ReedSolomonEncoderCache,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -157,8 +158,8 @@ impl PartialWitnessActor {
             epoch_manager,
             partial_witness_tracker,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
-            encoders: WitnessEncoderCache::new(),
             runtime,
+            witness_encoders: ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS),
         }
     }
 
@@ -207,7 +208,7 @@ impl PartialWitnessActor {
         );
 
         // Break the state witness into parts using Reed Solomon encoding.
-        let encoder = self.encoders.entry(chunk_validators.len());
+        let encoder = self.witness_encoders.entry(chunk_validators.len());
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
         Ok(chunk_validators
