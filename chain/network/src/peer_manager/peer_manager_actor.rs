@@ -1181,16 +1181,6 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkContractDeployments(validators, deploys) => {
-                for validator in validators {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &validator,
-                        RoutedMessageBody::ChunkContractDeployments(deploys.clone()),
-                    );
-                }
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::ContractCodeRequest(target, request) => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -1204,6 +1194,23 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     RoutedMessageBody::ContractCodeResponse(response),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
+                // Send to last account separately to avoid clone when sending to a single target.
+                let (last_account, other_accounts) = accounts.split_last().unwrap();
+                for account in other_accounts {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &account,
+                        RoutedMessageBody::PartialEncodedContractDeploys(deploys.clone()),
+                    );
+                }
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &last_account,
+                    RoutedMessageBody::PartialEncodedContractDeploys(deploys),
                 );
                 NetworkResponses::NoResponse
             }

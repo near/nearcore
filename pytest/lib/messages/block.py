@@ -376,15 +376,19 @@ class ChunkContractAccessesInner:
     pass
 
 
-class ChunkContractDeployments:
+class PartialEncodedContractDeploys:
     pass
 
 
-class ChunkContractDeploymentsV1:
+class PartialEncodedContractDeploysV1:
     pass
 
 
-class ChunkContractDeploymentsInner:
+class PartialEncodedContractDeploysInner:
+    pass
+
+
+class PartialEncodedContractDeploysPart:
     pass
 
 
@@ -1214,30 +1218,41 @@ block_schema = [
         }
     ],
     [
-        ChunkContractDeployments, {
+        PartialEncodedContractDeploys, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [['V1', ChunkContractDeploymentsV1],]
+            'values': [['V1', PartialEncodedContractDeploysV1],]
         }
     ],
     [
-        ChunkContractDeploymentsV1, {
+        PartialEncodedContractDeploysV1, {
             'kind':
                 'struct',
             'fields': [
-                ['inner', ChunkContractDeploymentsInner],
+                ['inner', PartialEncodedContractDeploysInner],
                 ['signature', Signature],
             ]
         }
     ],
     [
-        ChunkContractDeploymentsInner, {
+        PartialEncodedContractDeploysInner, {
             'kind':
                 'struct',
             'fields': [
                 ['next_chunk', ChunkProductionKey],
-                ['contracts', [[32]]],
+                ['part', PartialEncodedContractDeploysPart],
                 ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysPart, {
+            'kind':
+                'struct',
+            'fields': [
+                ['part_ord', 'u64'],
+                ['data', ['u8']],
+                ['encoded_length', 'u64'],
             ]
         }
     ],
