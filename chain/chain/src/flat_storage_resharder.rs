@@ -577,10 +577,10 @@ impl FlatStorageResharder {
             // Merge deltas from the next blocks until we reach chain final head.
             for _ in 0..CATCH_UP_BLOCKS {
                 let height = chain_store.get_block_height(&flat_head_block_hash)?;
-                if height > chain_final_head.height {
-                    let msg = format!("flat head moved too far: head = {flat_head_block_hash}, height = {height}, final block height = {}", chain_final_head.height);
-                    return Err(Error::ReshardingError(msg));
-                }
+                debug_assert!(
+                    height <= chain_final_head.height,
+                    "flat head: {flat_head_block_hash}"
+                );
                 // Stop if we reached chain final head.
                 if flat_head_block_hash == chain_final_head.last_block_hash {
                     break;
