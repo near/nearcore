@@ -10,11 +10,13 @@ use near_chain_primitives::Error;
 use tracing::{debug, error, info};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
-use crate::resharding::types::ReshardingRequest;
+use crate::resharding::types::{
+    FlatStorageShardCatchupRequest, FlatStorageSplitShardRequest, MemtrieReloadRequest,
+    ReshardingSender,
+};
 use crate::types::RuntimeAdapter;
 use crate::{ChainStore, ChainStoreAccess};
 use itertools::Itertools;
-use near_async::messaging::Sender;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
@@ -58,13 +60,14 @@ use std::iter;
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
 ///       previously.
 ///     - Note that once the split is completed children shard catchup can't be manually cancelled.
+///       TODO: make catchup cancellable
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
     /// The current active resharding event.
     resharding_event: Arc<Mutex<Option<FlatStorageReshardingEventStatus>>>,
     /// Sender responsible to convey requests to the dedicated resharding actor.
-    scheduler: Sender<ReshardingRequest>,
+    scheduler: ReshardingSender,
     /// Controls cancellation of background processing.
     pub controller: FlatStorageResharderController,
     /// Configuration for resharding.
@@ -78,10 +81,10 @@ impl FlatStorageResharder {
     /// * `runtime`: runtime adapter
     /// * `scheduler`: component used to schedule the background tasks
     /// * `controller`: manages the execution of the background tasks
-    /// * `resharing_config`: configuration options
+    /// * `resharding_config`: configuration options
     pub fn new(
         runtime: Arc<dyn RuntimeAdapter>,
-        scheduler: Sender<ReshardingRequest>,
+        scheduler: ReshardingSender,
         controller: FlatStorageResharderController,
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
@@ -135,11 +138,13 @@ impl FlatStorageResharder {
             FlatStorageReshardingStatus::CatchingUp(block_hash) => {
                 info!(target: "resharding", ?shard_uid, ?status, "resuming flat storage shard catchup");
                 // Send a request to schedule the execution of `shard_catchup_task` for this shard.
-                self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
-                    resharder: self.clone(),
-                    shard_uid,
-                    flat_head_block_hash: *block_hash,
-                });
+                self.scheduler.flat_storage_shard_catchup_sender.send(
+                    FlatStorageShardCatchupRequest {
+                        resharder: self.clone(),
+                        shard_uid,
+                        flat_head_block_hash: *block_hash,
+                    },
+                );
             }
         }
         Ok(())
@@ -220,7 +225,9 @@ impl FlatStorageResharder {
         let resharder = self.clone();
         // Send a request to schedule the execution of `split_shard_task`, to do the bulk of the
         // splitting work.
-        self.scheduler.send(ReshardingRequest::FlatStorageSplitShard { resharder });
+        self.scheduler
+            .flat_storage_split_shard_sender
+            .send(FlatStorageSplitShardRequest { resharder });
     }
 
     /// Cleans up children shards flat storage's content (status is excluded).
@@ -403,11 +410,13 @@ impl FlatStorageResharder {
                     );
                     // Catchup will happen in a separate task, so send a request to schedule the
                     // execution of `shard_catchup_task` for the child shard.
-                    self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
-                        resharder: self.clone(),
-                        shard_uid: child_shard,
-                        flat_head_block_hash: resharding_hash,
-                    });
+                    self.scheduler.flat_storage_shard_catchup_sender.send(
+                        FlatStorageShardCatchupRequest {
+                            resharder: self.clone(),
+                            shard_uid: child_shard,
+                            flat_head_block_hash: resharding_hash,
+                        },
+                    );
                 }
             }
             FlatStorageReshardingTaskStatus::Failed
@@ -504,7 +513,7 @@ impl FlatStorageResharder {
             info!(target = "resharding", ?height, chain_final_height = ?chain_final_head.height, "flat head beyond chain final tip: postponing flat storage shard catchup task");
             // Cancel this task and send a request to re-schedule the execution of
             // `shard_catchup_task` some time later.
-            self.scheduler.send(ReshardingRequest::FlatStorageShardCatchup {
+            self.scheduler.flat_storage_shard_catchup_sender.send(FlatStorageShardCatchupRequest {
                 resharder: self.clone(),
                 shard_uid,
                 flat_head_block_hash,
@@ -538,7 +547,7 @@ impl FlatStorageResharder {
                 let task_status = FlatStorageReshardingTaskStatus::Successful { num_batches_done };
                 info!(target: "resharding", ?shard_uid, ?task_status, "flat storage shard catchup task finished");
                 // At this point we can trigger the reload of memtries.
-                self.scheduler.send(ReshardingRequest::MemtrieReload { shard_uid });
+                self.scheduler.memtrie_reload_sender.send(MemtrieReloadRequest { shard_uid });
                 task_status
             }
             Err(err) => {
@@ -891,7 +900,11 @@ mod tests {
         };
     }
 
-    trait TestScheduler: CanSend<ReshardingRequest> {
+    trait TestScheduler:
+        CanSend<FlatStorageSplitShardRequest>
+        + CanSend<FlatStorageShardCatchupRequest>
+        + CanSend<MemtrieReloadRequest>
+    {
         fn new(chain_store: ChainStore) -> Self;
     }
 
@@ -906,34 +919,32 @@ mod tests {
         }
     }
 
-    impl CanSend<ReshardingRequest> for SimpleScheduler {
-        fn send(&self, msg: ReshardingRequest) {
-            match msg {
-                ReshardingRequest::FlatStorageSplitShard { resharder } => {
-                    resharder.split_shard_task();
-                }
-                ReshardingRequest::FlatStorageShardCatchup {
-                    resharder,
-                    shard_uid,
-                    flat_head_block_hash,
-                } => {
-                    resharder.shard_catchup_task(
-                        shard_uid,
-                        flat_head_block_hash,
-                        &self.chain_store.lock().unwrap(),
-                    );
-                }
-                _ => {}
-            }
+    impl CanSend<FlatStorageSplitShardRequest> for SimpleScheduler {
+        fn send(&self, msg: FlatStorageSplitShardRequest) {
+            msg.resharder.split_shard_task();
         }
+    }
+
+    impl CanSend<FlatStorageShardCatchupRequest> for SimpleScheduler {
+        fn send(&self, msg: FlatStorageShardCatchupRequest) {
+            msg.resharder.shard_catchup_task(
+                msg.shard_uid,
+                msg.flat_head_block_hash,
+                &self.chain_store.lock().unwrap(),
+            );
+        }
+    }
+
+    impl CanSend<MemtrieReloadRequest> for SimpleScheduler {
+        fn send(&self, _: MemtrieReloadRequest) {}
     }
 
     /// A scheduler that doesn't execute tasks immediately. Tasks execution must be invoked
     /// manually.
     struct DelayedScheduler {
         chain_store: Arc<Mutex<ChainStore>>,
-        split_shard_request: Mutex<Option<ReshardingRequest>>,
-        shard_catchup_requests: Mutex<Vec<ReshardingRequest>>,
+        split_shard_request: Mutex<Option<FlatStorageSplitShardRequest>>,
+        shard_catchup_requests: Mutex<Vec<FlatStorageShardCatchupRequest>>,
         memtrie_reload_requests: Mutex<Vec<ShardUId>>,
     }
 
@@ -951,13 +962,7 @@ mod tests {
     impl DelayedScheduler {
         fn call_split_shard_task(&self) -> FlatStorageReshardingTaskStatus {
             let request = self.split_shard_request.lock().unwrap();
-            if let ReshardingRequest::FlatStorageSplitShard { resharder } =
-                request.as_ref().unwrap()
-            {
-                resharder.split_shard_task()
-            } else {
-                panic!("unexpected flat storage resharding request {:?}", request);
-            }
+            request.as_ref().unwrap().resharder.split_shard_task()
         }
 
         fn call_shard_catchup_tasks(&self) -> Vec<FlatStorageReshardingTaskStatus> {
@@ -965,17 +970,12 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|request| match request {
-                    ReshardingRequest::FlatStorageShardCatchup {
-                        resharder,
-                        shard_uid,
-                        flat_head_block_hash,
-                    } => resharder.shard_catchup_task(
-                        *shard_uid,
-                        *flat_head_block_hash,
+                .map(|request| {
+                    request.resharder.shard_catchup_task(
+                        request.shard_uid,
+                        request.flat_head_block_hash,
                         &self.chain_store.lock().unwrap(),
-                    ),
-                    _ => panic!("unexpected flat storage resharding request {:?}", request),
+                    )
                 })
                 .collect()
         }
@@ -991,19 +991,21 @@ mod tests {
         }
     }
 
-    impl CanSend<ReshardingRequest> for DelayedScheduler {
-        fn send(&self, msg: ReshardingRequest) {
-            match msg {
-                ReshardingRequest::FlatStorageSplitShard { .. } => {
-                    *self.split_shard_request.lock().unwrap() = Some(msg);
-                }
-                ReshardingRequest::FlatStorageShardCatchup { .. } => {
-                    self.shard_catchup_requests.lock().unwrap().push(msg);
-                }
-                ReshardingRequest::MemtrieReload { shard_uid } => {
-                    self.memtrie_reload_requests.lock().unwrap().push(shard_uid);
-                }
-            }
+    impl CanSend<FlatStorageSplitShardRequest> for DelayedScheduler {
+        fn send(&self, msg: FlatStorageSplitShardRequest) {
+            *self.split_shard_request.lock().unwrap() = Some(msg);
+        }
+    }
+
+    impl CanSend<FlatStorageShardCatchupRequest> for DelayedScheduler {
+        fn send(&self, msg: FlatStorageShardCatchupRequest) {
+            self.shard_catchup_requests.lock().unwrap().push(msg);
+        }
+    }
+
+    impl CanSend<MemtrieReloadRequest> for DelayedScheduler {
+        fn send(&self, msg: MemtrieReloadRequest) {
+            self.memtrie_reload_requests.lock().unwrap().push(msg.shard_uid);
         }
     }
 

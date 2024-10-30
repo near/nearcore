@@ -4,7 +4,6 @@ use super::event_type::ReshardingEventType;
 use super::types::ReshardingSender;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
 use crate::types::RuntimeAdapter;
-use near_async::messaging::IntoSender;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -42,7 +41,7 @@ impl ReshardingManager {
         let resharding_handle = ReshardingHandle::new();
         let flat_storage_resharder = FlatStorageResharder::new(
             runtime_adapter,
-            resharding_sender.into_sender(),
+            resharding_sender,
             FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
             resharding_config.clone(),
         );
