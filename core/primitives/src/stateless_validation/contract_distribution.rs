@@ -94,79 +94,6 @@ impl ChunkContractAccessesInner {
     }
 }
 
-// Data structures for chunk producers to send deployed contracts to chunk validators.
-
-/// Contains contracts (as code-hashes) deployed during the application of a chunk.
-/// This is used by the chunk producer to let other validators know about which contracts
-/// could be needed for validating a witness in the future, so that the validators can request missing code.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub enum ChunkContractDeployments {
-    V1(ChunkContractDeploymentsV1),
-}
-
-impl ChunkContractDeployments {
-    pub fn new(
-        next_chunk: ChunkProductionKey,
-        contracts: HashSet<CodeHash>,
-        signer: &ValidatorSigner,
-    ) -> Self {
-        Self::V1(ChunkContractDeploymentsV1::new(next_chunk, contracts, signer))
-    }
-
-    pub fn contracts(&self) -> &[CodeHash] {
-        match self {
-            Self::V1(deploys) => &deploys.inner.contracts,
-        }
-    }
-
-    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
-        match self {
-            Self::V1(deploys) => &deploys.inner.next_chunk,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkContractDeploymentsV1 {
-    inner: ChunkContractDeploymentsInner,
-    /// Signature of the inner, signed by the chunk producer of the next chunk.
-    signature: Signature,
-}
-
-impl ChunkContractDeploymentsV1 {
-    fn new(
-        next_chunk: ChunkProductionKey,
-        contracts: HashSet<CodeHash>,
-        signer: &ValidatorSigner,
-    ) -> Self {
-        let inner = ChunkContractDeploymentsInner::new(next_chunk, contracts);
-        let signature = signer.sign_chunk_contract_deployments(&inner);
-        Self { inner, signature }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkContractDeploymentsInner {
-    /// Production metadata of the chunk created after the chunk the deployments belong to.
-    /// We associate this message with the next-chunk info because this message is generated
-    /// and distributed while generating the state-witness of the next chunk
-    /// (by the chunk producer of the next chunk).
-    next_chunk: ChunkProductionKey,
-    /// List of code-hashes for the contracts accessed.
-    contracts: Vec<CodeHash>,
-    signature_differentiator: SignatureDifferentiator,
-}
-
-impl ChunkContractDeploymentsInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: HashSet<CodeHash>) -> Self {
-        Self {
-            next_chunk,
-            contracts: contracts.into_iter().collect(),
-            signature_differentiator: "ChunkContractDeploymentsInner".to_owned(),
-        }
-    }
-}
-
 // Data structures for chunk validators to request contract code from chunk producers.
 
 /// Message to request missing code for a set of contracts.
@@ -390,4 +317,118 @@ pub struct ContractUpdates {
     pub contract_accesses: HashSet<CodeHash>,
     /// Code-hashes of the contracts deployed while applying the chunk.
     pub contract_deploys: HashSet<CodeHash>,
+}
+
+// Data structures for chunk producers to send deployed contracts to chunk validators.
+
+#[derive(Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractDeploys {
+    compressed_contracts: CompressedContractCode,
+}
+
+impl ChunkContractDeploys {
+    pub fn compress_contracts(contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
+        CompressedContractCode::encode(&contracts)
+            .map(|(compressed_contracts, _size)| Self { compressed_contracts })
+    }
+
+    pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
+        self.compressed_contracts.decode().map(|(data, _size)| data)
+    }
+}
+
+// TODO(#11099): Uncomment below.
+// impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
+// impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum PartialEncodedContractDeploys {
+    V1(PartialEncodedContractDeploysV1),
+}
+
+impl PartialEncodedContractDeploys {
+    pub fn new(
+        key: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(PartialEncodedContractDeploysV1::new(key, part, signer))
+    }
+
+    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
+        match &self {
+            Self::V1(v1) => &v1.inner.next_chunk,
+        }
+    }
+
+    pub fn part(&self) -> &PartialEncodedContractDeploysPart {
+        match &self {
+            Self::V1(v1) => &v1.inner.part,
+        }
+    }
+}
+
+impl Into<(ChunkProductionKey, PartialEncodedContractDeploysPart)>
+    for PartialEncodedContractDeploys
+{
+    fn into(self) -> (ChunkProductionKey, PartialEncodedContractDeploysPart) {
+        match self {
+            Self::V1(PartialEncodedContractDeploysV1 { inner, .. }) => {
+                (inner.next_chunk, inner.part)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysV1 {
+    inner: PartialEncodedContractDeploysInner,
+    signature: Signature,
+}
+
+impl PartialEncodedContractDeploysV1 {
+    pub fn new(
+        key: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = PartialEncodedContractDeploysInner::new(key, part);
+        // TODO(#11099): Call signer here.
+        let signature = Signature::default(); // signer.sign_partial_encoded_contract_deploys(&inner);
+        Self { inner, signature }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysPart {
+    pub part_ord: usize,
+    pub data: Box<[u8]>,
+    pub encoded_length: usize,
+}
+
+impl std::fmt::Debug for PartialEncodedContractDeploysPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialEncodedContractDeploysPart")
+            .field("part_ord", &self.part_ord)
+            .field("data_size", &self.data.len())
+            .field("encoded_length", &self.encoded_length)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysInner {
+    next_chunk: ChunkProductionKey,
+    part: PartialEncodedContractDeploysPart,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl PartialEncodedContractDeploysInner {
+    fn new(next_chunk: ChunkProductionKey, part: PartialEncodedContractDeploysPart) -> Self {
+        Self {
+            next_chunk,
+            part,
+            signature_differentiator: "PartialEncodedContractDeploysInner".to_owned(),
+        }
+    }
 }

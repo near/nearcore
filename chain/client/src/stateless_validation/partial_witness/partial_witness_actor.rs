@@ -10,8 +10,8 @@ use near_chain::Error;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
-    ChunkContractAccessesMessage, ChunkContractDeploymentsMessage, ChunkStateWitnessAckMessage,
-    ContractCodeRequestMessage, ContractCodeResponseMessage,
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
@@ -19,8 +19,8 @@ use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeployments, CodeBytes, CodeHash, ContractCodeRequest,
-    ContractCodeResponse,
+    ChunkContractAccesses, CodeBytes, CodeHash, ContractCodeRequest, ContractCodeResponse,
+    PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -116,10 +116,10 @@ impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     }
 }
 
-impl Handler<ChunkContractDeploymentsMessage> for PartialWitnessActor {
-    fn handle(&mut self, msg: ChunkContractDeploymentsMessage) {
-        if let Err(err) = self.handle_chunk_contract_deployments(msg.0) {
-            tracing::error!(target: "client", ?err, "Failed to handle ChunkContractDeploymentsMessage");
+impl Handler<PartialEncodedContractDeploysMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: PartialEncodedContractDeploysMessage) {
+        if let Err(err) = self.handle_partial_encoded_contract_deploys(msg.0) {
+            tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedContractDeploysMessage");
         }
     }
 }
@@ -391,12 +391,12 @@ impl PartialWitnessActor {
         Ok(())
     }
 
-    /// Handles new contract deployments message from chunk producer.
+    /// Handles partial contract deployments message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the code-hashes
     /// of the contracts deployed when applying the previous chunk of the witness.
-    fn handle_chunk_contract_deployments(
+    fn handle_partial_encoded_contract_deploys(
         &mut self,
-        _deploys: ChunkContractDeployments,
+        _deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
         // TODO(#11099): Implement the handling of this message.
         unreachable!("code for sending message is not implemented yet")
