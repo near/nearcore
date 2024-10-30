@@ -20,8 +20,8 @@ use near_performance_metrics_macros::perf;
 use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, CodeBytes, CodeHash, ContractCodeRequest, ContractCodeResponse,
-    PartialEncodedContractDeploys,
+    ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
+    ContractCodeResponse, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -482,17 +482,6 @@ impl PartialWitnessActor {
             NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
         ));
         Ok(())
-    }
-
-    /// Handles partial contract deployments message from chunk producer.
-    /// This is sent in parallel to a chunk state witness and contains the code-hashes
-    /// of the contracts deployed when applying the previous chunk of the witness.
-    fn handle_partial_encoded_contract_deploys(
-        &mut self,
-        _deploys: PartialEncodedContractDeploys,
-    ) -> Result<(), Error> {
-        // TODO(#11099): Implement the handling of this message.
-        unreachable!("code for sending message is not implemented yet")
     }
 
     #[allow(unused)]

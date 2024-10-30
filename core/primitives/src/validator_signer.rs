@@ -13,8 +13,8 @@ use crate::stateless_validation::chunk_endorsement::{
     ChunkEndorsementInner, ChunkEndorsementMetadata,
 };
 use crate::stateless_validation::contract_distribution::{
-    ChunkContractAccessesInner, ContractCodeRequestInner,
-    ContractCodeResponseInner, PartialEncodedContractDeploysInner,
+    ChunkContractAccessesInner, ContractCodeRequestInner, ContractCodeResponseInner,
+    PartialEncodedContractDeploysInner,
 };
 use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
 use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
