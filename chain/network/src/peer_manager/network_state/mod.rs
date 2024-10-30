@@ -2,14 +2,14 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    StateRequestPart, TxStatusRequest, TxStatusResponse,
+    TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo, StatePartRequest,
+    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
@@ -30,7 +30,7 @@ use crate::state_witness::{
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::types::{ChainInfo, PeerType, ReasonForBan};
+use crate::types::{ChainInfo, PeerType, ReasonForBan, PeerManagerAdapter, Tier3Request, StatePartRequestBody, Tier3RequestBody};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
@@ -105,6 +105,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
+    pub peer_manager_adapter: PeerManagerAdapter,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
 
@@ -177,6 +178,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
+        peer_manager_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
@@ -194,6 +196,7 @@ impl NetworkState {
             })),
             genesis_id,
             client,
+            peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
@@ -771,7 +774,18 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {
-                self.handle_state_part_request(clock, peer_id, request).await;
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo {
+                        id: peer_id,
+                        addr: Some(request.addr),
+                        account_id: None,
+                    },
+                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                        shard_id: request.shard_id,
+                        sync_hash: request.sync_hash,
+                        part_id: request.part_id,
+                    }),
+                });
                 None
             }
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
@@ -854,7 +868,7 @@ impl NetworkState {
         .unwrap()
     }
 
-    pub async fn handle_state_part_request(
+    /*pub async fn handle_state_part_request(
         self: &Arc<Self>,
         clock: &time::Clock,
         peer_id: PeerId,
@@ -910,7 +924,7 @@ impl NetworkState {
             tracing::debug!(target: "network", ?request, "sending response over tier3 connection");
             this.tier3.send_message(peer_info.id, Arc::new(state_response));
         });
-    }
+    }*/
 
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.

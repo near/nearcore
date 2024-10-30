@@ -427,6 +427,7 @@ pub struct PeerManagerAdapter {
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
     pub state_sync_event_sender: Sender<StateSyncEvent>,
+    pub tier3_request_sender: Sender<Tier3Request>,
 }
 
 #[cfg(test)]
@@ -527,7 +528,8 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, actix::Message)]
+#[rtype(result = "()")]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
@@ -536,7 +538,7 @@ pub struct Tier3Request {
     pub body: Tier3RequestBody,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr)]
 pub enum Tier3RequestBody {
     StatePart(StatePartRequestBody),
 }
