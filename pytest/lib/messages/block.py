@@ -364,6 +364,58 @@ class SignatureDifferentiator:
     pass
 
 
+class ChunkContractAccesses:
+    pass
+
+
+class ChunkContractAccessesV1:
+    pass
+
+
+class ChunkContractAccessesInner:
+    pass
+
+
+class ChunkContractDeployments:
+    pass
+
+
+class ChunkContractDeploymentsV1:
+    pass
+
+
+class ChunkContractDeploymentsInner:
+    pass
+
+
+class ContractCodeRequest:
+    pass
+
+
+class ContractCodeRequestV1:
+    pass
+
+
+class ContractCodeRequestInner:
+    pass
+
+
+class ContractCodeResponse:
+    pass
+
+
+class ContractCodeResponseV1:
+    pass
+
+
+class ContractCodeResponseInner:
+    pass
+
+
+class ChunkProductionKey:
+    pass
+
+
 block_schema = [
     [
         Block, {
@@ -1132,5 +1184,129 @@ block_schema = [
     [SignatureDifferentiator, {
         'kind': 'struct',
         'fields': [['0', 'string']]
-    }]
+    }],
+    [
+        ChunkContractAccesses, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ChunkContractAccessesV1],]
+        }
+    ],
+    [
+        ChunkContractAccessesV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkContractAccessesInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkContractAccessesInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkContractDeployments, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ChunkContractDeploymentsV1],]
+        }
+    ],
+    [
+        ChunkContractDeploymentsV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkContractDeploymentsInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkContractDeploymentsInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ContractCodeRequest, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ContractCodeRequestV1],]
+        }
+    ],
+    [
+        ContractCodeRequestV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ContractCodeRequestInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ContractCodeRequestInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['requester', 'string'],
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ContractCodeResponse, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ContractCodeResponseV1],]
+        }
+    ],
+    [
+        ContractCodeResponseV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ContractCodeResponseInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ContractCodeResponseInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['compressed_contracts', ['u8']],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkProductionKey, {
+            'kind':
+                'struct',
+            'fields': [
+                ['shard_id', 'u64'],
+                ['epoch_id', [32]],
+                ['height_created', 'u64'],
+            ]
+        }
+    ]
 ]
