@@ -7,6 +7,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 
+use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 
 use super::{ChunkProductionKey, SignatureDifferentiator};
@@ -390,4 +391,114 @@ pub struct ContractUpdates {
     pub contract_accesses: HashSet<CodeHash>,
     /// Code-hashes of the contracts deployed while applying the chunk.
     pub contract_deploys: HashSet<CodeHash>,
+}
+
+#[derive(Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkContractDeploys {
+    compressed_contracts: CompressedContractCode,
+}
+
+impl ChunkContractDeploys {
+    pub fn compress_contracts(contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
+        CompressedContractCode::encode(&contracts)
+            .map(|(compressed_contracts, _size)| Self { compressed_contracts })
+    }
+
+    pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
+        self.compressed_contracts.decode().map(|(data, _size)| data)
+    }
+}
+
+impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
+impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
+
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum PartialEncodedContractDeploys {
+    V1(PartialEncodedContractDeploysV1),
+}
+
+impl PartialEncodedContractDeploys {
+    pub fn new(
+        key: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(PartialEncodedContractDeploysV1::new(key, part, signer))
+    }
+
+    pub fn chunk_production_key(&self) -> &ChunkProductionKey {
+        match &self {
+            Self::V1(v1) => &v1.inner.next_chunk,
+        }
+    }
+
+    pub fn part(&self) -> &PartialEncodedContractDeploysPart {
+        match &self {
+            Self::V1(v1) => &v1.inner.part,
+        }
+    }
+}
+
+impl Into<(ChunkProductionKey, PartialEncodedContractDeploysPart)>
+    for PartialEncodedContractDeploys
+{
+    fn into(self) -> (ChunkProductionKey, PartialEncodedContractDeploysPart) {
+        match self {
+            Self::V1(PartialEncodedContractDeploysV1 { inner, .. }) => {
+                (inner.next_chunk, inner.part)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysV1 {
+    inner: PartialEncodedContractDeploysInner,
+    signature: Signature,
+}
+
+impl PartialEncodedContractDeploysV1 {
+    pub fn new(
+        key: ChunkProductionKey,
+        part: PartialEncodedContractDeploysPart,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = PartialEncodedContractDeploysInner::new(key, part);
+        let signature = signer.sign_partial_encoded_contract_deploys(&inner);
+        Self { inner, signature }
+    }
+}
+
+#[derive(Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysPart {
+    pub part_ord: usize,
+    pub data: Box<[u8]>,
+    pub encoded_length: usize,
+}
+
+impl std::fmt::Debug for PartialEncodedContractDeploysPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialEncodedContractDeploysPart")
+            .field("part_ord", &self.part_ord)
+            .field("data_size", &self.data.len())
+            .field("encoded_length", &self.encoded_length)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedContractDeploysInner {
+    next_chunk: ChunkProductionKey,
+    part: PartialEncodedContractDeploysPart,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl PartialEncodedContractDeploysInner {
+    fn new(next_chunk: ChunkProductionKey, part: PartialEncodedContractDeploysPart) -> Self {
+        Self {
+            next_chunk,
+            part,
+            signature_differentiator: "PartialEncodedContractDeploysInner".to_owned(),
+        }
+    }
 }
