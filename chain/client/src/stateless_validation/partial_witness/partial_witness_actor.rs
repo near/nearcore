@@ -17,11 +17,12 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::ReedSolomonEncoderCache;
+use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeployments, CodeBytes, CodeHash, ContractCodeRequest,
-    ContractCodeResponse,
+    ChunkContractAccesses, ChunkContractDeployments, ChunkContractDeploys, CodeBytes, CodeHash,
+    ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
+    PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -38,10 +39,12 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    validate_chunk_contract_accesses, validate_partial_encoded_state_witness,
+    validate_chunk_contract_accesses, validate_partial_encoded_contract_deploys,
+    validate_partial_encoded_state_witness,
 };
 
-use super::encoding::WITNESS_RATIO_DATA_PARTS;
+use super::encoding::{CONTRACT_DEPLOYS_RATIO_DATA_PARTS, WITNESS_RATIO_DATA_PARTS};
+use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
 
@@ -56,11 +59,14 @@ pub struct PartialWitnessActor {
     runtime: Arc<dyn RuntimeAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
     partial_witness_tracker: PartialEncodedStateWitnessTracker,
+    partial_deploys_tracker: PartialEncodedContractDeploysTracker,
     /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
     state_witness_tracker: ChunkStateWitnessTracker,
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
     witness_encoders: ReedSolomonEncoderCache,
+    /// Same as above for contract deploys
+    contract_deploys_encoders: ReedSolomonEncoderCache,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -157,9 +163,13 @@ impl PartialWitnessActor {
             my_signer,
             epoch_manager,
             partial_witness_tracker,
+            partial_deploys_tracker: PartialEncodedContractDeploysTracker::new(),
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             runtime,
             witness_encoders: ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS),
+            contract_deploys_encoders: ReedSolomonEncoderCache::new(
+                CONTRACT_DEPLOYS_RATIO_DATA_PARTS,
+            ),
         }
     }
 
@@ -227,6 +237,35 @@ impl PartialWitnessActor {
                     signer,
                 );
                 (chunk_validator.clone(), partial_witness)
+            })
+            .collect_vec())
+    }
+
+    fn generate_contract_deploys_parts(
+        &mut self,
+        key: &ChunkProductionKey,
+        deploys: ChunkContractDeploys,
+    ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
+        let validators = self.ordered_contract_deploys_validators(key)?;
+        let encoder = self.contract_deploys_encoder(validators.len());
+        let (parts, encoded_length) = encoder.encode(&deploys);
+        let signer = self.my_validator_signer()?;
+
+        Ok(validators
+            .into_iter()
+            .zip_eq(parts)
+            .enumerate()
+            .map(|(part_ord, (validator, part))| {
+                let partial_deploys = PartialEncodedContractDeploys::new(
+                    key.clone(),
+                    PartialEncodedContractDeploysPart {
+                        part_ord,
+                        data: part.unwrap().to_vec().into_boxed_slice(),
+                        encoded_length,
+                    },
+                    &signer,
+                );
+                (validator, partial_deploys)
             })
             .collect_vec())
     }
@@ -339,6 +378,60 @@ impl PartialWitnessActor {
         Ok(())
     }
 
+    #[allow(unused)]
+    fn handle_partial_encoded_contract_deploys(
+        &mut self,
+        partial_deploys: PartialEncodedContractDeploys,
+    ) -> Result<(), Error> {
+        tracing::debug!(target: "client", ?partial_deploys, "Receive PartialEncodedContractDeploys");
+
+        let signer = self.my_validator_signer()?;
+        if !validate_partial_encoded_contract_deploys(
+            self.epoch_manager.as_ref(),
+            &partial_deploys,
+            &signer,
+            self.runtime.store(),
+        )? {
+            return Ok(());
+        }
+        let key = partial_deploys.chunk_production_key().clone();
+        let validators = self.ordered_contract_deploys_validators(&key)?;
+        // Forward if my part
+        let signer = self.my_validator_signer()?;
+        let my_account_id = signer.validator_id();
+        let my_part_ord = validators
+            .iter()
+            .position(|validator| validator == my_account_id)
+            .expect("expected to be validated");
+        if partial_deploys.part().part_ord == my_part_ord {
+            let _target_validators =
+                validators.iter().filter(|&validator| validator != my_account_id).collect_vec();
+            // TODO(#11099): send message with this part to target validators
+        }
+        // Store part
+        let encoder = self.contract_deploys_encoder(validators.len());
+        if let Some(deploys) = self
+            .partial_deploys_tracker
+            .store_partial_encoded_contract_deploys(partial_deploys, encoder)?
+        {
+            let _contracts = match deploys.decompress_contracts() {
+                Ok(contracts) => contracts,
+                Err(err) => {
+                    tracing::warn!(
+                        target: "client",
+                        ?err,
+                        ?key,
+                        "Failed to decompress deployed contracts."
+                    );
+                    return Ok(());
+                }
+            };
+            // TODO(#11099): precompile contracts using self.runtime
+        }
+
+        Ok(())
+    }
+
     /// Handles the state witness ack message from the chunk validator.
     /// It computes the round-trip time between sending the state witness and receiving
     /// the ack message and updates the corresponding metric with it.
@@ -403,6 +496,18 @@ impl PartialWitnessActor {
         unreachable!("code for sending message is not implemented yet")
     }
 
+    #[allow(unused)]
+    fn handle_distribute_chunk_contract_deploys_request(
+        &mut self,
+        key: ChunkProductionKey,
+        deploys: Vec<CodeBytes>,
+    ) -> Result<(), Error> {
+        let compressed_deploys = ChunkContractDeploys::compress_contracts(&deploys)?;
+        let _validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
+        // TODO(#11099): network send parts to validators
+        Ok(())
+    }
+
     /// Handles contract code requests message from chunk validators.
     /// As response to this message, sends the contract code requested to
     /// the requesting chunk validator for the given code hashes.
@@ -450,6 +555,28 @@ impl PartialWitnessActor {
 
     fn my_validator_signer(&self) -> Result<Arc<ValidatorSigner>, Error> {
         self.my_signer.get().ok_or_else(|| Error::NotAValidator("not a validator".to_owned()))
+    }
+
+    fn contract_deploys_encoder(&mut self, validators_count: usize) -> Arc<ReedSolomonEncoder> {
+        self.contract_deploys_encoders.entry(validators_count)
+    }
+
+    fn ordered_contract_deploys_validators(
+        &mut self,
+        key: &ChunkProductionKey,
+    ) -> Result<Vec<AccountId>, Error> {
+        let chunk_producers = HashSet::<AccountId>::from_iter(
+            self.epoch_manager.get_epoch_chunk_producers_for_shard(&key.epoch_id, key.shard_id)?,
+        );
+        let mut validators = self
+            .epoch_manager
+            .get_epoch_all_validators(&key.epoch_id)?
+            .into_iter()
+            .filter(|stake| !chunk_producers.contains(stake.account_id()))
+            .map(|stake| stake.account_id().clone())
+            .collect::<Vec<_>>();
+        validators.sort();
+        Ok(validators)
     }
 }
 
