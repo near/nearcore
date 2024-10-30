@@ -4358,8 +4358,6 @@ impl Chain {
         // Do not replace with `get_block_header()`.
         let _sync_block = self.get_block(sync_hash)?;
 
-        // TODO(current_epoch_state_sync): replace this with a more efficient lookup. In the case
-        // we're syncing to the current epoch, this iterates over blocks in the epoch
         let good_sync_hash = self.get_sync_hash(sync_hash)?;
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
