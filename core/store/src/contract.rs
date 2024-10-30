@@ -115,6 +115,10 @@ impl ContractStorage {
             }
         }
 
+        self.read_storage(code_hash)
+    }
+
+    fn read_storage(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         match self.storage.retrieve_raw_bytes(&code_hash) {
             Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
             Err(StorageError::MissingTrieValue(context, _)) => {
@@ -171,8 +175,21 @@ impl ContractStorage {
     /// It also finalizes and destructs the inner`ContractsTracker` so there must be no other deployments or
     /// calls to contracts after this returns.
     pub(crate) fn finalize(self) -> ContractUpdates {
-        let mut guard = self.tracker.lock().expect("no panics");
-        let tracker = guard.take().expect("finalize must be called only once");
-        tracker.finalize()
+        let ContractUpdates { contract_accesses, contract_deploys } = {
+            let mut guard = self.tracker.lock().expect("no panics");
+            let tracker = guard.take().expect("finalize must be called only once");
+            tracker.finalize()
+        };
+
+        // Here we collect only the accesses to the contracts that are:
+        // 1) not newly-deployed (since they are already included in the respective receipts) and
+        // 2) exist in the storage (since some function calls may be invalid and the contract may not be in the storage).
+        let contract_accesses: HashSet<CodeHash> = contract_accesses
+            .into_iter()
+            .filter(|code_hash| {
+                !contract_deploys.contains(code_hash) && self.read_storage(code_hash.0).is_some()
+            })
+            .collect();
+        ContractUpdates { contract_accesses, contract_deploys }
     }
 }
