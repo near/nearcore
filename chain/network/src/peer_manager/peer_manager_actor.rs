@@ -1197,12 +1197,14 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedContractDeploys(target, deploys) => {
-                self.state.send_message_to_account(
-                    &self.clock,
-                    &target,
-                    RoutedMessageBody::PartialEncodedContractDeploys(deploys),
-                );
+            NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
+                for account in accounts {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &account,
+                        RoutedMessageBody::PartialEncodedContractDeploys(deploys.clone()),
+                    );
+                }
                 NetworkResponses::NoResponse
             }
         }

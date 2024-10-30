@@ -385,11 +385,13 @@ fn network_message_to_partial_witness_handler(
                 .send(ContractCodeResponseMessage(response));
             None
         }
-        NetworkRequests::PartialEncodedContractDeploys(target, deploys) => {
-            shared_state
-                .senders_for_account(&target)
-                .partial_witness_sender
-                .send(PartialEncodedContractDeploysMessage(deploys));
+        NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
+            for account in accounts {
+                shared_state
+                    .senders_for_account(&account)
+                    .partial_witness_sender
+                    .send(PartialEncodedContractDeploysMessage(deploys.clone()));
+            }
             None
         }
         _ => Some(request),

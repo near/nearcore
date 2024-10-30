@@ -805,12 +805,14 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::PartialEncodedContractDeploys(account, deploys) => {
-            for (i, name) in validators.iter().enumerate() {
-                if name == account {
-                    connectors[i]
-                        .partial_witness_sender
-                        .send(PartialEncodedContractDeploysMessage(deploys.clone()));
+        NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
+            for account in accounts {
+                for (i, name) in validators.iter().enumerate() {
+                    if name == account {
+                        connectors[i]
+                            .partial_witness_sender
+                            .send(PartialEncodedContractDeploysMessage(deploys.clone()));
+                    }
                 }
             }
         }
