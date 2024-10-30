@@ -113,11 +113,11 @@ impl FlatStateValue {
 
 /// Value to insert into the trie.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
-pub enum ValueToInsert {
-    /// Full value, works for all possible operations, triggers both memtrie
-    /// and disk changes generation.
-    Full(Vec<u8>),
-    /// Flat value, works only for memtrie, when disk changes are not generated.
-    /// Allows to skip retrieving the full value from disk in such case.
-    Flat(FlatStateValue),
+pub enum ValueUpdate {
+    /// Value to update both memtrie and trie storage. Full value is required
+    /// for that.
+    MemtrieAndDisk(Vec<u8>),
+    /// Value to update only memtrie. In such case it is enough to have a
+    /// `FlatStateValue`.
+    MemtrieOnly(FlatStateValue),
 }
