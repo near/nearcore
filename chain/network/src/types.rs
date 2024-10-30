@@ -12,7 +12,7 @@ pub use crate::network_protocol::{
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::time;
+use near_async::{time, MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -421,12 +421,18 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerAdapter {
     pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
     pub state_sync_event_sender: Sender<StateSyncEvent>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerManagerSenderForNetwork {
     pub tier3_request_sender: Sender<Tier3Request>,
 }
 

@@ -18,9 +18,9 @@ use crate::store;
 use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, StatePartRequestBody, StateSyncEvent, Tier3Request,
-    Tier3RequestBody, PeerManagerAdapter,
+    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StatePartRequestBody,
+    StateSyncEvent, Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -215,7 +215,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
-        peer_manager_adapter: PeerManagerAdapter,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
