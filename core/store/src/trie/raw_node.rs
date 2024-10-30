@@ -134,7 +134,7 @@ fn test_encode_decode() {
     }
 
     let value = ValueRef { length: 3, hash: CryptoHash::hash_bytes(&[123, 245, 255]) };
-    let node = RawTrieNode::Leaf(vec![1, 2, 3], value.clone());
+    let node = RawTrieNode::Leaf(vec![1, 2, 3], value);
     #[rustfmt::skip]
     let encoded = [
         /* node type: */ 0,

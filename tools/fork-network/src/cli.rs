@@ -22,11 +22,12 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_store::adapter::StoreAdapter;
 use near_store::db::RocksDB;
-use near_store::flat::{store_helper, BlockInfo, FlatStorageManager, FlatStorageStatus};
+use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
@@ -248,12 +249,14 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
         assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-        let num_shards = all_shard_uids.len();
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
@@ -268,14 +271,14 @@ impl ForkNetworkCommand {
 
         let desired_block_header = chain.get_block_header(&desired_block_hash)?;
         let epoch_id = desired_block_header.epoch_id();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
-        let state_roots: Vec<StateRoot> = (0..num_shards)
+        let state_roots: Vec<StateRoot> = shard_layout
+            .shard_ids()
             .map(|shard_id| {
-                let shard_uid =
-                    epoch_manager.shard_id_to_uid(shard_id as ShardId, epoch_id).unwrap();
+                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
@@ -329,12 +332,13 @@ impl ForkNetworkCommand {
             self.get_state_roots_and_hash(store.clone())?;
         tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let num_shards = prev_state_roots.len();
-        let all_shard_uids: Vec<ShardUId> = (0..num_shards)
-            .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
-            .collect();
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let all_shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
@@ -378,8 +382,11 @@ impl ForkNetworkCommand {
         let (prev_state_roots, _prev_hash, epoch_id, block_height) =
             self.get_state_roots_and_hash(store.clone())?;
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
@@ -505,7 +512,7 @@ impl ForkNetworkCommand {
         // Keeps track of accounts that have a full access key.
         let mut has_full_key = HashSet::new();
         // Lets us lookup large values in the `State` columns.
-        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+        let trie_storage = TrieDBStorage::new(store.trie_store(), shard_uid);
 
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
         let mut index_delayed_receipt = 0;
@@ -519,7 +526,7 @@ impl ForkNetworkCommand {
         let mut postponed_receipts_updated = 0;
         let mut received_data_updated = 0;
         let mut fake_block_height = block_height + 1;
-        for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
+        for item in store.flat_store().iter(shard_uid) {
             let (key, value) = match item {
                 Ok((key, FlatStateValue::Ref(ref_value))) => {
                     ref_keys_retrieved += 1;
@@ -620,6 +627,25 @@ impl ForkNetworkCommand {
             }
         }
 
+        // Commit the remaining updates.
+        if storage_mutator.should_commit(1) {
+            tracing::info!(
+                ?shard_uid,
+                ref_keys_retrieved,
+                records_parsed,
+                updated = access_keys_updated
+                    + accounts_implicit_updated
+                    + contract_data_updated
+                    + contract_code_updated
+                    + postponed_receipts_updated
+                    + index_delayed_receipt
+                    + received_data_updated,
+            );
+            let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
+            fake_block_height += 1;
+            storage_mutator = make_storage_mutator(state_root)?;
+        }
+
         tracing::info!(
             ?shard_uid,
             ref_keys_retrieved,
@@ -641,7 +667,7 @@ impl ForkNetworkCommand {
         // Iterating over the whole flat state is very fast compared to writing all the updates.
         let mut num_added = 0;
         let mut num_accounts = 0;
-        for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
+        for item in store.flat_store().iter(shard_uid) {
             if let Ok((key, _)) = item {
                 if key[0] == col::ACCOUNT {
                     num_accounts += 1;
@@ -789,7 +815,7 @@ impl ForkNetworkCommand {
         let new_config = GenesisConfig {
             chain_id: chain_id
                 .clone()
-                .unwrap_or(original_config.chain_id.clone() + chain_id_suffix),
+                .unwrap_or_else(|| original_config.chain_id.clone() + chain_id_suffix),
             genesis_height: height,
             genesis_time,
             epoch_length,

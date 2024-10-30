@@ -3,6 +3,7 @@ use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
@@ -69,6 +70,7 @@ impl EpochInfoAggregator {
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
+        shard_layout: &ShardLayout,
         prev_block_height: BlockHeight,
     ) {
         let _span =
@@ -105,12 +107,13 @@ impl EpochInfoAggregator {
         // TODO(#11900): Call EpochManager::get_chunk_validator_assignments to access the cached validator assignments.
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
 
-        for (i, mask) in block_info.chunk_mask().iter().enumerate() {
-            let shard_id: ShardId = i as ShardId;
+        for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index);
             let chunk_producer_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
+                shard_layout,
+                shard_id,
                 prev_block_height + 1,
-                i as ShardId,
             )
             .unwrap();
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
@@ -123,7 +126,7 @@ impl EpochInfoAggregator {
                         debug!(
                             target: "epoch_tracker",
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
-                            shard_id = i,
+                            ?shard_id,
                             block_height = prev_block_height + 1,
                             "Missed chunk");
                     }
@@ -132,7 +135,7 @@ impl EpochInfoAggregator {
                 .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
 
             let chunk_validators = chunk_validator_assignment
-                .get(i)
+                .get(shard_index)
                 .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
                 .iter()
                 .map(|(id, _)| *id)
@@ -148,14 +151,14 @@ impl EpochInfoAggregator {
                 // For old chunks, we optimize the block and its header by not including the chunk endorsements and
                 // corresponding bitmaps. Thus, we expect that the bitmap is non-empty for new chunks only.
                 if *mask {
-                    debug_assert!(chunk_endorsements.len(shard_id).unwrap() == chunk_validators.len().div_ceil(8) * 8,
-                            "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_id={}",
-                            chunk_endorsements.len(shard_id).unwrap(), chunk_validators.len(), shard_id);
-                    chunk_endorsements.iter(shard_id)
+                    debug_assert!(chunk_endorsements.len(shard_index).unwrap() == chunk_validators.len().div_ceil(8) * 8,
+                            "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_index={}",
+                            chunk_endorsements.len(shard_index).unwrap(), chunk_validators.len(), shard_index);
+                    chunk_endorsements.iter(shard_index)
                 } else {
-                    debug_assert_eq!(chunk_endorsements.len(shard_id).unwrap(), 0,
-                            "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_id={}",
-                            chunk_endorsements.len(shard_id).unwrap(), shard_id);
+                    debug_assert_eq!(chunk_endorsements.len(shard_index).unwrap(), 0,
+                            "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_index={}",
+                            chunk_endorsements.len(shard_index).unwrap(), shard_index);
                     Box::new(std::iter::repeat(false).take(chunk_validators.len()))
                 }
             } else {

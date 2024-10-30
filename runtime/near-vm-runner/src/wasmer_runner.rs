@@ -262,10 +262,11 @@ fn run_method(
     import: &ImportObject,
     method_name: &str,
 ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
-    let _span = tracing::debug_span!(target: "vm", "run_method").entered();
+    let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::run_method").entered();
 
     let instance = {
-        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
+        let _span =
+            tracing::debug_span!(target: "vm", "Wasmer0VM::run_method/instantiate").entered();
         match module.instantiate(import) {
             Ok(instance) => instance,
             Err(err) => {
@@ -276,7 +277,7 @@ fn run_method(
     };
 
     {
-        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
+        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::run_method/call").entered();
         if let Err(err) = instance.call(method_name, &[]) {
             let guest_aborted = err.into_vm_error()?;
             return Ok(Err(guest_aborted));
@@ -284,7 +285,8 @@ fn run_method(
     }
 
     {
-        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
+        let _span =
+            tracing::debug_span!(target: "vm", "Wasmer0VM::run_method/drop_instance").entered();
         drop(instance)
     }
 

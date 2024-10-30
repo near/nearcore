@@ -3,6 +3,7 @@ use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::rand::WeightedIndex;
+use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
@@ -480,6 +481,27 @@ impl EpochInfo {
         }
     }
 
+    pub fn get_validator_stake(&self, account_id: &AccountId) -> Option<Balance> {
+        match self {
+            Self::V1(v1) => v1
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v1.validators[*validator_id as usize].stake),
+            Self::V2(v2) => v2
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v2.validators[*validator_id as usize].stake()),
+            Self::V3(v3) => v3
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v3.validators[*validator_id as usize].stake()),
+            Self::V4(v4) => v4
+                .validator_to_index
+                .get(account_id)
+                .map(|validator_id| v4.validators[*validator_id as usize].stake()),
+        }
+    }
+
     #[inline]
     pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
         match self {
@@ -580,35 +602,35 @@ impl EpochInfo {
 
     pub fn sample_chunk_producer(
         &self,
-        height: BlockHeight,
+        shard_layout: &ShardLayout,
         shard_id: ShardId,
+        height: BlockHeight,
     ) -> Option<ValidatorId> {
+        let shard_index = shard_layout.get_shard_index(shard_id);
         match &self {
             Self::V1(v1) => {
                 let cp_settlement = &v1.chunk_producers_settlement;
-                let shard_cps = cp_settlement.get(shard_id as usize)?;
+                let shard_cps = cp_settlement.get(shard_index)?;
                 shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
             }
             Self::V2(v2) => {
                 let cp_settlement = &v2.chunk_producers_settlement;
-                let shard_cps = cp_settlement.get(shard_id as usize)?;
+                let shard_cps = cp_settlement.get(shard_index)?;
                 shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
             }
             Self::V3(v3) => {
                 let protocol_version = self.protocol_version();
                 let seed =
                     Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
-                let shard_id = shard_id as usize;
-                let sample = v3.chunk_producers_sampler.get(shard_id)?.sample(seed);
-                v3.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
+                let sample = v3.chunk_producers_sampler.get(shard_index)?.sample(seed);
+                v3.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
             Self::V4(v4) => {
                 let protocol_version = self.protocol_version();
                 let seed =
                     Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
-                let shard_id = shard_id as usize;
-                let sample = v4.chunk_producers_sampler.get(shard_id)?.sample(seed);
-                v4.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
+                let sample = v4.chunk_producers_sampler.get(shard_index)?.sample(seed);
+                v4.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
         }
     }

@@ -8,11 +8,13 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
 use std::ops::Bound;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
@@ -55,6 +57,15 @@ pub struct EpochConfig {
     pub validator_selection_config: ValidatorSelectionConfig,
 }
 
+impl EpochConfig {
+    /// Total number of validator seats in the epoch since protocol version 69.
+    pub fn num_validators(&self) -> NumSeats {
+        self.num_block_producer_seats
+            .max(self.validator_selection_config.num_chunk_producer_seats)
+            .max(self.validator_selection_config.num_chunk_validator_seats)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ShardConfig {
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
@@ -78,7 +89,7 @@ impl ShardConfig {
 
 /// Testing overrides to apply to the EpochConfig returned by the `for_protocol_version`.
 /// All fields should be optional and the default should be a no-op.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct AllEpochConfigTestOverrides {
     pub block_producer_kickout_threshold: Option<u8>,
     pub chunk_producer_kickout_threshold: Option<u8>,
@@ -87,21 +98,25 @@ pub struct AllEpochConfigTestOverrides {
 /// AllEpochConfig manages protocol configs that might be changing throughout epochs (hence EpochConfig).
 /// The main function in AllEpochConfig is ::for_protocol_version which takes a protocol version
 /// and returns the EpochConfig that should be used for this protocol version.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AllEpochConfig {
     /// Store for EpochConfigs, provides configs per protocol version.
     /// Initialized only for production, ie. when `use_protocol_version` is true.
     config_store: Option<EpochConfigStore>,
-    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
-    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
-    use_production_config: bool,
-    /// EpochConfig from genesis
-    genesis_epoch_config: EpochConfig,
     /// Chain Id. Some parameters are specific to certain chains.
     chain_id: String,
+    epoch_length: BlockHeightDelta,
+    /// The fields below are DEPRECATED.
+    /// Epoch config must be controlled by `config_store` only.
+    /// TODO(#11265): remove these fields.
+    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
+    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
+    _use_production_config: bool,
+    /// EpochConfig from genesis
+    _genesis_epoch_config: EpochConfig,
 
     /// Testing overrides to apply to the EpochConfig returned by the `for_protocol_version`.
-    test_overrides: AllEpochConfigTestOverrides,
+    _test_overrides: AllEpochConfigTestOverrides,
 }
 
 impl AllEpochConfig {
@@ -120,6 +135,26 @@ impl AllEpochConfig {
         )
     }
 
+    pub fn from_epoch_config_store(
+        chain_id: &str,
+        epoch_length: BlockHeightDelta,
+        epoch_config_store: EpochConfigStore,
+    ) -> Self {
+        let genesis_epoch_config = epoch_config_store.get_config(PROTOCOL_VERSION).as_ref().clone();
+        Self {
+            config_store: Some(epoch_config_store),
+            chain_id: chain_id.to_string(),
+            epoch_length,
+            // The fields below must be DEPRECATED. Don't use it for epoch
+            // config creation.
+            // TODO(#11265): remove them.
+            _use_production_config: false,
+            _genesis_epoch_config: genesis_epoch_config,
+            _test_overrides: AllEpochConfigTestOverrides::default(),
+        }
+    }
+
+    /// DEPRECATED.
     pub fn new_with_test_overrides(
         use_production_config: bool,
         genesis_protocol_version: ProtocolVersion,
@@ -129,16 +164,17 @@ impl AllEpochConfig {
     ) -> Self {
         // Use the config store only for production configs and outside of tests.
         let config_store = if use_production_config && test_overrides.is_none() {
-            EpochConfigStore::for_chain_id(chain_id)
+            EpochConfigStore::for_chain_id(chain_id, None)
         } else {
             None
         };
         let all_epoch_config = Self {
             config_store: config_store.clone(),
-            use_production_config,
-            genesis_epoch_config,
             chain_id: chain_id.to_string(),
-            test_overrides: test_overrides.unwrap_or_default(),
+            epoch_length: genesis_epoch_config.epoch_length,
+            _use_production_config: use_production_config,
+            _genesis_epoch_config: genesis_epoch_config,
+            _test_overrides: test_overrides.unwrap_or_default(),
         };
         // Sanity check: Validate that the stored genesis config equals to the config generated for the genesis protocol version.
         // Note that we cannot do this in unittests because we do not have direct access to the genesis config for mainnet/testnet.
@@ -156,7 +192,13 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         if self.config_store.is_some() {
-            self.config_store.as_ref().unwrap().get_config(protocol_version).as_ref().clone()
+            let mut config =
+                self.config_store.as_ref().unwrap().get_config(protocol_version).as_ref().clone();
+            // TODO(#11265): epoch length is overridden in many tests so we
+            // need to support it here. Consider removing `epoch_length` from
+            // EpochConfig.
+            config.epoch_length = self.epoch_length;
+            config
         } else {
             self.generate_epoch_config(protocol_version)
         }
@@ -164,11 +206,11 @@ impl AllEpochConfig {
 
     /// TODO(#11265): Remove this and use the stored configs only.
     pub fn generate_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
-        let mut config = self.genesis_epoch_config.clone();
+        let mut config = self._genesis_epoch_config.clone();
 
         Self::config_mocknet(&mut config, &self.chain_id);
 
-        if !self.use_production_config {
+        if !self._use_production_config {
             return config;
         }
 
@@ -184,7 +226,7 @@ impl AllEpochConfig {
 
         Self::config_chunk_endorsement_thresholds(&mut config, protocol_version);
 
-        Self::config_test_overrides(&mut config, &self.test_overrides);
+        Self::config_test_overrides(&mut config, &self._test_overrides);
 
         config
     }
@@ -397,10 +439,10 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 69, "69.json"),
     include_config!("mainnet", 70, "70.json"),
     include_config!("mainnet", 71, "71.json"),
+    include_config!("mainnet", 72, "72.json"),
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
-    include_config!("mainnet", 145, "145.json"),
     // Epoch configs for testnet (genesis protool version is 29).
     include_config!("testnet", 29, "29.json"),
     include_config!("testnet", 48, "48.json"),
@@ -410,10 +452,10 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 69, "69.json"),
     include_config!("testnet", 70, "70.json"),
     include_config!("testnet", 71, "71.json"),
+    include_config!("testnet", 72, "72.json"),
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
-    include_config!("testnet", 145, "145.json"),
     // Epoch configs for mocknet (forknet) (genesis protool version is 29).
     // TODO(#11900): Check the forknet config and uncomment this.
     // include_config!("mocknet", 29, "29.json"),
@@ -423,21 +465,40 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     // include_config!("mocknet", 69, "69.json"),
     // include_config!("mocknet", 70, "70.json"),
     // include_config!("mocknet", 71, "71.json"),
+    // include_config!("mocknet", 72, "72.json"),
     // include_config!("mocknet", 100, "100.json"),
     // include_config!("mocknet", 101, "101.json"),
-    // include_config!("mocknet", 145, "145.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct EpochConfigStore {
     store: BTreeMap<ProtocolVersion, Arc<EpochConfig>>,
 }
 
 impl EpochConfigStore {
     /// Creates a config store to contain the EpochConfigs for the given chain parsed from the JSON files.
-    /// Returns None if there is no epoch config file stored for the given chain.
-    pub fn for_chain_id(chain_id: &str) -> Option<Self> {
+    /// If no configs are found for the given chain, try to load the configs from the file system.
+    /// If there are no configs found, return None.
+    pub fn for_chain_id(chain_id: &str, config_dir: Option<PathBuf>) -> Option<Self> {
+        let mut store = Self::load_default_epoch_configs(chain_id);
+
+        if !store.is_empty() {
+            return Some(Self { store });
+        }
+        if let Some(config_dir) = config_dir {
+            store = Self::load_epoch_config_from_file_system(config_dir.to_str().unwrap());
+        }
+
+        if store.is_empty() {
+            None
+        } else {
+            Some(Self { store })
+        }
+    }
+
+    /// Loads the default epoch configs for the given chain from the CONFIGS array.
+    fn load_default_epoch_configs(chain_id: &str) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
         let mut store = BTreeMap::new();
         for (chain, version, content) in CONFIGS.iter() {
             if *chain == chain_id {
@@ -450,17 +511,53 @@ impl EpochConfigStore {
                 store.insert(*version, Arc::new(config));
             }
         }
-        if store.is_empty() {
-            None
-        } else {
-            Some(Self { store })
+        store
+    }
+
+    /// Reads the json files from the epoch config directory.
+    fn load_epoch_config_from_file_system(
+        directory: &str,
+    ) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
+        let mut store = BTreeMap::new();
+        let entries = fs::read_dir(directory).expect("Failed opening epoch config directory");
+
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+
+                // Check if the file has a .json extension
+                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                    // Extract the file name (without extension)
+                    if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        let version: ProtocolVersion =
+                            file_stem.parse().expect("Invalid protocol version");
+
+                        let content = fs::read_to_string(&path).expect("Failed to read file");
+                        let config: EpochConfig =
+                            serde_json::from_str(&content).unwrap_or_else(|e| {
+                                panic!(
+                                "Failed to load epoch config from file system for version {}: {:#}",
+                                version, e
+                            )
+                            });
+
+                        store.insert(version, Arc::new(config));
+                    }
+                }
+            }
         }
+
+        store
+    }
+
+    pub fn test(store: BTreeMap<ProtocolVersion, Arc<EpochConfig>>) -> Self {
+        Self { store }
     }
 
     /// Returns the EpochConfig for the given protocol version.
     /// This panics if no config is found for the given version, thus the initialization via `for_chain_id` should
     /// only be performed for chains with some configs stored in files.
-    fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<EpochConfig> {
+    pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<EpochConfig> {
         self.store
             .range((Bound::Unbounded, Bound::Included(protocol_version)))
             .next_back()
@@ -497,7 +594,7 @@ mod tests {
             None,
         );
 
-        let config_store = EpochConfigStore::for_chain_id(chain_id).unwrap();
+        let config_store = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);

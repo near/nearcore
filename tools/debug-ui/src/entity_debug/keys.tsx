@@ -71,7 +71,7 @@ export function parseEntityKey(keyType: EntityKeyType, input: string): EntityKey
             }
             return null;
         case 'trie_path':
-            if (/^s\d+[.]v\d+$\/[0-9A-Za-z]{44}\/[0-9a-f]*$/.test(input)) {
+            if (/^s\d+[.]v\d+\/[0-9A-Za-z]{43,44}\/[0-9a-f]*$/.test(input)) {
                 return new StringEntityKey(keyType, input);
             }
             return null;

@@ -6,6 +6,7 @@ use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_pro
 use near_epoch_manager::EpochManagerHandle;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
@@ -18,8 +19,9 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
-use near_store::Store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
@@ -29,7 +31,7 @@ use crate::client::ShardsManagerResponse;
 use crate::shards_manager_actor::ShardsManagerActor;
 
 pub struct ChunkTestFixture {
-    pub store: Store,
+    pub store: ChunkStoreAdapter,
     pub epoch_manager: EpochManagerHandle,
     pub shard_tracker: ShardTracker,
     pub mock_network: Arc<MockPeerManagerAdapter>,
@@ -91,7 +93,7 @@ impl ChunkTestFixture {
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
-        let mock_shard_id: ShardId = 0;
+        let mock_shard_id: ShardId = ShardId::new(0);
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
@@ -152,6 +154,7 @@ impl ChunkTestFixture {
             receipts_root,
             MerkleHash::default(),
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             &signer,
             &rs,
             PROTOCOL_VERSION,
@@ -175,7 +178,7 @@ impl ChunkTestFixture {
         let chain_store = ChainStore::new(store.clone(), 0, true);
 
         ChunkTestFixture {
-            store,
+            store: store.chunk_store(),
             epoch_manager,
             shard_tracker,
             mock_network,

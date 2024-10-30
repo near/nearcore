@@ -27,7 +27,7 @@ pub struct RpcNetworkInfoResponse {
     pub known_producers: Vec<RpcKnownProducer>,
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcNetworkInfoError {
     #[error("Internal error: {error_message}")]

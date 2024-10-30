@@ -3,11 +3,13 @@ use super::arena::single_thread::STArena;
 use super::arena::ArenaMut;
 use super::construction::TrieConstructor;
 use super::node::{InputMemTrieNode, MemTrieNodeId};
+use crate::adapter::trie_store::TrieStoreAdapter;
+use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageError;
 use crate::trie::Children;
-use crate::{DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, Store};
+use crate::{DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
-use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
@@ -18,7 +20,7 @@ use std::sync::Mutex;
 
 /// Top-level entry function to load a memtrie in parallel.
 pub fn load_memtrie_in_parallel(
-    store: Store,
+    store: TrieStoreAdapter,
     shard_uid: ShardUId,
     root: StateRoot,
     num_subtrees_desired: usize,
@@ -45,7 +47,7 @@ pub fn load_memtrie_in_parallel(
 /// This loader is only suitable for loading a single trie. It does not load multiple state roots,
 /// or multiple shards.
 pub struct ParallelMemTrieLoader {
-    store: Store,
+    store: TrieStoreAdapter,
     shard_uid: ShardUId,
     root: StateRoot,
     num_subtrees_desired: usize,
@@ -53,7 +55,7 @@ pub struct ParallelMemTrieLoader {
 
 impl ParallelMemTrieLoader {
     pub fn new(
-        store: Store,
+        store: TrieStoreAdapter,
         shard_uid: ShardUId,
         root: StateRoot,
         num_subtrees_desired: usize,
@@ -87,18 +89,9 @@ impl ParallelMemTrieLoader {
         max_subtree_size: Option<u64>,
     ) -> Result<TrieLoadingPlanNode, StorageError> {
         // Read the node from the State column.
-        let mut key = [0u8; 40];
-        key[0..8].copy_from_slice(&self.shard_uid.to_bytes());
-        key[8..40].copy_from_slice(&hash.0);
-        let node = RawTrieNodeWithSize::try_from_slice(
-            &self
-                .store
-                .get(DBCol::State, &key)
-                .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
-                .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, hash))?
-                .as_slice(),
-        )
-        .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
+        let value = self.store.get(self.shard_uid, &hash)?;
+        let node = RawTrieNodeWithSize::try_from_slice(&value)
+            .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
         let max_subtree_size = max_subtree_size
             .unwrap_or_else(|| node.memory_usage / self.num_subtrees_desired as u64);
@@ -117,15 +110,7 @@ impl ParallelMemTrieLoader {
                 // almost like a corner case because we're not really interested in values here
                 // (that's the job of the parallel loading part), but if we do get here, we have to
                 // deal with it.
-                key[8..40].copy_from_slice(&value_ref.hash.0);
-                let value = self
-                    .store
-                    .get(DBCol::State, &key)
-                    .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
-                    .ok_or(StorageError::MissingTrieValue(
-                        MissingTrieValueContext::TrieStorage,
-                        hash,
-                    ))?;
+                let value = self.store.get(self.shard_uid, &value_ref.hash)?;
                 let flat_value = FlatStateValue::on_disk(&value);
                 Ok(TrieLoadingPlanNode::Leaf {
                     extension: extension.into_boxed_slice(),
@@ -145,15 +130,7 @@ impl ParallelMemTrieLoader {
             }
             RawTrieNode::BranchWithValue(value_ref, children_hashes) => {
                 // Similar here, except we have to also look up the value.
-                key[8..40].copy_from_slice(&value_ref.hash.0);
-                let value = self
-                    .store
-                    .get(DBCol::State, &key)
-                    .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
-                    .ok_or(StorageError::MissingTrieValue(
-                        MissingTrieValueContext::TrieStorage,
-                        hash,
-                    ))?;
+                let value = self.store.get(self.shard_uid, &value_ref.hash)?;
                 let flat_value = FlatStateValue::on_disk(&value);
 
                 let children = self.make_children_plans_in_parallel(
@@ -214,11 +191,12 @@ impl ParallelMemTrieLoader {
         arena: &mut impl ArenaMut,
     ) -> Result<MemTrieNodeId, StorageError> {
         // Figure out which range corresponds to the prefix of this subtree.
+        // TODO(reshardingV3) This seems fragile, potentially does not work with mapping.
         let (start, end) = subtree_to_load.to_iter_range(self.shard_uid);
 
         // Load all the keys in this range from the FlatState column.
         let mut recon = TrieConstructor::new(arena);
-        for item in self.store.iter_range(DBCol::FlatState, Some(&start), Some(&end)) {
+        for item in self.store.store().iter_range(DBCol::FlatState, Some(&start), Some(&end)) {
             let (key, value) = item.map_err(|err| {
                 FlatStorageError::StorageInternalError(format!(
                     "Error iterating over FlatState: {err}"

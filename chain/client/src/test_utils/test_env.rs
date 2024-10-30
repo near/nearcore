@@ -524,8 +524,10 @@ impl TestEnv {
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id);
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+        let last_chunk_header = &last_block.chunks()[shard_index];
 
         for i in 0..self.clients.len() {
             let tracks_shard = self.clients[i]
@@ -582,7 +584,9 @@ impl TestEnv {
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let last_chunk_header = &last_block.chunks()[shard_index];
         let response = client
             .runtime_adapter
             .query(
@@ -640,6 +644,7 @@ impl TestEnv {
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.get().unwrap(),
+            self.clients[idx].resharding_sender.clone(),
         )
     }
 
@@ -808,9 +813,12 @@ impl TestEnv {
     pub fn print_block_summary(&self, height: u64) {
         let client = &self.clients[0];
         let block = client.chain.get_block_by_height(height);
-        let Ok(block) = block else {
-            tracing::info!(target: "test", "Block {}: missing", height);
-            return;
+        let block = match block {
+            Ok(block) => block,
+            Err(err) => {
+                tracing::info!(target: "test", ?err, "Block {}: missing", height);
+                return;
+            }
         };
         let prev_hash = block.header().prev_hash();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();

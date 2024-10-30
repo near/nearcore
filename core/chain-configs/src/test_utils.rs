@@ -3,20 +3,16 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, NumSeats, NumShards,
-};
+use near_primitives::types::{AccountId, AccountInfo, Balance, NumSeats, NumShards};
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::Clock;
 use num_rational::Ratio;
 
 use crate::{
-    Genesis, GenesisConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
-    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
-    PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-    TRANSACTION_VALIDITY_PERIOD,
+    Genesis, GenesisConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, INITIAL_GAS_LIMIT,
+    MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    PROTOCOL_TREASURY_ACCOUNT, TRANSACTION_VALIDITY_PERIOD,
 };
 
 /// Initial balance used in tests.
@@ -24,8 +20,6 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
-
-pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
 impl GenesisConfig {
     pub fn test(clock: Clock) -> Self {
@@ -52,7 +46,7 @@ impl Genesis {
         clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        _num_validator_seats_per_shard: Vec<NumSeats>,
         shard_layout: ShardLayout,
     ) -> Self {
         let mut validators = vec![];
@@ -78,21 +72,13 @@ impl Genesis {
             );
         }
         add_protocol_account(&mut records);
+        let epoch_config =
+            Self::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             chain_id: random_chain_id(),
-            num_block_producer_seats: num_validator_seats,
-            num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
-            avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
             dynamic_resharding: false,
-            protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-            epoch_length: FAST_EPOCH_LENGTH,
-            gas_limit: INITIAL_GAS_LIMIT,
-            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-            block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-            chunk_validator_only_kickout_threshold: CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
             validators,
             protocol_reward_rate: PROTOCOL_REWARD_RATE,
             total_supply: get_initial_supply(&records),
@@ -100,9 +86,47 @@ impl Genesis {
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-            fishermen_threshold: FISHERMEN_THRESHOLD,
+            gas_limit: INITIAL_GAS_LIMIT,
+            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             min_gas_price: MIN_GAS_PRICE,
-            shard_layout,
+
+            // epoch config parameters
+            num_block_producer_seats: epoch_config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
+            protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
+            epoch_length: epoch_config.epoch_length,
+            block_producer_kickout_threshold: epoch_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: epoch_config.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: epoch_config
+                .chunk_validator_only_kickout_threshold,
+            fishermen_threshold: epoch_config.fishermen_threshold,
+            shard_layout: epoch_config.shard_layout,
+            target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
+            max_kickout_stake_perc: epoch_config.validator_max_kickout_stake_perc,
+            online_min_threshold: epoch_config.online_min_threshold,
+            online_max_threshold: epoch_config.online_max_threshold,
+            minimum_stake_divisor: epoch_config.minimum_stake_divisor,
+            num_chunk_producer_seats: epoch_config
+                .validator_selection_config
+                .num_chunk_producer_seats,
+            num_chunk_validator_seats: epoch_config
+                .validator_selection_config
+                .num_chunk_validator_seats,
+            num_chunk_only_producer_seats: epoch_config
+                .validator_selection_config
+                .num_chunk_only_producer_seats,
+            minimum_validators_per_shard: epoch_config
+                .validator_selection_config
+                .minimum_validators_per_shard,
+            minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            chunk_producer_assignment_changes_limit: epoch_config
+                .validator_selection_config
+                .chunk_producer_assignment_changes_limit,
+            shuffle_shard_assignment_for_chunk_producers: epoch_config
+                .validator_selection_config
+                .shuffle_shard_assignment_for_chunk_producers,
+
             ..Default::default()
         };
         Genesis::new(config, records.into()).unwrap()

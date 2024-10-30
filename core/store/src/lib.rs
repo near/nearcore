@@ -12,6 +12,7 @@ pub use crate::trie::{
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
     STATE_SNAPSHOT_COLUMNS,
 };
+use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
@@ -24,6 +25,7 @@ use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -43,9 +45,11 @@ use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
 
+pub mod adapter;
 pub mod cold_storage;
 mod columns;
 pub mod config;
+pub mod contract;
 pub mod db;
 pub mod flat;
 pub mod genesis;
@@ -109,6 +113,12 @@ pub struct NodeStorage {
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+}
+
+impl StoreAdapter for Store {
+    fn store(&self) -> Store {
+        self.clone()
+    }
 }
 
 impl NodeStorage {
@@ -295,9 +305,9 @@ impl Store {
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
-            self.storage.get_with_rc_stripped(column, key)
+            self.storage.get_with_rc_stripped(column, &key)
         } else {
-            self.storage.get_raw_bytes(column, key)
+            self.storage.get_raw_bytes(column, &key)
         }?;
         tracing::trace!(
             target: "store",
@@ -318,11 +328,20 @@ impl Store {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new(Arc::clone(&self.storage))
+        StoreUpdate { transaction: DBTransaction::new(), store: self.clone() }
     }
 
     pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.storage.iter(col)
+    }
+
+    pub fn iter_ser<'a, T: BorshDeserialize>(
+        &'a self,
+        col: DBCol,
+    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+        self.storage
+            .iter(col)
+            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -336,6 +355,7 @@ impl Store {
     }
 
     pub fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        assert!(col != DBCol::State, "can't iter prefix of State column");
         self.storage.iter_prefix(col, key_prefix)
     }
 
@@ -346,6 +366,8 @@ impl Store {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
+        // That would fail if called `ScanDbColumnCmd`` for the `State` column.
+        assert!(col != DBCol::State, "can't range iter State column");
         self.storage.iter_range(col, lower_bound, upper_bound)
     }
 
@@ -354,6 +376,7 @@ impl Store {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+        assert!(col != DBCol::State, "can't iter prefix ser of State column");
         self.storage
             .iter_prefix(col, key_prefix)
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
@@ -446,7 +469,13 @@ impl Store {
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
     transaction: DBTransaction,
-    storage: Arc<dyn Database>,
+    store: Store,
+}
+
+impl StoreUpdateAdapter for StoreUpdate {
+    fn store_update(&mut self) -> &mut StoreUpdate {
+        self
+    }
 }
 
 impl StoreUpdate {
@@ -454,10 +483,6 @@ impl StoreUpdate {
         Some(num) => num,
         None => panic!(),
     };
-
-    pub(crate) fn new(db: Arc<dyn Database>) -> Self {
-        StoreUpdate { transaction: DBTransaction::new(), storage: db }
-    }
 
     /// Inserts a new value into the database.
     ///
@@ -583,6 +608,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
+        // It would panic if called with `State` column, as it is refcounted.
         assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
@@ -594,6 +620,7 @@ impl StoreUpdate {
     /// Deletes the given key range from the database including `from`
     /// and excluding `to` keys.
     pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
+        assert!(column != DBCol::State, "can't range delete State column");
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
 
@@ -601,7 +628,10 @@ impl StoreUpdate {
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        assert!(core::ptr::addr_eq(Arc::as_ptr(&self.storage), Arc::as_ptr(&other.storage)));
+        assert!(core::ptr::addr_eq(
+            Arc::as_ptr(&self.store.storage),
+            Arc::as_ptr(&other.store.storage)
+        ));
         self.transaction.merge(other.transaction)
     }
 
@@ -718,7 +748,7 @@ impl StoreUpdate {
                 }
             }
         }
-        self.storage.write(self.transaction)
+        self.store.storage.write(self.transaction)
     }
 }
 
@@ -751,6 +781,22 @@ pub fn get<T: BorshDeserialize>(
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
     match trie.get(key)? {
+        None => Ok(None),
+        Some(data) => match T::try_from_slice(&data) {
+            Err(err) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to deserialize. err={err:?}"
+            ))),
+            Ok(value) => Ok(Some(value)),
+        },
+    }
+}
+
+/// [`get`] without incurring side effects.
+pub fn get_pure<T: BorshDeserialize>(
+    trie: &dyn TrieAccess,
+    key: &TrieKey,
+) -> Result<Option<T>, StorageError> {
+    match trie.get_no_side_effects(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -927,6 +973,19 @@ pub fn get_buffered_receipt_indices(
     Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
 }
 
+pub fn get_bandwidth_scheduler_state(
+    trie: &dyn TrieAccess,
+) -> Result<Option<BandwidthSchedulerState>, StorageError> {
+    get(trie, &TrieKey::BandwidthSchedulerState)
+}
+
+pub fn set_bandwidth_scheduler_state(
+    state_update: &mut TrieUpdate,
+    scheduler_state: &BandwidthSchedulerState,
+) {
+    set(state_update, TrieKey::BandwidthSchedulerState, scheduler_state);
+}
+
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -968,15 +1027,6 @@ pub fn get_access_key_raw(
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
@@ -1062,17 +1112,6 @@ pub fn set_genesis_congestion_infos(
         .expect("Borsh cannot fail");
 }
 
-fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> io::Result<T>
-where
-    F: std::string::ToString,
-{
-    match res {
-        Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(io::Error::new(io::ErrorKind::NotFound, field_name.to_string())),
-        Err(e) => Err(e),
-    }
-}
-
 #[derive(Clone)]
 pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,
@@ -1134,6 +1173,18 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     }
 }
 
+/// Get the contract WASM code from The State.
+///
+/// Executing all the usual storage access side-effects.
+pub fn get_code(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    code_hash: Option<CryptoHash>,
+) -> Result<Option<ContractCode>, StorageError> {
+    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+}
+
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
@@ -1148,21 +1199,21 @@ mod tests {
     }
 
     fn test_clear_column(store: Store) {
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
-            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
+            store_update.increment_refcount(DBCol::State, &[3; 8], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
     }
 
     #[test]
@@ -1278,9 +1329,9 @@ mod tests {
         {
             let store = crate::test_utils::create_test_store();
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
+            store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
             store_update.commit().unwrap();
             store.save_state_to_file(tmp.path()).unwrap();
         }
@@ -1291,9 +1342,9 @@ mod tests {
             std::io::Read::read_to_end(tmp.as_file_mut(), &mut buffer).unwrap();
             #[rustfmt::skip]
             assert_eq!(&[
-                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 1,
+                /* column: */ 0, /* key len: */ 8, 0, 0, 0, /* key: */ 1, 1, 1, 1, 1, 1, 1, 1,
                                  /* val len: */ 9, 0, 0, 0, /* val: */ 1, 1, 0, 0, 0, 0, 0, 0, 0,
-                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 2,
+                /* column: */ 0, /* key len: */ 8, 0, 0, 0, /* key: */ 2, 2, 2, 2, 2, 2, 2, 2,
                                  /* val len: */ 9, 0, 0, 0, /* val: */ 2, 2, 0, 0, 0, 0, 0, 0, 0,
                 /* end mark: */ 255,
             ][..], buffer.as_slice());
@@ -1302,22 +1353,22 @@ mod tests {
         {
             // Fresh storage, should have no data.
             let store = crate::test_utils::create_test_store();
-            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
-            assert_eq!(None, store.get(DBCol::State, &[2]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[1; 8]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[2; 8]).unwrap());
 
             // Read data from file.
             store.load_state_from_file(tmp.path()).unwrap();
-            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1]).unwrap().as_deref());
-            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1; 8]).unwrap().as_deref());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).unwrap().as_deref());
 
             // Key &[2] should have refcount of two so once decreased it should
             // still exist.
             let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
-            store_update.decrement_refcount(DBCol::State, &[2]);
+            store_update.decrement_refcount(DBCol::State, &[1; 8]);
+            store_update.decrement_refcount(DBCol::State, &[2; 8]);
             store_update.commit().unwrap();
-            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
-            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+            assert_eq!(None, store.get(DBCol::State, &[1; 8]).unwrap());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).unwrap().as_deref());
         }
 
         // Verify detection of corrupt file.

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use itertools::Itertools;
 use near_chain_primitives::Error;
@@ -43,8 +43,10 @@ pub fn validate_chunk_endorsements_in_block(
     }
 
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
-    for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
-        let shard_id = chunk_header.shard_id();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    for (chunk_header, signatures) in
+        block.chunks().iter_deprecated().zip(block.chunk_endorsements())
+    {
         // For old chunks, we optimize the block by not including the chunk endorsements.
         if chunk_header.height_included() != block.header().height() {
             if !signatures.is_empty() {
@@ -58,8 +60,12 @@ pub fn validate_chunk_endorsements_in_block(
             }
             continue;
         }
+
         // Validation for chunks in each shard
         // The signatures from chunk validators for each shard must match the ordered_chunk_validators
+        let shard_id = chunk_header.shard_id();
+        let shard_index = shard_layout.get_shard_index(shard_id);
+
         let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
             shard_id,
@@ -79,7 +85,7 @@ pub fn validate_chunk_endorsements_in_block(
         // Verify that the signature in block body are valid for given chunk_validator.
         // Signature can be either None, or Some(signature).
         // We calculate the stake of the chunk_validators for who we have the signature present.
-        let mut endorsed_chunk_validators = HashSet::new();
+        let mut endorsed_chunk_validators = HashMap::new();
         for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
             let Some(signature) = signature else { continue };
             let (validator, _) = epoch_manager.get_validator_by_account_id(
@@ -104,27 +110,27 @@ pub fn validate_chunk_endorsements_in_block(
             }
 
             // Add validators with signature in endorsed_chunk_validators. We later use this to check stake.
-            endorsed_chunk_validators.insert(account_id);
+            endorsed_chunk_validators.insert(account_id, *signature.clone());
         }
 
-        let endorsement_stats =
-            chunk_validator_assignments.compute_endorsement_stats(&endorsed_chunk_validators);
-        if !endorsement_stats.has_enough_stake() {
-            tracing::error!(target: "chain", ?endorsement_stats, "Chunk does not have enough stake to be endorsed");
+        let endorsement_state =
+            chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
+        if !endorsement_state.is_endorsed {
+            tracing::error!(target: "chain", ?endorsement_state, "Chunk does not have enough stake to be endorsed");
             return Err(Error::InvalidChunkEndorsement);
         }
 
         // Validate the chunk endorsements bitmap (if present) in the block header against the endorsement signatures in the body.
         if let Some(endorsements_bitmap) = endorsements_bitmap {
             // Bitmap's length must be equal to the min bytes needed to encode one bit per validator assignment.
-            if endorsements_bitmap.len(shard_id).unwrap() != signatures.len().div_ceil(8) * 8 {
+            if endorsements_bitmap.len(shard_index).unwrap() != signatures.len().div_ceil(8) * 8 {
                 return Err(Error::InvalidChunkEndorsementBitmap(format!(
                     "Bitmap's length {} is inconsistent with the number of signatures {} for shard {} ",
-                    endorsements_bitmap.len(shard_id).unwrap(), signatures.len(), shard_id,
+                    endorsements_bitmap.len(shard_index).unwrap(), signatures.len(), shard_id,
                 )));
             }
             // Bits in the bitmap must match the existence of signature for the corresponding validator in the body.
-            for (bit, signature) in endorsements_bitmap.iter(shard_id).zip(signatures.iter()) {
+            for (bit, signature) in endorsements_bitmap.iter(shard_index).zip(signatures.iter()) {
                 if bit != signature.is_some() {
                     return Err(Error::InvalidChunkEndorsementBitmap(
                         format!("Chunk endorsement bit in header does not match endorsement in body. shard={}, bit={}, signature={}",
@@ -132,7 +138,7 @@ pub fn validate_chunk_endorsements_in_block(
                 }
             }
             // All extra positions after the assignments must be left as false.
-            for value in endorsements_bitmap.iter(shard_id).skip(signatures.len()) {
+            for value in endorsements_bitmap.iter(shard_index).skip(signatures.len()) {
                 if value {
                     return Err(Error::InvalidChunkEndorsementBitmap(
                         format!("Extra positions in the bitmap after {} validator assignments are not all false for shard {}",
@@ -157,6 +163,7 @@ pub fn validate_chunk_endorsements_in_header(
         )));
     };
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     let shard_ids = epoch_manager.get_shard_layout(&epoch_id)?.shard_ids().collect_vec();
     if chunk_endorsements.num_shards() != shard_ids.len() {
         return Err(Error::InvalidChunkEndorsementBitmap(
@@ -165,12 +172,13 @@ pub fn validate_chunk_endorsements_in_header(
     }
     let chunk_mask = header.chunk_mask();
     for shard_id in shard_ids.into_iter() {
+        let shard_index = shard_layout.get_shard_index(shard_id);
         // For old chunks, we optimize the block and its header by not including the chunk endorsements and
         // corresponding bitmaps. Thus, we expect that the bitmap is empty for shard with no new chunk.
-        if chunk_mask[shard_id as usize] != (chunk_endorsements.len(shard_id).unwrap() > 0) {
+        if chunk_mask[shard_index] != (chunk_endorsements.len(shard_index).unwrap() > 0) {
             return Err(Error::InvalidChunkEndorsementBitmap(format!(
                 "Bitmap must be non-empty iff shard {} has new chunk in the block. Chunk mask={}, Bitmap length={}",
-                shard_id, chunk_mask[shard_id as usize], chunk_endorsements.len(shard_id).unwrap(),
+                shard_id, chunk_mask[shard_index], chunk_endorsements.len(shard_index).unwrap(),
             )));
         }
     }

@@ -1,0 +1,96 @@
+name: Node Issue
+description: Issue while running a node
+title: "Node Issue: "
+labels: ["Node", "community", "investigation required"]
+assignees:
+  - VanBarbascu
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Before you go ahead, please make sure that the issue has not been reported already.
+        Please, follow steps below to help us resolve your issue.
+        In scripts below we assume that `$NEARD` environmental variable contains path to your neard binary,
+        and `$NEAR_HOME` variable contains path to your near home.
+  - type: input
+    id: contact
+    attributes:
+      label: Contact Details
+      description: How can we get in touch with you if we need more info?
+      placeholder: ex. email@example.com
+    validations:
+      required: false
+  - type: dropdown
+    id: node-type
+    attributes:
+      label: Node type
+      description: What type of node are you running?
+      options:
+        - Top 100 Validator
+        - Non-Top 100 Validator
+        - RPC
+        - Split Storage Archival
+        - Legacy Archival (Deprecated)
+      default: 2
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Which network are you running?
+      description: Pick the network
+      options:
+        - mainnet
+        - testnet
+        - other (specify below)
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe your issue with running a near node.
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: What version of neard are you running? Please, provide output of `$NEARD --version`.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output.
+      render: shell
+    validations:
+        required: false
+  - type: textarea
+    id: block-misc
+    attributes:
+      label: Node head info
+      description: Please, provide full output of `RUST_LOG=warn $NEARD --home $NEAR_HOME --unsafe-fast-startup view-state scan-db-column --column BlockMisc`.
+      render: shell
+    validations:
+        required: false
+  - type: textarea
+    id: neard-history
+    attributes:
+      label: Node upgrade history
+      description: When did you upgrade to current version? Please, try to provide date and time. What version were you running before that?
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: db-history
+    attributes:
+      label: DB reset history
+      description: When was the last time you restarted your DB from snapshot?
+      render: shell
+    validations:
+      required: true

@@ -37,6 +37,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
 };
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
@@ -99,10 +100,14 @@ impl NightshadeRuntime {
 
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let shard_uids: Vec<_> = genesis_config.shard_layout.shard_uids().collect();
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
+        let epoch_config = epoch_manager
+            .read()
+            .get_config_for_protocol_version(genesis_config.protocol_version)
+            .unwrap();
+        let shard_uids: Vec<_> = epoch_config.shard_layout.shard_uids().collect();
         let tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             trie_config,
             &shard_uids,
             flat_storage_manager,
@@ -112,7 +117,7 @@ impl NightshadeRuntime {
             let epoch_manager = epoch_manager.read();
             let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            Ok(shard_layout.shard_uids().collect())
+            Ok(shard_layout.shard_uids().enumerate().collect())
         }) {
             tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
         }
@@ -218,7 +223,7 @@ impl NightshadeRuntime {
             epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
         let shard_version =
             epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
-        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+        Ok(ShardUId::new(shard_version, shard_id))
     }
 
     fn get_shard_uid_from_epoch_id(
@@ -229,7 +234,7 @@ impl NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         let shard_version =
             epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
-        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+        Ok(ShardUId::new(shard_version, shard_id))
     }
 
     fn account_id_to_shard_uid(
@@ -264,6 +269,7 @@ impl NightshadeRuntime {
             challenges_result,
             random_seed,
             congestion_info,
+            bandwidth_requests,
         } = block;
         let ApplyChunkShardContext {
             shard_id,
@@ -385,6 +391,7 @@ impl NightshadeRuntime {
                 is_first_block_with_chunk_of_version,
             },
             congestion_info,
+            bandwidth_requests,
         };
 
         let instant = Instant::now();
@@ -461,6 +468,9 @@ impl NightshadeRuntime {
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
+            bandwidth_requests: apply_result.bandwidth_requests,
+            bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
+            contract_updates: apply_result.contract_updates,
         };
 
         Ok(result)
@@ -561,7 +571,7 @@ impl NightshadeRuntime {
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            shard_id,
+            ?shard_id,
             %prev_hash,
             num_parts = part_id.total)
         .entered();
@@ -948,7 +958,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = chunk.shard_id))]
+    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = ?chunk.shard_id))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -1186,7 +1196,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
-            shard_id,
+            ?shard_id,
             %prev_hash,
             ?state_root,
             num_parts = part_id.total)
@@ -1244,7 +1254,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
         // TODO: `apply_to_flat_state` inserts values with random writes, which can be time consuming.
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
-        flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
+        flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -1335,6 +1345,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
+
+    fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
+        self.compiled_contract_cache.as_ref()
+    }
 }
 
 /// Get the limit on the number of new receipts imposed by the local congestion control.
@@ -1364,7 +1378,7 @@ fn chunk_tx_gas_limit(
     protocol_version: u32,
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
-    shard_id: u64,
+    shard_id: ShardId,
     gas_limit: u64,
 ) -> u64 {
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {

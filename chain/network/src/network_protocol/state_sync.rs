@@ -107,3 +107,26 @@ pub enum SnapshotHostInfoVerificationError {
     )]
     TooManyShards(usize),
 }
+
+/// Message used to request a state part.
+///
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Hash,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    ProtocolSchema,
+)]
+pub struct StatePartRequest {
+    /// Requested shard id
+    pub shard_id: ShardId,
+    /// Hash of the requested snapshot's state root
+    pub sync_hash: CryptoHash,
+    /// Requested part id
+    pub part_id: u64,
+    /// Public address of the node making the request
+    pub addr: std::net::SocketAddr,
+}

@@ -344,6 +344,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
             },
+            use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })
     }
 }

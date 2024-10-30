@@ -203,6 +203,10 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::VersionedStateResponse(sri)
             }
             net::PeerMessage::SyncSnapshotHosts(ssh) => mem::PeerMessage::SyncSnapshotHosts(ssh),
+            net::PeerMessage::EpochSyncRequest => mem::PeerMessage::EpochSyncRequest,
+            net::PeerMessage::EpochSyncResponse(proof) => {
+                mem::PeerMessage::EpochSyncResponse(proof)
+            }
         })
     }
 }
@@ -216,6 +220,9 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 panic!("Tier1Handshake is not supported in Borsh encoding")
             }
             mem::PeerMessage::Tier2Handshake(h) => net::PeerMessage::Handshake((&h).into()),
+            mem::PeerMessage::Tier3Handshake(_) => {
+                panic!("Tier3Handshake is not supported in Borsh encoding")
+            }
             mem::PeerMessage::HandshakeFailure(pi, hfr) => {
                 net::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
@@ -253,6 +260,10 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::VersionedStateResponse(sri)
             }
             mem::PeerMessage::SyncSnapshotHosts(ssh) => net::PeerMessage::SyncSnapshotHosts(ssh),
+            mem::PeerMessage::EpochSyncRequest => net::PeerMessage::EpochSyncRequest,
+            mem::PeerMessage::EpochSyncResponse(proof) => {
+                net::PeerMessage::EpochSyncResponse(proof)
+            }
         }
     }
 }

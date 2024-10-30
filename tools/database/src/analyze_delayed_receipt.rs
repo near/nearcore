@@ -1,4 +1,5 @@
 use clap::Parser;
+use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageManager;
 use near_store::{get_delayed_receipt_indices, ShardTries, StateSnapshotConfig, TrieConfig};
 use std::collections::HashMap;
@@ -58,10 +59,10 @@ impl AnalyzeDelayedReceiptCommand {
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let shard_tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             TrieConfig::default(),
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         );
         // Create an iterator over the blocks that should be analysed
@@ -95,7 +96,7 @@ impl AnalyzeDelayedReceiptCommand {
             last_analysed_block = Some((block.header().height(), *block.hash()));
             let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-            for chunk_header in block.chunks().iter() {
+            for chunk_header in block.chunks().iter_deprecated() {
                 let state_root = chunk_header.prev_state_root();
                 let trie_update = shard_tries.get_trie_for_shard(
                     ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &shard_layout),

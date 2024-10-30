@@ -7,7 +7,9 @@ pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThreshold
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
-pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo};
+pub use store::{
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, MerkleProofAccess,
+};
 pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
 
@@ -15,10 +17,10 @@ mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;
 mod chain_update;
-pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;
 pub mod flat_storage_creator;
+pub mod flat_storage_resharder;
 mod garbage_collection;
 mod lightclient;
 pub mod metrics;

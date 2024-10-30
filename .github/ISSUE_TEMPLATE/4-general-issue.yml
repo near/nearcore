@@ -1,0 +1,48 @@
+name: Bug Report
+description: General bug report. Use this only if it does not fit into any of the categories above.
+title: "Bug: "
+labels: ["community", "investigation required"]
+assignees:
+  - telezhnaya
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Before you go ahead, please make sure that the issue has not been reported already.
+        Please, follow steps below to help us resolve your issue.
+  - type: input
+    id: contact
+    attributes:
+      label: Contact Details
+      description: How can we get in touch with you if we need more info?
+      placeholder: ex. email@example.com
+    validations:
+      required: false
+  - type: dropdown
+    id: network
+    attributes:
+      label: Which network are you using?
+      description: Pick the network
+      options:
+        - mainnet
+        - testnet
+        - other (specify below)
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe your issue with running a near node.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output.
+      render: shell
+    validations:
+      required: true

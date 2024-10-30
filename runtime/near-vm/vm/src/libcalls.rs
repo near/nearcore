@@ -50,26 +50,26 @@ use near_vm_types::{
 use std::fmt;
 
 /// Implementation of f32.ceil
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f32_ceil(x: f32) -> f32 {
     x.ceil()
 }
 
 /// Implementation of f32.floor
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f32_floor(x: f32) -> f32 {
     x.floor()
 }
 
 /// Implementation of f32.trunc
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f32_trunc(x: f32) -> f32 {
     x.trunc()
 }
 
 /// Implementation of f32.nearest
 #[allow(clippy::float_arithmetic, clippy::float_cmp)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f32_nearest(x: f32) -> f32 {
     // Rust doesn't have a nearest function, so do it manually.
     if x == 0.0 {
@@ -95,26 +95,26 @@ pub extern "C" fn near_vm_f32_nearest(x: f32) -> f32 {
 }
 
 /// Implementation of f64.ceil
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f64_ceil(x: f64) -> f64 {
     x.ceil()
 }
 
 /// Implementation of f64.floor
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f64_floor(x: f64) -> f64 {
     x.floor()
 }
 
 /// Implementation of f64.trunc
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f64_trunc(x: f64) -> f64 {
     x.trunc()
 }
 
 /// Implementation of f64.nearest
 #[allow(clippy::float_arithmetic, clippy::float_cmp)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn near_vm_f64_nearest(x: f64) -> f64 {
     // Rust doesn't have a nearest function, so do it manually.
     if x == 0.0 {
@@ -144,7 +144,7 @@ pub extern "C" fn near_vm_f64_nearest(x: f64) -> f64 {
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_grow(
     vmctx: *mut VMContext,
     delta: u32,
@@ -161,7 +161,7 @@ pub unsafe extern "C" fn near_vm_memory32_grow(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_grow(
     vmctx: *mut VMContext,
     delta: u32,
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn near_vm_imported_memory32_grow(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_size(vmctx: *mut VMContext, memory_index: u32) -> u32 {
     let instance = (&*vmctx).instance();
     let memory_index = LocalMemoryIndex::from_u32(memory_index);
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn near_vm_memory32_size(vmctx: *mut VMContext, memory_ind
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_size(
     vmctx: *mut VMContext,
     memory_index: u32,
@@ -210,7 +210,7 @@ pub unsafe extern "C" fn near_vm_imported_memory32_size(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_copy(
     vmctx: *mut VMContext,
     dst_table_index: u32,
@@ -237,7 +237,7 @@ pub unsafe extern "C" fn near_vm_table_copy(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_init(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -262,7 +262,7 @@ pub unsafe extern "C" fn near_vm_table_init(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_fill(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -291,7 +291,7 @@ pub unsafe extern "C" fn near_vm_table_fill(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_size(vmctx: *mut VMContext, table_index: u32) -> u32 {
     let instance = (&*vmctx).instance();
     let table_index = LocalTableIndex::from_u32(table_index);
@@ -304,7 +304,7 @@ pub unsafe extern "C" fn near_vm_table_size(vmctx: *mut VMContext, table_index: 
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_size(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -320,7 +320,7 @@ pub unsafe extern "C" fn near_vm_imported_table_size(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_get(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -341,7 +341,7 @@ pub unsafe extern "C" fn near_vm_table_get(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_get(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -365,7 +365,7 @@ pub unsafe extern "C" fn near_vm_imported_table_get(
 ///
 /// It is the caller's responsibility to increment the ref count of any ref counted
 /// type before passing it to this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_set(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -395,7 +395,7 @@ pub unsafe extern "C" fn near_vm_table_set(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_set(
     vmctx: *mut VMContext,
     table_index: u32,
@@ -420,7 +420,7 @@ pub unsafe extern "C" fn near_vm_imported_table_set(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_grow(
     vmctx: *mut VMContext,
     init_value: RawTableElement,
@@ -442,7 +442,7 @@ pub unsafe extern "C" fn near_vm_table_grow(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_grow(
     vmctx: *mut VMContext,
     init_value: RawTableElement,
@@ -465,7 +465,7 @@ pub unsafe extern "C" fn near_vm_imported_table_grow(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_func_ref(vmctx: *mut VMContext, function_index: u32) -> VMFuncRef {
     let instance = (&*vmctx).instance();
     let function_index = FunctionIndex::from_u32(function_index);
@@ -480,7 +480,7 @@ pub unsafe extern "C" fn near_vm_func_ref(vmctx: *mut VMContext, function_index:
 /// `vmctx` must be dereferenceable.
 ///
 /// This function must only be called at precise locations to prevent memory leaks.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_externref_inc(externref: VMExternRef) {
     externref.ref_clone();
 }
@@ -493,7 +493,7 @@ pub unsafe extern "C" fn near_vm_externref_inc(externref: VMExternRef) {
 ///
 /// This function must only be called at precise locations, otherwise use-after-free
 /// and other serious memory bugs may occur.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_externref_dec(mut externref: VMExternRef) {
     externref.ref_drop()
 }
@@ -503,7 +503,7 @@ pub unsafe extern "C" fn near_vm_externref_dec(mut externref: VMExternRef) {
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_elem_drop(vmctx: *mut VMContext, elem_index: u32) {
     let elem_index = ElemIndex::from_u32(elem_index);
     let instance = (&*vmctx).instance();
@@ -515,7 +515,7 @@ pub unsafe extern "C" fn near_vm_elem_drop(vmctx: *mut VMContext, elem_index: u3
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_copy(
     vmctx: *mut VMContext,
     memory_index: u32,
@@ -538,7 +538,7 @@ pub unsafe extern "C" fn near_vm_memory32_copy(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_copy(
     vmctx: *mut VMContext,
     memory_index: u32,
@@ -561,7 +561,7 @@ pub unsafe extern "C" fn near_vm_imported_memory32_copy(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_fill(
     vmctx: *mut VMContext,
     memory_index: u32,
@@ -584,7 +584,7 @@ pub unsafe extern "C" fn near_vm_memory32_fill(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_fill(
     vmctx: *mut VMContext,
     memory_index: u32,
@@ -607,7 +607,7 @@ pub unsafe extern "C" fn near_vm_imported_memory32_fill(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_init(
     vmctx: *mut VMContext,
     memory_index: u32,
@@ -632,7 +632,7 @@ pub unsafe extern "C" fn near_vm_memory32_init(
 /// # Safety
 ///
 /// `vmctx` must be dereferenceable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_data_drop(vmctx: *mut VMContext, data_index: u32) {
     let data_index = DataIndex::from_u32(data_index);
     let instance = (&*vmctx).instance();
@@ -645,7 +645,7 @@ pub unsafe extern "C" fn near_vm_data_drop(vmctx: *mut VMContext, data_index: u3
 ///
 /// Only safe to call when wasm code is on the stack, aka `near_vm_call` or
 /// `near_vm_call_trampoline` must have been previously called.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_raise_trap(trap_code: TrapCode) -> ! {
     let trap = Trap::lib(trap_code);
     raise_lib_trap(trap)
@@ -657,7 +657,7 @@ pub unsafe extern "C" fn near_vm_raise_trap(trap_code: TrapCode) -> ! {
 ///
 /// This function does not follow the standard function ABI, and is called as
 /// part of the function prologue.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static near_vm_probestack: unsafe extern "C" fn() = PROBESTACK;
 
 /// The name of a runtime library routine.

@@ -55,7 +55,7 @@ pub async fn run(
                 let h = *h.hash();
                 s.spawn(async move {
                     let block = network.fetch_block(h).await?;
-                    for ch in block.chunks().iter() {
+                    for ch in block.chunks().iter_deprecated() {
                         s.spawn(network.fetch_chunk(ch.clone()));
                     }
                     anyhow::Ok(())

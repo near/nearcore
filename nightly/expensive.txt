@@ -17,12 +17,6 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_catchu
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_height_6 --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_sanity_blocks_produced
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_sanity_blocks_produced --features nightly
-expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000
-expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000 --features nightly
-expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow
-expensive --timeout=7200 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_slow --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing
-expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold --features nightly
 

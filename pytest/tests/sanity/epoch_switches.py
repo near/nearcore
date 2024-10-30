@@ -100,7 +100,7 @@ def wait_until_available(get_fn, fields):
         time.sleep(0.1)
 
 
-for largest_height in range(2, HEIGHT_GOAL + 1):
+for largest_height in range(5, HEIGHT_GOAL + 1):
     assert time.time() - started < TIMEOUT
 
     block = wait_until_available(

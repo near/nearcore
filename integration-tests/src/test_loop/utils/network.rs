@@ -1,36 +1,24 @@
 use crate::test_loop::env::TestLoopChunksStorage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::AccountId;
 use std::sync::{Arc, Mutex};
 
-/// Handler to drop all network messages relevant to chunk validated by
-/// `validator_of_chunks_to_drop`. If number of nodes on chain is significant
-/// enough (at least three?), this is enough to prevent chunk from being
-/// included.
-///
-/// This logic can be easily extended to dropping chunk based on any rule.
-pub fn partial_encoded_chunks_dropper(
+type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool>;
+
+/// Handler to drop all endorsement messages relevant to chunk body, based on
+/// `drop_chunks_condition` result.
+pub fn chunk_endorsement_dropper_by_hash(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    validator_of_chunks_to_drop: AccountId,
+    drop_chunk_condition: DropChunkCondition,
 ) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
     Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
         // network; extract `chunk_hash` from the message.
         let chunk_hash = match &request {
-            NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
-                Some(request.chunk_hash.clone())
-            }
-            NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
-                Some(response.chunk_hash.clone())
-            }
-            NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } => {
-                Some(partial_encoded_chunk.header.chunk_hash())
-            }
-            NetworkRequests::PartialEncodedChunkForward { forward, .. } => {
-                Some(forward.chunk_hash.clone())
-            }
+            NetworkRequests::ChunkEndorsement(_, endorsement) => Some(endorsement.chunk_hash()),
             _ => None,
         };
 
@@ -50,28 +38,33 @@ pub fn partial_encoded_chunks_dropper(
             chunk
         };
 
-        let prev_block_hash = chunk.prev_block_hash();
-        let shard_id = chunk.shard_id();
-        let height_created = chunk.height_created();
-
         // If we don't have block on top of which chunk is built, we can't
         // retrieve epoch id.
         // This case appears to be too rare to interfere with the goal of
         // dropping chunk.
-        let Ok(epoch_id) = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash)
-        else {
+        if epoch_manager_adapter.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
             return Some(request);
         };
 
-        // Finally, we drop chunk if the given account is present in the list
-        // of its validators.
-        let chunk_validators = epoch_manager_adapter
-            .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
-            .unwrap();
-        if !chunk_validators.contains(&validator_of_chunks_to_drop) {
-            return Some(request);
+        if drop_chunk_condition(chunk) {
+            return None;
         }
 
-        return None;
+        Some(request)
+    })
+}
+
+/// Handler to drop all network messages containing chunk endorsements sent
+/// from a given chunk-validator account.
+pub fn chunk_endorsement_dropper(
+    validator: AccountId,
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+    Box::new(move |request| {
+        if let NetworkRequests::ChunkEndorsement(_target, endorsement) = &request {
+            if endorsement.validator_account() == &validator {
+                return None;
+            }
+        }
+        Some(request)
     })
 }

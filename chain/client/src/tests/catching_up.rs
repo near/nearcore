@@ -23,7 +23,7 @@ use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference, ShardId};
 use near_primitives::views::QueryRequest;
 use near_primitives::views::QueryResponseKind::ViewAccount;
 
@@ -99,10 +99,11 @@ enum ReceiptsSyncPhases {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct StateRequestStruct {
-    pub shard_id: u64,
+    pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
+    pub sync_prev_prev_hash: Option<CryptoHash>,
     pub part_id: Option<u64>,
-    pub peer_id: PeerId,
+    pub peer_id: Option<PeerId>,
 }
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
@@ -268,8 +269,9 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 let srs = StateRequestStruct {
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
+                                    sync_prev_prev_hash: None,
                                     part_id: None,
-                                    peer_id: peer_id.clone(),
+                                    peer_id: Some(peer_id.clone()),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))
@@ -283,16 +285,17 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                         if let NetworkRequests::StateRequestPart {
                             shard_id,
                             sync_hash,
+                            sync_prev_prev_hash,
                             part_id,
-                            peer_id,
                         } = msg
                         {
                             if sync_hold {
                                 let srs = StateRequestStruct {
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
+                                    sync_prev_prev_hash: Some(*sync_prev_prev_hash),
                                     part_id: Some(*part_id),
-                                    peer_id: peer_id.clone(),
+                                    peer_id: None,
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))
@@ -711,7 +714,8 @@ fn test_all_chunks_accepted_common(
 
         let verbose = false;
 
-        let seen_chunk_same_sender = Arc::new(RwLock::new(HashSet::<(AccountId, u64, u64)>::new()));
+        let seen_chunk_same_sender =
+            Arc::new(RwLock::new(HashSet::<(AccountId, u64, ShardId)>::new()));
         let requested = Arc::new(RwLock::new(HashSet::<(AccountId, Vec<u64>, ChunkHash)>::new()));
         let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 

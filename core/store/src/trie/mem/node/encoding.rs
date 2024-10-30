@@ -228,6 +228,11 @@ impl MemTrieNodeId {
 
     /// Increments the refcount, returning the new refcount.
     pub(crate) fn add_ref(&self, memory: &mut impl ArenaMemoryMut) -> u32 {
+        // It's possible that in a hybrid memory setup, we are accessing the read-only part of memory.
+        // In that case, we don't need to increment the refcount.
+        if !memory.is_mutable(self.pos) {
+            return 1;
+        }
         // Refcount is always encoded as the first four bytes of the node memory.
         let refcount_memory = memory.raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
@@ -239,6 +244,11 @@ impl MemTrieNodeId {
     /// Decrements the refcount, deallocating the node if it reaches zero.
     /// Returns the new refcount.
     pub(crate) fn remove_ref(&self, arena: &mut impl ArenaWithDealloc) -> u32 {
+        // It's possible that in a hybrid memory setup, we are accessing the read-only part of memory.
+        // In that case, we don't need to decrement the refcount.
+        if !arena.memory_mut().is_mutable(self.pos) {
+            return 1;
+        }
         // Refcount is always encoded as the first four bytes of the node memory.
         let refcount_memory = arena.memory_mut().raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());

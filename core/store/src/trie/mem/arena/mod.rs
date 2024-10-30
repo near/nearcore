@@ -12,6 +12,7 @@ mod frozen;
 pub mod hybrid;
 mod metrics;
 pub mod single_thread;
+pub use frozen::FrozenArena;
 
 /// An abstraction of an arena that also allows being implemented differently,
 /// specifically in the case of a multi-threaded arena where each arena instance
@@ -64,6 +65,11 @@ pub trait ArenaMemory: Sized + 'static {
 /// A mutable reference to `ArenaMemory` can be used to mutate allocated
 /// memory, but not to allocate or deallocate memory.
 pub trait ArenaMemoryMut: ArenaMemory {
+    /// Returns whether the memory at the given position is mutable or not.
+    /// Normally, all memory is mutable, but in case of HybridArenaMemory,
+    /// we could be referring to a read-only memory part.
+    fn is_mutable(&self, _pos: ArenaPos) -> bool;
+
     fn raw_slice_mut(&mut self, pos: ArenaPos, len: usize) -> &mut [u8];
 
     /// Provides write access to a region of memory in the arena.

@@ -112,10 +112,10 @@ pub struct StateSnapshotConfig {
 pub enum StateSnapshotType {
     /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
     /// State snapshots involve filesystem operations and costly IO operations.
-    #[default]
     ForReshardingOnly,
     /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
     /// Needed if a node wants to be able to respond to state part requests.
+    #[default]
     EveryEpoch,
 }
 
@@ -151,16 +151,6 @@ impl Mode {
     }
     pub const fn must_create(self) -> bool {
         matches!(self, Mode::Create)
-    }
-
-    /// Returns variant of the mode which prohibits creation of the database or
-    /// `None` if the mode requires creation of a new database.
-    pub const fn but_cannot_create(self) -> Option<Self> {
-        match self {
-            Self::ReadOnly | Self::ReadWriteExisting => Some(self),
-            Self::ReadWrite => Some(Self::ReadWriteExisting),
-            Self::Create => None,
-        }
     }
 }
 

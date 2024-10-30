@@ -1,10 +1,16 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
+use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ShardInfo, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
@@ -114,9 +120,7 @@ impl<'a> BatchedStoreUpdate<'a> {
 /// new blocks.
 pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
     let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
-    for row in
-        store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
-    {
+    for row in store.iter_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult) {
         let (_, mut outcomes) = row?;
         // It appears that it was possible that the same entry in the original column contained
         // duplicate outcomes. We remove them here to avoid panicing due to issuing a
@@ -361,22 +365,60 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
 
 /// Migrates the database from version 40 to 41.
 ///
-/// This involves deleting contents of PartialChunks column from the Cold DB of an archival node.
-/// This migration applies ONLY to the Cold DB.
-pub fn migrate_40_to_41(store: &Store, kind: DbKind, is_node_archival: bool) -> anyhow::Result<()> {
-    if !is_node_archival {
-        tracing::info!(target: "migrations", "No-op migration from 40 to 41 for non-archival node");
-        return Ok(());
+/// The migraton replaces non-enum StoredChunkStateTransitionData struct with its enum version.
+pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshDeserialize)]
+    pub struct DeprecatedStoredChunkStateTransitionData {
+        pub base_state: PartialState,
+        pub receipts_hash: CryptoHash,
     }
-    if kind != DbKind::Cold {
-        tracing::info!(target: "migrations", ?kind, "No-op migration from 40 to 41 for non-Cold DB");
-        return Ok(());
-    }
-    let _span = tracing::info_span!(target: "migrations",
-        "Migration from 40 to 41: Deleting contents of PartialChunks column Cold DB of archival node")
-    .entered();
+
+    let _span =
+        tracing::info_span!(target: "migrations", "Replacing StoredChunkStateTransitionData with its enum version V1").entered();
     let mut update = store.store_update();
-    update.delete_all(DBCol::PartialChunks);
+    for result in store.iter(DBCol::StateTransitionData) {
+        let (key, old_value) = result?;
+        let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
+            DeprecatedStoredChunkStateTransitionData::try_from_slice(&old_value)?;
+        let new_value =
+            borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                base_state,
+                receipts_hash,
+                contract_accesses: Default::default(),
+            }))?;
+        update.set(DBCol::StateTransitionData, &key, &new_value);
+    }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 41 to 42.
+///
+/// This rewrites the contents of the StateDlInfos column
+pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshSerialize, BorshDeserialize)]
+    struct LegacyStateSyncInfo {
+        sync_hash: CryptoHash,
+        shards: Vec<ShardInfo>,
+    }
+
+    let mut update = store.store_update();
+
+    for row in store.iter_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos) {
+        let (key, LegacyStateSyncInfo { sync_hash, shards }) =
+            row.context("failed deserializing legacy StateSyncInfo in StateDlInfos")?;
+
+        let epoch_first_block = CryptoHash::try_from_slice(&key)
+            .context("failed deserializing CryptoHash key in StateDlInfos")?;
+
+        if epoch_first_block != sync_hash {
+            tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
+        }
+        let new_info = StateSyncInfo::V0(StateSyncInfoV0 { sync_hash, shards });
+        update
+            .set_ser(DBCol::StateDlInfos, &key, &new_info)
+            .context("failed writing to StateDlInfos")?;
+    }
     update.commit()?;
     Ok(())
 }

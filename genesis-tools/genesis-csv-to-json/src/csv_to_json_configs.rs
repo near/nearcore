@@ -14,7 +14,16 @@ use std::fs::File;
 use std::path::Path;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
-const SHARDS: &'static [ShardId] = &[0, 1, 2, 3, 4, 5, 6, 7];
+const SHARDS: &'static [ShardId] = &[
+    ShardId::new(0),
+    ShardId::new(1),
+    ShardId::new(2),
+    ShardId::new(3),
+    ShardId::new(4),
+    ShardId::new(5),
+    ShardId::new(6),
+    ShardId::new(7),
+];
 
 fn verify_total_supply(total_supply: Balance, chain_id: &str) {
     if chain_id == near_primitives::chains::MAINNET {

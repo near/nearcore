@@ -400,7 +400,7 @@ impl<'a> StoreOpener<'a> {
 
         let metadata = opener.get_metadata()?;
         let metadata = metadata.ok_or(StoreOpenerError::DbDoesNotExist {})?;
-        let DbMetadata { version, kind } = metadata;
+        let DbMetadata { version, .. } = metadata;
 
         if version == DB_VERSION {
             return Ok(Snapshot::none());
@@ -443,7 +443,7 @@ impl<'a> StoreOpener<'a> {
             // be better to wrap it in the ColdDB object instead.
 
             let store = Self::open_store(mode, opener, version)?;
-            migrator.migrate(&store, version, kind).map_err(StoreOpenerError::MigrationError)?;
+            migrator.migrate(&store, version).map_err(StoreOpenerError::MigrationError)?;
             store.set_db_version(version + 1)?;
         }
 
@@ -570,12 +570,7 @@ pub trait StoreMigrator {
     /// **Panics** if `version` is not supported (the caller is supposed to
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
-    fn migrate(
-        &self,
-        store: &Store,
-        version: DbVersion,
-        kind: Option<DbKind>,
-    ) -> anyhow::Result<()>;
+    fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
 }
 
 /// Creates checkpoint of hot storage in `home_dir.join(checkpoint_relative_path)`

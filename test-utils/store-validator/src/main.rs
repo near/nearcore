@@ -39,7 +39,8 @@ fn main() {
     .open()
     .unwrap()
     .get_hot_store();
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
         TrackedConfig::from_config(&near_config.client_config),
         epoch_manager.clone(),

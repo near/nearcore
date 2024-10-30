@@ -42,6 +42,21 @@ impl ChunkEndorsement {
         let data = borsh::to_vec(&inner).unwrap();
         signature.verify(&data, public_key)
     }
+
+    /// Returns the account ID of the chunk validator that generated this endorsement.
+    pub fn validator_account(&self) -> &AccountId {
+        match self {
+            ChunkEndorsement::V1(v1) => &v1.account_id,
+            ChunkEndorsement::V2(v2) => &v2.metadata.account_id,
+        }
+    }
+
+    pub fn chunk_hash(&self) -> &ChunkHash {
+        match self {
+            ChunkEndorsement::V1(e) => e.chunk_hash(),
+            ChunkEndorsement::V2(e) => e.chunk_hash(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]

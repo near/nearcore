@@ -6,7 +6,6 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use rand::Rng;
 
 use crate::tests::genesis_helpers::genesis_hash;
@@ -20,7 +19,7 @@ use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{load_test_config, start_with_config, NearConfig};
 
@@ -74,8 +73,8 @@ fn init_test_staking(
         // And they are not needed in these tests.
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
-            config.config.tracked_shards = vec![0];
-            config.client_config.tracked_shards = vec![0];
+            config.config.tracked_shards = vec![ShardId::new(0)];
+            config.client_config.tracked_shards = vec![ShardId::new(0)];
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
@@ -612,12 +611,8 @@ fn test_inflation() {
                                 // https://nomicon.io/Economics/Economic#validator-rewards-calculation 
                                 let protocol_reward = base_reward * 1 / 10;
                                 let validator_reward = base_reward - protocol_reward;
-                                let inflation = if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-                                    // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
-                                    protocol_reward + validator_reward * 20 / 27
-                                } else {
-                                    protocol_reward + validator_reward * 10 / 27
-                                };
+                                // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
+                                let inflation = protocol_reward + validator_reward * 20 / 27;
                                 tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
                                 if block.header.total_supply == initial_total_supply + inflation {
                                     done2_copy2.store(true, Ordering::SeqCst);

@@ -20,7 +20,7 @@ use near_o11y::{
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
-use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_primitives::types::{Gas, NumSeats, NumShards, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -530,7 +530,6 @@ impl RunCmd {
                 rpc_servers,
                 cold_store_loop_handle,
                 mut state_sync_dumper,
-                flat_state_migration_handle,
                 resharding_handle,
                 ..
             } = nearcore::start_with_config_and_synchronization(
@@ -557,7 +556,6 @@ impl RunCmd {
             }
             state_sync_dumper.stop();
             resharding_handle.stop();
-            flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -628,16 +626,17 @@ pub(super) struct LocalnetCmd {
 }
 
 impl LocalnetCmd {
-    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<u64> {
+    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<ShardId> {
         if tracked_shards.to_lowercase() == "all" {
-            return (0..num_shards).collect();
+            let tracked_shards = 0..num_shards;
+            return tracked_shards.map(ShardId::new).collect();
         }
         if tracked_shards.to_lowercase() == "none" {
             return vec![];
         }
         tracked_shards
             .split(',')
-            .map(|shard_id| shard_id.parse::<u64>().expect("Shard id must be an integer"))
+            .map(|shard_id| shard_id.parse::<ShardId>().expect("Shard id must be an integer"))
             .collect()
     }
 

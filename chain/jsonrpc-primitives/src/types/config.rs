@@ -12,7 +12,7 @@ pub struct RpcProtocolConfigResponse {
     pub config_view: near_chain_configs::ProtocolConfigView,
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcProtocolConfigError {
     #[error("Block has never been observed: {error_message}")]

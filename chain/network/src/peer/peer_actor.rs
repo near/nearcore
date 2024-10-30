@@ -1,7 +1,8 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
+    EpochSyncRequestMessage, EpochSyncResponseMessage, ProcessTxRequest, RecvChallenge,
+    StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -32,7 +33,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
-use near_async::messaging::SendAsync;
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
@@ -284,6 +285,18 @@ impl PeerActor {
                             .start_outbound(peer_id.clone())
                             .map_err(ClosingReason::OutboundNotAllowed)?
                     }
+                    tcp::Tier::T3 => {
+                        // Loop connections are allowed only on T1; see comment above
+                        if peer_id == &network_state.config.node_id() {
+                            return Err(ClosingReason::OutboundNotAllowed(
+                                connection::PoolError::UnexpectedLoopConnection,
+                            ));
+                        }
+                        network_state
+                            .tier3
+                            .start_outbound(peer_id.clone())
+                            .map_err(ClosingReason::OutboundNotAllowed)?
+                    }
                 },
                 handshake_spec: HandshakeSpec {
                     partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
@@ -293,10 +306,12 @@ impl PeerActor {
                 },
             },
         };
-        // Override force_encoding for outbound Tier1 connections,
-        // since Tier1Handshake is supported only with proto encoding.
+        // Override force_encoding for outbound Tier1 and Tier3 connections;
+        // Tier1Handshake and Tier3Handshake are supported only with proto encoding.
         let force_encoding = match &stream.type_ {
-            tcp::StreamType::Outbound { tier, .. } if tier == &tcp::Tier::T1 => {
+            tcp::StreamType::Outbound { tier, .. }
+                if tier == &tcp::Tier::T1 || tier == &tcp::Tier::T3 =>
+            {
                 Some(Encoding::Proto)
             }
             _ => force_encoding,
@@ -480,6 +495,7 @@ impl PeerActor {
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
             tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+            tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
         };
         self.send_message_or_log(&msg);
     }
@@ -939,6 +955,9 @@ impl PeerActor {
             (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, tcp::Tier::T2, msg)
             }
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier3Handshake(msg)) => {
+                self.process_handshake(ctx, tcp::Tier::T3, msg)
+            }
             (_, msg) => {
                 tracing::warn!(target:"network","unexpected message during handshake: {}",msg)
             }
@@ -1063,7 +1082,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.send_async(RecvChallenge(challenge)).await.ok();
+                    network_state.client.send_async(RecvChallenge(*challenge)).await.ok();
                     None
                 }
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -1082,7 +1101,24 @@ impl PeerActor {
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
                     //TODO: Route to state sync actor.
-                    network_state.client.send_async(StateResponse(info.into())).await.ok();
+                    network_state
+                        .client
+                        .send_async(StateResponseReceived {
+                            peer_id,
+                            state_response_info: info.into(),
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                PeerMessage::EpochSyncRequest => {
+                    network_state.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                    None
+                }
+                PeerMessage::EpochSyncResponse(proof) => {
+                    network_state
+                        .client
+                        .send(EpochSyncResponseMessage { from_peer: peer_id, proof });
                     None
                 }
                 msg => {
@@ -1140,7 +1176,9 @@ impl PeerActor {
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
+            PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
@@ -1182,8 +1220,20 @@ impl PeerActor {
                     self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
                 }
 
-                // Add received peers to the peer store
                 let node_id = self.network_state.config.node_id();
+
+                // Record our own IP address as observed by the peer.
+                if self.network_state.my_public_addr.read().is_none() {
+                    if let Some(my_peer_info) =
+                        direct_peers.iter().find(|peer_info| peer_info.id == node_id)
+                    {
+                        if let Some(addr) = my_peer_info.addr {
+                            let mut my_public_addr = self.network_state.my_public_addr.write();
+                            *my_public_addr = Some(addr);
+                        }
+                    }
+                }
+                // Add received indirect peers to the peer store
                 self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
                     peers.into_iter().filter(|peer_info| peer_info.id != node_id),

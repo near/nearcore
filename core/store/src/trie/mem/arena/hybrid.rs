@@ -55,6 +55,10 @@ impl ArenaMemory for HybridArenaMemory {
 }
 
 impl ArenaMemoryMut for HybridArenaMemory {
+    fn is_mutable(&self, pos: ArenaPos) -> bool {
+        pos.chunk >= self.chunks_offset()
+    }
+
     fn raw_slice_mut(&mut self, mut pos: ArenaPos, len: usize) -> &mut [u8] {
         debug_assert!(!pos.is_invalid());
         assert!(pos.chunk >= self.chunks_offset(), "Cannot mutate shared memory");
@@ -95,7 +99,6 @@ impl From<STArena> for HybridArena {
 
 impl HybridArena {
     /// Function to create a new HybridArena from an existing instance of shared memory in FrozenArena.
-    #[allow(dead_code)]
     pub fn from_frozen(name: String, frozen_arena: FrozenArena) -> Self {
         let allocator = Allocator::new_with_initial_stats(
             name,
@@ -110,7 +113,6 @@ impl HybridArena {
     ///
     /// Instances of FrozenArena are cloneable and can be used to create new instances of HybridArena with
     /// shared memory from FrozenArena.
-    #[allow(dead_code)]
     pub fn freeze(self) -> FrozenArena {
         assert!(!self.has_shared_memory(), "Cannot freeze arena with shared memory");
         FrozenArena {

@@ -10,6 +10,7 @@ use near_pool::{
 };
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
@@ -42,6 +43,7 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 use super::*;
 
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -120,7 +122,7 @@ impl TestEnv {
             FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>).unwrap();
 
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::new(
             store.clone(),
             compiled_contract_cache.handle(),
@@ -150,7 +152,7 @@ impl TestEnv {
             {
                 let mut store_update = store.store_update();
                 flat_storage_manager.set_flat_storage_for_genesis(
-                    &mut store_update,
+                    &mut store_update.flat_store_update(),
                     shard_uid,
                     &genesis_hash,
                     0,
@@ -213,13 +215,15 @@ impl TestEnv {
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
+        // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
         let prev_block_hash = self.head.last_block_hash;
-        let state_root = self.state_roots[shard_id as usize];
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id);
+        let state_root = self.state_roots[shard_index];
         let gas_limit = u64::MAX;
         let height = self.head.height + 1;
         let block_timestamp = 0;
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let gas_price = self.runtime.genesis_config.min_gas_price;
         let congestion_info = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
@@ -254,6 +258,7 @@ impl TestEnv {
                     challenges_result,
                     random_seed: CryptoHash::default(),
                     congestion_info,
+                    bandwidth_requests: BlockBandwidthRequests::empty(),
                 },
                 receipts,
                 transactions,
@@ -279,8 +284,8 @@ impl TestEnv {
         let mut store_update = self.runtime.store().store_update();
         let flat_state_changes =
             FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
-        apply_result.trie_changes.insertions_into(&mut store_update);
-        apply_result.trie_changes.state_changes_into(&mut store_update);
+        apply_result.trie_changes.insertions_into(&mut store_update.trie_store_update());
+        apply_result.trie_changes.state_changes_into(&mut store_update.trie_store_update());
 
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id =
@@ -301,7 +306,7 @@ impl TestEnv {
                 },
             };
             let new_store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.merge(new_store_update);
+            store_update.merge(new_store_update.into());
         }
         store_update.commit().unwrap();
 
@@ -316,19 +321,21 @@ impl TestEnv {
     ) {
         let new_hash = hash(&[(self.head.height + 1) as u8]);
         let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
+        let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
         assert_eq!(transactions.len(), shard_ids.len());
         assert_eq!(chunk_mask.len(), shard_ids.len());
         let mut all_proposals = vec![];
         let mut all_receipts = vec![];
         for shard_id in shard_ids {
+            let shard_index = shard_layout.get_shard_index(shard_id);
             let (state_root, proposals, receipts) = self.update_runtime(
                 shard_id,
                 new_hash,
-                &transactions[shard_id as usize],
+                &transactions[shard_index],
                 self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
                 challenges_result.clone(),
             );
-            self.state_roots[shard_id as usize] = state_root;
+            self.state_roots[shard_index] = state_root;
             all_receipts.extend(receipts);
             all_proposals.append(&mut proposals.clone());
             self.last_shard_proposals.insert(shard_id, proposals);
@@ -391,9 +398,11 @@ impl TestEnv {
             &self.head.epoch_id,
         )
         .unwrap();
+        let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id);
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
         self.runtime
-            .view_account(&shard_uid, self.state_roots[shard_id as usize], account_id)
+            .view_account(&shard_uid, self.state_roots[shard_index], account_id)
             .unwrap()
             .into()
     }
@@ -727,9 +736,10 @@ fn test_state_sync() {
     let block_hash = hash(&[env.head.height as u8]);
     let state_part = env
         .runtime
-        .obtain_state_part(0, &block_hash, &env.state_roots[0], PartId::new(0, 1))
+        .obtain_state_part(ShardId::new(0), &block_hash, &env.state_roots[0], PartId::new(0, 1))
         .unwrap();
-    let root_node = env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
+    let root_node =
+        env.runtime.get_state_root_node(ShardId::new(0), &block_hash, &env.state_roots[0]).unwrap();
     let mut new_env = TestEnv::new(vec![validators], 2, false);
     for i in 1..=2 {
         let prev_hash = hash(&[new_env.head.height as u8]);
@@ -786,7 +796,13 @@ fn test_state_sync() {
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime
-        .apply_state_part(0, &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
+        .apply_state_part(
+            ShardId::new(0),
+            &env.state_roots[0],
+            PartId::new(0, 1),
+            &state_part,
+            epoch_id,
+        )
         .unwrap();
     new_env.state_roots[0] = env.state_roots[0];
     for _ in 3..=5 {
@@ -827,9 +843,9 @@ fn test_get_validator_info() {
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
-            let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
+            let cp = em.get_chunk_producer_info(&epoch_id, height, ShardId::new(0)).unwrap();
             let stateless_validators =
-                em.get_chunk_validator_assignments(&epoch_id, 0, height).ok();
+                em.get_chunk_validator_assignments(&epoch_id, ShardId::new(0), height).ok();
 
             if let Some(vs) = stateless_validators {
                 if vs.contains(&validators[0]) {
@@ -876,7 +892,7 @@ fn test_get_validator_info() {
             public_key: block_producers[0].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![ShardId::new(0)],
             num_produced_blocks: expected_blocks[0],
             num_expected_blocks: expected_blocks[0],
             num_produced_chunks: expected_chunks[0],
@@ -893,7 +909,7 @@ fn test_get_validator_info() {
             public_key: block_producers[1].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![ShardId::new(0)],
             num_produced_blocks: expected_blocks[1],
             num_expected_blocks: expected_blocks[1],
             num_produced_chunks: expected_chunks[1],
@@ -911,13 +927,13 @@ fn test_get_validator_info() {
             account_id: "test1".parse().unwrap(),
             public_key: block_producers[0].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![ShardId::new(0)],
         },
         NextEpochValidatorInfo {
             account_id: "test2".parse().unwrap(),
             public_key: block_producers[1].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![ShardId::new(0)],
         },
     ];
     let response = env
@@ -988,7 +1004,7 @@ fn test_get_validator_info() {
             account_id: "test2".parse().unwrap(),
             public_key: block_producers[1].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![ShardId::new(0)],
         }]
     );
     assert!(response.current_proposals.is_empty());
@@ -1461,13 +1477,13 @@ fn test_flat_state_usage() {
     let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
     let trie = env
         .runtime
-        .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
+        .get_trie_for_shard(ShardId::new(0), &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
         .unwrap();
     assert!(trie.has_flat_storage_chunk_view());
 
     let trie = env
         .runtime
-        .get_view_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT)
+        .get_view_trie_for_shard(ShardId::new(0), &env.head.prev_block_hash, Trie::EMPTY_ROOT)
         .unwrap();
     assert!(!trie.has_flat_storage_chunk_view());
 }
@@ -1505,9 +1521,14 @@ fn test_trie_and_flat_state_equality() {
     // - using view state, which should never use flat state
     let head_prev_block_hash = env.head.prev_block_hash;
     let state_root = env.state_roots[0];
-    let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root, true).unwrap();
-    let view_state =
-        env.runtime.get_view_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+    let state = env
+        .runtime
+        .get_trie_for_shard(ShardId::new(0), &head_prev_block_hash, state_root, true)
+        .unwrap();
+    let view_state = env
+        .runtime
+        .get_view_trie_for_shard(ShardId::new(0), &head_prev_block_hash, state_root)
+        .unwrap();
     let trie_key = TrieKey::Account { account_id: validators[1].clone() };
     let key = trie_key.to_vec();
 
@@ -1528,7 +1549,7 @@ fn test_genesis_hash() {
 
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime = NightshadeRuntime::test_with_runtime_config_store(
         tempdir.path(),
         store.clone(),
@@ -1628,6 +1649,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
 
@@ -1651,7 +1673,7 @@ fn prepare_transactions(
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
-    let shard_id = 0;
+    let shard_id = ShardId::new(0);
     let block = chain.get_block(&env.head.prev_block_hash).unwrap();
     let congestion_info = block.block_congestion_info();
 
@@ -1773,7 +1795,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
-    let shard_id = 0;
+    let shard_id = ShardId::new(0);
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;

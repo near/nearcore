@@ -33,13 +33,10 @@ class RemoteNeardRunner:
         cmd_utils.init_node(self.node)
 
     def mk_neard_runner_home(self, remove_home_dir):
+        cmd = f'mkdir -p {self.neard_runner_home}'
         if remove_home_dir:
-            cmd_utils.run_cmd(
-                self.node,
-                f'rm -rf {self.neard_runner_home} && mkdir -p {self.neard_runner_home}'
-            )
-        else:
-            cmd_utils.run_cmd(self.node, f'mkdir -p {self.neard_runner_home}')
+            cmd = f'rm -rf {self.neard_runner_home} && {cmd}'
+        cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self):
         self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
@@ -68,16 +65,28 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def stop_neard_runner(self):
-        # this looks for python processes with neard_runner.py in the command line. the first word will
-        # be the pid, which we extract with the last awk command
-        self.node.machine.run(
-            'kill $(ps -C python -o pid=,cmd= | grep neard_runner.py | awk \'{print $1};\')'
-        )
+        self.node.machine.run('sudo systemctl stop neard-runner;\
+                               sudo systemctl reset-failed neard-runner')
 
     def start_neard_runner(self):
-        cmd_utils.run_in_background(self.node, f'{os.path.join(self.neard_runner_home, "venv/bin/python")} {os.path.join(self.neard_runner_home, "neard_runner.py")} ' \
-            f'--home {self.neard_runner_home} --neard-home /home/ubuntu/.near ' \
-            '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
+        USER = 'ubuntu'
+        NEARD_RUNNER_CMD = f'{self.neard_runner_home}/venv/bin/python {self.neard_runner_home}/neard_runner.py\
+            --home {self.neard_runner_home}\
+            --neard-home "/home/ubuntu/.near"\
+            --neard-logs-dir "/home/ubuntu/neard-logs"\
+            --port 3000'
+
+        SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner\
+            --uid={USER} \
+            --property=StartLimitIntervalSec=500\
+            --property=StartLimitBurst=10\
+            --property=DefaultDependencies=no\
+            --property=TimeoutStartSec=300\
+            --property=Restart=always\
+            --property=RestartSec=5s\
+            -- {NEARD_RUNNER_CMD}'
+
+        self.node.machine.run(SYSTEMD_RUN_NEARD_RUNNER_CMD)
 
     def neard_runner_post(self, body):
         body = json.dumps(body)
