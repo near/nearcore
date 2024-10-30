@@ -422,7 +422,7 @@ impl Client {
         contract_updates: ContractUpdates,
         my_signer: &ValidatorSigner,
     ) {
-        let ContractUpdates { contract_accesses, .. } = contract_updates;
+        let ContractUpdates { contract_accesses, contract_deploys } = contract_updates;
 
         let chunk_production_key = ChunkProductionKey {
             epoch_id: *epoch_id,
