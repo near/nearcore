@@ -296,8 +296,8 @@ impl Client {
                 }) => (base_state, receipts_hash, contract_accesses, contract_deploys),
             };
         let contract_updates = ContractUpdates {
-            contract_accesses: HashSet::from_iter(contract_accesses.into_iter()),
-            contract_deploys: HashSet::from_iter(contract_deploys.into_iter()),
+            contract_accesses: contract_accesses.into_iter().collect(),
+            contract_deploys: contract_deploys.into_iter().collect(),
         };
         Ok((
             ChunkStateTransition {
