@@ -3,6 +3,7 @@ use anyhow;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use clap;
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -59,22 +60,26 @@ enum SubCommand {
 }
 
 impl ColdStoreCommand {
-    pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         let mode =
             if self.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
-        let mut near_config = nearcore::config::load_config(
-            &home_dir,
-            near_chain_configs::GenesisValidationMode::Full,
-        )
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         let opener = self.get_opener(home_dir, &mut near_config);
 
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(storage.get_hot_store(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),
@@ -492,7 +497,7 @@ impl StateRootSelector {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
                     .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
                 let mut hashes = vec![];
-                for chunk in block.chunks().iter() {
+                for chunk in block.chunks().iter_deprecated() {
                     hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(

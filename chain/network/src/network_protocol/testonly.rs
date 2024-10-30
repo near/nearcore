@@ -52,8 +52,8 @@ pub fn make_block(
         prev.header(),
         prev.header().height() + 5,
         prev.header().block_ordinal() + 1,
-        chunks.into_iter().map(|c| c.take_header()).collect(),
-        vec![],
+        chunks.iter().cloned().map(|c| c.take_header()).collect(),
+        vec![vec![]; chunks.len()],
         EpochId::default(),
         EpochId::default(),
         None,
@@ -211,12 +211,12 @@ impl ChunkSet {
         Self { chunks: HashMap::default() }
     }
     pub fn make(&mut self) -> Vec<ShardChunk> {
-        let shard_ids: Vec<_> = (0..4).collect();
+        let shard_ids: Vec<_> = (0..4).into_iter().map(ShardId::new).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(
             vec![StateRoot::new()],
-            vec![Default::default(); shard_ids.len()],
+            vec![Some(Default::default()); shard_ids.len()],
             &shard_ids,
             1000,
             0,

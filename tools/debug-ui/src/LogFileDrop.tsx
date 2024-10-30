@@ -86,15 +86,19 @@ export const LogFileDrop = ({ onFileDrop }: LogFileDropProps) => {
                 Drag and drop a file here
             </div>
             <input type="file" onChange={handleClick} />
-            {segments !== null && segments.length > 0 && <div>
-                <h3>There are multiple TestLoop runs within the same test. Choose one:</h3>
-                {segments.map((segment, i) => (
-                    <div key={i}>
-                        <button onClick={() => onFileDrop(segment)}>Run #{i + 1}</button>
-                    </div>
-                ))}
-            </div>}
-            {segments !== null && segments.length === 0 && <div>The log file does not contain any TestLoop runs.</div>}
+            {segments !== null && segments.length > 0 && (
+                <div>
+                    <h3>There are multiple TestLoop runs within the same test. Choose one:</h3>
+                    {segments.map((segment, i) => (
+                        <div key={i}>
+                            <button onClick={() => onFileDrop(segment)}>Run #{i + 1}</button>
+                        </div>
+                    ))}
+                </div>
+            )}
+            {segments !== null && segments.length === 0 && (
+                <div>The log file does not contain any TestLoop runs.</div>
+            )}
         </div>
     );
 };

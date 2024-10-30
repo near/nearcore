@@ -79,8 +79,7 @@ pub async fn build_streamer_message(
     let chunks = fetch_block_chunks(&client, &block).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
-    let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
-        as near_primitives::types::NumShards;
+    let shard_ids = protocol_config_view.shard_layout.shard_ids();
 
     let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
@@ -92,7 +91,7 @@ pub async fn build_streamer_message(
         near_primitives::types::EpochId(block.header.epoch_id),
     )
     .await?;
-    let mut indexer_shards = (0..num_shards)
+    let mut indexer_shards = shard_ids
         .map(|shard_id| IndexerShard {
             shard_id,
             chunk: None,
@@ -101,11 +100,9 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for chunk in chunks {
+    for (shard_index, chunk) in chunks.into_iter().enumerate() {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
-
-        let shard_id = header.shard_id as usize;
 
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)
@@ -236,9 +233,9 @@ pub async fn build_streamer_message(
 
         chunk_receipts.extend(chunk_non_local_receipts);
 
-        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes;
+        indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
-        indexer_shards[shard_id].chunk = Some(IndexerChunkView {
+        indexer_shards[shard_index].chunk = Some(IndexerChunkView {
             author,
             header,
             transactions: indexer_transactions,
@@ -250,12 +247,13 @@ pub async fn build_streamer_message(
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
     // That might happen before the fix https://github.com/near/nearcore/pull/4228
     for (shard_id, outcomes) in shards_outcomes {
-        indexer_shards[shard_id as usize].receipt_execution_outcomes.extend(
-            outcomes.into_iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
+        let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
+        indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
+            |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
                 receipt: outcome.receipt.expect("`receipt` must be present at this moment"),
-            }),
-        )
+            },
+        ))
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })

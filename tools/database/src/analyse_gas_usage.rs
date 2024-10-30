@@ -47,9 +47,13 @@ pub(crate) struct AnalyseGasUsageCommand {
 }
 
 impl AnalyseGasUsageCommand {
-    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
+    pub(crate) fn run(
+        &self,
+        home: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         // Create a ChainStore and EpochManager that will be used to read blockchain data.
-        let mut near_config = load_config(home, GenesisValidationMode::Full).unwrap();
+        let mut near_config = load_config(home, genesis_validation).unwrap();
         let node_storage = open_storage(&home, &mut near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
@@ -221,7 +225,7 @@ fn get_gas_usage_in_block(
     let mut result = GasUsageStats::new();
 
     // Go over every chunk in this block and gather data
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         let shard_id = chunk_header.shard_id();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 

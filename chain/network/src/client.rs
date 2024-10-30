@@ -4,7 +4,7 @@ use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -72,9 +72,16 @@ pub struct StateRequestPart {
 }
 
 /// Response to state request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateResponse(pub Box<StateResponseInfo>);
+
+/// Response to state request.
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct StateResponse(pub Box<StateResponseInfo>);
+pub struct StateResponseReceived {
+    pub peer_id: PeerId,
+    pub state_response_info: Box<StateResponseInfo>,
+}
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
@@ -121,14 +128,14 @@ pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct EpochSyncRequestMessage {
-    pub route_back: CryptoHash,
+    pub from_peer: PeerId,
 }
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct EpochSyncResponseMessage {
     pub from_peer: PeerId,
-    pub proof: EpochSyncProof,
+    pub proof: CompressedEpochSyncProof,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -139,7 +146,7 @@ pub struct ClientSenderForNetwork {
     pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
-    pub state_response: AsyncSender<StateResponse, ()>,
+    pub state_response: AsyncSender<StateResponseReceived, ()>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,

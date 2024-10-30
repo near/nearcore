@@ -27,4 +27,8 @@ ignore = [
     # older versions of parking-lot are vulnerable, but used by wasmer0, which we need to keep alive for replayability reasons.
     # We should remove it, as well as this ignore, as soon as we get limited replayability.
     "RUSTSEC-2020-0070",
+
+    # proc-macro-error is unmaintained, but hard to replace right now.
+    # Follow https://github.com/Kyuuhachi/syn_derive/issues/4
+    "RUSTSEC-2024-0370",
 ]

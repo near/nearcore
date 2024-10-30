@@ -24,6 +24,7 @@ tracing.workspace = true
 nearcore.workspace = true
 near-client.workspace = true
 near-chain-configs.workspace = true
+near-config-utils.workspace = true
 near-dyn-configs.workspace = true
 near-crypto.workspace = true
 near-indexer-primitives.workspace = true

@@ -1,8 +1,8 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_counter, try_create_gauge,
-    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge,
-    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
+    try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter,
+    CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use std::sync::LazyLock;
 
@@ -445,6 +445,15 @@ pub(crate) fn export_version(neard_version: &near_primitives::version::Version) 
         .inc();
 }
 
+pub(crate) static EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_epoch_sync_last_generated_compressed_proof_size",
+            "Size of the last generated compressed epoch sync proof, in bytes",
+        )
+        .unwrap()
+    });
+
 pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_stage",
@@ -454,38 +463,12 @@ pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_RETRY_PART: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_retry_part_total",
-        "Number of part requests retried",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_HEADER_ERROR: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_header_error_total",
-        "Number of state sync header requests resulting in an error",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_HEADER_TIMEOUT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_header_timeout_total",
-        "Number of state sync header requests timing out",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_PARTS_DONE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_state_sync_parts_done",
-        "Number of parts downloaded",
-        &["shard_id"],
+        "near_state_sync_header_download_result",
+        "Count of number of state sync downloads by type (header, part),
+               source (network, external), and result (timeout, error, success)",
+        &["shard_id", "type", "source", "result"],
     )
     .unwrap()
 });
@@ -499,29 +482,12 @@ pub(crate) static STATE_SYNC_PARTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_DISCARD_PARTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_discard_parts_total",
-        "Number of times all downloaded parts were discarded to try again",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_EXTERNAL_PARTS_DONE: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_external_parts_done_total",
-        "Number of parts retrieved from external storage",
+pub(crate) static STATE_SYNC_P2P_REQUEST_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_p2p_request_delay_sec",
+        "Latency of state requests to peers",
         &["shard_id", "type"],
-    )
-    .unwrap()
-});
-
-pub(crate) static STATE_SYNC_EXTERNAL_PARTS_FAILED: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_state_sync_external_parts_failed_total",
-        "Failed retrieval attempts from external storage",
-        &["shard_id", "type"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
     )
     .unwrap()
 });
@@ -681,3 +647,35 @@ pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<Gauge> = LazyLock::new(||
     )
     .unwrap()
 });
+
+pub(crate) static RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_receive_witness_accessed_contract_codes_time",
+            "Time it takes to retrieve missing contract codes",
+            &["shard_id"],
+            Some(linear_buckets(0.025, 0.025, 40).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub(crate) static WITNESS_ACCESSED_CONTRACT_CODES_DELAY: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_witness_accessed_contract_codes_delay",
+            "Delay in witness processing caused by waiting for accessed contract codes",
+            &["shard_id"],
+            Some(linear_buckets(0.025, 0.025, 40).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub(crate) static DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT: LazyLock<CounterVec> =
+    LazyLock::new(|| {
+        try_create_counter_vec(
+            "near_decode_partial_witness_accessed_contracts_state_count",
+            "State of the accessed contracts when collected enough parts to decode the witness",
+            &["shard_id", "state"],
+        )
+        .unwrap()
+    });

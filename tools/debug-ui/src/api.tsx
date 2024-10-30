@@ -1,4 +1,4 @@
-import { EntityQuery } from './entity_debug/types';
+import { EntityQueryWithParams } from './entity_debug/types';
 
 export interface StatusResponse {
     chain_id: string;
@@ -122,7 +122,12 @@ export type SyncStatusView =
           };
       }
     | {
-          StateSync: [string, { [shard_id: number]: ShardSyncDownloadView }];
+          StateSync: {
+              sync_hash: string;
+              sync_status: { [shard_id: number]: string };
+              download_tasks: string[];
+              computation_tasks: string[];
+          };
       }
     | 'StateSyncDone'
     | {
@@ -477,7 +482,7 @@ export type ApiEntityDataEntry = { name: string; value: ApiEntityDataEntryValue 
 
 export async function fetchEntity(
     addr: string,
-    request: EntityQuery
+    request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
     const response = await fetch(`http://${addr}/debug/api/entity`, {
         body: JSON.stringify(request),

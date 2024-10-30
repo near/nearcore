@@ -21,6 +21,7 @@ use near_primitives_core::account::id::{AccountId, AccountType};
 use std::mem::size_of;
 use std::ops::Deref;
 
+pub mod compression;
 pub mod io;
 pub mod min_heap;
 
@@ -109,12 +110,6 @@ impl<T> MaybeValidated<T> {
             self.validated.set(*res.as_ref().unwrap_or(&false));
             res
         }
-    }
-
-    /// Marks the payload as valid.  No verification is performed; it’s caller’s
-    /// responsibility to make sure the payload has indeed been validated.
-    pub fn mark_as_valid(&self) {
-        self.validated.set(true);
     }
 
     /// Applies function to the payload (whether it’s been validated or not) and

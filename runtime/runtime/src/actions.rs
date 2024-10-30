@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
-use crate::ext::{ExternalError, RuntimeContractExt, RuntimeExt};
+use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -38,8 +38,8 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, PreparedContract};
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -161,42 +161,6 @@ pub(crate) fn execute_function_call(
     Ok(outcome)
 }
 
-pub(crate) fn prepare_function_call(
-    state_update: &TrieUpdate,
-    apply_state: &ApplyState,
-    account: &Account,
-    account_id: &AccountId,
-    function_call: &FunctionCallAction,
-    config: &RuntimeConfig,
-    view_config: Option<ViewConfig>,
-) -> Box<dyn PreparedContract> {
-    let max_gas_burnt = match view_config {
-        Some(ViewConfig { max_gas_burnt }) => max_gas_burnt,
-        None => config.wasm_config.limit_config.max_gas_burnt,
-    };
-    let gas_counter = near_vm_runner::logic::GasCounter::new(
-        config.wasm_config.ext_costs.clone(),
-        max_gas_burnt,
-        config.wasm_config.regular_op_cost,
-        function_call.gas,
-        view_config.is_some(),
-    );
-    let code_ext = RuntimeContractExt {
-        trie_update: state_update,
-        account_id,
-        account,
-        current_protocol_version: apply_state.current_protocol_version,
-    };
-    let contract = near_vm_runner::prepare(
-        &code_ext,
-        Arc::clone(&config.wasm_config),
-        apply_state.cache.as_deref(),
-        gas_counter,
-        &function_call.method_name,
-    );
-    contract
-}
-
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -208,6 +172,7 @@ pub(crate) fn action_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
+    code_hash: CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
@@ -219,7 +184,19 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-    state_update.trie.request_code_recording(account_id.clone());
+
+    // When the contract code is excluded from the witness, the Trie read for the contract code
+    // is not recorded and the code-size does not contribute to the storage-proof limit.
+    // Instead we just record that the code with the given hash was called, so that we can identify
+    // which contract-code to distribute to the validators.
+    if ProtocolFeature::ExcludeContractCodeFromStateWitness
+        .enabled(apply_state.current_protocol_version)
+    {
+        state_update.contract_storage.record_call(code_hash);
+    } else {
+        state_update.trie.request_code_recording(account_id.clone());
+    }
+
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
 
@@ -644,7 +621,8 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
-    apply_state: &ApplyState,
+    config: Arc<near_parameters::vm::Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
@@ -660,16 +638,20 @@ pub(crate) fn action_deploy_contract(
         })?,
     );
     account.set_code_hash(*code.hash());
+    // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
+    // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
+    // contracts into the storage as part of the commit routine, however no code should be relying
+    // that the contracts are written to The State.
     set_code(state_update, account_id.clone(), &code);
-    // Precompile the contract and store result (compiled code or error) in the database.
-    // Note, that contract compilation costs are already accounted in deploy cost using
-    // special logic in estimator (see get_runtime_config() function).
-    precompile_contract(
-        &code,
-        Arc::clone(&apply_state.config.wasm_config),
-        apply_state.cache.as_deref(),
-    )
-    .ok();
+    // Precompile the contract and store result (compiled code or error) in the contract runtime
+    // cache.
+    // Note, that contract compilation costs are already accounted in deploy cost using special
+    // logic in estimator (see get_runtime_config() function).
+    precompile_contract(&code, config, cache).ok();
+    // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
+    // return the contract before the contract is written out to the underlying storage as part of
+    // the `TrieUpdate` commit.)
+    state_update.contract_storage.record_deploy(code);
     Ok(())
 }
 
@@ -1187,12 +1169,11 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
-    use near_primitives::hash::hash;
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
-    use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
@@ -1354,11 +1335,25 @@ mod tests {
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
-        let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
-        let empty_contract = [0; 10_000].to_vec();
-        let contract_hash = hash(&empty_contract);
-        state_update.set(trie_key, empty_contract);
-        test_delete_large_account(&account_id, &contract_hash, storage_usage, &mut state_update)
+        let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
+        let mut account =
+            Account::new(100, 0, 0, CryptoHash::default(), storage_usage, PROTOCOL_VERSION);
+        let apply_state = create_apply_state(0);
+        let res = action_deploy_contract(
+            &mut state_update,
+            &mut account,
+            &account_id,
+            &deploy_action,
+            Arc::clone(&apply_state.config.wasm_config),
+            None,
+        );
+        assert!(res.is_ok());
+        test_delete_large_account(
+            &account_id,
+            &account.code_hash(),
+            storage_usage,
+            &mut state_update,
+        )
     }
 
     #[test]
@@ -1439,6 +1434,7 @@ mod tests {
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
             congestion_info: BlockCongestionInfo::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         }
     }
 
@@ -1455,7 +1451,7 @@ mod tests {
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().1;
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();

@@ -1,4 +1,5 @@
-use crate::trie::mem::arena::{Arena, STArena};
+use crate::trie::mem::arena::single_thread::STArena;
+use crate::trie::mem::arena::Arena;
 use crate::trie::mem::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use crate::trie::Children;
 use crate::{RawTrieNode, RawTrieNodeWithSize};

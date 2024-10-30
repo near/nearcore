@@ -1,4 +1,4 @@
-use super::arena::{Arena, ArenaMemory, ArenaPos, ArenaPtr};
+use super::arena::{ArenaMemory, ArenaMut, ArenaPos, ArenaPtr};
 use super::flexible_data::children::ChildrenView;
 use super::flexible_data::value::ValueView;
 use crate::trie::{Children, TRIE_COSTS};
@@ -28,12 +28,12 @@ pub struct MemTrieNodeId {
 }
 
 impl MemTrieNodeId {
-    pub fn new(arena: &mut impl Arena, input: InputMemTrieNode) -> Self {
+    pub fn new(arena: &mut impl ArenaMut, input: InputMemTrieNode) -> Self {
         Self::new_impl(arena, input, None)
     }
 
     pub fn new_with_hash(
-        arena: &mut impl Arena,
+        arena: &mut impl ArenaMut,
         input: InputMemTrieNode,
         hash: CryptoHash,
     ) -> Self {

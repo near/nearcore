@@ -1164,8 +1164,8 @@ fn bls12381_p2_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
 fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
-        "storage_write_10b_key_10b_value_1k",
-        "storage_has_key_10b_key_10b_value_1k",
+        "storage_write_10b_key_10kib_value_1k",
+        "storage_has_key_10b_key_1k",
         ExtCosts::storage_has_key_base,
         1000,
         0,
@@ -1174,8 +1174,8 @@ fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
 fn storage_has_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
-        "storage_write_10kib_key_10b_value_1k",
-        "storage_has_key_10kib_key_10b_value_1k",
+        "storage_write_10kib_key_10kib_value_1k",
+        "storage_has_key_10kib_key_1k",
         ExtCosts::storage_has_key_byte,
         10 * 1024 * 1000,
         0,
@@ -1188,8 +1188,8 @@ fn storage_read_base(ctx: &mut EstimatorContext) -> GasCost {
     }
     let cost = fn_cost_with_setup(
         ctx,
-        "storage_write_10b_key_10b_value_1k",
-        "storage_read_10b_key_10b_value_1k",
+        "storage_write_10b_key_10kib_value_1k",
+        "storage_read_10b_key_1k",
         ExtCosts::storage_read_base,
         1000,
         0,
@@ -1199,8 +1199,8 @@ fn storage_read_base(ctx: &mut EstimatorContext) -> GasCost {
 fn storage_read_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
-        "storage_write_10kib_key_10b_value_1k",
-        "storage_read_10kib_key_10b_value_1k",
+        "storage_write_10kib_key_10kib_value_1k",
+        "storage_read_10kib_key_1k",
         ExtCosts::storage_read_key_byte,
         10 * 1024 * 1000,
         0,
@@ -1209,10 +1209,10 @@ fn storage_read_key_byte(ctx: &mut EstimatorContext) -> GasCost {
 fn storage_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
-        "storage_write_10b_key_10kib_value_1k",
-        "storage_read_10b_key_10kib_value_1k",
+        "storage_write_10b_key_100kib_value_1k",
+        "storage_read_10b_key_1k",
         ExtCosts::storage_read_value_byte,
-        10 * 1024 * 1000,
+        100 * 1024 * 1000,
         0,
     )
 }
@@ -1251,7 +1251,7 @@ fn storage_remove_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10b_value_1k",
-        "storage_remove_10b_key_10b_value_1k",
+        "storage_remove_10b_key_1k",
         ExtCosts::storage_remove_base,
         1000,
         0,
@@ -1261,7 +1261,7 @@ fn storage_remove_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10kib_key_10b_value_1k",
-        "storage_remove_10kib_key_10b_value_1k",
+        "storage_remove_10kib_key_1k",
         ExtCosts::storage_remove_key_byte,
         10 * 1024 * 1000,
         0,
@@ -1271,7 +1271,7 @@ fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10kib_value_1k",
-        "storage_remove_10b_key_10kib_value_1k",
+        "storage_remove_10b_key_1k",
         ExtCosts::storage_remove_ret_value_byte,
         10 * 1024 * 1000,
         0,

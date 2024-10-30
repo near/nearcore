@@ -20,5 +20,6 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-config-utils.workspace = true
 near-indexer.workspace = true
 near-o11y.workspace = true

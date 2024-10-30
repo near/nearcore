@@ -18,6 +18,7 @@ use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
+use near_store::adapter::flat_store::decode_flat_state_db_key;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
 use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};
@@ -133,8 +134,7 @@ fn format_key_and_value<'a>(
             Box::new(BlockHeight::try_from_slice(value).unwrap()),
         ),
         DBCol::FlatState => {
-            let (shard_uid, key) =
-                near_store::flat::store_helper::decode_flat_state_db_key(key).unwrap();
+            let (shard_uid, key) = decode_flat_state_db_key(key).unwrap();
             (Box::new((shard_uid, key)), Box::new(FlatStateValue::try_from_slice(value).unwrap()))
         }
         DBCol::FlatStateChanges => (

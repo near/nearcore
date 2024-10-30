@@ -8,12 +8,13 @@ use crate::client::{
 };
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
     PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
 };
 use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo,
+    SetChainInfo, StateSyncEvent,
 };
 use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -188,6 +189,10 @@ impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
     fn handle(&mut self, _msg: SetChainInfo) {}
 }
 
+impl Handler<StateSyncEvent> for TestLoopPeerManagerActor {
+    fn handle(&mut self, _msg: StateSyncEvent) {}
+}
+
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
         let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
@@ -263,19 +268,21 @@ fn network_message_to_client_handler(
         NetworkRequests::EpochSyncRequest { peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
             assert_ne!(&peer_id, my_peer_id, "Sending message to self not supported.");
-            shared_state.senders_for_peer(&peer_id).client_sender.send(EpochSyncRequestMessage {
-                route_back: shared_state.generate_route_back(my_peer_id),
-            });
+            shared_state
+                .senders_for_peer(&peer_id)
+                .client_sender
+                .send(EpochSyncRequestMessage { from_peer: my_peer_id.clone() });
             None
         }
-        NetworkRequests::EpochSyncResponse { route_back, proof } => {
+        NetworkRequests::EpochSyncResponse { peer_id, proof } => {
             let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
             shared_state
-                .senders_for_route_back(&route_back)
+                .senders_for_peer(&peer_id)
                 .client_sender
                 .send(EpochSyncResponseMessage { from_peer: my_peer_id.clone(), proof });
             None
         }
+        NetworkRequests::StateRequestPart { .. } => None,
 
         _ => Some(request),
     })
@@ -338,7 +345,6 @@ fn network_message_to_partial_witness_handler(
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
             for (target, partial_witness) in validator_witness_tuple.into_iter() {
-                assert_ne!(target, my_account_id, "Sending message to self not supported.");
                 shared_state
                     .senders_for_account(&target)
                     .partial_witness_sender
@@ -348,12 +354,34 @@ fn network_message_to_partial_witness_handler(
         }
         NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
             for target in chunk_validators {
-                assert_ne!(target, my_account_id, "Sending message to self not supported.");
                 shared_state
                     .senders_for_account(&target)
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
             }
+            None
+        }
+        NetworkRequests::ChunkContractAccesses(chunk_validators, contract_accesses) => {
+            for target in chunk_validators {
+                shared_state
+                    .senders_for_account(&target)
+                    .partial_witness_sender
+                    .send(ChunkContractAccessesMessage(contract_accesses.clone()));
+            }
+            None
+        }
+        NetworkRequests::ContractCodeRequest(target, request) => {
+            shared_state
+                .senders_for_account(&target)
+                .partial_witness_sender
+                .send(ContractCodeRequestMessage(request));
+            None
+        }
+        NetworkRequests::ContractCodeResponse(target, response) => {
+            shared_state
+                .senders_for_account(&target)
+                .partial_witness_sender
+                .send(ContractCodeResponseMessage(response));
             None
         }
         _ => Some(request),

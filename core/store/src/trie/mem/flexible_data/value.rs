@@ -1,6 +1,6 @@
 use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
+use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::OptimizedValueRef;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
@@ -59,7 +59,7 @@ impl FlexibleDataHeader for EncodedValueHeader {
         }
     }
 
-    fn encode_flexible_data<M: ArenaMemory>(
+    fn encode_flexible_data<M: ArenaMemoryMut>(
         &self,
         value: &FlatStateValue,
         target: &mut ArenaSliceMut<M>,

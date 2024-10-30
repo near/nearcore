@@ -7,14 +7,13 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV2;
+use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use near_store::Store;
 
 use crate::stateless_validation::validate::validate_chunk_endorsement;
-
-use super::ChunkEndorsementsState;
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
@@ -64,10 +63,6 @@ impl ChunkEndorsementTracker {
     }
 
     /// This function is called by block producer potentially multiple times if there's not enough stake.
-    /// We return ChunkEndorsementsState::Endorsed if node has enough signed stake for the chunk represented
-    /// by chunk_header. Signatures have the same order as ordered_chunk_validators, thus ready to be included
-    /// in a block as is.
-    /// We returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
     pub(crate) fn collect_chunk_endorsements(
         &mut self,
         chunk_header: &ShardChunkHeader,
@@ -77,8 +72,11 @@ impl ChunkEndorsementTracker {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            // Return an empty array of chunk endorsements for older protocol versions.
-            return Ok(ChunkEndorsementsState::Endorsed(None, vec![]));
+            // Return an endorsed empty array of chunk endorsements for older protocol versions.
+            return Ok(ChunkEndorsementsState {
+                is_endorsed: true,
+                ..ChunkEndorsementsState::default()
+            });
         }
 
         let height_created = chunk_header.height_created();
@@ -96,30 +94,13 @@ impl ChunkEndorsementTracker {
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
         //    3. We still need to validate if the chunk_hash matches the chunk_header.chunk_hash()
-        let Some(entry) = self.chunk_endorsements.get_mut(&key) else {
-            // Early return if no chunk_endorsements found in our cache.
-            return Ok(ChunkEndorsementsState::NotEnoughStake(None));
-        };
-        entry.retain(|_, endorsement| endorsement.chunk_hash() == &chunk_header.chunk_hash());
-
-        let endorsement_stats =
-            chunk_validator_assignments.compute_endorsement_stats(&entry.keys().collect());
-
-        // Check whether the current set of chunk_validators have enough stake to include chunk in block.
-        if !endorsement_stats.has_enough_stake() {
-            return Ok(ChunkEndorsementsState::NotEnoughStake(Some(endorsement_stats)));
-        }
-
-        // We've already verified the chunk_endorsements are valid, collect signatures.
-        let signatures = chunk_validator_assignments
-            .ordered_chunk_validators()
-            .iter()
-            .map(|account_id| {
-                // map Option<ChunkEndorsement> to Option<Box<Signature>>
-                entry.get(account_id).map(|endorsement| Box::new(endorsement.signature()))
-            })
+        let entry = self.chunk_endorsements.get_or_insert(key, || HashMap::new());
+        let validator_signatures = entry
+            .into_iter()
+            .filter(|(_, endorsement)| endorsement.chunk_hash() == &chunk_header.chunk_hash())
+            .map(|(account_id, endorsement)| (account_id, endorsement.signature()))
             .collect();
 
-        Ok(ChunkEndorsementsState::Endorsed(Some(endorsement_stats), signatures))
+        Ok(chunk_validator_assignments.compute_endorsement_state(validator_signatures))
     }
 }

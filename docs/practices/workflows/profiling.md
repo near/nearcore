@@ -5,11 +5,11 @@
 It is a common task to need to look where `neard` is spending time. Outside of instrumentation
 we've also been successfully using sampling profilers to gain an intuition over how the code works
 and where it spends time. It is a very quick way to get some baseline understanding of the
-performance characteristics, but due to its probablistic nature it is also not particularly precise
+performance characteristics, but due to its probabilistic nature it is also not particularly precise
 when it comes to small details.
 
 Linux's `perf` has been a tool of choice in most cases, although tools like Intel VTune could be
-used to. In order to use either, first prepare your system:
+used too. In order to use either, first prepare your system:
 
 ```command
 $ sudo sysctl kernel.perf_event_paranoid=0
@@ -123,7 +123,7 @@ for example is introducing enough slowdown to significantly alter the behaviour 
 mention that to run it successfully and without crashing it will be necessary to comment out
 `neard`’s use of `jemalloc` for yet another substantial slowdown.
 
-So far the only took that worked out well out of the box was
+So far the only tool that worked out well out of the box was
 [`bytehound`](https://github.com/koute/bytehound). Using it is quite straightforward, but needs
 Linux, and ability to execute privileged commands.
 
@@ -184,8 +184,8 @@ However, `heaptrack myexportedfile` worked perfectly. I recommend opening the fi
 
 #### Crashes
 
-If the profiled `neard` crashes in your tests, there are a couple things you can try to get past
-it. First, makes sure your binary has the necessary ambient capabilities (`setcap` command above
+If the profiled `neard` crashes in your tests, there are a couple of things you can try to get past
+it. First, make sure your binary has the necessary ambient capabilities (`setcap` command above
 needs to be executed every time binary is replaced!)
 
 Another thing to try is disabling `jemalloc`. Comment out this code in `neard/src/main.rs`:

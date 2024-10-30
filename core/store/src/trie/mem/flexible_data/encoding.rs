@@ -1,5 +1,5 @@
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaPtr, ArenaSliceMut};
+use crate::trie::mem::arena::{ArenaMemory, ArenaMut, ArenaPtr, ArenaSliceMut};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::io::Write;
 
@@ -13,13 +13,13 @@ pub trait BorshFixedSize {
 }
 
 /// Facilitates allocation and encoding of flexibly-sized data.
-pub struct RawEncoder<'a, A: Arena> {
-    data: ArenaSliceMut<'a, A::Memory>,
+pub struct RawEncoder<'a, A: ArenaMut> {
+    data: ArenaSliceMut<'a, A::MemoryMut>,
     pos: usize,
 }
 
 // To make it easier to use borsh serialization.
-impl<'a, A: Arena> Write for RawEncoder<'a, A> {
+impl<'a, A: ArenaMut> Write for RawEncoder<'a, A> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.data.raw_slice_mut()[self.pos..self.pos + buf.len()].copy_from_slice(buf);
         self.pos += buf.len();
@@ -31,7 +31,7 @@ impl<'a, A: Arena> Write for RawEncoder<'a, A> {
     }
 }
 
-impl<'a, A: Arena> RawEncoder<'a, A> {
+impl<'a, A: ArenaMut> RawEncoder<'a, A> {
     /// Creates a new arena allocation of the given size, returning an encoder
     /// that can be used to initialize the allocated memory.
     pub fn new(arena: &'a mut A, n: usize) -> Self {
@@ -58,7 +58,7 @@ impl<'a, A: Arena> RawEncoder<'a, A> {
 
     /// Finishes the encoding process and returns a pointer to the allocated
     /// memory. The caller is responsible for freeing the pointer later.
-    pub fn finish(self) -> ArenaSliceMut<'a, A::Memory> {
+    pub fn finish(self) -> ArenaSliceMut<'a, A::MemoryMut> {
         assert_eq!(self.pos, self.data.len());
         self.data
     }

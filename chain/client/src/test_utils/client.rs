@@ -5,12 +5,11 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
-use crate::client::ProduceChunkResult;
+use crate::client::{CatchupState, ProduceChunkResult};
 use crate::Client;
-use actix_rt::{Arbiter, System};
+use actix_rt::System;
 use itertools::Itertools;
-use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{noop, IntoSender, Sender};
+use near_async::messaging::Sender;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{Chain, ChainStoreAccess, Provenance};
@@ -159,7 +158,7 @@ fn create_chunk_on_height_for_shard(
 }
 
 pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> ProduceChunkResult {
-    create_chunk_on_height_for_shard(client, next_height, 0)
+    create_chunk_on_height_for_shard(client, next_height, ShardId::new(0))
 }
 
 pub fn create_chunk_with_transactions(
@@ -190,7 +189,7 @@ pub fn create_chunk(
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
-            0,
+            ShardId::new(0),
             signer.as_ref(),
         )
         .unwrap()
@@ -228,6 +227,7 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
+            header.bandwidth_requests().cloned(),
             &*signer,
             PROTOCOL_VERSION,
         )
@@ -299,29 +299,20 @@ pub fn run_catchup(
         block_inside_messages.write().unwrap().push(msg);
     });
     let _ = System::new();
-    let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
         let signer = client.validator_signer.get();
-        client.run_catchup(
-            highest_height_peers,
-            &noop().into_sender(),
-            &noop().into_sender(),
-            &block_catch_up,
-            None,
-            &state_parts_future_spawner,
-            &signer,
-        )?;
+        client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work)
                 .into_iter()
                 .map(|res| res.1)
                 .collect_vec();
-            if let Some((_, _, blocks_catch_up_state)) =
+            if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
-                assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-                blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
+                assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+                catchup.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }

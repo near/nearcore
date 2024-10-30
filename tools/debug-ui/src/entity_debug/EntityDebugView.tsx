@@ -1,12 +1,13 @@
 import { useMemo, useReducer } from 'react';
 import { Fetcher, FetcherContext } from './fetcher';
 import { AllQueriesContext, allQueriesReducer } from './all_queries';
-import { PinnedKeysContext, pinnedKeysReducer } from './pinned_keys';
+import { ColdStorageChoiceContext, PinnedKeysContext, pinnedKeysReducer } from './pinned_keys';
 import { AllQueriesDisplay } from './AllQueriesDisplay';
-import { PinnedKeysView } from './PinnedKeysView';
+import { BottomBarView } from './BottomBarView';
 import { EntityDataRootView } from './EntityDataRootView';
 import { EntityQueryComposer } from './EntityQueryComposer';
 import './EntityDebugView.scss';
+import { ShowAsciiCharactersInHexContext } from './view_options';
 
 export type EntityDebugViewProps = {
     addr: string;
@@ -20,6 +21,14 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
         selectedIndex: -1,
     });
     const [pinnedKeys, pinnedKeysDispatcher] = useReducer(pinnedKeysReducer, []);
+    const [coldStorage, coldStorageDispatcher] = useReducer(
+        (_: boolean, value: boolean) => value,
+        false
+    );
+    const [showAscii, showAsciiDispatcher] = useReducer(
+        (_showAscii: boolean, value: boolean) => value,
+        true
+    );
     const selectedQueryResult =
         allQueries.selectedIndex === -1 ? null : allQueries.results[allQueries.selectedIndex];
 
@@ -41,7 +50,7 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
                     )}
                 </div>
                 <div className="right-panel-pinned-keys">
-                    <PinnedKeysView />
+                    <BottomBarView />
                 </div>
             </div>
         </div>
@@ -60,7 +69,19 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
                         keys: pinnedKeys,
                         dispatch: pinnedKeysDispatcher,
                     }}>
-                    {render}
+                    <ColdStorageChoiceContext.Provider
+                        value={{
+                            coldStorage: coldStorage,
+                            dispatch: coldStorageDispatcher,
+                        }}>
+                        <ShowAsciiCharactersInHexContext.Provider
+                            value={{
+                                showAscii: showAscii,
+                                dispatch: showAsciiDispatcher,
+                            }}>
+                            {render}
+                        </ShowAsciiCharactersInHexContext.Provider>
+                    </ColdStorageChoiceContext.Provider>
                 </PinnedKeysContext.Provider>
             </AllQueriesContext.Provider>
         </FetcherContext.Provider>

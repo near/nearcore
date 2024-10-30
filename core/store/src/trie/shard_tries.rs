@@ -1,19 +1,19 @@
-use super::mem::MemTries;
+use super::mem::mem_tries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
-use crate::flat::store_helper::remove_all_state_values;
+use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
+use crate::adapter::StoreAdapter;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
-use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, PrefetchApi, TrieDBStorage, TrieStorage};
-use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
+use crate::{metrics, DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage};
+use crate::{Trie, TrieChanges, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{self, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
 struct ShardTriesInner {
-    store: Store,
+    store: TrieStoreAdapter,
     trie_config: TrieConfig,
     mem_tries: RwLock<HashMap<ShardUId, Arc<RwLock<MemTries>>>>,
     /// Cache reserved for client actor to use
@@ -48,7 +48,7 @@ pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
     pub fn new(
-        store: Store,
+        store: TrieStoreAdapter,
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
         flat_storage_manager: FlatStorageManager,
@@ -167,16 +167,12 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, true, None)
     }
 
-    pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new(self.get_db().clone())
+    pub fn store_update(&self) -> TrieStoreUpdateAdapter<'static> {
+        self.0.store.store_update()
     }
 
-    pub fn get_store(&self) -> Store {
+    pub fn store(&self) -> TrieStoreAdapter {
         self.0.store.clone()
-    }
-
-    pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
-        &self.0.store.storage
     }
 
     pub fn get_flat_storage_manager(&self) -> FlatStorageManager {
@@ -240,15 +236,11 @@ impl ShardTries {
         &self,
         deletions: &[TrieRefcountSubtraction],
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(deletions.len());
         for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
-            let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
-                shard_uid,
-                trie_node_or_value_hash,
-            );
-            store_update.decrement_refcount_by(DBCol::State, key.as_ref(), *rc);
+            store_update.decrement_refcount_by(shard_uid, trie_node_or_value_hash, *rc);
             ops.push((trie_node_or_value_hash, None));
         }
 
@@ -259,17 +251,18 @@ impl ShardTries {
         &self,
         insertions: &[TrieRefcountAddition],
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(insertions.len());
         for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
-            let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
+            store_update.increment_refcount_by(
                 shard_uid,
                 trie_node_or_value_hash,
+                trie_node_or_value,
+                *rc,
             );
-            store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, *rc);
             ops.push((trie_node_or_value_hash, Some(trie_node_or_value.as_slice())));
         }
         self.update_cache(ops, shard_uid);
@@ -280,7 +273,7 @@ impl ShardTries {
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
         apply_deletions: bool,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) -> StateRoot {
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update);
         if apply_deletions {
@@ -293,14 +286,14 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
-        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_insertions(
         &self,
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) {
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
@@ -316,14 +309,14 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
-        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_deletions(
         &self,
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) {
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
@@ -339,7 +332,7 @@ impl ShardTries {
         &self,
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) {
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
@@ -361,7 +354,7 @@ impl ShardTries {
         &self,
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
-        store_update: &mut StoreUpdate,
+        store_update: &mut TrieStoreUpdateAdapter,
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
@@ -373,14 +366,11 @@ impl ShardTries {
         block_height: BlockHeight,
     ) -> Option<StateRoot> {
         if let Some(memtries) = self.get_mem_tries(shard_uid) {
-            Some(apply_memtrie_changes(
-                &mut memtries.write().unwrap(),
-                trie_changes
-                    .mem_trie_changes
-                    .as_ref()
-                    .expect("Memtrie changes must be present if memtrie is loaded"),
-                block_height,
-            ))
+            let changes = trie_changes
+                .mem_trie_changes
+                .as_ref()
+                .expect("Memtrie changes must be present if memtrie is loaded");
+            Some(memtries.write().unwrap().apply_memtrie_changes(block_height, changes))
         } else {
             assert!(
                 trie_changes.mem_trie_changes.is_none(),
@@ -399,16 +389,6 @@ impl ShardTries {
     ) -> Result<FlatStorageStatus, StorageError> {
         let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
         Ok(manager.get_flat_storage_status(shard_uid))
-    }
-
-    /// Removes all trie state values from store for a given shard_uid
-    /// Useful when we are trying to delete state of parent shard after resharding
-    /// Note that flat storage needs to be handled separately
-    pub fn delete_trie_for_shard(&self, shard_uid: ShardUId, store_update: &mut StoreUpdate) {
-        // Clear both caches and remove state values from store
-        let _cache = self.0.caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        let _view_cache = self.0.view_caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        remove_all_state_values(store_update, shard_uid);
     }
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
@@ -436,7 +416,7 @@ impl ShardTries {
     ) -> Result<(), StorageError> {
         info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
         let mem_tries = load_trie_from_flat_state_and_delta(
-            &self.0.store,
+            &self.0.store.store(),
             *shard_uid,
             state_root,
             parallelize,
@@ -503,6 +483,51 @@ impl ShardTries {
             memtries.write().unwrap().delete_until_height(height);
         }
     }
+
+    /// Freezes in-memory trie for parent shard and copies reference to it to
+    /// children shards.
+    /// Needed to serve queries for these shards just after resharding, before
+    /// proper memtries are loaded.
+    pub fn freeze_mem_tries(
+        &self,
+        parent_shard_uid: ShardUId,
+        children_shard_uids: Vec<ShardUId>,
+    ) -> Result<(), StorageError> {
+        info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Freezing parent memtrie, creating children memtries...",
+        );
+        let mut outer_guard = self.0.mem_tries.write().unwrap();
+        let Some(memtries) = outer_guard.remove(&parent_shard_uid) else {
+            return Err(StorageError::MemTrieLoadingError(format!(
+                "On freezing parent memtrie, memtrie not loaded for shard {:?}",
+                parent_shard_uid
+            )));
+        };
+        let mut guard = memtries.write().unwrap();
+        let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
+        let frozen_memtries = memtries.freeze();
+
+        for shard_uid in [vec![parent_shard_uid], children_shard_uids.clone()].concat() {
+            outer_guard.insert(
+                shard_uid,
+                Arc::new(RwLock::new(MemTries::from_frozen_memtries(
+                    shard_uid,
+                    frozen_memtries.clone(),
+                ))),
+            );
+        }
+
+        info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Memtries freezing complete"
+        );
+        Ok(())
+    }
 }
 
 pub struct WrappedTrieChanges {
@@ -557,12 +582,12 @@ impl WrappedTrieChanges {
     }
 
     /// Save insertions of trie nodes into Store.
-    pub fn insertions_into(&self, store_update: &mut StoreUpdate) {
+    pub fn insertions_into(&self, store_update: &mut TrieStoreUpdateAdapter) {
         self.tries.apply_insertions(&self.trie_changes, self.shard_uid, store_update)
     }
 
     /// Save deletions of trie nodes into Store.
-    pub fn deletions_into(&self, store_update: &mut StoreUpdate) {
+    pub fn deletions_into(&self, store_update: &mut TrieStoreUpdateAdapter) {
         self.tries.apply_deletions(&self.trie_changes, self.shard_uid, store_update)
     }
 
@@ -573,10 +598,10 @@ impl WrappedTrieChanges {
         level = "debug",
         target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
-        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        fields(num_state_changes = self.state_changes.len(), shard_id = ?self.shard_uid.shard_id()),
         skip_all,
     )]
-    pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
+    pub fn state_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {
         for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
@@ -609,11 +634,7 @@ impl WrappedTrieChanges {
                 ),
             };
 
-            store_update.set(
-                DBCol::StateChanges,
-                storage_key.as_ref(),
-                &borsh::to_vec(&change_with_trie_key).expect("Borsh serialize cannot fail"),
-            );
+            store_update.set_state_changes(storage_key, &change_with_trie_key);
         }
     }
 
@@ -623,12 +644,8 @@ impl WrappedTrieChanges {
         "ShardTries::trie_changes_into",
         skip_all
     )]
-    pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> std::io::Result<()> {
-        store_update.set_ser(
-            DBCol::TrieChanges,
-            &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
-            &self.trie_changes,
-        )
+    pub fn trie_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {
+        store_update.set_trie_changes(self.shard_uid, &self.block_hash, &self.trie_changes)
     }
 }
 
@@ -747,6 +764,7 @@ impl KeyForStateChanges {
 
 #[cfg(test)]
 mod test {
+    use crate::adapter::StoreAdapter;
     use crate::{
         config::TrieCacheConfig, test_utils::create_test_store,
         trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT, TrieConfig,
@@ -769,10 +787,10 @@ mod test {
         };
         let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         )
     }
@@ -887,10 +905,10 @@ mod test {
         let shard_uid = *shard_uids.first().unwrap();
 
         let trie = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::new(store),
+            FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         );
 
@@ -912,34 +930,5 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
-    }
-
-    #[test]
-    fn test_delete_trie_for_shard() {
-        let shard_uid = ShardUId::single_shard();
-        let tries = create_trie();
-
-        let key = CryptoHash::hash_borsh("alice").as_bytes().to_vec();
-        let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
-
-        // insert some data
-        let trie = tries.get_trie_for_shard(shard_uid, CryptoHash::default());
-        let trie_changes = trie.update(vec![(key, Some(val))]).unwrap();
-        let mut store_update = tries.store_update();
-        tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
-
-        // delete trie for shard_uid
-        let mut store_update = tries.store_update();
-        tries.delete_trie_for_shard(shard_uid, &mut store_update);
-        store_update.commit().unwrap();
-
-        // verify if data and caches are deleted
-        assert!(tries.0.caches.lock().unwrap().get(&shard_uid).is_none());
-        assert!(tries.0.view_caches.lock().unwrap().get(&shard_uid).is_none());
-        let store = tries.get_store();
-        let key_prefix = shard_uid.to_bytes();
-        let mut iter = store.iter_prefix(DBCol::State, &key_prefix);
-        assert!(iter.next().is_none());
     }
 }

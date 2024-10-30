@@ -1,4 +1,6 @@
+use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
+use crate::trie::update::TrieUpdateResult;
 use crate::{
     get_account, has_received_data, set, set_access_key, set_account, set_code,
     set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
@@ -138,12 +140,12 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         );
         let mut old_state_update = state_update.take().expect("state update should be set");
         old_state_update.commit(StateChangeCause::InitialState);
-        let (_, trie_changes, state_changes) =
+        let TrieUpdateResult { trie_changes, state_changes, .. } =
             old_state_update.finalize().expect("Genesis state update failed");
         let mut store_update = self.tries.store_update();
         *state_root = self.tries.apply_all(&trie_changes, self.shard_uid, &mut store_update);
         FlatStateChanges::from_state_changes(&state_changes)
-            .apply_to_flat_state(&mut store_update, self.shard_uid);
+            .apply_to_flat_state(&mut store_update.flat_store_update(), self.shard_uid);
         store_update.commit().expect("Store update failed on genesis initialization");
         *state_update = Some(self.tries.new_trie_update(self.shard_uid, *state_root));
         *changes = 0;

@@ -98,7 +98,7 @@ pub struct TestLoopV2 {
     /// The next ID to assign to an event we receive.
     next_event_index: usize,
     /// The current virtual time.
-    current_time: Duration,
+    pub current_time: Duration,
     /// Fake clock that always returns the virtual time.
     clock: near_time::FakeClock,
     /// Shutdown flag. When this flag is true, delayed action runners will no
@@ -242,6 +242,20 @@ impl TestLoopV2 {
         callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
     ) {
         self.pending_events_sender.send(format!("Adhoc({})", description), Box::new(callback));
+    }
+
+    /// Sends any ad-hoc event to the loop, after some delay.
+    pub fn send_adhoc_event_with_delay(
+        &self,
+        description: String,
+        delay: Duration,
+        callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
+    ) {
+        self.pending_events_sender.send_with_delay(
+            format!("Adhoc({})", description),
+            Box::new(callback),
+            delay,
+        );
     }
 
     /// Returns a clock that will always return the current virtual time.
@@ -434,6 +448,9 @@ impl Drop for TestLoopV2 {
     fn drop(&mut self) {
         self.queue_received_events();
         if let Some(event) = self.events.pop() {
+            // Drop any references that may be held by the event callbacks. This can help
+            // with destruction of the data.
+            self.events.clear();
             panic!(
                 "Event scheduled at {} is not handled at the end of the test: {}.
                  Consider calling `test.shutdown_and_drain_remaining_events(...)`.",

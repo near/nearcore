@@ -7,7 +7,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::sharding::{PartialEncodedChunk, ShardChunk};
+use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -33,10 +33,6 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
 
     let first_res = first_store.get(col, key).unwrap();
     let second_res = second_store.get(col, key).unwrap();
-
-    if col == DBCol::PartialChunks {
-        tracing::debug!("{:?}", first_store.get_ser::<PartialEncodedChunk>(col, key));
-    }
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -172,15 +168,6 @@ fn test_storage_after_commit_of_cold_update() {
         }
         false
     }));
-    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
-        if col == DBCol::PartialChunks {
-            let chunk = PartialEncodedChunk::try_from_slice(&*value).unwrap();
-            if *chunk.prev_block() == last_hash {
-                return true;
-            }
-        }
-        false
-    }));
     no_check_rules.push(Box::new(move |col, key, _value| -> bool {
         if col == DBCol::ChunkHashesByHeight {
             let height = u64::from_le_bytes(key[0..8].try_into().unwrap());
@@ -199,10 +186,11 @@ fn test_storage_after_commit_of_cold_update() {
         let cold_store = &storage.get_cold_store().unwrap();
         let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
         // assert that this test actually checks something
-        // apart from StateChangesForSplitStates and StateHeaders, that are empty
+        // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
         assert!(
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
+                || col == DBCol::StateShardUIdMapping
                 || num_checks > 0
         );
     }
@@ -314,15 +302,6 @@ fn test_cold_db_copy_with_height_skips() {
         }
         false
     }));
-    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
-        if col == DBCol::PartialChunks {
-            let chunk = PartialEncodedChunk::try_from_slice(&*value).unwrap();
-            if *chunk.prev_block() == last_hash {
-                return true;
-            }
-        }
-        false
-    }));
 
     for col in DBCol::iter() {
         if col.is_cold() && col != DBCol::ChunkHashesByHeight {
@@ -330,10 +309,11 @@ fn test_cold_db_copy_with_height_skips() {
             let cold_store = storage.get_cold_store().unwrap();
             let num_checks = check_iter(&client_store, &cold_store, col, &no_check_rules);
             // assert that this test actually checks something
-            // apart from StateChangesForSplitStates and StateHeaders, that are empty
+            // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
+                    || col == DBCol::StateShardUIdMapping
                     || num_checks > 0
             );
         }
@@ -383,8 +363,11 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             continue;
         }
         let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
-        // StateChangesForSplitStates and StateHeaders are empty
-        if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
+        // StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping are empty
+        if col == DBCol::StateChangesForSplitStates
+            || col == DBCol::StateHeaders
+            || col == DBCol::StateShardUIdMapping
+        {
             continue;
         }
         // assert that this test actually checks something
@@ -494,7 +477,8 @@ fn test_cold_loop_on_gc_boundary() {
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
-    let epoch_manager = EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
     spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 

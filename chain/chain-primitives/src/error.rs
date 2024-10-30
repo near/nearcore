@@ -1,8 +1,8 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::{EpochError, StorageError};
+use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_time::Utc;
 use std::io;
@@ -185,6 +185,9 @@ pub enum Error {
     /// Invalid Congestion Info
     #[error("Invalid Congestion Info: {0}")]
     InvalidCongestionInfo(String),
+    /// Invalid bandwidth requests
+    #[error("Invalid bandwidth requests - chunk extra doesn't match chunk header: {0}")]
+    InvalidBandwidthRequests(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -199,7 +202,7 @@ pub enum Error {
     InvalidBlockMerkleRoot,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
-    InvalidSplitShardsIds(u64, u64),
+    InvalidSplitShardsIds(ShardId, ShardId),
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator: {0}")]
     NotAValidator(String),
@@ -232,6 +235,15 @@ pub enum Error {
     /// GC error.
     #[error("GC Error: {0}")]
     GCError(String),
+    /// Resharding error.
+    #[error("Resharding Error: {0}")]
+    ReshardingError(String),
+    /// EpochSyncProof validation error.
+    #[error("EpochSyncProof Validation Error: {0}")]
+    InvalidEpochSyncProof(String),
+    /// Invalid chunk header version for protocol version
+    #[error(transparent)]
+    BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -269,6 +281,7 @@ impl Error {
             | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
+            | Error::ReshardingError(_)
             | Error::DBNotFoundErr(_) => false,
             Error::InvalidBlockPastTime(_, _)
             | Error::InvalidBlockFutureTime(_)
@@ -296,6 +309,7 @@ impl Error {
             | Error::MaliciousChallenge
             | Error::IncorrectNumberOfChunkHeaders
             | Error::InvalidEpochHash
+            | Error::InvalidEpochSyncProof(_)
             | Error::InvalidNextBPHash
             | Error::NotEnoughApprovals
             | Error::InvalidFinalityInfo
@@ -307,6 +321,7 @@ impl Error {
             | Error::InvalidGasUsed
             | Error::InvalidBalanceBurnt
             | Error::InvalidCongestionInfo(_)
+            | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
@@ -314,7 +329,8 @@ impl Error {
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
-            | Error::InvalidChallengeRoot => true,
+            | Error::InvalidChallengeRoot
+            | Error::BadHeaderForProtocolVersion(_) => true,
         }
     }
 
@@ -373,6 +389,7 @@ impl Error {
             Error::MaliciousChallenge => "malicious_challenge",
             Error::IncorrectNumberOfChunkHeaders => "incorrect_number_of_chunk_headers",
             Error::InvalidEpochHash => "invalid_epoch_hash",
+            Error::InvalidEpochSyncProof(_) => "invalid_epoch_sync_proof",
             Error::InvalidNextBPHash => "invalid_next_bp_hash",
             Error::NotEnoughApprovals => "not_enough_approvals",
             Error::InvalidFinalityInfo => "invalid_finality_info",
@@ -384,6 +401,7 @@ impl Error {
             Error::InvalidGasUsed => "invalid_gas_used",
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
+            Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
@@ -392,6 +410,8 @@ impl Error {
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
+            Error::ReshardingError(_) => "resharding_error",
+            Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }
 }
@@ -436,6 +456,14 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
             BlockValidityError::InvalidChallengeRoot => Error::InvalidChallengeRoot,
+        }
+    }
+}
+
+impl From<ChunkAccessError> for Error {
+    fn from(error: ChunkAccessError) -> Self {
+        match error {
+            ChunkAccessError::ChunkMissing(chunk_hash) => Error::ChunkMissing(chunk_hash),
         }
     }
 }

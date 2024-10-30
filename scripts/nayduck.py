@@ -184,7 +184,7 @@ def __read_tests(
             line = line.rstrip()
             if line.startswith('./') or (include_comments and
                                          line.startswith('#./')):
-                if depth == 3:
+                if depth == 4:
                     print(f'{filename}:{lineno}: ignoring {line}; '
                           f'would exceed depth limit of {depth}')
                 else:

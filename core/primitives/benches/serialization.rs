@@ -13,7 +13,7 @@ use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{
     Action, SignedTransaction, Transaction, TransactionV0, TransferAction,
 };
-use near_primitives::types::{EpochId, StateRoot};
+use near_primitives::types::{EpochId, ShardId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::MerkleHash;
@@ -39,10 +39,10 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let shard_ids = vec![0];
+    let shard_ids = vec![ShardId::new(0)];
     let genesis_chunks = genesis_chunks(
         vec![StateRoot::new()],
-        vec![Default::default(); shard_ids.len()],
+        vec![Some(Default::default()); shard_ids.len()],
         &shard_ids,
         1_000,
         0,
@@ -65,7 +65,7 @@ fn create_block() -> Block {
         10,
         genesis.header().block_ordinal() + 1,
         vec![genesis.chunks()[0].clone()],
-        vec![],
+        vec![vec![]; shard_ids.len()],
         EpochId::default(),
         EpochId::default(),
         None,

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{io::Read, str::FromStr};
 
 use json_comments::StripComments;
 
@@ -131,6 +131,43 @@ impl ValidationErrors {
                 "\nThe following config checks failed:{}\nPlease fix the config json files and validate again!",
                 self.generate_final_error_message().unwrap()
             )))
+        }
+    }
+}
+
+/// Type of the configuration to download.
+/// Currently used for downloading the `config.json` file for different node types.
+#[derive(Debug, Clone)]
+pub enum DownloadConfigType {
+    /// Validator node configuration.
+    Validator,
+    /// Non-validator RPC node configuration.
+    RPC,
+    /// Non-validator archival node configuration.
+    Archival,
+}
+
+impl ToString for DownloadConfigType {
+    fn to_string(&self) -> String {
+        match self {
+            DownloadConfigType::Validator => "validator".to_string(),
+            DownloadConfigType::RPC => "rpc".to_string(),
+            DownloadConfigType::Archival => "archival".to_string(),
+        }
+    }
+}
+
+impl FromStr for DownloadConfigType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "validator" => Ok(DownloadConfigType::Validator),
+            "rpc" => Ok(DownloadConfigType::RPC),
+            "archival" => Ok(DownloadConfigType::Archival),
+            _ => anyhow::bail!(
+                "Flag download_config must be one of the following: validator, rpc, archival"
+            ),
         }
     }
 }

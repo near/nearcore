@@ -110,6 +110,8 @@ pub enum Parameter {
     WasmStorageReadBase,
     WasmStorageReadKeyByte,
     WasmStorageReadValueByte,
+    WasmStorageLargeReadOverheadBase,
+    WasmStorageLargeReadOverheadByte,
     WasmStorageRemoveBase,
     WasmStorageRemoveKeyByte,
     WasmStorageRemoveRetValueByte,
@@ -218,6 +220,9 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
+
+    // Use the StateStoredReceipt structure when storing receipts in State.
+    UseStateStoredReceipt,
 }
 
 #[derive(

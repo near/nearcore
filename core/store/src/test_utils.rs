@@ -1,7 +1,6 @@
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
-use crate::flat::{
-    store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
-};
+use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
     get, get_delayed_receipt_indices, get_promise_yield_indices, DBCol, NodeStorage, ShardTries,
@@ -9,6 +8,7 @@ use crate::{
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
@@ -123,9 +123,9 @@ impl TestTriesBuilder {
         let shard_uids = (0..self.num_shards)
             .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: self.shard_version })
             .collect::<Vec<_>>();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
-            store.clone(),
+            store.trie_store(),
             TrieConfig {
                 load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
@@ -141,8 +141,7 @@ impl TestTriesBuilder {
                     version: self.shard_version,
                     shard_id: shard_id.try_into().unwrap(),
                 };
-                store_helper::set_flat_storage_status(
-                    &mut store_update,
+                store_update.flat_store_update().set_flat_storage_status(
                     shard_uid,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus {
                         flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
@@ -174,6 +173,7 @@ impl TestTriesBuilder {
                 0,
                 0,
                 congestion_info,
+                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             );
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
@@ -220,17 +220,15 @@ pub fn test_populate_flat_storage(
     prev_block_hash: &CryptoHash,
     changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) {
-    let mut store_update = tries.store_update();
-    store_helper::set_flat_storage_status(
-        &mut store_update,
+    let mut store_update = tries.store().flat_store().store_update();
+    store_update.set_flat_storage_status(
         shard_uid,
         crate::flat::FlatStorageStatus::Ready(FlatStorageReadyStatus {
             flat_head: BlockInfo { hash: *block_hash, prev_hash: *prev_block_hash, height: 1 },
         }),
     );
     for (key, value) in changes {
-        store_helper::set_flat_state_value(
-            &mut store_update,
+        store_update.set(
             shard_uid,
             key.clone(),
             value.as_ref().map(|value| FlatStateValue::on_disk(value)),

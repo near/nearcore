@@ -5,6 +5,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
 use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
+use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, Trie, TrieDBStorage};
 use nearcore::{load_config, open_storage};
 use std::collections::BTreeMap;
@@ -71,8 +72,12 @@ impl ContractSizeStats {
 }
 
 impl AnalyzeContractSizesCommand {
-    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        let mut near_config = load_config(home, GenesisValidationMode::Full).unwrap();
+    pub(crate) fn run(
+        &self,
+        home: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let mut near_config = load_config(home, genesis_validation).unwrap();
         let node_storage = open_storage(&home, &mut near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
@@ -95,7 +100,7 @@ impl AnalyzeContractSizesCommand {
                 chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid).unwrap();
 
             let state_root = chunk_extra.state_root();
-            let trie_storage = Arc::new(TrieDBStorage::new(store.clone(), shard_uid));
+            let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
             let trie = Trie::new(trie_storage, *state_root, None);
 
             let mut iterator = trie.disk_iter().unwrap();

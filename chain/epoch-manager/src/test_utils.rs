@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use near_primitives::types::EpochId;
+use near_primitives::types::ProtocolVersion;
 use near_store::Store;
 use num_rational::Ratio;
 
@@ -48,6 +49,7 @@ pub fn epoch_info(
     accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+    protocol_version: ProtocolVersion,
 ) -> EpochInfo {
     let num_seats = block_producers_settlement.len() as u64;
     epoch_info_with_num_seats(
@@ -60,6 +62,7 @@ pub fn epoch_info(
         Default::default(),
         0,
         num_seats,
+        protocol_version,
     )
 }
 
@@ -73,6 +76,7 @@ pub fn epoch_info_with_num_seats(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     num_seats: NumSeats,
+    protocol_version: ProtocolVersion,
 ) -> EpochInfo {
     let seat_price =
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
@@ -114,7 +118,7 @@ pub fn epoch_info_with_num_seats(
         validator_kickout.into_iter().collect(),
         minted_amount,
         seat_price,
-        PROTOCOL_VERSION,
+        protocol_version,
         TEST_SEED,
         validator_mandates,
     )
@@ -190,8 +194,6 @@ pub fn default_reward_calculator() -> RewardCalculator {
         epoch_length: 1,
         protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }

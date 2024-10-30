@@ -3,7 +3,7 @@ use serde_json::Value;
 pub type RpcValidatorsOrderedResponse =
     Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcValidatorError {
     #[error("Epoch not found")]

@@ -40,6 +40,8 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
 use near_store::TrieStorage;
@@ -66,20 +68,25 @@ pub(crate) fn apply_block(
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let epoch_id = block.header().epoch_id();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+    let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
     if matches!(storage, StorageSource::FlatStorage) {
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
-    let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
-        let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
+    let apply_result = if block.chunks()[shard_index].height_included() == height {
+        let chunk = chain_store.get_chunk(&block.chunks()[shard_index].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
         let chain_store_update = ChainStoreUpdate::new(chain_store);
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 epoch_manager,
                 shard_id,
+                &shard_layout,
                 block_hash,
-                prev_block.chunks()[shard_id as usize].height_included(),
+                prev_block.chunks()[shard_index].height_included(),
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
@@ -108,6 +115,7 @@ pub(crate) fn apply_block(
                     block.header(),
                     prev_block.header().next_gas_price(),
                     prev_block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -133,6 +141,7 @@ pub(crate) fn apply_block(
                     block.header(),
                     block.header().next_gas_price(),
                     prev_block.block_congestion_info(),
+                    prev_block.block_bandwidth_requests(),
                 ),
                 &[],
                 &[],
@@ -156,8 +165,11 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager =
-        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        read_store.clone(),
+        &near_config.genesis.config,
+        Some(home_dir),
+    );
     let runtime =
         NightshadeRuntime::from_config(home_dir, read_store, &near_config, epoch_manager.clone())
             .context("could not create the transaction runtime")?;
@@ -196,7 +208,8 @@ pub(crate) fn apply_chunk(
     target_height: Option<u64>,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -251,8 +264,11 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        read_store.clone(),
+        &near_config.genesis.config,
+        Some(home_dir),
+    );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         read_store.clone(),
@@ -285,7 +301,8 @@ pub(crate) fn apply_receipt(
     hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -311,7 +328,8 @@ pub(crate) fn apply_tx(
     hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<()> {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -346,12 +364,14 @@ pub(crate) fn dump_account_storage(
     } else {
         panic!("block_height should be either number or \"latest\"")
     };
-    let (_, runtime, state_roots, header) =
+    let (epoch_manager, runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
-    for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
-            .unwrap();
+    let epoch_id = header.epoch_id();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+    for (shard_index, state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_layout.get_shard_id(shard_index);
+        let trie =
+            runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
@@ -388,9 +408,11 @@ pub(crate) fn dump_code(
 ) {
     let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     let epoch_id = &epoch_manager.get_epoch_id(header.hash()).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
-    for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
+    for (shard_index, state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
         if let Ok(contract_code) =
             runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
         {
@@ -465,10 +487,10 @@ pub(crate) fn dump_state_redis(
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
         None => LoadTrieMode::Latest,
     };
-    let (_, runtime, state_roots, header) =
+    let (epoch_manager, runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
 
-    let res = state_dump_redis(runtime, &state_roots, header);
+    let res = state_dump_redis(epoch_manager, runtime, &state_roots, header);
     assert_eq!(res, Ok(()));
 }
 
@@ -541,6 +563,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 pub(crate) fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
+    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     show_full_hashes: bool,
@@ -550,7 +573,8 @@ pub(crate) fn print_chain(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     // TODO: Split into smaller functions.
@@ -603,13 +627,14 @@ pub(crate) fn print_chain(
 
                     let mut chunk_debug_str: Vec<String> = Vec::new();
 
-                    for shard_id in 0..header.chunk_mask().len() {
+                    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+                    for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
                         let chunk_producer = epoch_manager
-                            .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
+                            .get_chunk_producer(&epoch_id, header.height(), shard_id)
                             .map(|account_id| account_id.to_string())
                             .unwrap_or_else(|_| "CP Unknown".to_owned());
-                        if header.chunk_mask()[shard_id] {
-                            let chunk_hash = &block.chunks()[shard_id].chunk_hash();
+                        if header.chunk_mask()[shard_index] {
+                            let chunk_hash = &block.chunks()[shard_index].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
                                 chunk_debug_str.push(format!(
                                     "{}: {} {: >3} Tgas {: >10}",
@@ -664,12 +689,14 @@ pub(crate) fn print_chain(
 }
 
 pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
-    let (_, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
-    for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
-            .unwrap();
+    let shard_layout = &epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
+    for (shard_index, state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_layout.get_shard_id(shard_index);
+        let trie =
+            runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
@@ -710,27 +737,16 @@ pub(crate) fn view_chain(
 
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
-    for (i, chunk_header) in block.chunks().iter().enumerate() {
+    for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
-            chunk_extras
-                .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone()));
-            chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone()));
+            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
+            let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
+            chunk_extras.push((shard_id, chunk_extra));
+            chunks.push((shard_id, chunk));
         }
     }
-    let chunk_extras = block
-        .chunks()
-        .iter()
-        .enumerate()
-        .filter_map(|(i, chunk_header)| {
-            if chunk_header.height_included() == block.header().height() {
-                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
-                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).ok()))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
 
     if height.is_none() {
         let head = chain_store.head().unwrap();
@@ -763,7 +779,8 @@ pub(crate) fn view_genesis(
     compare: bool,
 ) {
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime_adapter = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -840,7 +857,7 @@ fn read_genesis_from_store(
     let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
     let genesis_block = chain_store.get_block(&genesis_hash)?;
     let mut genesis_chunks = vec![];
-    for chunk_header in genesis_block.chunks().iter() {
+    for chunk_header in genesis_block.chunks().iter_deprecated() {
         if chunk_header.height_included() == genesis_height {
             genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
         }
@@ -855,7 +872,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
-        for chunk_header in cur_block.chunks().iter() {
+        for chunk_header in cur_block.chunks().iter_deprecated() {
             if chunk_header.height_included() == cur_block.header().height()
                 && chain_store.get_chunk(&chunk_header.chunk_hash()).is_err()
             {
@@ -1093,7 +1110,7 @@ pub(crate) fn print_epoch_analysis(
     }
 }
 
-fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -> Trie {
+fn get_trie(store: TrieStoreAdapter, hash: CryptoHash, shard_id: u32, shard_version: u32) -> Trie {
     let shard_uid = ShardUId { version: shard_version, shard_id };
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
@@ -1102,7 +1119,7 @@ fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -
 }
 
 pub(crate) fn view_trie(
-    store: Store,
+    store: TrieStoreAdapter,
     hash: CryptoHash,
     shard_id: u32,
     shard_version: u32,
@@ -1126,7 +1143,7 @@ pub(crate) fn view_trie(
 }
 
 pub(crate) fn view_trie_leaves(
-    store: Store,
+    store: TrieStoreAdapter,
     state_root_hash: CryptoHash,
     shard_id: u32,
     shard_version: u32,
@@ -1168,14 +1185,13 @@ pub(crate) fn contract_accounts(
 ) -> anyhow::Result<()> {
     let (_, _runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
-    let tries = state_roots.iter().enumerate().map(|(shard_id, &state_root)| {
+    let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
         // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
-        let shard_uid = ShardUId::from_shard_id_and_layout(
-            shard_id as u64,
-            &ShardLayout::get_simple_nightshade_layout(),
-        );
+        let shard_layout = ShardLayout::get_simple_nightshade_layout();
+        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
-        let storage = TrieDBStorage::new(store.clone(), shard_uid);
+        let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
         // We don't need flat state to traverse all accounts.
         let flat_storage_chunk_view = None;
         Trie::new(Arc::new(storage), state_root, flat_storage_chunk_view)
@@ -1225,7 +1241,12 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
     for shard_uid in shard_layout.shard_uids() {
-        print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
+        print_state_stats_for_shard_uid(
+            store.trie_store(),
+            &flat_storage_manager,
+            block_hash,
+            shard_uid,
+        );
     }
 }
 
@@ -1235,7 +1256,7 @@ pub(crate) fn maybe_save_trie_changes(
     genesis_height: u64,
     apply_result: ApplyChunkResult,
     block_height: u64,
-    shard_id: u64,
+    shard_id: ShardId,
 ) -> anyhow::Result<()> {
     if let Some(store) = store {
         let mut chain_store = ChainStore::new(store, genesis_height, false);
@@ -1259,13 +1280,13 @@ pub(crate) fn maybe_print_db_stats(store: Option<Store>) {
 
 /// Prints the state statistics for a single shard.
 fn print_state_stats_for_shard_uid(
-    store: &Store,
+    store: TrieStoreAdapter,
     flat_storage_manager: &FlatStorageManager,
     block_hash: CryptoHash,
     shard_uid: ShardUId,
 ) {
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let trie_storage = TrieDBStorage::new(store, shard_uid);
     let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
 
     let mut state_stats = StateStats::default();
@@ -1311,9 +1332,7 @@ fn get_state_stats_group_by<'a>(
     // the account id.
     let type_iters = COLUMNS_WITH_ACCOUNT_ID_IN_KEY
         .iter()
-        .map(|(type_byte, _)| {
-            chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
-        })
+        .map(|(type_byte, _)| chunk_view.iter_range(Some(&[*type_byte]), Some(&[*type_byte + 1])))
         .into_iter();
 
     // Filter out any errors.
@@ -1516,7 +1535,7 @@ mod tests {
 
         let store = near_store::test_utils::create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             home_dir,
             store.clone(),

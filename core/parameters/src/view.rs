@@ -383,6 +383,11 @@ pub struct ExtCostsConfigView {
     /// Storage trie read value cost per byte cost
     pub storage_read_value_byte: Gas,
 
+    /// Storage trie read key overhead base cost, when doing large reads
+    pub storage_large_read_overhead_base: Gas,
+    /// Storage trie read key overhead  per-byte cost, when doing large reads
+    pub storage_large_read_overhead_byte: Gas,
+
     /// Remove key from trie base cost
     pub storage_remove_base: Gas,
     /// Remove key from trie per byte cost
@@ -522,6 +527,10 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             storage_read_base: config.gas_cost(ExtCosts::storage_read_base),
             storage_read_key_byte: config.gas_cost(ExtCosts::storage_read_key_byte),
             storage_read_value_byte: config.gas_cost(ExtCosts::storage_read_value_byte),
+            storage_large_read_overhead_base: config
+                .gas_cost(ExtCosts::storage_large_read_overhead_base),
+            storage_large_read_overhead_byte: config
+                .gas_cost(ExtCosts::storage_large_read_overhead_byte),
             storage_remove_base: config.gas_cost(ExtCosts::storage_remove_base),
             storage_remove_key_byte: config.gas_cost(ExtCosts::storage_remove_key_byte),
             storage_remove_ret_value_byte: config.gas_cost(ExtCosts::storage_remove_ret_value_byte),
@@ -622,6 +631,8 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::storage_read_base => view.storage_read_base,
                 ExtCosts::storage_read_key_byte => view.storage_read_key_byte,
                 ExtCosts::storage_read_value_byte => view.storage_read_value_byte,
+                ExtCosts::storage_large_read_overhead_base => view.storage_large_read_overhead_base,
+                ExtCosts::storage_large_read_overhead_byte => view.storage_large_read_overhead_byte,
                 ExtCosts::storage_remove_base => view.storage_remove_base,
                 ExtCosts::storage_remove_key_byte => view.storage_remove_key_byte,
                 ExtCosts::storage_remove_ret_value_byte => view.storage_remove_ret_value_byte,

@@ -470,6 +470,13 @@ impl AnyCache {
         }
         Ok(result)
     }
+
+    /// Checks if the cache contains the key without modifying the cache.
+    pub fn contains(&self, key: CryptoHash) -> bool {
+        let Some(cache) = &self.cache else { return false };
+        let guard = cache.lock().unwrap();
+        guard.contains(&key)
+    }
 }
 
 /// Precompiles contract for the current default VM, and stores result to the cache.

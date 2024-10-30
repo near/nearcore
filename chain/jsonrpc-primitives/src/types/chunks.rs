@@ -24,7 +24,7 @@ pub struct RpcChunkResponse {
     pub chunk_view: near_primitives::views::ChunkView,
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcChunkError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -34,6 +34,7 @@ pub enum RpcChunkError {
         #[serde(skip_serializing)]
         error_message: String,
     },
+    // TODO Should use ShardId instead of u64
     #[error("Shard id {shard_id} does not exist")]
     InvalidShardId { shard_id: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]

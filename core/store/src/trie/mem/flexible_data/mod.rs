@@ -1,4 +1,4 @@
-use super::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
+use super::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 
 pub mod children;
 pub mod encoding;
@@ -45,7 +45,7 @@ pub trait FlexibleDataHeader {
     /// slice. This function must be implemented in a way that writes
     /// exactly `self.flexible_data_length()` bytes to the given memory
     /// slice. The caller must ensure that the memory slice is large enough.
-    fn encode_flexible_data<M: ArenaMemory>(
+    fn encode_flexible_data<M: ArenaMemoryMut>(
         &self,
         data: &Self::InputData,
         target: &mut ArenaSliceMut<M>,

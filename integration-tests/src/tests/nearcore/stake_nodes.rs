@@ -19,7 +19,7 @@ use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{load_test_config, start_with_config, NearConfig};
 
@@ -73,8 +73,8 @@ fn init_test_staking(
         // And they are not needed in these tests.
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
-            config.config.tracked_shards = vec![0];
-            config.client_config.tracked_shards = vec![0];
+            config.config.tracked_shards = vec![ShardId::new(0)];
+            config.client_config.tracked_shards = vec![ShardId::new(0)];
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
@@ -604,14 +604,15 @@ fn test_inflation() {
                                 // The validator rewards depend on its uptime; in other words, the more blocks, chunks and endorsements
                                 // it produces the bigger is the reward. 
                                 // In this test the validator produces 10 blocks out 10, 9 chunks out of 10 and 9 endorsements out of 10. 
-                                // Then there's a formula to translate 28/30 successes to a 10/27 reward multiplier.
+                                // Then there's a formula to translate 28/30 successes to a 10/27 reward multiplier
+                                // (using min_online_threshold=9/10 and max_online_threshold=99/100).
                                 //
                                 // For additional details check: chain/epoch-manager/src/reward_calculator.rs or
                                 // https://nomicon.io/Economics/Economic#validator-rewards-calculation 
                                 let protocol_reward = base_reward * 1 / 10;
                                 let validator_reward = base_reward - protocol_reward;
-                                let inflation =
-                                    protocol_reward + validator_reward * 10 / 27;
+                                // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
+                                let inflation = protocol_reward + validator_reward * 20 / 27;
                                 tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
                                 if block.header.total_supply == initial_total_supply + inflation {
                                     done2_copy2.store(true, Ordering::SeqCst);

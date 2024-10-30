@@ -47,7 +47,7 @@ pub struct RpcDebugStatusResponse {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcHealthResponse;
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]

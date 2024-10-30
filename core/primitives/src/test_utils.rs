@@ -7,6 +7,7 @@ use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -542,6 +543,22 @@ impl BlockHeader {
         }
     }
 
+    pub fn set_chunk_endorsements(&mut self, value: ChunkEndorsementsBitmap) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV4(_) => {
+                // BlockHeaderV4 can appear in tests but setting chunk endorsements will be no-op.
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                Arc::make_mut(header).inner_rest.chunk_endorsements = value
+            }
+        }
+    }
+
     pub fn set_prev_outcome_root(&mut self, value: MerkleHash) {
         match self {
             BlockHeader::BlockHeaderV1(_)
@@ -811,7 +828,7 @@ impl TestBlockBuilder {
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
-            self.prev.chunks().iter().cloned().collect(),
+            self.prev.chunks().iter_deprecated().cloned().collect(),
             vec![vec![]; self.prev.chunks().len()],
             self.epoch_id,
             self.next_epoch_id,
@@ -994,7 +1011,7 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         _account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
-        Ok(0)
+        Ok(ShardId::new(0))
     }
 }
 

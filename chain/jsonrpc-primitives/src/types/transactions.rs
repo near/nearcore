@@ -20,6 +20,7 @@ pub struct RpcTransactionStatusRequest {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum TransactionInfo {
     Transaction(SignedTransaction),
     TransactionId { tx_hash: CryptoHash, sender_account_id: AccountId },
@@ -31,7 +32,7 @@ pub enum SignedTransaction {
     SignedTransaction(near_primitives::transaction::SignedTransaction),
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]

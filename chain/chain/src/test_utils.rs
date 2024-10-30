@@ -32,6 +32,7 @@ use tracing::debug;
 
 pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
 pub use self::validator_schedule::ValidatorSchedule;
+use near_async::messaging::{noop, IntoMultiSender};
 
 pub fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
@@ -61,7 +62,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
@@ -76,6 +77,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap()
 }
@@ -145,7 +147,7 @@ pub fn setup_with_tx_validity_period(
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
@@ -160,6 +162,7 @@ pub fn setup_with_tx_validity_period(
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
 
@@ -226,7 +229,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                 }
             );
             if let Some(block) = maybe_block {
-                for chunk_header in block.chunks().iter() {
+                for chunk_header in block.chunks().iter_deprecated() {
                     let chunk_producer = epoch_manager
                         .get_chunk_producer(
                             &epoch_id,

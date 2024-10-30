@@ -24,7 +24,7 @@ pub struct RpcStateChangesInBlockByTypeResponse {
     pub changes: near_primitives::views::StateChangesKindsView,
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]

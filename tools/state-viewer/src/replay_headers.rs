@@ -42,10 +42,11 @@ pub(crate) fn replay_headers(
         start_height.unwrap_or_else(|| chain_store.get_genesis_height());
     let end_height: BlockHeight = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
 
-    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let replay_store = create_replay_store(home_dir, &near_config);
     let epoch_manager_replay =
-        EpochManager::new_arc_handle(replay_store, &near_config.genesis.config);
+        EpochManager::new_arc_handle(replay_store, &near_config.genesis.config, Some(home_dir));
 
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
@@ -228,6 +229,8 @@ fn get_block_info(
         {
             let block = chain_store.get_block(header.hash())?;
             let chunks = block.chunks();
+            let epoch_id = block.header().epoch_id();
+            let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
             let endorsement_signatures = block.chunk_endorsements().to_vec();
             assert_eq!(endorsement_signatures.len(), chunks.len());
@@ -237,12 +240,12 @@ fn get_block_info(
             let height = header.height();
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
-            for chunk_header in chunks.iter() {
-                let shard_id = chunk_header.shard_id();
-                let endorsements = &endorsement_signatures[shard_id as usize];
+            for (shard_index, chunk_header) in chunks.iter_deprecated().enumerate() {
+                let shard_id = shard_layout.get_shard_id(shard_index);
+                let endorsements = &endorsement_signatures[shard_index];
                 if !chunk_header.is_new_chunk(height) {
                     assert_eq!(endorsements.len(), 0);
-                    bitmap.add_endorsements(shard_id, vec![]);
+                    bitmap.add_endorsements(shard_index, vec![]);
                 } else {
                     let assignments = epoch_manager
                         .get_chunk_validator_assignments(
@@ -253,7 +256,7 @@ fn get_block_info(
                         .ordered_chunk_validators();
                     assert_eq!(endorsements.len(), assignments.len());
                     bitmap.add_endorsements(
-                        shard_id,
+                        shard_index,
                         endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
                     );
                 }

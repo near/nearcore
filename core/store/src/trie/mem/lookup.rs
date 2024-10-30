@@ -1,4 +1,4 @@
-use super::arena::STArenaMemory;
+use super::arena::ArenaMemory;
 use super::flexible_data::value::ValueView;
 use super::metrics::MEM_TRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
@@ -6,15 +6,12 @@ use crate::NibbleSlice;
 use near_primitives::hash::CryptoHash;
 use std::sync::Arc;
 
-/// Performs a lookup in an in-memory trie, while taking care of cache
-/// accounting for gas calculation purposes.
-///
 /// If `nodes_accessed` is provided, each trie node along the lookup path
 /// will be added to the vector as (node hash, serialized `RawTrieNodeWithSize`).
 /// Even if the key is not found, the nodes that were accessed to make that
 /// determination will be added to the vector.
-pub fn memtrie_lookup<'a>(
-    root: MemTrieNodePtr<'a, STArenaMemory>,
+pub fn memtrie_lookup<'a, M: ArenaMemory>(
+    root: MemTrieNodePtr<'a, M>,
     key: &[u8],
     mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
 ) -> Option<ValueView<'a>> {

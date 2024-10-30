@@ -191,9 +191,10 @@ def run_test(cluster: Cluster) -> None:
                 logger.error(f'{f} != {b}')
         assert False
 
-    # Since Fred’s in-memory cache is clear, all Barney’s requests are served
-    # from storage.
-    assert_metrics(get_metrics('fred', fred), ('partial/ok',))
+    # Since Fred’s in-memory cache is clear, all Barney’s requests are served from both Hot storage
+    # (using PartialChunks of recent epochs) and Cold storage (using the Chunks of GC'ed epochs).
+    # Thus, we expect that metrics 'partial/ok' and 'chunk/ok' be both non-zero.
+    assert_metrics(get_metrics('fred', fred), ('partial/ok', 'chunk/ok'))
 
 
 if __name__ == '__main__':

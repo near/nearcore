@@ -4,7 +4,7 @@ use near_primitives_core::hash::{hash, CryptoHash};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Hash, ProtocolSchema)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, PartialEq, Eq, Hash, ProtocolSchema)]
 pub struct ValueRef {
     /// Value length in bytes.
     pub length: u32,
@@ -70,13 +70,8 @@ pub enum FlatStateValue {
 }
 
 impl FlatStateValue {
-    /// Defines value size threshold for flat state inlining.
-    /// It means that values having size greater than the threshold will be stored
-    /// in FlatState as `FlatStateValue::Ref`, otherwise the whole value will be
-    /// stored as `FlatStateValue::Inlined`.
-    /// See the following comment for reasoning behind the threshold value:
-    /// <https://github.com/near/nearcore/issues/8243#issuecomment-1523049994>
-    pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
+    pub const INLINE_DISK_VALUE_THRESHOLD: usize =
+        near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 
     pub fn on_disk(value: &[u8]) -> Self {
         if value.len() <= Self::INLINE_DISK_VALUE_THRESHOLD {
@@ -96,7 +91,7 @@ impl FlatStateValue {
 
     pub fn to_value_ref(&self) -> ValueRef {
         match self {
-            Self::Ref(value_ref) => value_ref.clone(),
+            Self::Ref(value_ref) => *value_ref,
             Self::Inlined(value) => ValueRef::new(value),
         }
     }
@@ -105,6 +100,13 @@ impl FlatStateValue {
         match self {
             Self::Ref(value_ref) => value_ref.len(),
             Self::Inlined(value) => value.len(),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Ref(_) => size_of::<Self>(),
+            Self::Inlined(value) => size_of::<Self>() + value.capacity(),
         }
     }
 }
