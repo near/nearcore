@@ -7,6 +7,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 
+use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 
 use super::{ChunkProductionKey, SignatureDifferentiator};
@@ -337,9 +338,8 @@ impl ChunkContractDeploys {
     }
 }
 
-// TODO(#11099): Uncomment below.
-// impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
-// impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
+impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
+impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum PartialEncodedContractDeploys {
@@ -393,8 +393,7 @@ impl PartialEncodedContractDeploysV1 {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = PartialEncodedContractDeploysInner::new(key, part);
-        // TODO(#11099): Call signer here.
-        let signature = Signature::default(); // signer.sign_partial_encoded_contract_deploys(&inner);
+        let signature = signer.sign_partial_encoded_contract_deploys(&inner);
         Self { inner, signature }
     }
 }
