@@ -202,6 +202,114 @@ pub struct ShardLayoutV2 {
     version: ShardVersion,
 }
 
+/// Counterpart to `ShardLayoutV2` composed of maps with string keys to aid
+/// serde serialization.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdeShardLayoutV2 {
+    boundary_accounts: Vec<AccountId>,
+    shard_ids: Vec<ShardId>,
+    id_to_index_map: BTreeMap<String, ShardIndex>,
+    index_to_id_map: BTreeMap<String, ShardId>,
+    shards_split_map: Option<BTreeMap<String, Vec<ShardId>>>,
+    shards_parent_map: Option<BTreeMap<String, ShardId>>,
+    version: ShardVersion,
+}
+
+impl From<&ShardLayoutV2> for SerdeShardLayoutV2 {
+    fn from(layout: &ShardLayoutV2) -> Self {
+        let id_to_index_map =
+            layout.id_to_index_map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+
+        let index_to_id_map =
+            layout.index_to_id_map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+
+        let shards_split_map = layout
+            .shards_split_map
+            .as_ref()
+            .map(|map| map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect());
+
+        let shards_parent_map = layout
+            .shards_parent_map
+            .as_ref()
+            .map(|map| map.iter().map(|(k, v)| (k.to_string(), *v)).collect());
+
+        Self {
+            boundary_accounts: layout.boundary_accounts.clone(),
+            shard_ids: layout.shard_ids.clone(),
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map,
+            shards_parent_map,
+            version: layout.version,
+        }
+    }
+}
+
+impl TryFrom<SerdeShardLayoutV2> for ShardLayoutV2 {
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn try_from(layout: SerdeShardLayoutV2) -> Result<Self, Self::Error> {
+        let id_to_index_map = layout
+            .id_to_index_map
+            .into_iter()
+            .map(|(k, v)| Ok((k.parse::<u64>()?.into(), v)))
+            .collect::<Result<_, Self::Error>>()?;
+
+        let index_to_id_map = layout
+            .index_to_id_map
+            .into_iter()
+            .map(|(k, v)| Ok((k.parse()?, v)))
+            .collect::<Result<_, Self::Error>>()?;
+
+        let shards_split_map = layout
+            .shards_split_map
+            .map(|map| {
+                map.into_iter()
+                    .map(|(k, v)| Ok((k.parse::<u64>()?.into(), v)))
+                    .collect::<Result<_, Self::Error>>()
+            })
+            .transpose()?;
+
+        let shards_parent_map = layout
+            .shards_parent_map
+            .map(|map| {
+                map.into_iter()
+                    .map(|(k, v)| Ok((k.parse::<u64>()?.into(), v)))
+                    .collect::<Result<_, Self::Error>>()
+            })
+            .transpose()?;
+
+        Ok(Self {
+            boundary_accounts: layout.boundary_accounts,
+            shard_ids: layout.shard_ids,
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map,
+            shards_parent_map,
+            version: layout.version,
+        })
+    }
+}
+
+impl serde::Serialize for ShardLayoutV2 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        SerdeShardLayoutV2::from(self).serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ShardLayoutV2 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let serde_layout = SerdeShardLayoutV2::deserialize(deserializer)?;
+        ShardLayoutV2::try_from(serde_layout).map_err(serde::de::Error::custom)
+    }
+}
+
 impl ShardLayoutV2 {
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         // TODO(resharding) - This could be optimized.
@@ -222,176 +330,6 @@ impl ShardLayoutV2 {
 
     pub fn boundary_accounts(&self) -> &Vec<AccountId> {
         &self.boundary_accounts
-    }
-}
-
-// Custom serialization required for handling maps with non-string keys
-impl serde::Serialize for ShardLayoutV2 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-
-        let mut state = serializer.serialize_struct("ShardLayoutV2", 7)?;
-
-        state.serialize_field("boundary_accounts", &self.boundary_accounts)?;
-        state.serialize_field("shard_ids", &self.shard_ids)?;
-
-        let id_to_index_map = self
-            .id_to_index_map
-            .iter()
-            .map(|(k, v)| (k.to_string(), *v))
-            .collect::<BTreeMap<String, _>>();
-        state.serialize_field("id_to_index_map", &id_to_index_map)?;
-
-        let index_to_id_map = self
-            .index_to_id_map
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_owned().into()))
-            .collect::<BTreeMap<String, u64>>();
-        state.serialize_field("index_to_id_map", &index_to_id_map)?;
-
-        let shards_split_map = self.shards_split_map.as_ref().map(|map| {
-            map.iter()
-                .map(|(k, v)| (k.to_string(), v.iter().map(|s| (*s).into()).collect::<Vec<u64>>()))
-                .collect::<BTreeMap<String, _>>()
-        });
-        state.serialize_field("shards_split_map", &shards_split_map)?;
-
-        let shards_parent_map = self.shards_parent_map.as_ref().map(|map| {
-            map.iter().map(|(k, v)| (k.to_string(), (*v).into())).collect::<BTreeMap<String, u64>>()
-        });
-        state.serialize_field("shards_parent_map", &shards_parent_map)?;
-
-        state.serialize_field("version", &self.version)?;
-        state.end()
-    }
-}
-
-const SHARD_LAYOUT_V2_FIELDS: &[&str] = &[
-    "boundary_accounts",
-    "shard_ids",
-    "id_to_index_map",
-    "index_to_id_map",
-    "shards_split_map",
-    "shards_parent_map",
-    "version",
-];
-
-impl<'de> serde::Deserialize<'de> for ShardLayoutV2 {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_struct(
-            "ShardLayoutV2",
-            SHARD_LAYOUT_V2_FIELDS,
-            ShardLayoutV2Visitor,
-        )
-    }
-}
-
-struct ShardLayoutV2Visitor;
-
-impl<'de> serde::de::Visitor<'de> for ShardLayoutV2Visitor {
-    type Value = ShardLayoutV2;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a `ShardLayoutV2` struct")
-    }
-
-    fn visit_map<V>(self, mut map: V) -> Result<ShardLayoutV2, V::Error>
-    where
-        V: serde::de::MapAccess<'de>,
-    {
-        let mut boundary_accounts = None;
-        let mut shard_ids = None;
-        let mut id_to_index_map = None;
-        let mut index_to_id_map = None;
-        let mut shards_split_map = None;
-        let mut shards_parent_map = None;
-        let mut version = None;
-
-        while let Some(key) = map.next_key()? {
-            match key {
-                "boundary_accounts" => {
-                    boundary_accounts = Some(map.next_value()?);
-                }
-                "shard_ids" => {
-                    shard_ids = Some(map.next_value()?);
-                }
-                "id_to_index_map" => {
-                    let m: BTreeMap<String, ShardIndex> = map.next_value()?;
-                    id_to_index_map = Some(
-                        m.into_iter().map(|(k, v)| (k.parse::<u64>().unwrap().into(), v)).collect(),
-                    );
-                }
-                "index_to_id_map" => {
-                    let m: BTreeMap<String, u64> = map.next_value()?;
-                    index_to_id_map =
-                        Some(m.into_iter().map(|(k, v)| (k.parse().unwrap(), v.into())).collect());
-                }
-                "shards_split_map" => {
-                    if let Some(v) = map.next_value()? {
-                        let m: BTreeMap<String, Vec<u64>> = v;
-                        shards_split_map = Some(Some(
-                            m.into_iter()
-                                .map(|(k, v)| {
-                                    (
-                                        k.parse::<u64>().unwrap().into(),
-                                        v.into_iter().map(Into::into).collect(),
-                                    )
-                                })
-                                .collect(),
-                        ));
-                    } else {
-                        shards_split_map = Some(None);
-                    }
-                }
-                "shards_parent_map" => {
-                    if let Some(v) = map.next_value()? {
-                        let m: BTreeMap<String, u64> = v;
-                        shards_parent_map = Some(Some(
-                            m.into_iter()
-                                .map(|(k, v)| (k.parse::<u64>().unwrap().into(), v.into()))
-                                .collect(),
-                        ));
-                    } else {
-                        shards_parent_map = Some(None);
-                    }
-                }
-                "version" => {
-                    version = Some(map.next_value()?);
-                }
-                _ => {
-                    return Err(serde::de::Error::unknown_field(key, SHARD_LAYOUT_V2_FIELDS));
-                }
-            }
-        }
-
-        let boundary_accounts = boundary_accounts
-            .ok_or_else(|| serde::de::Error::missing_field("boundary_accounts"))?;
-        let shard_ids = shard_ids.ok_or_else(|| serde::de::Error::missing_field("shard_ids"))?;
-        let id_to_index_map =
-            id_to_index_map.ok_or_else(|| serde::de::Error::missing_field("id_to_index_map"))?;
-        let index_to_id_map =
-            index_to_id_map.ok_or_else(|| serde::de::Error::missing_field("index_to_id_map"))?;
-        let shards_split_map =
-            shards_split_map.ok_or_else(|| serde::de::Error::missing_field("shards_split_map"))?;
-        let shards_parent_map = shards_parent_map
-            .ok_or_else(|| serde::de::Error::missing_field("shards_parent_map"))?;
-        let version = version.ok_or_else(|| serde::de::Error::missing_field("version"))?;
-
-        Ok(ShardLayoutV2 {
-            boundary_accounts,
-            shard_ids,
-            id_to_index_map,
-            index_to_id_map,
-            shards_split_map,
-            shards_parent_map,
-            version,
-        })
     }
 }
 
