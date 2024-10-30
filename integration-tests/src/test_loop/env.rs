@@ -42,7 +42,7 @@ impl TestLoopEnv {
         test_loop.run_until(
             |test_loop_data| {
                 let client_actor = test_loop_data.get(&client_handle);
-                client_actor.client.chain.head().unwrap().height == genesis_height + 3
+                client_actor.client.chain.head().unwrap().height == genesis_height + 4
             },
             Duration::seconds(5),
         );
@@ -51,7 +51,7 @@ impl TestLoopEnv {
             let event = move |test_loop_data: &mut TestLoopData| {
                 let client_actor = test_loop_data.get(&client_handle);
                 let block =
-                    client_actor.client.chain.get_block_by_height(genesis_height + 2).unwrap();
+                    client_actor.client.chain.get_block_by_height(genesis_height + 3).unwrap();
                 let num_shards = block.header().chunk_mask().len();
                 assert_eq!(block.header().chunk_mask(), vec![true; num_shards]);
             };

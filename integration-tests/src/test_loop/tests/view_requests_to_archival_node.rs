@@ -89,7 +89,7 @@ fn test_view_requests_to_archival_node() {
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
-    let target_height: u64 = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2) + 5;
+    let target_height: u64 = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2) + 6;
     test_loop.run_until(
         |test_loop_data| {
             let chain = &test_loop_data.get(&client_handle).client.chain;
@@ -180,7 +180,7 @@ impl<'a> ViewClientTester<'a> {
             block
         };
 
-        let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(5)));
+        let block_by_height = GetBlock(BlockReference::BlockId(BlockId::Height(6)));
         let block = get_and_check_block(block_by_height);
 
         let block_by_hash =
@@ -207,7 +207,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`BlockHeadersRequest`] request and issues them to the view client of the archival node.
     fn check_get_block_headers(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let headers_request = BlockHeadersRequest(vec![block.header.hash]);
         let headers_response = self.send(headers_request, ARCHIVAL_CLIENT).unwrap();
@@ -216,7 +216,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`GetChunk`] request and issues them to the view client of the archival node.
     fn check_get_chunk(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let mut get_and_check_chunk = |request: GetChunk| {
             let chunk = self.send(request, ARCHIVAL_CLIENT).unwrap();
@@ -224,7 +224,7 @@ impl<'a> ViewClientTester<'a> {
             chunk
         };
 
-        let chunk_by_height = GetChunk::Height(5, ShardId::new(0));
+        let chunk_by_height = GetChunk::Height(6, ShardId::new(0));
         get_and_check_chunk(chunk_by_height);
 
         let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, ShardId::new(0));
@@ -236,14 +236,14 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`GetShardChunk`] request and issues them to the view client of the archival node.
     fn check_get_shard_chunk(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let mut get_and_check_shard_chunk = |request: GetShardChunk| {
             let shard_chunk = self.send(request, ARCHIVAL_CLIENT).unwrap();
             assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
         };
 
-        let chunk_by_height = GetShardChunk::Height(5, ShardId::new(0));
+        let chunk_by_height = GetShardChunk::Height(6, ShardId::new(0));
         get_and_check_shard_chunk(chunk_by_height);
 
         let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, ShardId::new(0));
@@ -255,7 +255,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`GetProtocolConfig`] request and issues them to the view client of the archival node.
     fn check_get_protocol_config(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let mut get_and_check_protocol_config = |request: GetProtocolConfig| {
             let config = self.send(request, ARCHIVAL_CLIENT).unwrap();
@@ -264,7 +264,7 @@ impl<'a> ViewClientTester<'a> {
         };
 
         let protocol_config_by_height =
-            GetProtocolConfig(BlockReference::BlockId(BlockId::Height(5)));
+            GetProtocolConfig(BlockReference::BlockId(BlockId::Height(6)));
         get_and_check_protocol_config(protocol_config_by_height);
 
         let protocol_config_by_hash =
@@ -334,7 +334,7 @@ impl<'a> ViewClientTester<'a> {
         };
 
         let ordered_validators_by_height =
-            GetValidatorOrdered { block_id: Some(BlockId::Height(5)) };
+            GetValidatorOrdered { block_id: Some(BlockId::Height(6)) };
         get_and_check_ordered_validators(ordered_validators_by_height);
 
         let ordered_validators_by_block_hash =
@@ -347,7 +347,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.    
     fn check_get_state_changes_in_block(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let state_changes_in_block = GetStateChangesInBlock { block_hash: block.header.hash };
         let state_changes = self.send(state_changes_in_block, ARCHIVAL_CLIENT).unwrap();
@@ -372,7 +372,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`GetReceipt`] request and issues them to the view client of the archival node.
     fn check_get_execution_outcomes(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let request = GetExecutionOutcomesForBlock { block_hash: block.header.hash };
         let outcomes = self.send(request, ARCHIVAL_CLIENT).unwrap();
@@ -405,7 +405,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the [`GetStateChanges`] request and issues them to the view client of the archival node.
     fn check_get_state_changes(&mut self) {
-        let block = self.get_block_at_height(5);
+        let block = self.get_block_at_height(6);
 
         let accounts = (0..NUM_ACCOUNTS)
             .map(|i| format!("account{}", i).parse().unwrap())
