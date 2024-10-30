@@ -4,7 +4,9 @@ use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV2;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, PartialEncodedContractDeploys,
+};
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitness, MAX_COMPRESSED_STATE_WITNESS_SIZE,
 };
@@ -64,6 +66,16 @@ pub fn validate_partial_encoded_state_witness(
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
 
+    Ok(true)
+}
+
+pub fn validate_partial_encoded_contract_deploys(
+    _epoch_manager: &dyn EpochManagerAdapter,
+    _partial_deploys: &PartialEncodedContractDeploys,
+    _signer: &ValidatorSigner,
+    _store: &Store,
+) -> Result<bool, Error> {
+    // TODO(#11099): implement
     Ok(true)
 }
 
