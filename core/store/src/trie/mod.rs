@@ -888,23 +888,6 @@ impl Trie {
         memory_usage
     }
 
-    fn delete_value(
-        &self,
-        memory: &mut NodesStorage,
-        value: &ValueHandle,
-    ) -> Result<(), StorageError> {
-        match value {
-            ValueHandle::HashAndSize(value) => {
-                self.internal_retrieve_trie_node(&value.hash, true, true)?;
-                memory.refcount_changes.subtract(value.hash, 1);
-            }
-            ValueHandle::InMemory(_) => {
-                // do nothing
-            }
-        }
-        Ok(())
-    }
-
     /// Prints the trie nodes starting from `hash`, up to `max_depth` depth. The node hash can be any node in the trie.
     /// Depending on arguments provided, can limit output to no more than `limit` entries,
     /// show only subtree for a given `record_type`, or skip subtrees where `AccountId` is less than `from` or greater than `to`.
@@ -1623,8 +1606,8 @@ impl Trie {
                 let mut trie_update = guard.update(self.root, true)?;
                 for (key, value) in changes {
                     match value {
-                        Some(arr) => trie_update.insert(&key, arr),
-                        None => trie_update.delete(&key),
+                        Some(arr) => trie_update.insert(&key, arr)?,
+                        None => trie_update.delete(&key)?,
                     }
                 }
                 let (trie_changes, trie_accesses) = trie_update.to_trie_changes();
@@ -1672,7 +1655,12 @@ impl Trie {
                 for (key, value) in changes {
                     let key = NibbleSlice::new(&key);
                     root_node = match value {
-                        Some(arr) => self.insert(&mut memory, root_node, key, arr),
+                        Some(arr) => self.insert(
+                            &mut memory,
+                            root_node,
+                            key,
+                            near_primitives::state::GenericTrieValue::MemtrieAndDisk(arr),
+                        ),
                         None => self.delete(&mut memory, root_node, key),
                     }?;
                 }
