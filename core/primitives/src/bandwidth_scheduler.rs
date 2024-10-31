@@ -199,6 +199,13 @@ pub struct BandwidthRequestBitmap {
     pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],
 }
 
+pub const BANDWIDTH_REQUEST_BITMAP_SIZE: usize = BANDWIDTH_REQUEST_VALUES_NUM / 8;
+const _: () = assert!(
+    BANDWIDTH_REQUEST_VALUES_NUM % 8 == 0,
+    "Every bit in the bitmap should be used. It's wasteful to have unused bits.
+    And having unused bits would require extra validation logic"
+);
+
 impl std::fmt::Debug for BandwidthRequestBitmap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BandwidthRequestBitmap(")?;
@@ -212,13 +219,6 @@ impl std::fmt::Debug for BandwidthRequestBitmap {
         write!(f, ")")
     }
 }
-
-pub const BANDWIDTH_REQUEST_BITMAP_SIZE: usize = BANDWIDTH_REQUEST_VALUES_NUM / 8;
-const _: () = assert!(
-    BANDWIDTH_REQUEST_VALUES_NUM % 8 == 0,
-    "Every bit in the bitmap should be used. It's wasteful to have unused bits.
-    And having unused bits would require extra validation logic"
-);
 
 impl BandwidthRequestBitmap {
     pub fn new() -> BandwidthRequestBitmap {
