@@ -195,7 +195,7 @@ impl PartialWitnessActor {
 
         self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, &signer)?;
 
-        self.distribute_chunk_contract_deploys(
+        self.send_chunk_contract_deploys_parts(
             state_witness.chunk_production_key(),
             contract_deploys,
         )?;
@@ -392,7 +392,7 @@ impl PartialWitnessActor {
     ///
     /// This message may belong to one of two steps of distributing contract code. In the first step the code is compressed
     /// and encoded into parts using Reed Solomon encoding and each port is sent to one of the validators (part owner).
-    /// See `distribute_chunk_contract_deploys` for the code implementing this. In the second step each validator (part-owner)
+    /// See `send_chunk_contract_deploys_parts` for the code implementing this. In the second step each validator (part-owner)
     /// forwards the part it receives to other validators.
     fn handle_partial_encoded_contract_deploys(
         &mut self,
@@ -516,11 +516,14 @@ impl PartialWitnessActor {
     /// are compressed and encoded into parts using Reed Solomon encoding, and then each part is sent to
     /// one of the validators (part-owner). Second step of the distribution, where each validator (part-owner)
     /// forwards the part it receives is implemented in `handle_partial_encoded_contract_deploys`.
-    fn distribute_chunk_contract_deploys(
+    fn send_chunk_contract_deploys_parts(
         &mut self,
         key: ChunkProductionKey,
         contract_deploys: HashSet<CodeHash>,
     ) -> Result<(), Error> {
+        if contract_deploys.is_empty() {
+            return Ok(());
+        }
         let contract_codes = self.retrieve_contract_code(&key, contract_deploys.iter())?;
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contract_codes)?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
