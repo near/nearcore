@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
+use bitvec::order::Lsb0;
+use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
@@ -226,17 +228,15 @@ impl BandwidthRequestBitmap {
     pub fn get_bit(&self, idx: usize) -> bool {
         assert!(idx < self.len());
 
-        (self.data[idx / 8] >> (idx % 8)) & 1 == 1
+        let bit_slice = BitSlice::<_, Lsb0>::from_slice(self.data.as_slice());
+        *bit_slice.get(idx).unwrap()
     }
 
     pub fn set_bit(&mut self, idx: usize, val: bool) {
         assert!(idx < self.len());
 
-        if val {
-            self.data[idx / 8] |= 1 << (idx % 8);
-        } else {
-            self.data[idx / 8] &= !(1 << (idx % 8));
-        }
+        let bit_slice = BitSlice::<_, Lsb0>::from_slice_mut(self.data.as_mut_slice());
+        bit_slice.set(idx, val);
     }
 
     pub fn len(&self) -> usize {
