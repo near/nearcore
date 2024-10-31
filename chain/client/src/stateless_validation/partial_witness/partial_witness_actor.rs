@@ -32,7 +32,7 @@ use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::{get_contract_cache_key, ContractRuntimeCache};
+use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -76,7 +76,7 @@ pub struct DistributeStateWitnessRequest {
     pub epoch_id: EpochId,
     pub chunk_header: ShardChunkHeader,
     pub state_witness: ChunkStateWitness,
-    pub contract_deploys: HashSet<CodeHash>,
+    pub contract_deploys: Vec<ContractCode>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -519,13 +519,14 @@ impl PartialWitnessActor {
     fn send_chunk_contract_deploys_parts(
         &mut self,
         key: ChunkProductionKey,
-        contract_deploys: HashSet<CodeHash>,
+        contract_deploys: Vec<ContractCode>,
     ) -> Result<(), Error> {
         if contract_deploys.is_empty() {
             return Ok(());
         }
-        let contract_codes = self.retrieve_contract_code(&key, contract_deploys.iter())?;
-        let compressed_deploys = ChunkContractDeploys::compress_contracts(&contract_codes)?;
+        let compressed_deploys = ChunkContractDeploys::compress_contracts(
+            contract_deploys.into_iter().map(|contract| contract.take_code().into()).collect(),
+        )?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
         for (part_owner, deploys_part) in validator_parts.into_iter() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

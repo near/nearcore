@@ -1,5 +1,11 @@
-use near_primitives_core::hash::{hash as sha256, CryptoHash};
+use std::fmt::{Debug, Formatter};
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_schema_checker_lib::ProtocolSchema;
+
+use crate::hash::{hash as sha256, CryptoHash};
+
+#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCode {
     code: Vec<u8>,
     hash: CryptoHash,
@@ -27,5 +33,16 @@ impl ContractCode {
 
     pub fn clone_for_tests(&self) -> Self {
         Self { code: self.code.clone(), hash: self.hash }
+    }
+
+    /// Destructs this instance and returns the code.
+    pub fn take_code(self) -> Vec<u8> {
+        self.code
+    }
+}
+
+impl Debug for ContractCode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContractCode").field("hash", &self.hash).finish()
     }
 }

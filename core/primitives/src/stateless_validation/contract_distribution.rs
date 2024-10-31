@@ -1,8 +1,10 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
+use near_primitives_core::code::ContractCode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -309,15 +311,28 @@ impl Into<CryptoHash> for CodeHash {
 
 /// Raw bytes of the (uncompiled) contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct CodeBytes(pub std::sync::Arc<[u8]>);
+pub struct CodeBytes(pub Arc<[u8]>);
+
+impl From<Vec<u8>> for CodeBytes {
+    fn from(code: Vec<u8>) -> Self {
+        Self(code.into())
+    }
+}
 
 /// Contains the accesses and changes (eg. deployments) to the contracts while applying a chunk.
 #[derive(Debug, Default)]
 pub struct ContractUpdates {
     /// Code-hashes of the contracts accessed (called) while applying the chunk.
     pub contract_accesses: HashSet<CodeHash>,
-    /// Code-hashes of the contracts deployed while applying the chunk.
-    pub contract_deploys: HashSet<CodeHash>,
+    /// Contracts deployed while applying the chunk.
+    pub contract_deploys: Vec<ContractCode>,
+}
+
+impl ContractUpdates {
+    /// Returns the code-hashes of the contracts deployed.
+    pub fn contract_deploy_hashes(&self) -> HashSet<CodeHash> {
+        self.contract_deploys.iter().map(|contract| (*contract.hash()).into()).collect()
+    }
 }
 
 // Data structures for chunk producers to send deployed contracts to chunk validators.
@@ -328,7 +343,7 @@ pub struct ChunkContractDeploys {
 }
 
 impl ChunkContractDeploys {
-    pub fn compress_contracts(contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
+    pub fn compress_contracts(contracts: Vec<CodeBytes>) -> std::io::Result<Self> {
         CompressedContractCode::encode(&contracts)
             .map(|(compressed_contracts, _size)| Self { compressed_contracts })
     }

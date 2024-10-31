@@ -19,7 +19,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
-    StoredChunkStateTransitionDataV2,
+    StoredChunkStateTransitionDataV2, StoredChunkStateTransitionDataV3,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -115,8 +115,8 @@ impl Client {
         if !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
                 state_witness.chunk_production_key(),
-                &contract_accesses,
-                &contract_deploys,
+                contract_accesses,
+                contract_deploys.iter().map(|contract| (*contract.hash()).into()).collect(),
                 my_signer.as_ref(),
             );
         }
@@ -294,8 +294,14 @@ impl Client {
                     base_state,
                     receipts_hash,
                     contract_accesses,
+                })
+                | StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    ..
                 }) => (base_state, receipts_hash, contract_accesses, Default::default()),
-                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
                     base_state,
                     receipts_hash,
                     contract_accesses,
@@ -304,7 +310,7 @@ impl Client {
             };
         let contract_updates = ContractUpdates {
             contract_accesses: contract_accesses.into_iter().collect(),
-            contract_deploys: contract_deploys.into_iter().collect(),
+            contract_deploys,
         };
         Ok((
             ChunkStateTransition {
@@ -425,8 +431,8 @@ impl Client {
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,
-        contract_accesses: &HashSet<CodeHash>,
-        contract_deploys: &HashSet<CodeHash>,
+        contract_accesses: HashSet<CodeHash>,
+        contract_deploys: HashSet<CodeHash>,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_validators: HashSet<AccountId> = self
