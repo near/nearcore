@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1342,6 +1342,22 @@ impl ChainStoreAccess for ChainStore {
     }
 }
 
+// Used for storing block headers in a heap that returns the lowest heights first
+#[derive(PartialEq, Eq)]
+struct BlockHeaderByHeight<'a>(&'a BlockHeader);
+
+impl<'a> PartialOrd for BlockHeaderByHeight<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a> Ord for BlockHeaderByHeight<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.0.height().cmp(&self.0.height())
+    }
+}
+
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
@@ -2242,6 +2258,17 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(chain_store_update)
     }
 
+    fn update_sync_hashes(&self, mut headers_by_height: BinaryHeap<BlockHeaderByHeight<'a>>) {
+        while let Some(BlockHeaderByHeight(header)) = headers_by_height.pop() {
+            // We just log the error instead of returning it because an error here is not an error in block processing,
+            // and shouldn't result in us marking the block as having an error
+            if let Err(err) = crate::state_sync::SYNC_TRACKER.get().unwrap().add_block(self, header)
+            {
+                tracing::error!(target: "chain", block_hash=%header.hash(), ?err, "Could not update state sync info after applying block")
+            }
+        }
+    }
+
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
@@ -2283,12 +2310,13 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> =
                 HashMap::new();
+            let mut headers_by_height = BinaryHeap::new();
             for (hash, header) in self.chain_store_cache_update.headers.iter() {
                 if self.chain_store.get_block_header(hash).is_ok() {
                     // No need to add same Header once again
                     continue;
                 }
-
+                headers_by_height.push(BlockHeaderByHeight(header));
                 header_hashes_by_height
                     .entry(header.height())
                     .or_insert_with(|| {
@@ -2299,6 +2327,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     .insert(*hash);
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
             }
+            self.update_sync_hashes(headers_by_height);
             for (height, hash_set) in header_hashes_by_height {
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,

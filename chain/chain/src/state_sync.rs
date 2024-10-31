@@ -51,7 +51,11 @@ impl NewChunkTracker {
     /// If the sync hash is not already found, adds this block's hash and the number of new
     /// chunks seen so far to self.num_new_chunks. This also removes any state associated with blocks
     /// before the last final block, which keeps the memory usage bounded.
-    fn add_block(&mut self, chain_store: &ChainStore, header: &BlockHeader) -> Result<(), Error> {
+    fn add_block<T: ChainStoreAccess>(
+        &mut self,
+        chain_store: &T,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
         if self.sync_hash.is_some() {
             return Ok(());
         }
@@ -110,9 +114,9 @@ struct SyncHashTrackerInner(HashMap<EpochId, NewChunkTracker>);
 impl SyncHashTrackerInner {
     /// Finds the sync hash for the given epoch if it already exists in our chain. Otherwise
     /// initializes all the state necessary to find it later as we add blocks to the chain.
-    fn init_epoch(
+    fn init_epoch<T: ChainStoreAccess>(
         &mut self,
-        chain_store: &ChainStore,
+        chain_store: &T,
         epoch_first_block: &CryptoHash,
     ) -> Result<(), Error> {
         let mut tracker = NewChunkTracker::default();
@@ -173,7 +177,11 @@ impl SyncHashTrackerInner {
         self.0.get(epoch_id).map(|tracker| tracker.sync_hash).flatten()
     }
 
-    fn add_block(&mut self, chain_store: &ChainStore, header: &BlockHeader) -> Result<(), Error> {
+    fn add_block<T: ChainStoreAccess>(
+        &mut self,
+        chain_store: &T,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "SyncHashTracker::add_block").entered();
 
         let tracker = self.0.entry(*header.epoch_id()).or_default();
@@ -228,7 +236,11 @@ impl SyncHashTracker {
 
     /// This should be called when a new block is added to the chain. If the StateSyncHashUpdate feature
     /// is enabled, it adds the current block's new chunks to the number of new chunks per shard for that epoch.
-    pub fn add_block(&self, chain_store: &ChainStore, header: &BlockHeader) -> Result<(), Error> {
+    pub fn add_block<T: ChainStoreAccess>(
+        &self,
+        chain_store: &T,
+        header: &BlockHeader,
+    ) -> Result<(), Error> {
         self.0.write().unwrap().add_block(chain_store, header)?;
         Ok(())
     }
