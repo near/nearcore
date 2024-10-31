@@ -158,9 +158,9 @@ pub fn load_trie_from_flat_state_and_delta(
             for (key, value) in changes.0 {
                 match value {
                     Some(value) => {
-                        trie_update.insert_memtrie_only(&key, value);
+                        trie_update.insert_memtrie_only(&key, value)?;
                     }
-                    None => trie_update.delete(&key),
+                    None => trie_update.delete(&key)?,
                 };
             }
 
