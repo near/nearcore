@@ -15,7 +15,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{ShardId, ShardIndex};
+use near_primitives_core::types::ShardIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
@@ -142,7 +142,7 @@ fn genesis_chunk(
     genesis_protocol_version: u32,
     genesis_height: u64,
     initial_gas_limit: u64,
-    shard_id: ShardId,
+    shard_id: crate::types::ShardId,
     state_root: CryptoHash,
     congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
