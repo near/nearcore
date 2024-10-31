@@ -2020,7 +2020,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     contract_accesses: contract_accesses.into_iter().collect(),
-                    contract_deploys: contract_deploys.into_iter().collect(),
+                    contract_deploys: contract_deploys.into_iter().map(|c| c.into()).collect(),
                 }),
             );
         }

@@ -310,7 +310,7 @@ impl Client {
             };
         let contract_updates = ContractUpdates {
             contract_accesses: contract_accesses.into_iter().collect(),
-            contract_deploys,
+            contract_deploys: contract_deploys.into_iter().map(|c| c.into()).collect(),
         };
         Ok((
             ChunkStateTransition {

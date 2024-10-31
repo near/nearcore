@@ -1,9 +1,9 @@
 use crate::challenge::PartialState;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::{code::ContractCode, hash::CryptoHash};
+use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
 
-use super::contract_distribution::CodeHash;
+use super::contract_distribution::{CodeBytes, CodeHash};
 
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
@@ -62,5 +62,5 @@ pub struct StoredChunkStateTransitionDataV3 {
     /// The code-hashes of the contracts that are accessed (called) during the state transition.
     pub contract_accesses: Vec<CodeHash>,
     /// Contracts that are deployed during the state transition.
-    pub contract_deploys: Vec<ContractCode>,
+    pub contract_deploys: Vec<CodeBytes>,
 }

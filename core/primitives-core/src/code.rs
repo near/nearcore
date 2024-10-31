@@ -1,11 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_schema_checker_lib::ProtocolSchema;
-
 use crate::hash::{hash as sha256, CryptoHash};
 
-#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCode {
     code: Vec<u8>,
     hash: CryptoHash,
