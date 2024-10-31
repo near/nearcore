@@ -13,8 +13,8 @@ use crate::stateless_validation::chunk_endorsement::{
     ChunkEndorsementInner, ChunkEndorsementMetadata,
 };
 use crate::stateless_validation::contract_distribution::{
-    ChunkContractAccessesInner, ChunkContractDeploymentsInner, ContractCodeRequestInner,
-    ContractCodeResponseInner,
+    ChunkContractAccessesInner, ContractCodeRequestInner, ContractCodeResponseInner,
+    PartialEncodedContractDeploysInner,
 };
 use crate::stateless_validation::partial_witness::PartialEncodedStateWitnessInner;
 use crate::stateless_validation::state_witness::EncodedChunkStateWitness;
@@ -158,14 +158,15 @@ impl ValidatorSigner {
         }
     }
 
-    /// Signs the inner contents of a ChunkContractDeployments message.
-    pub fn sign_chunk_contract_deployments(
+    pub fn sign_partial_encoded_contract_deploys(
         &self,
-        inner: &ChunkContractDeploymentsInner,
+        inner: &PartialEncodedContractDeploysInner,
     ) -> Signature {
         match self {
-            ValidatorSigner::Empty(signer) => signer.sign_chunk_contract_deployments(inner),
-            ValidatorSigner::InMemory(signer) => signer.sign_chunk_contract_deployments(inner),
+            ValidatorSigner::Empty(signer) => signer.sign_partial_encoded_contract_deploys(inner),
+            ValidatorSigner::InMemory(signer) => {
+                signer.sign_partial_encoded_contract_deploys(inner)
+            }
         }
     }
 
@@ -317,7 +318,10 @@ impl EmptyValidatorSigner {
         Signature::default()
     }
 
-    fn sign_chunk_contract_deployments(&self, _inner: &ChunkContractDeploymentsInner) -> Signature {
+    fn sign_partial_encoded_contract_deploys(
+        &self,
+        _inner: &PartialEncodedContractDeploysInner,
+    ) -> Signature {
         Signature::default()
     }
 
@@ -437,7 +441,10 @@ impl InMemoryValidatorSigner {
         self.signer.sign(&borsh::to_vec(inner).unwrap())
     }
 
-    fn sign_chunk_contract_deployments(&self, inner: &ChunkContractDeploymentsInner) -> Signature {
+    fn sign_partial_encoded_contract_deploys(
+        &self,
+        inner: &PartialEncodedContractDeploysInner,
+    ) -> Signature {
         self.signer.sign(&borsh::to_vec(inner).unwrap())
     }
 

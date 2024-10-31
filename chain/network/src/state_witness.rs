@@ -1,7 +1,7 @@
 use near_async::messaging::Sender;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeployments, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
@@ -24,11 +24,10 @@ pub struct PartialEncodedStateWitnessForwardMessage(pub PartialEncodedStateWitne
 #[rtype(result = "()")]
 pub struct ChunkContractAccessesMessage(pub ChunkContractAccesses);
 
-/// Message to partial witness actor (on a chunk validator) that contains code-hashes of
-/// the contracts that are deployed when applying the previous chunk.
+/// Message to partial witness actor that contains part of code for newly-deployed contracts.
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkContractDeploymentsMessage(pub ChunkContractDeployments);
+pub struct PartialEncodedContractDeploysMessage(pub PartialEncodedContractDeploys);
 
 /// Message to partial witness actor (on a chunk producer) that requests contract code
 /// by their code hashes.
@@ -50,7 +49,7 @@ pub struct PartialWitnessSenderForNetwork {
     pub partial_encoded_state_witness: Sender<PartialEncodedStateWitnessMessage>,
     pub partial_encoded_state_witness_forward: Sender<PartialEncodedStateWitnessForwardMessage>,
     pub chunk_contract_accesses: Sender<ChunkContractAccessesMessage>,
-    pub chunk_contract_deploys: Sender<ChunkContractDeploymentsMessage>,
     pub contract_code_request: Sender<ContractCodeRequestMessage>,
     pub contract_code_response: Sender<ContractCodeResponseMessage>,
+    pub partial_encoded_contract_deploys: Sender<PartialEncodedContractDeploysMessage>,
 }

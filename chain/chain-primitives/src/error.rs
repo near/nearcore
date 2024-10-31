@@ -2,7 +2,7 @@ use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_time::Utc;
 use std::io;
@@ -241,6 +241,9 @@ pub enum Error {
     /// EpochSyncProof validation error.
     #[error("EpochSyncProof Validation Error: {0}")]
     InvalidEpochSyncProof(String),
+    /// Invalid chunk header version for protocol version
+    #[error(transparent)]
+    BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -326,7 +329,8 @@ impl Error {
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
-            | Error::InvalidChallengeRoot => true,
+            | Error::InvalidChallengeRoot
+            | Error::BadHeaderForProtocolVersion(_) => true,
         }
     }
 
@@ -407,6 +411,7 @@ impl Error {
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
+            Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }
 }

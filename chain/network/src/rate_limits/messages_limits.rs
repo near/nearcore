@@ -181,9 +181,9 @@ pub enum RateLimitedPeerMessageKey {
     PartialEncodedStateWitness,
     PartialEncodedStateWitnessForward,
     ChunkContractAccesses,
-    ChunkContractDeployments,
     ContractCodeRequest,
     ContractCodeResponse,
+    PartialEncodedContractDeploys,
     EpochSyncRequest,
 }
 
@@ -233,9 +233,11 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 Some((PartialEncodedStateWitnessForward, 1))
             }
             RoutedMessageBody::ChunkContractAccesses(_) => Some((ChunkContractAccesses, 1)),
-            RoutedMessageBody::ChunkContractDeployments(_) => Some((ChunkContractDeployments, 1)),
             RoutedMessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),
             RoutedMessageBody::ContractCodeResponse(_) => Some((ContractCodeResponse, 1)),
+            RoutedMessageBody::PartialEncodedContractDeploys(_) => {
+                Some((PartialEncodedContractDeploys, 1))
+            }
             RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
             RoutedMessageBody::_UnusedEpochSyncRequest => None,
             RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,

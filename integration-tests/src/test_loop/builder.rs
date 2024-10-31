@@ -546,8 +546,8 @@ impl TestLoopBuilder {
         let shard_tracker =
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
-        let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
-            .expect("filesystem contract cache");
+        let contract_cache =
+            FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
             &homedir,
             store.clone(),
