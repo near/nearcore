@@ -412,7 +412,7 @@ impl PartialWitnessActor {
         let key = partial_deploys.chunk_production_key().clone();
         let validators = self.ordered_contract_deploys_validators(&key)?;
 
-        // Forward if my part
+        // Forward to other validators if the part received is my part
         let signer = self.my_validator_signer()?;
         let my_account_id = signer.validator_id();
         let my_part_ord = validators
@@ -420,14 +420,14 @@ impl PartialWitnessActor {
             .position(|validator| validator == my_account_id)
             .expect("expected to be validated");
         if partial_deploys.part().part_ord == my_part_ord {
-            let target_validators = validators
+            let other_validators = validators
                 .iter()
                 .filter(|&validator| validator != my_account_id)
                 .cloned()
                 .collect_vec();
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(
-                    target_validators,
+                    other_validators,
                     partial_deploys.clone(),
                 ),
             ));
@@ -524,9 +524,9 @@ impl PartialWitnessActor {
         let contract_codes = self.retrieve_contract_code(&key, contract_deploys.iter())?;
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contract_codes)?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
-        for (validator, deploys_part) in validator_parts.into_iter() {
+        for (part_owner, deploys_part) in validator_parts.into_iter() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedContractDeploys(vec![validator], deploys_part),
+                NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
             ));
         }
         Ok(())
