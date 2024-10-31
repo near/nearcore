@@ -10,6 +10,31 @@ use near_crypto::Signature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 
+/// Versioned enum for EpochSyncProof. Because this structure is sent over the network and also
+/// persisted on disk, we want it to be deserializable even if the structure changes in the future.
+/// There's no guarantee that there's any compatibility (most likely not), but being able to
+/// deserialize it will allow us to modify the code in the future to properly perform any upgrades.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum EpochSyncProof {
+    V1(EpochSyncProofV1),
+}
+
+impl EpochSyncProof {
+    /// Right now this would never fail, but in the future this API can be changed.
+    pub fn into_v1(self) -> EpochSyncProofV1 {
+        match self {
+            EpochSyncProof::V1(v1) => v1,
+        }
+    }
+
+    /// Right now this would never fail, but in the future this API can be changed.
+    pub fn as_v1(&self) -> &EpochSyncProofV1 {
+        match self {
+            EpochSyncProof::V1(v1) => v1,
+        }
+    }
+}
+
 /// Proof that the blockchain history had progressed from the genesis to the
 /// current epoch indicated in the proof.
 ///
@@ -18,8 +43,8 @@ use std::fmt::Debug;
 ///   - H: The last final block of the epoch
 ///   - H + 1: The second last block of the epoch
 ///   - H + 2: The last block of the epoch
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct EpochSyncProof {
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofV1 {
     /// All the relevant epochs, starting from the second epoch after genesis (i.e. genesis is
     /// epoch EpochId::default, and then the next epoch after genesis is fully determined by
     /// the genesis; after that would be the first epoch included here), to and including the
@@ -64,7 +89,7 @@ impl Debug for CompressedEpochSyncProof {
 }
 
 /// Data needed for each epoch covered in the epoch sync proof.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSyncProofEpochData {
     /// The block producers and their stake, for this epoch. This is verified
     /// against the `next_bp_hash` of the `last_final_block_header` of the epoch before this.
@@ -108,7 +133,7 @@ pub struct EpochSyncProofEpochData {
 }
 
 /// Data needed to initialize the epoch sync boundary.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSyncProofLastEpochData {
     /// The following six fields are used to derive the epoch_sync_data_hash included in any
     /// BlockHeaderV3. This is used to verify all the data we need around the epoch sync
@@ -122,7 +147,7 @@ pub struct EpochSyncProofLastEpochData {
 }
 
 /// Data needed to initialize the current epoch we're syncing to.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSyncProofCurrentEpochData {
     /// The first block header that begins the epoch. It is proven using a merkle proof
     /// against `last_final_block_header` in the current epoch data. Note that we cannot
