@@ -142,6 +142,14 @@ pub struct BandwidthRequestValues {
     pub values: [Bandwidth; BANDWIDTH_REQUEST_VALUES_NUM],
 }
 
+/// Performs linear interpolation between min and max.
+/// interpolate(100, 200, 0, 10) = 100
+/// interpolate(100, 200, 5, 10) = 150
+/// interpolate(100, 200, 10, 10) = 200
+fn interpolate(min: u64, max: u64, i: u64, n: u64) -> u64 {
+    min + (max - min) * i / n
+}
+
 impl BandwidthRequestValues {
     pub fn new(params: &BandwidthSchedulerParams) -> BandwidthRequestValues {
         // values[-1] = base_bandwidth
@@ -154,8 +162,12 @@ impl BandwidthRequestValues {
         for i in 0..values.len() {
             let i_u64: u64 = i.try_into().expect("Converting usize to u64 shouldn't fail");
 
-            values[i] = params.base_bandwidth
-                + (params.max_shard_bandwidth - params.base_bandwidth) * (i_u64 + 1) / values_len;
+            values[i] = interpolate(
+                params.base_bandwidth,
+                params.max_shard_bandwidth,
+                i_u64 + 1,
+                values_len,
+            );
         }
 
         // The value that is closest to max_receipt_size is set to max_receipt_size.
@@ -339,7 +351,7 @@ mod tests {
     use near_parameters::RuntimeConfig;
     use rand::{Rng, SeedableRng};
 
-    use crate::bandwidth_scheduler::BANDWIDTH_REQUEST_VALUES_NUM;
+    use crate::bandwidth_scheduler::{interpolate, BANDWIDTH_REQUEST_VALUES_NUM};
 
     use super::{
         BandwidthRequest, BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams,
@@ -611,5 +623,12 @@ mod tests {
         }
 
         Some(request)
+    }
+
+    #[test]
+    fn test_interpolate() {
+        assert_eq!(interpolate(100, 200, 0, 10), 100);
+        assert_eq!(interpolate(100, 200, 5, 10), 150);
+        assert_eq!(interpolate(100, 200, 10, 10), 200);
     }
 }
