@@ -444,16 +444,12 @@ impl Client {
             epoch_manager.clone(),
             chain.chain_store().store().clone(),
         );
-        // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
-        let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
-            && config.chain_id != near_primitives::chains::TESTNET;
         let chunk_validator = ChunkValidator::new(
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
-            panic_on_validation_error,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
