@@ -21,7 +21,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::{
     CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
-    EpochSyncProofEpochData, EpochSyncProofLastEpochData,
+    EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
@@ -63,7 +63,8 @@ impl EpochSync {
     ) -> Self {
         let epoch_sync_proof_we_used_to_bootstrap = store
             .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-            .expect("IO error querying epoch sync proof");
+            .expect("IO error querying epoch sync proof")
+            .map(|proof| proof.into_v1());
         let my_own_epoch_sync_boundary_block_header = epoch_sync_proof_we_used_to_bootstrap
             .map(|proof| proof.current_epoch.first_block_header_in_epoch);
 
@@ -223,8 +224,9 @@ impl EpochSync {
         // If we have an existing (possibly and likely outdated) EpochSyncProof stored on disk,
         // the last epoch we have a proof for is the "previous epoch" included in that EpochSyncProof.
         // Otherwise, the last epoch we have a "proof" for is the genesis epoch.
-        let existing_epoch_sync_proof =
-            store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?;
+        let existing_epoch_sync_proof = store
+            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?
+            .map(|proof| proof.into_v1());
         let last_epoch_we_have_proof_for = existing_epoch_sync_proof
             .as_ref()
             .and_then(|existing_proof| {
@@ -242,7 +244,7 @@ impl EpochSync {
         // If the proof we stored is for the same epoch as current or older, then just return that.
         if current_epoch_info.epoch_height() <= last_epoch_height_we_have_proof_for {
             if let Some(existing_proof) = existing_epoch_sync_proof {
-                return Ok(existing_proof);
+                return Ok(EpochSyncProof::V1(existing_proof));
             }
             // Corner case for if the current epoch is genesis or right after genesis.
             return Err(Error::Other("Not enough epochs after genesis to epoch sync".to_string()));
@@ -340,7 +342,7 @@ impl EpochSync {
             .into_iter()
             .chain(all_epochs_since_last_proof.into_iter())
             .collect();
-        let proof = EpochSyncProof {
+        let proof = EpochSyncProofV1 {
             all_epochs: all_epochs_including_old_proof,
             last_epoch: EpochSyncProofLastEpochData {
                 epoch_info: prev_epoch_info,
@@ -360,7 +362,7 @@ impl EpochSync {
             },
         };
 
-        Ok(proof)
+        Ok(EpochSyncProof::V1(proof))
     }
 
     /// Get all the past epoch data needed for epoch sync, between `after_epoch` and `next_epoch`
@@ -646,6 +648,7 @@ impl EpochSync {
         source_peer: PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
+        let proof = proof.into_v1();
         if let SyncStatus::EpochSync(status) = status {
             if status.source_peer_id != source_peer {
                 tracing::warn!("Ignoring epoch sync proof from unexpected peer: {}", source_peer);
@@ -688,7 +691,9 @@ impl EpochSync {
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
         // to faciliate epoch sync of other nodes.
+        let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
         store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
+        let proof = proof.into_v1();
 
         let last_header = proof.current_epoch.first_block_header_in_epoch;
         let mut update = chain.mut_chain_store().store_update();
@@ -770,10 +775,10 @@ impl EpochSync {
 
     fn verify_proof(
         &self,
-        proof: &EpochSyncProof,
+        proof: &EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
-        let EpochSyncProof { all_epochs, last_epoch, current_epoch } = proof;
+        let EpochSyncProofV1 { all_epochs, last_epoch, current_epoch } = proof;
         if all_epochs.len() < 2 {
             return Err(Error::InvalidEpochSyncProof(
                 "need at least two epochs in all_epochs".to_string(),

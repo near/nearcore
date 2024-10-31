@@ -349,6 +349,7 @@ fn sanity_check_epoch_sync_proof(
     // epochs ago, i.e. the current epoch's previous previous epoch.
     expected_epochs_ago: u64,
 ) {
+    let proof = proof.as_v1();
     let epoch_height_of_final_block =
         (final_head_height - genesis_config.genesis_height - 1) / genesis_config.epoch_length + 1;
     let expected_current_epoch_height = epoch_height_of_final_block - expected_epochs_ago;
