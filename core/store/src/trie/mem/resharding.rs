@@ -346,7 +346,7 @@ mod tests {
         let mut memtries = MemTries::new(ShardUId::single_shard());
         let mut update = memtries.update(Trie::EMPTY_ROOT, false).unwrap();
         for (key, value) in initial_entries {
-            update.insert(&key, value);
+            update.insert(&key, value).unwrap();
         }
         let memtrie_changes = update.to_mem_trie_changes_only();
         let state_root = memtries.apply_memtrie_changes(0, &memtrie_changes);
