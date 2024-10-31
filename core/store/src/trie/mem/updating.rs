@@ -19,7 +19,7 @@ use crate::trie::{
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::{FlatStateValue, ValueUpdate};
+use near_primitives::state::{FlatStateValue, GenericTrieValue};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -200,7 +200,7 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     ) -> GenericUpdatedTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>;
 
     /// Stores a state value in the trie.
-    fn generic_store_value(&mut self, value: ValueUpdate) -> GenericValueHandle;
+    fn generic_store_value(&mut self, value: GenericTrieValue) -> GenericValueHandle;
 
     /// Deletes a state value from the trie.
     fn generic_delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
@@ -345,18 +345,18 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
         Ok(())
     }
 
-    fn generic_store_value(&mut self, value: ValueUpdate) -> FlatStateValue {
+    fn generic_store_value(&mut self, value: GenericTrieValue) -> FlatStateValue {
         // First, set the value which will be stored in memtrie.
         let flat_value = match &value {
-            ValueUpdate::MemtrieOnly(value) => return value.clone(),
-            ValueUpdate::MemtrieAndDisk(value) => FlatStateValue::on_disk(value.as_slice()),
+            GenericTrieValue::MemtrieOnly(value) => return value.clone(),
+            GenericTrieValue::MemtrieAndDisk(value) => FlatStateValue::on_disk(value.as_slice()),
         };
 
         // Then, record disk changes if needed.
         let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() else {
             return flat_value;
         };
-        let ValueUpdate::MemtrieAndDisk(value) = value else {
+        let GenericTrieValue::MemtrieAndDisk(value) = value else {
             return flat_value;
         };
         tracked_node_changes
@@ -499,8 +499,8 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for NodesStorage
         trie.squash_node(self, StorageHandle(index))
     }
 
-    fn generic_store_value(&mut self, value: ValueUpdate) -> ValueHandle {
-        let ValueUpdate::MemtrieAndDisk(value) = value else {
+    fn generic_store_value(&mut self, value: GenericTrieValue) -> ValueHandle {
+        let GenericTrieValue::MemtrieAndDisk(value) = value else {
             unimplemented!(
                 "NodesStorage for Trie doesn't support value {value:?} \
                 because disk updates must be generated."
@@ -614,7 +614,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
     /// Inserts the given key value pair into the trie.
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) -> Result<(), StorageError> {
-        self.insert_impl(key, ValueUpdate::MemtrieAndDisk(value))
+        self.insert_impl(key, GenericTrieValue::MemtrieAndDisk(value))
     }
 
     /// Inserts the given key value pair into the trie, but the value may be a reference.
@@ -624,7 +624,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         key: &[u8],
         value: FlatStateValue,
     ) -> Result<(), StorageError> {
-        self.insert_impl(key, ValueUpdate::MemtrieOnly(value))
+        self.insert_impl(key, GenericTrieValue::MemtrieOnly(value))
     }
 
     /// Insertion logic. We descend from the root down to whatever node corresponds to
@@ -632,7 +632,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// the way to achieve that. This takes care of refcounting changes for existing
     /// nodes as well as values, but will not yet increment refcount for any newly
     /// created nodes - that's done at the end.
-    fn insert_impl(&mut self, key: &[u8], value: ValueUpdate) -> Result<(), StorageError> {
+    fn insert_impl(&mut self, key: &[u8], value: GenericTrieValue) -> Result<(), StorageError> {
         let mut node_id = 0; // root
         let mut partial = NibbleSlice::new(key);
 

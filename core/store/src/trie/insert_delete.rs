@@ -8,7 +8,7 @@ use crate::trie::{
 use crate::{StorageError, Trie, TrieChanges};
 use borsh::BorshSerialize;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::{ValueRef, ValueUpdate};
+use near_primitives::state::{GenericTrieValue, ValueRef};
 
 pub(crate) struct NodesStorage<'a> {
     nodes: Vec<Option<TrieNodeWithSize>>,
@@ -87,7 +87,7 @@ impl Trie {
         memory: &mut NodesStorage,
         node: StorageHandle,
         partial: NibbleSlice<'_>,
-        value: ValueUpdate,
+        value: GenericTrieValue,
     ) -> Result<StorageHandle, StorageError> {
         let root_handle = node;
         let mut handle = node;

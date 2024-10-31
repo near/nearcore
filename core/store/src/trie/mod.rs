@@ -1659,7 +1659,7 @@ impl Trie {
                             &mut memory,
                             root_node,
                             key,
-                            near_primitives::state::ValueUpdate::MemtrieAndDisk(arr),
+                            near_primitives::state::GenericTrieValue::MemtrieAndDisk(arr),
                         ),
                         None => self.delete(&mut memory, root_node, key),
                     }?;
