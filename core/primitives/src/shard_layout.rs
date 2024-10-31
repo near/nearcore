@@ -217,29 +217,21 @@ struct SerdeShardLayoutV2 {
 
 impl From<&ShardLayoutV2> for SerdeShardLayoutV2 {
     fn from(layout: &ShardLayoutV2) -> Self {
-        let id_to_index_map =
-            layout.id_to_index_map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
-
-        let index_to_id_map =
-            layout.index_to_id_map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
-
-        let shards_split_map = layout
-            .shards_split_map
-            .as_ref()
-            .map(|map| map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect());
-
-        let shards_parent_map = layout
-            .shards_parent_map
-            .as_ref()
-            .map(|map| map.iter().map(|(k, v)| (k.to_string(), *v)).collect());
+        fn key_to_string<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<String, V>
+        where
+            K: std::fmt::Display,
+            V: Clone,
+        {
+            map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        }
 
         Self {
             boundary_accounts: layout.boundary_accounts.clone(),
             shard_ids: layout.shard_ids.clone(),
-            id_to_index_map,
-            index_to_id_map,
-            shards_split_map,
-            shards_parent_map,
+            id_to_index_map: key_to_string(&layout.id_to_index_map),
+            index_to_id_map: key_to_string(&layout.index_to_id_map),
+            shards_split_map: layout.shards_split_map.as_ref().map(key_to_string),
+            shards_parent_map: layout.shards_parent_map.as_ref().map(key_to_string),
             version: layout.version,
         }
     }
@@ -249,44 +241,38 @@ impl TryFrom<SerdeShardLayoutV2> for ShardLayoutV2 {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(layout: SerdeShardLayoutV2) -> Result<Self, Self::Error> {
-        let id_to_index_map = layout
-            .id_to_index_map
-            .into_iter()
-            .map(|(k, v)| Ok((k.parse::<u64>()?.into(), v)))
-            .collect::<Result<_, Self::Error>>()?;
+        fn key_to_shard_id<V>(
+            map: BTreeMap<String, V>,
+        ) -> Result<BTreeMap<ShardId, V>, Box<dyn std::error::Error + Send + Sync>> {
+            map.into_iter().map(|(k, v)| Ok((k.parse::<u64>()?.into(), v))).collect()
+        }
 
-        let index_to_id_map = layout
-            .index_to_id_map
-            .into_iter()
-            .map(|(k, v)| Ok((k.parse()?, v)))
-            .collect::<Result<_, Self::Error>>()?;
-
-        let shards_split_map = layout
-            .shards_split_map
-            .map(|map| {
-                map.into_iter()
-                    .map(|(k, v)| Ok((k.parse::<u64>()?.into(), v)))
-                    .collect::<Result<_, Self::Error>>()
-            })
-            .transpose()?;
-
-        let shards_parent_map = layout
-            .shards_parent_map
-            .map(|map| {
-                map.into_iter()
-                    .map(|(k, v)| Ok((k.parse::<u64>()?.into(), v)))
-                    .collect::<Result<_, Self::Error>>()
-            })
-            .transpose()?;
-
-        Ok(Self {
-            boundary_accounts: layout.boundary_accounts,
-            shard_ids: layout.shard_ids,
+        let SerdeShardLayoutV2 {
+            boundary_accounts,
+            shard_ids,
             id_to_index_map,
             index_to_id_map,
             shards_split_map,
             shards_parent_map,
-            version: layout.version,
+            version,
+        } = layout;
+
+        let id_to_index_map = key_to_shard_id(id_to_index_map)?;
+        let shards_split_map = shards_split_map.map(key_to_shard_id).transpose()?;
+        let shards_parent_map = shards_parent_map.map(key_to_shard_id).transpose()?;
+        let index_to_id_map = index_to_id_map
+            .into_iter()
+            .map(|(k, v)| Ok((k.parse()?, v)))
+            .collect::<Result<_, Self::Error>>()?;
+
+        Ok(Self {
+            boundary_accounts,
+            shard_ids,
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map,
+            shards_parent_map,
+            version,
         })
     }
 }
