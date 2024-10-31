@@ -1005,6 +1005,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             | DBCol::StateShardUIdMapping
+            | DBCol::StateSyncHashes
+            | DBCol::StateSyncNewChunks
             => unreachable!(),
         }
         self.merge(store_update);

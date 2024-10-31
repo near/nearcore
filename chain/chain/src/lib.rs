@@ -31,7 +31,6 @@ pub mod resharding;
 pub mod runtime;
 mod state_request_tracker;
 pub mod state_snapshot_actor;
-pub mod state_sync;
 pub mod stateless_validation;
 mod store;
 pub mod store_validator;

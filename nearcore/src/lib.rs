@@ -317,11 +317,6 @@ pub fn start_with_config_and_synchronization(
         hash: *genesis_block.header().hash(),
     };
 
-    near_chain::state_sync::set_tracker(
-        storage.get_hot_store(),
-        epoch_manager.as_ref(),
-        chain_genesis.height,
-    );
     let node_id = config.network_config.node_id();
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();

@@ -2528,12 +2528,21 @@ impl Chain {
     /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
     /// it's the hash of the first block in that epoch.
     pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
-        crate::state_sync::SYNC_TRACKER.get().unwrap().get_sync_hash(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            self.genesis().hash(),
-            block_hash,
-        )
+        if block_hash == self.genesis().hash() {
+            // We shouldn't be trying to sync state from before the genesis block
+            return Ok(None);
+        }
+        let header = self.get_block_header(block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+            self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        } else {
+            // In the first epoch, it doesn't make sense to sync state to the previous epoch.
+            if header.epoch_id() == &EpochId::default() {
+                return Ok(None);
+            }
+            Ok(Some(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block()))
+        }
     }
 
     /// Computes ShardStateSyncResponseHeader.
