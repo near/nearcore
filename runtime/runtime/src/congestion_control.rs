@@ -48,6 +48,7 @@ pub(crate) struct ReceiptSinkV2<'a> {
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
+    pub(crate) protocol_version: ProtocolVersion,
 }
 
 /// Limits for outgoing receipts to a shard.
@@ -124,6 +125,7 @@ impl<'a> ReceiptSink<'a> {
                 outgoing_receipts: outgoing_receipts,
                 outgoing_limit,
                 outgoing_buffers,
+                protocol_version,
             }))
         } else {
             debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
@@ -325,7 +327,8 @@ impl ReceiptSinkV2<'_> {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+                let receipt =
+                    StateStoredReceipt::new_owned(receipt, metadata, self.protocol_version);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
@@ -480,8 +483,10 @@ impl DelayedReceiptQueueWrapper {
         &mut self,
         trie_update: &mut TrieUpdate,
         receipt: &Receipt,
-        config: &RuntimeConfig,
+        apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
+        let config = &apply_state.config;
+
         let gas = compute_receipt_congestion_gas(&receipt, &config)?;
         let size = compute_receipt_size(&receipt)? as u64;
 
@@ -491,7 +496,11 @@ impl DelayedReceiptQueueWrapper {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
+                let receipt = StateStoredReceipt::new_borrowed(
+                    receipt,
+                    metadata,
+                    apply_state.current_protocol_version,
+                );
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
             false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),

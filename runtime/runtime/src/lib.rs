@@ -1714,7 +1714,7 @@ impl Runtime {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
                     &receipt,
-                    &processing_state.apply_state.config,
+                    &processing_state.apply_state,
                 )?;
             } else {
                 if let Some(nsi) = &mut next_schedule_after {
@@ -1897,7 +1897,7 @@ impl Runtime {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
                     receipt,
-                    &processing_state.apply_state.config,
+                    &processing_state.apply_state,
                 )?;
             } else {
                 if let Some(nsi) = &mut next_schedule_after {
@@ -2645,6 +2645,7 @@ pub mod estimator {
             outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
+            protocol_version: apply_state.current_protocol_version,
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),

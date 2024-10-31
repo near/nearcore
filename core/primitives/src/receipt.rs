@@ -5,7 +5,8 @@ use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -103,6 +104,7 @@ pub enum Receipt {
 #[derive(PartialEq, Eq, Debug, ProtocolSchema)]
 pub enum StateStoredReceipt<'a> {
     V0(StateStoredReceiptV0<'a>),
+    V1(StateStoredReceiptV1<'a>),
 }
 
 /// The V0 of StateStoredReceipt. It contains the receipt and metadata.
@@ -111,6 +113,24 @@ pub struct StateStoredReceiptV0<'a> {
     /// The receipt.
     pub receipt: Cow<'a, Receipt>,
     pub metadata: StateStoredReceiptMetadata,
+}
+
+/// The V1 of StateStoredReceipt.
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct StateStoredReceiptV1<'a> {
+    pub receipt: Cow<'a, Receipt>,
+    pub metadata: StateStoredReceiptMetadata,
+    /// Version of buffer metadata that was updated when the receipt was stored.
+    pub queue_metadata_version: QueueMetadataVersion,
+}
+
+/// Version of queue metadata that was updated when the receipt was stored.
+/// Helps to determine how the metadata should be updated when a receipt is
+/// removed from the queue.
+#[derive(Clone, Copy, BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
+pub enum QueueMetadataVersion {
+    /// First version of outgoing buffer metadata, keeps information about sizes of grouped receipts.
+    OutgoingBufferMetadataV0,
 }
 
 /// The metadata associated with the receipt stored in state.
@@ -160,36 +180,81 @@ impl ReceiptOrStateStoredReceipt<'_> {
             ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.get_receipt(),
         }
     }
+
+    /// What version of queue metadata was updated when this receipt was stored.
+    pub fn queue_metadata_version(&self) -> Option<QueueMetadataVersion> {
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(_) => None,
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
+                receipt.queue_metadata_version()
+            }
+        }
+    }
 }
 
 impl<'a> StateStoredReceipt<'a> {
-    pub fn new_owned(receipt: Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+    pub fn new_owned(
+        receipt: Receipt,
+        metadata: StateStoredReceiptMetadata,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
         let receipt = Cow::Owned(receipt);
-        let v0 = StateStoredReceiptV0 { receipt, metadata };
-        Self::V0(v0)
+
+        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+            Self::V1(StateStoredReceiptV1 {
+                receipt,
+                metadata,
+                queue_metadata_version: QueueMetadataVersion::OutgoingBufferMetadataV0,
+            })
+        } else {
+            Self::V0(StateStoredReceiptV0 { receipt, metadata })
+        }
     }
 
-    pub fn new_borrowed(receipt: &'a Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+    pub fn new_borrowed(
+        receipt: &'a Receipt,
+        metadata: StateStoredReceiptMetadata,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
         let receipt = Cow::Borrowed(receipt);
-        let v0 = StateStoredReceiptV0 { receipt, metadata };
-        Self::V0(v0)
+
+        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+            Self::V1(StateStoredReceiptV1 {
+                receipt,
+                metadata,
+                queue_metadata_version: QueueMetadataVersion::OutgoingBufferMetadataV0,
+            })
+        } else {
+            Self::V0(StateStoredReceiptV0 { receipt, metadata })
+        }
     }
 
     pub fn into_receipt(self) -> Receipt {
         match self {
             StateStoredReceipt::V0(v0) => v0.receipt.into_owned(),
+            StateStoredReceipt::V1(v1) => v1.receipt.into_owned(),
         }
     }
 
     pub fn get_receipt(&self) -> &Receipt {
         match self {
             StateStoredReceipt::V0(v0) => &v0.receipt,
+            StateStoredReceipt::V1(v1) => &v1.receipt,
         }
     }
 
     pub fn metadata(&self) -> &StateStoredReceiptMetadata {
         match self {
             StateStoredReceipt::V0(v0) => &v0.metadata,
+            StateStoredReceipt::V1(v1) => &v1.metadata,
+        }
+    }
+
+    /// What version of queue metadata was updated when this receipt was stored.
+    pub fn queue_metadata_version(&self) -> Option<QueueMetadataVersion> {
+        match self {
+            StateStoredReceipt::V0(_) => None,
+            StateStoredReceipt::V1(v1) => Some(v1.queue_metadata_version),
         }
     }
 }
@@ -277,6 +342,10 @@ impl BorshSerialize for StateStoredReceipt<'_> {
                 BorshSerialize::serialize(&0_u8, writer)?;
                 BorshSerialize::serialize(&v0, writer)?;
             }
+            StateStoredReceipt::V1(v1) => {
+                BorshSerialize::serialize(&1_u8, writer)?;
+                BorshSerialize::serialize(&v1, writer)?;
+            }
         }
         Ok(())
     }
@@ -298,6 +367,10 @@ impl BorshDeserialize for StateStoredReceipt<'_> {
             0 => {
                 let v0 = StateStoredReceiptV0::deserialize_reader(reader)?;
                 Ok(StateStoredReceipt::V0(v0))
+            }
+            1 => {
+                let v1 = StateStoredReceiptV1::deserialize_reader(reader)?;
+                Ok(StateStoredReceipt::V1(v1))
             }
             v => {
                 let error = format!("Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 0", v);
@@ -729,6 +802,8 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 #[cfg(test)]
 mod tests {
+    use near_primitives_core::version::PROTOCOL_VERSION;
+
     use super::*;
 
     fn get_receipt_v0() -> Receipt {
@@ -784,7 +859,7 @@ mod tests {
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
         let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
 
         let serialized_receipt = borsh::to_vec(&receipt).unwrap();
         let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
@@ -837,7 +912,8 @@ mod tests {
         {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
+            let state_stored_receipt =
+                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
 
             let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
             let deserialized_receipt =
@@ -869,7 +945,8 @@ mod tests {
         {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
+            let state_stored_receipt =
+                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
             let receipt_or_state_stored_receipt =
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);
 
