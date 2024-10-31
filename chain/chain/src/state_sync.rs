@@ -1,6 +1,5 @@
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::EpochId;
 use near_store::{DBCol, Store, StoreUpdate};
 
 use borsh::BorshDeserialize;
@@ -23,13 +22,6 @@ impl<'a> Ord for BlockHeaderByHeight<'a> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other.0.height().cmp(&self.0.height())
     }
-}
-
-pub(crate) fn get_current_epoch_sync_hash(
-    store: &Store,
-    epoch_id: &EpochId,
-) -> Result<Option<CryptoHash>, Error> {
-    Ok(store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())?)
 }
 
 fn get_epoch_new_chunks(
@@ -99,7 +91,7 @@ fn update_sync_hashes<T: ChainStoreAccess>(
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
-    let sync_hash = get_current_epoch_sync_hash(chain_store.store(), header.epoch_id())?;
+    let sync_hash = chain_store.get_current_epoch_sync_hash(header.epoch_id())?;
     if sync_hash.is_some() || header.height() == chain_store.get_genesis_height() {
         return Ok(());
     }

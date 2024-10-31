@@ -369,6 +369,8 @@ pub trait ChainStoreAccess {
                 epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
+
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error>;
 }
 
 /// Given a vector of receipts return only the receipts that should be assigned
@@ -1051,13 +1053,6 @@ impl ChainStore {
         }
         store_update.commit().map_err(|err| err.into())
     }
-
-    pub(crate) fn get_current_epoch_sync_hash(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Option<CryptoHash>, Error> {
-        Ok(self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())?)
-    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -1346,6 +1341,10 @@ impl ChainStoreAccess for ChainStore {
         )
         .map(|r| r.is_some())
         .map_err(|e| e.into())
+    }
+
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+        Ok(self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())?)
     }
 }
 
@@ -1734,6 +1733,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             self.chain_store.is_height_processed(height)
         }
+    }
+
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+        self.chain_store.get_current_epoch_sync_hash(epoch_id)
     }
 }
 
