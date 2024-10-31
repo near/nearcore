@@ -395,7 +395,7 @@ impl PartialWitnessActor {
     /// Handles partial contract deploy message received from a peer.
     ///
     /// This message may belong to one of two steps of distributing contract code. In the first step the code is compressed
-    /// and encoded into parts using Reed Solomon encoding and each port is sent to one of the validators (part owner).
+    /// and encoded into parts using Reed Solomon encoding and each part is sent to one of the validators (part owner).
     /// See `send_chunk_contract_deploys_parts` for the code implementing this. In the second step each validator (part-owner)
     /// forwards the part it receives to other validators.
     fn handle_partial_encoded_contract_deploys(
@@ -457,16 +457,13 @@ impl PartialWitnessActor {
             };
             let runtime = self.runtime.clone();
             self.compile_contracts_spawner.spawn("precompile_deployed_contracts", move || {
-                match runtime.precompile_contracts(&key.epoch_id, contract_codes) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        tracing::warn!(
-                            target: "client",
-                            ?err,
-                            ?key,
-                            "Failed to precompile deployed contracts."
-                        );
-                    }
+                if let Err(err) = runtime.precompile_contracts(&key.epoch_id, contract_codes) {
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        ?key,
+                        "Failed to precompile deployed contracts."
+                    );
                 }
             });
         }
@@ -484,8 +481,8 @@ impl PartialWitnessActor {
     }
 
     /// Handles contract code accesses message from chunk producer.
-    /// This is sent in parallel to a chunk state witness and contains the code-hashes
-    /// of the contracts accessed when applying the previous chunk of the witness.
+    /// This is sent in parallel to a chunk state witness and contains the hashes
+    /// of the contract code accessed when applying the previous chunk of the witness.
     fn handle_chunk_contract_accesses(
         &mut self,
         accesses: ChunkContractAccesses,
@@ -553,12 +550,31 @@ impl PartialWitnessActor {
 
     /// Handles contract code requests message from chunk validators.
     /// As response to this message, sends the contract code requested to
-    /// the requesting chunk validator for the given code hashes.
+    /// the requesting chunk validator for the given hashes of the contract code.
     fn handle_contract_code_request(&mut self, request: ContractCodeRequest) -> Result<(), Error> {
         let signer = self.my_validator_signer()?;
         // TODO(#11099): validate request
         let key = request.chunk_production_key();
-        let contracts = self.retrieve_contract_code(key, request.contracts().iter())?;
+        let storage = TrieDBStorage::new(
+            TrieStoreAdapter::new(self.runtime.store().clone()),
+            self.epoch_manager.shard_id_to_uid(key.shard_id, &key.epoch_id)?,
+        );
+        let mut contracts = Vec::new();
+        for contract_hash in request.contracts() {
+            match storage.retrieve_raw_bytes(&contract_hash.0) {
+                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Err(StorageError::MissingTrieValue(_, _)) => {
+                    tracing::warn!(
+                        target: "client",
+                        ?contract_hash,
+                        chunk_production_key = ?key,
+                        "Requested contract hash is not present in the storage"
+                    );
+                    return Ok(());
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
         let response = ContractCodeResponse::new(key.clone(), &contracts, &signer);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
@@ -601,37 +617,6 @@ impl PartialWitnessActor {
             .collect::<Vec<_>>();
         validators.sort();
         Ok(validators)
-    }
-
-    /// Returns for each code-hash the contract code retrieved from the storage.
-    fn retrieve_contract_code<'a, I>(
-        &self,
-        key: &ChunkProductionKey,
-        code_hashes: I,
-    ) -> Result<Vec<CodeBytes>, Error>
-    where
-        I: Iterator<Item = &'a CodeHash>,
-    {
-        let storage = TrieDBStorage::new(
-            TrieStoreAdapter::new(self.runtime.store().clone()),
-            self.epoch_manager.shard_id_to_uid(key.shard_id, &key.epoch_id)?,
-        );
-        let mut contracts = Vec::new();
-        for contract_hash in code_hashes {
-            match storage.retrieve_raw_bytes(&contract_hash.0) {
-                Ok(bytes) => contracts.push(CodeBytes(bytes)),
-                Err(StorageError::MissingTrieValue(_, _)) => {
-                    tracing::warn!(
-                        target: "client",
-                        ?contract_hash,
-                        chunk_production_key = ?key,
-                        "Requested contract hash is not present in the storage"
-                    );
-                }
-                Err(err) => return Err(err.into()),
-            }
-        }
-        Ok(contracts)
     }
 }
 

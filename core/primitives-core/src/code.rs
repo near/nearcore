@@ -39,6 +39,9 @@ impl ContractCode {
 
 impl Debug for ContractCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ContractCode").field("hash", &self.hash).finish()
+        f.debug_struct("ContractCode")
+            .field("hash", &self.hash)
+            .field("code_size", &self.code.len())
+            .finish()
     }
 }

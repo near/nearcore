@@ -108,7 +108,7 @@ impl Client {
                 Default::default()
             };
 
-        // We send the code-hashes of contracts accessed (if applicable) before the state witness in order to
+        // We send the hashes of the contract code accessed (if applicable) before the state witness in order to
         // allow validators to check and request missing contract code, while waiting for witness parts.
 
         // TODO(#11099): Consider moving this also to partial witness actor by passing ContractUpdates in DistributeStateWitnessRequest.
@@ -452,7 +452,7 @@ impl Client {
             .collect();
 
         // Since chunk validators will receive the newly deployed contracts as part of the state witness (as DeployActions in receipts),
-        // they will update their contract cache while applying these deploy actions, thus we can exclude code-hash for these contracts from the message.
+        // they will update their contract cache while applying these deploy actions, thus we can exclude hashes of contracts from the message.
         let predeployed_contract_accesses =
             contract_accesses.difference(&contract_deploys).cloned().collect();
         // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.

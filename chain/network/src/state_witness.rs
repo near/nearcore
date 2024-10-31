@@ -30,7 +30,7 @@ pub struct ChunkContractAccessesMessage(pub ChunkContractAccesses);
 pub struct PartialEncodedContractDeploysMessage(pub PartialEncodedContractDeploys);
 
 /// Message to partial witness actor (on a chunk producer) that requests contract code
-/// by their code hashes.
+/// by providing hashes of the code.
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct ContractCodeRequestMessage(pub ContractCodeRequest);
