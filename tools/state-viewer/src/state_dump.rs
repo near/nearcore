@@ -442,7 +442,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
@@ -520,7 +520,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let select_account_ids = vec!["test0".parse().unwrap()];
@@ -584,7 +584,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let new_near_config = state_dump(
@@ -627,7 +627,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
 
@@ -682,7 +682,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
@@ -716,8 +716,8 @@ mod test {
         let store2 = create_test_store();
         initialize_genesis_state(store1.clone(), &genesis, None);
         initialize_genesis_state(store2.clone(), &genesis, None);
-        let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config);
-        let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config);
+        let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config, None);
+        let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config, None);
         let runtime1 = NightshadeRuntime::test(
             Path::new("."),
             store1.clone(),
@@ -805,7 +805,7 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let nightshade_runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -865,7 +865,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
@@ -923,7 +923,7 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let new_near_config = state_dump(

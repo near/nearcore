@@ -2,7 +2,7 @@ use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_time::Utc;
 use std::io;
@@ -185,6 +185,9 @@ pub enum Error {
     /// Invalid Congestion Info
     #[error("Invalid Congestion Info: {0}")]
     InvalidCongestionInfo(String),
+    /// Invalid bandwidth requests
+    #[error("Invalid bandwidth requests - chunk extra doesn't match chunk header: {0}")]
+    InvalidBandwidthRequests(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -238,6 +241,9 @@ pub enum Error {
     /// EpochSyncProof validation error.
     #[error("EpochSyncProof Validation Error: {0}")]
     InvalidEpochSyncProof(String),
+    /// Invalid chunk header version for protocol version
+    #[error(transparent)]
+    BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -315,6 +321,7 @@ impl Error {
             | Error::InvalidGasUsed
             | Error::InvalidBalanceBurnt
             | Error::InvalidCongestionInfo(_)
+            | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
@@ -322,7 +329,8 @@ impl Error {
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
-            | Error::InvalidChallengeRoot => true,
+            | Error::InvalidChallengeRoot
+            | Error::BadHeaderForProtocolVersion(_) => true,
         }
     }
 
@@ -393,6 +401,7 @@ impl Error {
             Error::InvalidGasUsed => "invalid_gas_used",
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
+            Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
@@ -402,6 +411,7 @@ impl Error {
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
+            Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }
 }

@@ -1,6 +1,6 @@
 from messages.crypto import Signature, PublicKey, MerklePath, ShardProof
 from messages.tx import SignedTransaction, Receipt
-from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ChunkEndorsement, ChunkEndorsementV1, ChunkStateWitnessAck, PartialEncodedStateWitness, ChunkContractAccesses, ChunkContractDeployments, ContractCodeRequest, ContractCodeResponse
+from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ChunkEndorsement, ChunkEndorsementV1, ChunkStateWitnessAck, PartialEncodedStateWitness, ChunkContractAccesses, PartialEncodedContractDeploys, ContractCodeRequest, ContractCodeResponse
 from messages.shard import StateRootNode
 
 
@@ -398,9 +398,12 @@ network_schema = [
                 ],
                 ['VersionedChunkEndorsement', ChunkEndorsement],
                 ['ChunkContractAccesses', ChunkContractAccesses],
-                ['ChunkContractDeployments', ChunkContractDeployments],
                 ['ContractCodeRequest', ContractCodeRequest],
                 ['ContractCodeResponse', ContractCodeResponse],
+                [
+                    'PartialEncodedContractDeploys',
+                    PartialEncodedContractDeploys
+                ],
             ]
         }
     ],

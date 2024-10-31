@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, RngSeed};
@@ -10,13 +11,16 @@ use near_pool::{
 };
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
+use near_vm_runner::{get_contract_cache_key, CompiledContract, CompiledContractInfo};
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -121,7 +125,7 @@ impl TestEnv {
             FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>).unwrap();
 
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::new(
             store.clone(),
             compiled_contract_cache.handle(),
@@ -214,6 +218,7 @@ impl TestEnv {
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
+        // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
@@ -256,6 +261,7 @@ impl TestEnv {
                     challenges_result,
                     random_seed: CryptoHash::default(),
                     congestion_info,
+                    bandwidth_requests: BlockBandwidthRequests::empty(),
                 },
                 receipts,
                 transactions,
@@ -1546,7 +1552,7 @@ fn test_genesis_hash() {
 
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime = NightshadeRuntime::test_with_runtime_config_store(
         tempdir.path(),
         store.clone(),
@@ -1823,6 +1829,76 @@ fn test_storage_proof_garbage() {
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);
+}
+
+/// Tests that precompiling a set of contracts updates the compiled contract cache.
+#[test]
+fn test_precompile_contracts_updates_cache() {
+    struct FakeTestCompiledContractType; // For testing AnyCache.
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let store = near_store::test_utils::create_test_store();
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+
+    let contract_cache = FilesystemContractRuntimeCache::new(tempdir.path(), None::<&str>)
+        .expect("filesystem contract cache");
+    let runtime = NightshadeRuntime::test_with_runtime_config_store(
+        tempdir.path(),
+        store,
+        contract_cache.handle(),
+        &genesis.config,
+        epoch_manager,
+        RuntimeConfigStore::new(None),
+        StateSnapshotType::EveryEpoch,
+    );
+
+    let contracts = vec![
+        ContractCode::new(near_test_contracts::sized_contract(100).to_vec(), None),
+        ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
+        ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None),
+    ];
+    let code_hashes: Vec<CryptoHash> = contracts.iter().map(|c| c.hash()).cloned().collect();
+
+    // First check that the cache does not have the contracts.
+    for code_hash in code_hashes.iter() {
+        let cache_key = get_contract_cache_key(
+            *code_hash,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+        );
+        let contract = contract_cache.get(&cache_key).unwrap();
+        assert!(contract.is_none());
+    }
+
+    runtime.precompile_contracts(&EpochId::default(), contracts).unwrap();
+
+    // Check that the persistent cache contains the compiled contract after precompilation,
+    // but it does not populate the in-memory cache (so that the value is generated by try_lookup call).
+    for code_hash in code_hashes.into_iter() {
+        let cache_key = get_contract_cache_key(
+            code_hash,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+        );
+
+        let contract = contract_cache.get(&cache_key).unwrap();
+        assert_matches!(
+            contract,
+            Some(CompiledContractInfo { compiled: CompiledContract::Code(_), .. })
+        );
+
+        let result = contract_cache
+            .memory_cache()
+            .try_lookup(
+                cache_key,
+                || Ok::<_, ()>(Box::new(FakeTestCompiledContractType)),
+                |v| {
+                    assert!(v.is::<FakeTestCompiledContractType>());
+                    "compiled code"
+                },
+            )
+            .unwrap();
+        assert_eq!(result, "compiled code");
+    }
 }
 
 fn stake(
