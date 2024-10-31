@@ -112,7 +112,7 @@ impl FlatStateValue {
 }
 
 /// Value to insert to trie or update existing value in the trie.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[derive(Debug, Clone)]
 pub enum GenericTrieValue {
     /// Value to update both memtrie and trie storage. Full value is required
     /// for that.
