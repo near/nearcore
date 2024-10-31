@@ -149,14 +149,13 @@ impl BandwidthRequestValues {
         // values[i] = linear interpolation between values[-1] and values[values.len() - 1]
         let mut values = [0; BANDWIDTH_REQUEST_VALUES_NUM];
 
+        let values_len: u64 =
+            values.len().try_into().expect("Converting usize to u64 shouldn't fail");
         for i in 0..values.len() {
-            let values_len_u64: u64 =
-                values.len().try_into().expect("Converting usize to u64 shouldn't fail");
             let i_u64: u64 = i.try_into().expect("Converting usize to u64 shouldn't fail");
 
             values[i] = params.base_bandwidth
-                + (params.max_shard_bandwidth - params.base_bandwidth) * (i_u64 + 1)
-                    / values_len_u64;
+                + (params.max_shard_bandwidth - params.base_bandwidth) * (i_u64 + 1) / values_len;
         }
 
         // The value that is closest to max_receipt_size is set to max_receipt_size.
