@@ -155,6 +155,7 @@ impl BandwidthRequestValues {
         // values[-1] = base_bandwidth
         // values[values.len() - 1] = max_shard_bandwidth
         // values[i] = linear interpolation between values[-1] and values[values.len() - 1]
+        // TODO(bandwidth_scheduler) - consider using exponential interpolation.
         let mut values = [0; BANDWIDTH_REQUEST_VALUES_NUM];
 
         let values_len: u64 =
