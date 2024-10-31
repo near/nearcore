@@ -7,6 +7,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 
+#[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 
@@ -338,7 +339,9 @@ impl ChunkContractDeploys {
     }
 }
 
+#[cfg(feature = "solomon")]
 impl ReedSolomonEncoderSerialize for ChunkContractDeploys {}
+#[cfg(feature = "solomon")]
 impl ReedSolomonEncoderDeserialize for ChunkContractDeploys {}
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
