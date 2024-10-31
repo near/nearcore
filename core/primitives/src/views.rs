@@ -5,10 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
-use crate::bandwidth_scheduler::{
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
-    BANDWIDTH_REQUEST_BITMAP_SIZE,
-};
+use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
@@ -948,7 +945,7 @@ pub struct ChunkHeaderView {
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub congestion_info: Option<CongestionInfoView>,
-    pub bandwidth_requests: Option<BandwidthRequestsView>,
+    pub bandwidth_requests: Option<BandwidthRequests>,
     pub signature: Signature,
 }
 
@@ -977,7 +974,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: inner.congestion_info().map(Into::into),
-            bandwidth_requests: inner.bandwidth_requests().map(Into::into),
+            bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }
     }
@@ -1007,7 +1004,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                             .map(Into::into)
                             .collect(),
                         congestion_info: congestion_info.into(),
-                        bandwidth_requests: bandwidth_requests.into(),
+                        bandwidth_requests,
                     }),
                     height_included: view.height_included,
                     signature: view.signature,
@@ -2441,85 +2438,6 @@ impl CongestionInfoView {
         // misleading to call it congestion, as it is not a problem with too
         // much traffic.
         CongestionInfo::from(self.clone()).localized_congestion_level(&congestion_config)
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum BandwidthRequestsView {
-    V1(BandwidthRequestsV1View),
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BandwidthRequestsV1View {
-    pub requests: Vec<BandwidthRequestView>,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BandwidthRequestBitmapView {
-    pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BandwidthRequestView {
-    pub to_shard: u8,
-    pub requested_values_bitmap: BandwidthRequestBitmapView,
-}
-
-impl From<&BandwidthRequests> for BandwidthRequestsView {
-    fn from(bandwidth_requests: &BandwidthRequests) -> BandwidthRequestsView {
-        match bandwidth_requests {
-            BandwidthRequests::V1(bandwidth_requests) => {
-                BandwidthRequestsView::V1(BandwidthRequestsV1View {
-                    requests: bandwidth_requests.requests.iter().map(Into::into).collect(),
-                })
-            }
-        }
-    }
-}
-
-impl From<&BandwidthRequest> for BandwidthRequestView {
-    fn from(request: &BandwidthRequest) -> BandwidthRequestView {
-        BandwidthRequestView {
-            to_shard: request.to_shard,
-            requested_values_bitmap: request.requested_values_bitmap.clone().into(),
-        }
-    }
-}
-
-impl From<BandwidthRequestBitmap> for BandwidthRequestBitmapView {
-    fn from(bitmap: BandwidthRequestBitmap) -> BandwidthRequestBitmapView {
-        BandwidthRequestBitmapView { data: bitmap.data }
-    }
-}
-
-impl From<BandwidthRequestsView> for BandwidthRequests {
-    fn from(bandwidth_requests: BandwidthRequestsView) -> BandwidthRequests {
-        match bandwidth_requests {
-            BandwidthRequestsView::V1(bandwidth_requests_view) => {
-                BandwidthRequests::V1(BandwidthRequestsV1 {
-                    requests: bandwidth_requests_view
-                        .requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                })
-            }
-        }
-    }
-}
-
-impl From<BandwidthRequestView> for BandwidthRequest {
-    fn from(request_view: BandwidthRequestView) -> BandwidthRequest {
-        BandwidthRequest {
-            to_shard: request_view.to_shard,
-            requested_values_bitmap: request_view.requested_values_bitmap.into(),
-        }
-    }
-}
-
-impl From<BandwidthRequestBitmapView> for BandwidthRequestBitmap {
-    fn from(bitmap_view: BandwidthRequestBitmapView) -> BandwidthRequestBitmap {
-        BandwidthRequestBitmap { data: bitmap_view.data }
     }
 }
 
