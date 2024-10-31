@@ -4,7 +4,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
-use near_primitives::types::{EpochId, ShardId};
+use near_primitives::types::{EpochId, ShardIndex};
 use near_primitives::version::ProtocolFeature;
 use near_store::Store;
 
@@ -14,23 +14,19 @@ use std::sync::{Arc, RwLock};
 #[derive(Default)]
 struct NewChunkTracker {
     sync_hash: Option<CryptoHash>,
-    num_new_chunks: HashMap<CryptoHash, HashMap<ShardId, usize>>,
+    num_new_chunks: HashMap<CryptoHash, HashMap<ShardIndex, usize>>,
 }
 
 fn add_new_chunks(
-    epoch_manager: &dyn EpochManagerAdapter,
-    num_new_chunks: &mut HashMap<ShardId, usize>,
+    num_new_chunks: &mut HashMap<ShardIndex, usize>,
     header: &BlockHeader,
 ) -> Result<bool, Error> {
-    let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
-
     let mut done = true;
-    for (shard_id, num_new_chunks) in num_new_chunks.iter_mut() {
-        let shard_index = shard_layout.get_shard_index(*shard_id);
-        let Some(included) = header.chunk_mask().get(shard_index) else {
+    for (shard_index, num_new_chunks) in num_new_chunks.iter_mut() {
+        let Some(included) = header.chunk_mask().get(*shard_index) else {
             return Err(Error::Other(format!(
-                "can't get shard {} in chunk mask for block {}",
-                shard_id,
+                "can't get shard index {} in chunk mask for block {}",
+                shard_index,
                 header.hash()
             )));
         };
@@ -45,13 +41,9 @@ fn add_new_chunks(
 }
 
 impl NewChunkTracker {
-    fn add_epoch_first_block(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        header: &BlockHeader,
-    ) -> Result<(), Error> {
-        let shard_ids = epoch_manager.shard_ids(header.epoch_id())?;
-        let num_new_chunks = shard_ids.iter().map(|shard_id| (*shard_id, 0)).collect();
+    fn add_epoch_first_block(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let num_new_chunks =
+            (0..header.chunk_mask().len()).map(|shard_index| (shard_index, 0)).collect();
         self.num_new_chunks.insert(*header.hash(), num_new_chunks);
         Ok(())
     }
@@ -59,18 +51,17 @@ impl NewChunkTracker {
     /// If the sync hash is not already found, adds this block's hash and the number of new
     /// chunks seen so far to self.num_new_chunks. This also removes any state associated with blocks
     /// before the last final block, which keeps the memory usage bounded.
-    fn add_block(
-        &mut self,
-        chain_store: &ChainStore,
-        epoch_manager: &dyn EpochManagerAdapter,
-        header: &BlockHeader,
-    ) -> Result<(), Error> {
+    fn add_block(&mut self, chain_store: &ChainStore, header: &BlockHeader) -> Result<(), Error> {
         if self.sync_hash.is_some() {
             return Ok(());
         }
 
-        if epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
-            return self.add_epoch_first_block(epoch_manager, header);
+        let prev_header = chain_store.get_block_header(header.prev_hash())?;
+
+        if prev_header.height() == chain_store.get_genesis_height()
+            || prev_header.epoch_id() != header.epoch_id()
+        {
+            return self.add_epoch_first_block(header);
         }
 
         let mut num_new_chunks = match self.num_new_chunks.get(header.prev_hash()) {
@@ -83,7 +74,7 @@ impl NewChunkTracker {
             }
         };
 
-        let done = add_new_chunks(epoch_manager, &mut num_new_chunks, header)?;
+        let done = add_new_chunks(&mut num_new_chunks, header)?;
         if done {
             // TODO(current_epoch_state_sync): this will not be correct if this block doesn't end up finalized on the main chain.
             // We should fix it by setting the sync hash when it's finalized, which requires making changes to how we take state snapshots.
@@ -122,7 +113,6 @@ impl SyncHashTrackerInner {
     fn init_epoch(
         &mut self,
         chain_store: &ChainStore,
-        epoch_manager: &dyn EpochManagerAdapter,
         epoch_first_block: &CryptoHash,
     ) -> Result<(), Error> {
         let mut tracker = NewChunkTracker::default();
@@ -131,7 +121,7 @@ impl SyncHashTrackerInner {
         let epoch_id = *header.epoch_id();
 
         loop {
-            tracker.add_block(chain_store, epoch_manager, &header)?;
+            tracker.add_block(chain_store, &header)?;
             if tracker.sync_hash.is_some() {
                 break;
             }
@@ -168,12 +158,12 @@ impl SyncHashTrackerInner {
         }
 
         let block_info = epoch_manager.get_block_info(&head.last_block_hash)?;
-        me.init_epoch(chain_store, epoch_manager, block_info.epoch_first_block())?;
+        me.init_epoch(chain_store, block_info.epoch_first_block())?;
 
         let first_block = chain_store.get_block_header(block_info.epoch_first_block())?;
         let block_info = epoch_manager.get_block_info(first_block.prev_hash())?;
         if block_info.height() != genesis_height {
-            me.init_epoch(chain_store, epoch_manager, block_info.epoch_first_block())?;
+            me.init_epoch(chain_store, block_info.epoch_first_block())?;
         }
 
         Ok(me)
@@ -183,33 +173,13 @@ impl SyncHashTrackerInner {
         self.0.get(epoch_id).map(|tracker| tracker.sync_hash).flatten()
     }
 
-    fn add_block(
-        &mut self,
-        chain_store: &ChainStore,
-        epoch_manager: &dyn EpochManagerAdapter,
-        header: &BlockHeader,
-    ) -> Result<(), Error> {
+    fn add_block(&mut self, chain_store: &ChainStore, header: &BlockHeader) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "SyncHashTracker::add_block").entered();
 
         let tracker = self.0.entry(*header.epoch_id()).or_default();
-        tracker.add_block(chain_store, epoch_manager, header)?;
+        tracker.add_block(chain_store, header)?;
 
-        if epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
-            let current_epoch_info = epoch_manager.get_epoch_info(header.epoch_id())?;
-            // We only want to keep a few epochs around. This will mean that we will refuse to find sync hashes and
-            // therefore respond to state sync requests for old epochs, but this would be true anyway since we don't keep
-            // snapshots for old epochs around
-            self.0.retain(|epoch_id, _tracker| {
-                let epoch_info = match epoch_manager.get_epoch_info(epoch_id) {
-                    Ok(info) => info,
-                    Err(error) => {
-                        tracing::warn!(target: "chain", ?epoch_id, ?error, "Could not find epoch info");
-                        return false;
-                    }
-                };
-                epoch_info.epoch_height() + 1 >= current_epoch_info.epoch_height()
-            });
-        }
+        // TODO: gc old epochs
         Ok(())
     }
 }
@@ -258,16 +228,8 @@ impl SyncHashTracker {
 
     /// This should be called when a new block is added to the chain. If the StateSyncHashUpdate feature
     /// is enabled, it adds the current block's new chunks to the number of new chunks per shard for that epoch.
-    pub fn add_block(
-        &self,
-        chain_store: &ChainStore,
-        epoch_manager: &dyn EpochManagerAdapter,
-        header: &BlockHeader,
-    ) -> Result<(), Error> {
-        let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-            self.0.write().unwrap().add_block(chain_store, epoch_manager, header)?;
-        }
+    pub fn add_block(&self, chain_store: &ChainStore, header: &BlockHeader) -> Result<(), Error> {
+        self.0.write().unwrap().add_block(chain_store, header)?;
         Ok(())
     }
 }

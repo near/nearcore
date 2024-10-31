@@ -1939,11 +1939,11 @@ impl Chain {
         chain_update.commit()?;
         // We just log the error instead of returning it because an error here is not an error in block processing,
         // and shouldn't result in us marking the block as having an error
-        if let Err(err) = crate::state_sync::SYNC_TRACKER.get().unwrap().add_block(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            block.header(),
-        ) {
+        if let Err(err) = crate::state_sync::SYNC_TRACKER
+            .get()
+            .unwrap()
+            .add_block(&self.chain_store, block.header())
+        {
             tracing::error!(target: "chain", block_hash=%block.hash(), ?err, "Could not update state sync info after applying block")
         }
         Ok(new_head)
