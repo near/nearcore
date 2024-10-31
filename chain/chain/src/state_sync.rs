@@ -56,7 +56,7 @@ impl NewChunkTracker {
         chain_store: &T,
         header: &BlockHeader,
     ) -> Result<(), Error> {
-        if self.sync_hash.is_some() {
+        if self.sync_hash.is_some() || header.height() == chain_store.get_genesis_height() {
             return Ok(());
         }
 
