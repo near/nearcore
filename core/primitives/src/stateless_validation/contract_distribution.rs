@@ -349,16 +349,13 @@ pub struct ChunkContractDeploys {
 }
 
 impl ChunkContractDeploys {
-    pub fn compress_contracts(contracts: Vec<ContractCode>) -> std::io::Result<Self> {
-        let contract_codes = contracts.into_iter().map(|contract| contract.into()).collect();
-        CompressedContractCode::encode(&contract_codes)
+    pub fn compress_contracts(contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
+        CompressedContractCode::encode(contracts)
             .map(|(compressed_contracts, _size)| Self { compressed_contracts })
     }
 
-    pub fn decompress_contracts(&self) -> std::io::Result<Vec<ContractCode>> {
-        self.compressed_contracts.decode().map(|(contract_codes, _size)| {
-            contract_codes.into_iter().map(|code| code.into()).collect()
-        })
+    pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
+        self.compressed_contracts.decode().map(|(data, _size)| data)
     }
 }
 

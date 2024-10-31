@@ -443,7 +443,7 @@ impl PartialWitnessActor {
             .partial_deploys_tracker
             .store_partial_encoded_contract_deploys(partial_deploys, encoder)?
         {
-            let contract_codes = match deploys.decompress_contracts() {
+            let contracts = match deploys.decompress_contracts() {
                 Ok(contracts) => contracts,
                 Err(err) => {
                     tracing::warn!(
@@ -455,6 +455,7 @@ impl PartialWitnessActor {
                     return Ok(());
                 }
             };
+            let contract_codes = contracts.into_iter().map(|contract| contract.into()).collect();
             let runtime = self.runtime.clone();
             self.compile_contracts_spawner.spawn("precompile_deployed_contracts", move || {
                 if let Err(err) = runtime.precompile_contracts(&key.epoch_id, contract_codes) {
@@ -533,12 +534,13 @@ impl PartialWitnessActor {
     fn send_chunk_contract_deploys_parts(
         &mut self,
         key: ChunkProductionKey,
-        contract_deploys: Vec<ContractCode>,
+        contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
-        if contract_deploys.is_empty() {
+        if contract_codes.is_empty() {
             return Ok(());
         }
-        let compressed_deploys = ChunkContractDeploys::compress_contracts(contract_deploys)?;
+        let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
+        let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
         for (part_owner, deploys_part) in validator_parts.into_iter() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
