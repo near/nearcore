@@ -188,8 +188,26 @@ impl SyncConfig {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct EpochSyncConfig {
-    pub enabled: bool,
+    /// If true, even if the node started from genesis, it will not perform epoch sync.
+    /// There should be no reason to set this flag in production, because on both mainnet
+    /// and testnet it would be infeasible to catch up from genesis without epoch sync.
+    #[serde(default)]
+    pub disable_epoch_sync_for_bootstrapping: bool,
+    /// If true, the node will ignore epoch sync requests from the network. It is strongly
+    /// recommended not to set this flag, because it will prevent other nodes from
+    /// bootstrapping. This flag is only included as a kill-switch and may be removed in a
+    /// future release. Please note that epoch sync requests are heavily rate limited and
+    /// cached, and therefore should not affect the performance of the node or introduce
+    /// any non-negligible increase in network traffic.
+    #[serde(default)]
+    pub ignore_epoch_sync_network_requests: bool,
+    /// This serves as two purposes: (1) the node will not epoch sync and instead resort to
+    /// header sync, if the genesis block is within this many blocks from the current block;
+    /// (2) the node will reject an epoch sync proof if the provided proof is for an epoch
+    /// that is more than this many blocks behind the current block.
     pub epoch_sync_horizon: BlockHeightDelta,
+    /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
+    /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub timeout_for_epoch_sync: Duration,
 }
@@ -197,7 +215,8 @@ pub struct EpochSyncConfig {
 impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            disable_epoch_sync_for_bootstrapping: false,
+            ignore_epoch_sync_network_requests: false,
             // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
             // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
             // (Epoch sync should not be picking a target epoch more than 2 epochs old.)

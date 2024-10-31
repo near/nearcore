@@ -10,9 +10,9 @@ pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractDeployments;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
+use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -563,9 +563,9 @@ pub enum RoutedMessageBody {
     _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
     ChunkContractAccesses(ChunkContractAccesses),
-    ChunkContractDeployments(ChunkContractDeployments),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
 }
 
 impl RoutedMessageBody {
@@ -663,13 +663,13 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
             }
-            RoutedMessageBody::ChunkContractDeployments(deploys) => {
-                write!(f, "ChunkContractDeployments(code_hashes={:?}", deploys.contracts())
-            }
             RoutedMessageBody::ContractCodeRequest(request) => {
                 write!(f, "ContractCodeRequest(code_hashes={:?})", request.contracts())
             }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
+            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+                write!(f, "PartialEncodedContractDeploys(part={:?}", deploys.part())
+            }
         }
     }
 }

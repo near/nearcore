@@ -1,16 +1,16 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
-use crate::contract::{ContractStorage, ContractStorageResult};
+use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
     TrieCacheMode,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 mod iterator;
 
@@ -58,10 +58,8 @@ pub struct TrieUpdateResult {
     pub trie: Trie,
     pub trie_changes: TrieChanges,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
-    /// Code-hashes of the contracts accessed (called).
-    pub contract_accesses: BTreeSet<CodeHash>,
-    /// Code-hashes of the contracts deployed.
-    pub contract_deploys: BTreeSet<CodeHash>,
+    /// Contracts accessed and deployed while applying the chunk.
+    pub contract_updates: ContractUpdates,
 }
 
 impl TrieUpdate {
@@ -192,15 +190,8 @@ impl TrieUpdate {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
         }
-        let ContractStorageResult { contract_calls, contract_deploys } =
-            contract_storage.finalize();
-        Ok(TrieUpdateResult {
-            trie,
-            trie_changes,
-            state_changes,
-            contract_accesses: contract_calls,
-            contract_deploys,
-        })
+        let contract_updates = contract_storage.finalize();
+        Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_updates })
     }
 
     /// Returns Error if the underlying storage fails

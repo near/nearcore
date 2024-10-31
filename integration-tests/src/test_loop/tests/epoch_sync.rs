@@ -141,7 +141,6 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
         .test_loop_data_dir(tempdir)
         .config_modifier(|config, _| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
-            config.epoch_sync.enabled = true;
             config.epoch_sync.epoch_sync_horizon = 30;
             // Make header sync horizon small enough to trigger it.
             config.block_header_fetch_horizon = 8;

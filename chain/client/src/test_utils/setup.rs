@@ -45,8 +45,8 @@ use near_network::client::{
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
-    ChunkContractAccessesMessage, ChunkContractDeploymentsMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedStateWitnessForwardMessage,
+    ChunkContractAccessesMessage, ContractCodeRequestMessage, ContractCodeResponseMessage,
+    PartialEncodedContractDeploysMessage, PartialEncodedStateWitnessForwardMessage,
     PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
 };
 use near_network::types::{BlockInfo, PeerChainInfo};
@@ -787,17 +787,6 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::ChunkContractDeployments(accounts, deploys) => {
-            for account in accounts {
-                for (i, name) in validators.iter().enumerate() {
-                    if name == account {
-                        connectors[i]
-                            .partial_witness_sender
-                            .send(ChunkContractDeploymentsMessage(deploys.clone()));
-                    }
-                }
-            }
-        }
         NetworkRequests::ContractCodeRequest(account, request) => {
             for (i, name) in validators.iter().enumerate() {
                 if name == account {
@@ -813,6 +802,17 @@ fn process_peer_manager_message_default(
                     connectors[i]
                         .partial_witness_sender
                         .send(ContractCodeResponseMessage(response.clone()));
+                }
+            }
+        }
+        NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
+            for account in accounts {
+                for (i, name) in validators.iter().enumerate() {
+                    if name == account {
+                        connectors[i]
+                            .partial_witness_sender
+                            .send(PartialEncodedContractDeploysMessage(deploys.clone()));
+                    }
                 }
             }
         }
