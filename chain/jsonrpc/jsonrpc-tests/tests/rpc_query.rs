@@ -118,7 +118,6 @@ fn test_chunk_by_hash() {
 // TODO(wacban) should not panic when V2 is ready
 /// Retrieve chunk via json rpc
 #[test]
-#[should_panic]
 fn test_chunk_invalid_shard_id() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk =
