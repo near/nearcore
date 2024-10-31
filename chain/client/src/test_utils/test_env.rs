@@ -359,7 +359,7 @@ impl TestEnv {
         let partial_witness_adapters = self.partial_witness_adapters.clone();
         for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
+                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness, .. } =
                     request;
 
                 let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();

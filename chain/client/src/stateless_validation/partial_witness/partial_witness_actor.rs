@@ -76,6 +76,7 @@ pub struct DistributeStateWitnessRequest {
     pub epoch_id: EpochId,
     pub chunk_header: ShardChunkHeader,
     pub state_witness: ChunkStateWitness,
+    pub contract_deploys: HashSet<CodeHash>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -176,7 +177,12 @@ impl PartialWitnessActor {
         &mut self,
         msg: DistributeStateWitnessRequest,
     ) -> Result<(), Error> {
-        let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = msg;
+        let DistributeStateWitnessRequest {
+            epoch_id,
+            chunk_header,
+            state_witness,
+            contract_deploys,
+        } = msg;
 
         tracing::debug!(
             target: "client",
@@ -188,6 +194,11 @@ impl PartialWitnessActor {
         let witness_bytes = compress_witness(&state_witness)?;
 
         self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, &signer)?;
+
+        self.distribute_chunk_contract_deploys(
+            state_witness.chunk_production_key(),
+            contract_deploys,
+        )?;
 
         Ok(())
     }
@@ -484,15 +495,24 @@ impl PartialWitnessActor {
         Ok(())
     }
 
-    #[allow(unused)]
-    fn handle_distribute_chunk_contract_deploys_request(
+    /// Retrieves the code for the given contract hashes and distributes them to validator in parts.
+    /// This implements the first step of distributing contract code to validators where the contract codes
+    /// are compressed and encoded into parts using Reed Solomon encoding, and then each part is sent to
+    /// one of the validators. Second step of the distribution, where each validator forwards the part it
+    /// receives is implemented in `handle_partial_encoded_contract_deploys`.
+    fn distribute_chunk_contract_deploys(
         &mut self,
         key: ChunkProductionKey,
-        deploys: Vec<CodeBytes>,
+        contract_deploys: HashSet<CodeHash>,
     ) -> Result<(), Error> {
-        let compressed_deploys = ChunkContractDeploys::compress_contracts(&deploys)?;
-        let _validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
-        // TODO(#11099): network send parts to validators
+        let contract_codes = self.retrieve_contract_code(&key, contract_deploys.iter())?;
+        let compressed_deploys = ChunkContractDeploys::compress_contracts(&contract_codes)?;
+        let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
+        for (validator, deploys_part) in validator_parts.into_iter() {
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedContractDeploys(vec![validator], deploys_part),
+            ));
+        }
         Ok(())
     }
 
@@ -503,26 +523,7 @@ impl PartialWitnessActor {
         let signer = self.my_validator_signer()?;
         // TODO(#11099): validate request
         let key = request.chunk_production_key();
-        let storage = TrieDBStorage::new(
-            TrieStoreAdapter::new(self.runtime.store().clone()),
-            self.epoch_manager.shard_id_to_uid(key.shard_id, &key.epoch_id)?,
-        );
-        let mut contracts = Vec::new();
-        for contract_hash in request.contracts() {
-            match storage.retrieve_raw_bytes(&contract_hash.0) {
-                Ok(bytes) => contracts.push(CodeBytes(bytes)),
-                Err(StorageError::MissingTrieValue(_, _)) => {
-                    tracing::warn!(
-                        target: "client",
-                        ?contract_hash,
-                        chunk_production_key = ?key,
-                        "Requested contract hash is not present in the storage"
-                    );
-                    return Ok(());
-                }
-                Err(err) => return Err(err.into()),
-            }
-        }
+        let contracts = self.retrieve_contract_code(key, request.contracts().iter())?;
         let response = ContractCodeResponse::new(key.clone(), &contracts, &signer);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
@@ -565,6 +566,37 @@ impl PartialWitnessActor {
             .collect::<Vec<_>>();
         validators.sort();
         Ok(validators)
+    }
+
+    /// Returns for each code-hash the contract code retrieved from the storage.
+    fn retrieve_contract_code<'a, I>(
+        &self,
+        key: &ChunkProductionKey,
+        code_hashes: I,
+    ) -> Result<Vec<CodeBytes>, Error>
+    where
+        I: Iterator<Item = &'a CodeHash>,
+    {
+        let storage = TrieDBStorage::new(
+            TrieStoreAdapter::new(self.runtime.store().clone()),
+            self.epoch_manager.shard_id_to_uid(key.shard_id, &key.epoch_id)?,
+        );
+        let mut contracts = Vec::new();
+        for contract_hash in code_hashes {
+            match storage.retrieve_raw_bytes(&contract_hash.0) {
+                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Err(StorageError::MissingTrieValue(_, _)) => {
+                    tracing::warn!(
+                        target: "client",
+                        ?contract_hash,
+                        chunk_production_key = ?key,
+                        "Requested contract hash is not present in the storage"
+                    );
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Ok(contracts)
     }
 }
 
