@@ -590,7 +590,7 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        if !self.config.enabled {
+        if self.config.disable_epoch_sync_for_bootstrapping {
             return Ok(());
         }
         let tip_height = chain.chain_store().header_head()?.height;
@@ -966,9 +966,8 @@ impl EpochSync {
 impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
-        if !self.client.epoch_sync.config.enabled {
-            // TODO(#11937): before we have rate limiting, don't respond to epoch sync requests
-            // unless config is enabled.
+        if self.client.epoch_sync.config.ignore_epoch_sync_network_requests {
+            // Temporary killswitch for the rare case there were issues with this network request.
             return;
         }
         let store = self.client.chain.chain_store.store().clone();
