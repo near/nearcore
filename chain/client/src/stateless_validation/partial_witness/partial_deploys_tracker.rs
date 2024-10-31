@@ -1,7 +1,9 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use crate::metrics;
 use lru::LruCache;
+use near_async::time::Instant;
 use near_chain::Error;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonPartsTracker,
@@ -10,16 +12,21 @@ use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractDeploys, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
+use time::ext::InstantExt as _;
 
 const DEPLOY_PARTS_CACHE_SIZE: usize = 20;
 
 struct CacheEntry {
     parts: ReedSolomonPartsTracker<ChunkContractDeploys>,
+    created_at: Instant,
 }
 
 impl CacheEntry {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
-        Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
+        Self {
+            parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
+            created_at: Instant::now(),
+        }
     }
 
     fn process_part(
@@ -94,6 +101,10 @@ impl PartialEncodedContractDeploysTracker {
         }
         let entry = self.parts_cache.get_mut(&key).unwrap();
         if let Some(decode_result) = entry.process_part(&key, part) {
+            let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
+            metrics::PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART
+                .with_label_values(&[key.shard_id.to_string().as_str()])
+                .observe(time_to_last_part.as_seconds_f64());
             self.parts_cache.pop(&key);
             let deploys = match decode_result {
                 Ok(deploys) => deploys,
