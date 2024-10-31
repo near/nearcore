@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1058,18 +1058,6 @@ impl ChainStore {
     ) -> Result<Option<CryptoHash>, Error> {
         Ok(self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())?)
     }
-
-    fn get_epoch_new_chunks(&self, block_hash: &CryptoHash) -> Result<Option<Vec<usize>>, Error> {
-        Ok(self.store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
-    }
-
-    fn iter_epoch_new_chunks_keys<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = Result<CryptoHash, Error>> + 'a {
-        self.store
-            .iter(DBCol::StateSyncNewChunks)
-            .map(|item| item.and_then(|(k, _v)| CryptoHash::try_from_slice(&k)).map_err(Into::into))
-    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -1358,22 +1346,6 @@ impl ChainStoreAccess for ChainStore {
         )
         .map(|r| r.is_some())
         .map_err(|e| e.into())
-    }
-}
-
-// Used for storing block headers in a heap that returns the lowest heights first
-#[derive(PartialEq, Eq)]
-struct BlockHeaderByHeight<'a>(&'a BlockHeader);
-
-impl<'a> PartialOrd for BlockHeaderByHeight<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<'a> Ord for BlockHeaderByHeight<'a> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.0.height().cmp(&self.0.height())
     }
 }
 
@@ -2277,110 +2249,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(chain_store_update)
     }
 
-    fn save_epoch_new_chunks(
-        &self,
-        store_update: &mut StoreUpdate,
-        header: &BlockHeader,
-    ) -> Result<(), Error> {
-        let Some(mut num_new_chunks) = self.chain_store.get_epoch_new_chunks(header.prev_hash())?
-        else {
-            // This might happen in the case of epoch sync where we save individual headers without having all
-            // headers that belong to the epoch.
-            return Ok(());
-        };
-
-        // This shouldn't happen because block headers in the same epoch should have chunks masks
-        // of the same length, but we log it here in case it happens for some reason. We return Ok because if this
-        // happens, it's some bug in this state sync logic, because the chunk mask length of headers are checked when
-        // they're verified. So in this case we shouldn't fail to commit this store update and store this block header
-        if num_new_chunks.len() != header.chunk_mask().len() {
-            tracing::error!(
-                block_hash=%header.hash(), chunk_mask_len=%header.chunk_mask().len(), stored_len=%num_new_chunks.len(),
-                "block header's chunk mask not of the same length as stored value in DBCol::StateSyncNewChunks",
-            );
-            return Ok(());
-        }
-
-        let mut done = true;
-        for (shard_index, num_new_chunks) in num_new_chunks.iter_mut().enumerate() {
-            let new_chunk = header.chunk_mask()[shard_index];
-            if new_chunk {
-                *num_new_chunks += 1;
-            }
-            if *num_new_chunks < 2 {
-                done = false;
-            }
-        }
-        if done {
-            // TODO(current_epoch_state_sync): this will not be correct if this block doesn't end up finalized on the main chain.
-            // We should fix it by setting the sync hash when it's finalized, which requires making changes to how we take state snapshots.
-            store_update.set_ser(
-                DBCol::StateSyncHashes,
-                header.epoch_id().as_ref(),
-                header.hash(),
-            )?;
-            store_update.delete_all(DBCol::StateSyncNewChunks);
-            // TODO: remove old ones
-            return Ok(());
-        }
-
-        store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
-        Ok(())
-    }
-
-    fn update_sync_hashes(
-        &self,
-        store_update: &mut StoreUpdate,
-        header: &BlockHeader,
-    ) -> Result<(), Error> {
-        let sync_hash = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())?;
-        if sync_hash.is_some() || header.height() == self.chain_store.get_genesis_height() {
-            return Ok(());
-        }
-
-        let prev_header = match self.get_block_header(header.prev_hash()) {
-            Ok(h) => h,
-            // During epoch sync, we save headers whose prev headers might not exist, so we just do nothing in this case.
-            // This means that we might not be able to state sync for this epoch, but for now this is not a problem.
-            Err(Error::DBNotFoundErr(_)) => return Ok(()),
-            Err(e) => return Err(e),
-        };
-
-        if prev_header.height() == self.chain_store.get_genesis_height()
-            || prev_header.epoch_id() != header.epoch_id()
-        {
-            let num_new_chunks = vec![0usize; header.chunk_mask().len()];
-            store_update.set_ser(
-                DBCol::StateSyncNewChunks,
-                header.hash().as_ref(),
-                &num_new_chunks,
-            )?;
-            return Ok(());
-        }
-
-        self.save_epoch_new_chunks(store_update, header)?;
-
-        if header.last_final_block() != &CryptoHash::default() {
-            // We don't need to keep info for old blocks around. After a block is finalized, we don't need anything before it
-            let last_final_header = match self.get_block_header(header.last_final_block()) {
-                Ok(h) => h,
-                // This might happen in the case of epoch sync where we save individual headers without having all
-                // headers that belong to the epoch.
-                Err(Error::DBNotFoundErr(_)) => return Ok(()),
-                Err(e) => return Err(e),
-            };
-
-            for block_hash in self.chain_store.iter_epoch_new_chunks_keys() {
-                let block_hash = block_hash?;
-                let old_header = self.get_block_header(&block_hash)?;
-                if old_header.height() < last_final_header.height() {
-                    store_update.delete(DBCol::StateSyncNewChunks, block_hash.as_ref());
-                }
-            }
-        }
-        Ok(())
-    }
-
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
@@ -2422,13 +2290,13 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> =
                 HashMap::new();
-            let mut headers_by_height = BinaryHeap::new();
+            let mut sync_hash_tracker = crate::state_sync::SyncHashTracker::new();
             for (hash, header) in self.chain_store_cache_update.headers.iter() {
                 if self.chain_store.get_block_header(hash).is_ok() {
                     // No need to add same Header once again
                     continue;
                 }
-                headers_by_height.push(BlockHeaderByHeight(header));
+                sync_hash_tracker.push_header(header);
                 header_hashes_by_height
                     .entry(header.height())
                     .or_insert_with(|| {
@@ -2439,9 +2307,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     .insert(*hash);
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
             }
-            while let Some(BlockHeaderByHeight(header)) = headers_by_height.pop() {
-                self.update_sync_hashes(&mut store_update, header)?;
-            }
+            sync_hash_tracker.update_store(self, &mut store_update)?;
             for (height, hash_set) in header_hashes_by_height {
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,
