@@ -1,7 +1,85 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::errors::StorageError;
+use near_primitives::types::{ShardId, StateChangeCause};
+use near_primitives::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
+use near_vm_runner::logic::ProtocolVersion;
+
+use crate::TrieUpdate;
+
+use super::TrieAccess;
+
+/// Keeps metadata about receipts stored in the outgoing buffers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingMetadatas {
+    /// Metadata for each shard.
+    pub metadatas: BTreeMap<ShardId, OutgoingBufferMetadata>,
+    /// Receipts are grouped into groups and metadatas keep group-level information.
+    /// A new group is started when the size of the last group exceeds this threshold.
+    pub group_size_threshold: u32,
+}
+
+impl OutgoingMetadatas {
+    pub fn new(group_size_threshold: u32) -> Self {
+        Self { metadatas: BTreeMap::new(), group_size_threshold }
+    }
+
+    /// Load shard metadata from the trie.
+    pub fn load(
+        trie: &dyn TrieAccess,
+        shard_ids: impl Iterator<Item = ShardId>,
+        group_size_threshold: u32,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Self, StorageError> {
+        if !ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+            return Ok(Self::new(group_size_threshold));
+        }
+
+        let mut metadatas = BTreeMap::new();
+        for shard_id in shard_ids {
+            if let Some(receipt_group_sizes) =
+                crate::get_outgoing_buffer_receipt_sizes(trie, shard_id)?
+            {
+                metadatas.insert(shard_id, OutgoingBufferMetadata { receipt_group_sizes });
+            }
+        }
+        Ok(Self { metadatas, group_size_threshold })
+    }
+
+    /// Save metadatas to the trie. They are not saved automatically, make sure that you
+    /// call this method after updating the metadata.
+    pub fn save(&self, state_update: &mut TrieUpdate, protocol_version: ProtocolVersion) {
+        if !ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+            return;
+        }
+
+        for (shard_id, metadata) in &self.metadatas {
+            crate::set_outgoing_buffer_receipt_sizes(
+                state_update,
+                *shard_id,
+                &metadata.receipt_group_sizes,
+            );
+        }
+        state_update.commit(StateChangeCause::SaveOutgoingBufferMetadata);
+    }
+
+    /// Update the metadata when a new receipt is added at the end of the buffer.
+    pub fn on_receipt_buffered(&mut self, shard_id: ShardId, receipt_size: u64) {
+        let metadata = self
+            .metadatas
+            .entry(shard_id)
+            .or_insert_with(|| OutgoingBufferMetadata::new(self.group_size_threshold));
+        metadata.on_receipt_buffered(receipt_size);
+    }
+
+    /// Update the metadata when a receipt is removed from the front of the buffer.
+    pub fn on_receipt_removed(&mut self, shard_id: ShardId, receipt_size: u64) {
+        let metadata = self.metadatas.get_mut(&shard_id).expect("Metadata should exist");
+        metadata.on_receipt_removed(receipt_size);
+    }
+}
 
 /// Keeps metadata about receipts stored in outgoing buffer to some shard.
 #[derive(Debug, Clone, PartialEq, Eq)]

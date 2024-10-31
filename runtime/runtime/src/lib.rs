@@ -1513,6 +1513,8 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
+        receipt_sink.save_outgoing_buffer_metadatas(&mut processing_state.state_update);
+
         // Step 5: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
@@ -2622,6 +2624,7 @@ pub mod estimator {
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
+    use near_store::trie::outgoing_metadata::OutgoingMetadatas;
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::TrieUpdate;
     use std::collections::HashMap;
@@ -2640,12 +2643,21 @@ pub mod estimator {
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 
+        let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(&state_update.trie)?;
+        let outgoing_buffer_shard_ids = outgoing_buffers.shards().into_iter();
+
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: &mut congestion_info,
             outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
             protocol_version: apply_state.current_protocol_version,
+            outgoing_buffer_metadatas: OutgoingMetadatas::load(
+                &state_update.trie,
+                outgoing_buffer_shard_ids,
+                90_000, // TODO(bandwidth_scheduler) - take from runtime config
+                apply_state.current_protocol_version,
+            )?,
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),

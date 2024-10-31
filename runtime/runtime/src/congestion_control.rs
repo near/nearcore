@@ -6,11 +6,12 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
-    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
+    QueueMetadataVersion, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
     StateStoredReceiptMetadata,
 };
 use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
+use near_store::trie::outgoing_metadata::OutgoingMetadatas;
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ReceiptIterator, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
@@ -48,6 +49,7 @@ pub(crate) struct ReceiptSinkV2<'a> {
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
+    pub(crate) outgoing_buffer_metadatas: OutgoingMetadatas,
     pub(crate) protocol_version: ProtocolVersion,
 }
 
@@ -120,12 +122,20 @@ impl<'a> ReceiptSink<'a> {
                 })
                 .collect();
 
+            let outgoing_buffer_metadatas = OutgoingMetadatas::load(
+                trie,
+                outgoing_buffers.shards().iter().copied(),
+                90_000, // TODO(bandwidth_scheduler) - put in config
+                apply_state.current_protocol_version,
+            )?;
+
             Ok(ReceiptSink::V2(ReceiptSinkV2 {
                 own_congestion_info,
                 outgoing_receipts: outgoing_receipts,
                 outgoing_limit,
                 outgoing_buffers,
                 protocol_version,
+                outgoing_buffer_metadatas,
             }))
         } else {
             debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
@@ -169,6 +179,13 @@ impl<'a> ReceiptSink<'a> {
             ),
         }
     }
+
+    pub(crate) fn save_outgoing_buffer_metadatas(&self, state_update: &mut TrieUpdate) {
+        match self {
+            ReceiptSink::V1(_) => (),
+            ReceiptSink::V2(inner) => inner.save_outgoing_buffer_metadatas(state_update),
+        }
+    }
 }
 
 impl ReceiptSinkV1<'_> {
@@ -207,6 +224,10 @@ impl ReceiptSinkV2<'_> {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
             let size = receipt_size(&receipt)?;
+            let should_update_metadata = match receipt.queue_metadata_version() {
+                None => false,
+                Some(QueueMetadataVersion::OutgoingBufferMetadataV0) => true,
+            };
             let receipt = receipt.into_receipt();
 
             match Self::try_forward(
@@ -221,6 +242,9 @@ impl ReceiptSinkV2<'_> {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
+                    if should_update_metadata {
+                        self.outgoing_buffer_metadatas.on_receipt_removed(shard_id, size);
+                    }
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
                     // `state_update.trie`.
@@ -337,9 +361,14 @@ impl ReceiptSinkV2<'_> {
 
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
+        self.outgoing_buffer_metadatas.on_receipt_buffered(shard, size);
 
         self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
         Ok(())
+    }
+
+    fn save_outgoing_buffer_metadatas(&self, state_update: &mut TrieUpdate) {
+        self.outgoing_buffer_metadatas.save(state_update, self.protocol_version);
     }
 }
 

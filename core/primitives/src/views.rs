@@ -2253,6 +2253,7 @@ pub enum StateChangeCauseView {
     Migration,
     ReshardingV2,
     BandwidthSchedulerStateUpdate,
+    SaveOutgoingBufferMetadata,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -2280,6 +2281,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::Migration => Self::Migration,
             StateChangeCause::ReshardingV2 => Self::ReshardingV2,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
+            StateChangeCause::SaveOutgoingBufferMetadata => Self::SaveOutgoingBufferMetadata,
         }
     }
 }
