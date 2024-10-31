@@ -388,7 +388,12 @@ impl PartialWitnessActor {
         Ok(())
     }
 
-    #[allow(unused)]
+    /// Handles partial contract deploy message received from a peer.
+    ///
+    /// This message may belong to one of two steps of distributing contract code. In the first step the code is compressed
+    /// and encoded into parts using Reed Solomon encoding and each port is sent to one of the validators (part owner).
+    /// See `distribute_chunk_contract_deploys` for the code implementing this. In the second step each validator (part-owner)
+    /// forwards the part it receives to other validators.
     fn handle_partial_encoded_contract_deploys(
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,
@@ -406,6 +411,7 @@ impl PartialWitnessActor {
         }
         let key = partial_deploys.chunk_production_key().clone();
         let validators = self.ordered_contract_deploys_validators(&key)?;
+
         // Forward if my part
         let signer = self.my_validator_signer()?;
         let my_account_id = signer.validator_id();
@@ -414,10 +420,19 @@ impl PartialWitnessActor {
             .position(|validator| validator == my_account_id)
             .expect("expected to be validated");
         if partial_deploys.part().part_ord == my_part_ord {
-            let _target_validators =
-                validators.iter().filter(|&validator| validator != my_account_id).collect_vec();
-            // TODO(#11099): send message with this part to target validators
+            let target_validators = validators
+                .iter()
+                .filter(|&validator| validator != my_account_id)
+                .cloned()
+                .collect_vec();
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedContractDeploys(
+                    target_validators,
+                    partial_deploys.clone(),
+                ),
+            ));
         }
+
         // Store part
         let encoder = self.contract_deploys_encoder(validators.len());
         if let Some(deploys) = self
@@ -496,10 +511,11 @@ impl PartialWitnessActor {
     }
 
     /// Retrieves the code for the given contract hashes and distributes them to validator in parts.
+    ///
     /// This implements the first step of distributing contract code to validators where the contract codes
     /// are compressed and encoded into parts using Reed Solomon encoding, and then each part is sent to
-    /// one of the validators. Second step of the distribution, where each validator forwards the part it
-    /// receives is implemented in `handle_partial_encoded_contract_deploys`.
+    /// one of the validators (part-owner). Second step of the distribution, where each validator (part-owner)
+    /// forwards the part it receives is implemented in `handle_partial_encoded_contract_deploys`.
     fn distribute_chunk_contract_deploys(
         &mut self,
         key: ChunkProductionKey,
