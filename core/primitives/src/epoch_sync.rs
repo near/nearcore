@@ -49,6 +49,9 @@ pub struct EpochSyncProofV1 {
     /// epoch EpochId::default, and then the next epoch after genesis is fully determined by
     /// the genesis; after that would be the first epoch included here), to and including the
     /// current epoch, in that order.
+    ///
+    /// The first entry in this list is proven against the genesis. Then, each entry is proven
+    /// against the previous entry, thereby validating the entire list by induction.
     pub all_epochs: Vec<EpochSyncProofEpochData>,
     /// Some extra data for the last epoch before the current epoch.
     pub last_epoch: EpochSyncProofLastEpochData,
@@ -135,9 +138,10 @@ pub struct EpochSyncProofEpochData {
 /// Data needed to initialize the epoch sync boundary.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSyncProofLastEpochData {
-    /// The following six fields are used to derive the epoch_sync_data_hash included in any
-    /// BlockHeaderV3. This is used to verify all the data we need around the epoch sync
-    /// boundary, against `last_final_block_header` in the second last epoch data.
+    /// The following six fields are used to derive the epoch_sync_data_hash included in the
+    /// first block of the epoch right after (assuming it is a BlockHeaderV3 or newer). This
+    /// is used to verify all the data we need around the epoch sync boundary, against
+    /// `first_block_header_in_epoch` in `current_epoch`.
     pub epoch_info: EpochInfo,
     pub next_epoch_info: EpochInfo,
     pub next_next_epoch_info: EpochInfo,
@@ -150,21 +154,21 @@ pub struct EpochSyncProofLastEpochData {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochSyncProofCurrentEpochData {
     /// The first block header that begins the epoch. It is proven using a merkle proof
-    /// against `last_final_block_header` in the current epoch data. Note that we cannot
-    /// use signatures to prove this like for the final block, because the first block
-    /// header may not have a consecutive height afterwards.
+    /// against `last_final_block_header` in the last entry of `all_epochs`. Note that we cannot
+    /// use signatures to prove this like for the final block, because the first block header may
+    /// not have a consecutive height afterwards.
     pub first_block_header_in_epoch: BlockHeader,
-    // The last two block headers are also needed for various purposes after epoch sync.
-    // TODO(#11931): do we really need these?
-    // TODO(#12259) These 2 fields are currently unverified.
+    /// The last two block headers are also needed for various purposes after epoch sync.
+    /// They are proven against the `first_block_header_in_epoch`.
     pub last_block_header_in_prev_epoch: BlockHeader,
     pub second_last_block_header_in_prev_epoch: BlockHeader,
-    // Used to prove the block against the merkle root
-    // included in the final block in this next epoch (included in LastEpochData).
-    // TODO(#12255) This field is currently ungenerated and unverified.
+    /// Used to prove `first_block_header_in_epoch` against the `last_final_block_header` of
+    /// the last entry of `all_epochs`.
     pub merkle_proof_for_first_block: Vec<MerklePathItem>,
-    // Partial merkle tree for the first block in this next epoch.
-    // It is necessary and sufficient to calculate next blocks merkle roots.
-    // It is proven using `first_block_header_in_epoch`.
+    /// Partial merkle tree for the first block in this epoch. It is needed to construct future
+    /// partial merkle trees for any blocks that follow.
+    /// This is proven against the merkle root and block ordinal in `first_block_header_in_epoch`
+    /// (as there is only one unique correct partial merkle tree for a specific root and a specific
+    /// block ordinal).
     pub partial_merkle_tree_for_first_block: PartialMerkleTree,
 }
