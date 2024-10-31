@@ -6,6 +6,7 @@ use crate::flat::FlatStorageStatus;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
+use crate::trie::mem::updating::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -160,7 +161,7 @@ pub fn load_trie_from_flat_state_and_delta(
                     Some(value) => {
                         trie_update.insert_memtrie_only(&key, value)?;
                     }
-                    None => trie_update.delete(&key)?,
+                    None => trie_update.generic_delete(0, &key)?,
                 };
             }
 
