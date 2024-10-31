@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
@@ -66,6 +67,7 @@ pub struct PartialWitnessActor {
     witness_encoders: ReedSolomonEncoderCache,
     /// Same as above for contract deploys
     contract_deploys_encoders: ReedSolomonEncoderCache,
+    compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -155,6 +157,7 @@ impl PartialWitnessActor {
         my_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
+        compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let partial_witness_tracker =
             PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone());
@@ -170,6 +173,7 @@ impl PartialWitnessActor {
             contract_deploys_encoders: ReedSolomonEncoderCache::new(
                 CONTRACT_DEPLOYS_RATIO_DATA_PARTS,
             ),
+            compile_contracts_spawner,
         }
     }
 
@@ -439,7 +443,7 @@ impl PartialWitnessActor {
             .partial_deploys_tracker
             .store_partial_encoded_contract_deploys(partial_deploys, encoder)?
         {
-            let _contracts = match deploys.decompress_contracts() {
+            let contract_codes = match deploys.decompress_contracts() {
                 Ok(contracts) => contracts,
                 Err(err) => {
                     tracing::warn!(
@@ -451,7 +455,20 @@ impl PartialWitnessActor {
                     return Ok(());
                 }
             };
-            // TODO(#11099): precompile contracts using self.runtime
+            let runtime = self.runtime.clone();
+            self.compile_contracts_spawner.spawn("precompile_deployed_contracts", move || {
+                match runtime.precompile_contracts(&key.epoch_id, contract_codes) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "client",
+                            ?err,
+                            ?key,
+                            "Failed to precompile deployed contracts."
+                        );
+                    }
+                }
+            });
         }
 
         Ok(())
@@ -524,9 +541,7 @@ impl PartialWitnessActor {
         if contract_deploys.is_empty() {
             return Ok(());
         }
-        let compressed_deploys = ChunkContractDeploys::compress_contracts(
-            contract_deploys.into_iter().map(|contract| contract.take_code().into()).collect(),
-        )?;
+        let compressed_deploys = ChunkContractDeploys::compress_contracts(contract_deploys)?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
         for (part_owner, deploys_part) in validator_parts.into_iter() {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

@@ -319,6 +319,12 @@ impl From<Vec<u8>> for CodeBytes {
     }
 }
 
+impl Into<Vec<u8>> for CodeBytes {
+    fn into(self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
 /// Contains the accesses and changes (eg. deployments) to the contracts while applying a chunk.
 #[derive(Debug, Default)]
 pub struct ContractUpdates {
@@ -343,13 +349,17 @@ pub struct ChunkContractDeploys {
 }
 
 impl ChunkContractDeploys {
-    pub fn compress_contracts(contracts: Vec<CodeBytes>) -> std::io::Result<Self> {
-        CompressedContractCode::encode(&contracts)
+    pub fn compress_contracts(contracts: Vec<ContractCode>) -> std::io::Result<Self> {
+        let contract_codes =
+            contracts.into_iter().map(|contract| contract.take_code().into()).collect();
+        CompressedContractCode::encode(&contract_codes)
             .map(|(compressed_contracts, _size)| Self { compressed_contracts })
     }
 
-    pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
-        self.compressed_contracts.decode().map(|(data, _size)| data)
+    pub fn decompress_contracts(&self) -> std::io::Result<Vec<ContractCode>> {
+        self.compressed_contracts.decode().map(|(contract_codes, _size)| {
+            contract_codes.into_iter().map(|code| ContractCode::new(code.into(), None)).collect()
+        })
     }
 }
 
