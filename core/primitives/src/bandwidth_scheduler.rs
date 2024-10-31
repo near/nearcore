@@ -7,6 +7,8 @@ use near_primitives_core::types::{ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
+/// Represents size of receipts, in the context of cross-shard bandwidth, in bytes.
+/// TODO(bandwidth_scheduler) - consider using ByteSize
 pub type Bandwidth = u64;
 
 /// A list of shard's bandwidth requests.
