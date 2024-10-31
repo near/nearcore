@@ -357,6 +357,7 @@ impl StateChanges {
                 TrieKey::BufferedReceiptIndices => {}
                 TrieKey::BufferedReceipt { .. } => {}
                 TrieKey::BandwidthSchedulerState => {}
+                TrieKey::OutgoingBufferReceiptSizes { .. } => {}
             }
         }
 

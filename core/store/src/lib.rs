@@ -35,7 +35,7 @@ use near_primitives::receipt::{
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
 use std::fs::File;
 use std::path::Path;
@@ -44,6 +44,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
+use trie::outgoing_metadata::ReceiptGroupSizes;
 
 pub mod adapter;
 pub mod cold_storage;
@@ -984,6 +985,21 @@ pub fn set_bandwidth_scheduler_state(
     scheduler_state: &BandwidthSchedulerState,
 ) {
     set(state_update, TrieKey::BandwidthSchedulerState, scheduler_state);
+}
+
+pub fn get_outgoing_buffer_receipt_sizes(
+    trie: &dyn TrieAccess,
+    to_shard: ShardId,
+) -> Result<Option<ReceiptGroupSizes>, StorageError> {
+    get(trie, &TrieKey::OutgoingBufferReceiptSizes { to_shard })
+}
+
+pub fn set_outgoing_buffer_receipt_sizes(
+    state_update: &mut TrieUpdate,
+    to_shard: ShardId,
+    receipt_sizes: &ReceiptGroupSizes,
+) {
+    set(state_update, TrieKey::OutgoingBufferReceiptSizes { to_shard }, receipt_sizes);
 }
 
 pub fn set_access_key(

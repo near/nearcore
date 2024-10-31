@@ -57,6 +57,7 @@ pub mod col {
     /// (`primitives::receipt::Receipt`).
     pub const BUFFERED_RECEIPT: u8 = 14;
     pub const BANDWIDTH_SCHEDULER_STATE: u8 = 15;
+    pub const OUTGOING_BUFFER_RECEIPT_SIZES: u8 = 16;
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
 
@@ -74,7 +75,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 15] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 16] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -90,6 +91,7 @@ pub mod col {
         (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
         (BUFFERED_RECEIPT, "BufferedReceipt"),
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
+        (OUTGOING_BUFFER_RECEIPT_SIZES, "OutgoingBufferReceiptSizes"),
     ];
 }
 
@@ -178,6 +180,9 @@ pub enum TrieKey {
         index: u64,
     },
     BandwidthSchedulerState,
+    OutgoingBufferReceiptSizes {
+        to_shard: ShardId,
+    },
 }
 
 /// Provides `len` function.
@@ -254,6 +259,9 @@ impl TrieKey {
                     + std::mem::size_of_val(index)
             }
             TrieKey::BandwidthSchedulerState => col::BANDWIDTH_SCHEDULER_STATE.len(),
+            TrieKey::OutgoingBufferReceiptSizes { to_shard } => {
+                col::OUTGOING_BUFFER_RECEIPT_SIZES.len() + std::mem::size_of_val(to_shard)
+            }
         }
     }
 
@@ -337,6 +345,10 @@ impl TrieKey {
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::BandwidthSchedulerState => buf.push(col::BANDWIDTH_SCHEDULER_STATE),
+            TrieKey::OutgoingBufferReceiptSizes { to_shard } => {
+                buf.push(col::OUTGOING_BUFFER_RECEIPT_SIZES);
+                buf.extend(&to_shard.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -366,6 +378,7 @@ impl TrieKey {
             TrieKey::BufferedReceiptIndices => None,
             TrieKey::BufferedReceipt { .. } => None,
             TrieKey::BandwidthSchedulerState => None,
+            TrieKey::OutgoingBufferReceiptSizes { .. } => None,
         }
     }
 }
