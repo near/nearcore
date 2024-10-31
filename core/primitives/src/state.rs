@@ -110,3 +110,14 @@ impl FlatStateValue {
         }
     }
 }
+
+/// Value to insert to trie or update existing value in the trie.
+#[derive(Debug, Clone)]
+pub enum GenericTrieValue {
+    /// Value to update both memtrie and trie storage. Full value is required
+    /// for that.
+    MemtrieAndDisk(Vec<u8>),
+    /// Value to update only memtrie. In such case it is enough to have a
+    /// `FlatStateValue`.
+    MemtrieOnly(FlatStateValue),
+}
