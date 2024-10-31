@@ -58,7 +58,7 @@ pub fn run_bandwidth_scheduler(
         NonZeroU64::new(all_shards.len().try_into().expect("Can't convert usize to u64"))
             .expect("Number of shards can't be zero");
 
-    let params = BandwidthSchedulerParams::calculate_from_config(num_shards, &apply_state.config);
+    let params = BandwidthSchedulerParams::new(num_shards, &apply_state.config);
 
     let prev_block_hash = apply_state.prev_block_hash;
     let bandwidth_requests = &apply_state.bandwidth_requests;

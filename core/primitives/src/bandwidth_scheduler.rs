@@ -296,10 +296,8 @@ pub struct BandwidthSchedulerParams {
 }
 
 impl BandwidthSchedulerParams {
-    pub fn calculate_from_config(
-        num_shards: NonZeroU64,
-        runtime_config: &RuntimeConfig,
-    ) -> BandwidthSchedulerParams {
+    /// Calculate values of scheduler params based on the current configuration
+    pub fn new(num_shards: NonZeroU64, runtime_config: &RuntimeConfig) -> BandwidthSchedulerParams {
         // TODO(bandwidth_scheduler) - put these parameters in RuntimeConfig.
         let max_shard_bandwidth: Bandwidth = 4_500_000;
         let max_allowance = max_shard_bandwidth;
@@ -375,10 +373,8 @@ mod tests {
         let num_shards = 1;
 
         let runtime_config = make_runtime_config(max_receipt_size);
-        let scheduler_params = BandwidthSchedulerParams::calculate_from_config(
-            NonZeroU64::new(num_shards).unwrap(),
-            &runtime_config,
-        );
+        let scheduler_params =
+            BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &runtime_config);
         let expected = BandwidthSchedulerParams {
             base_bandwidth: 100_000,
             max_shard_bandwidth: 4_500_000,
@@ -395,10 +391,8 @@ mod tests {
         let num_shards = 6;
 
         let runtime_config = make_runtime_config(max_receipt_size);
-        let scheduler_params = BandwidthSchedulerParams::calculate_from_config(
-            NonZeroU64::new(num_shards).unwrap(),
-            &runtime_config,
-        );
+        let scheduler_params =
+            BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &runtime_config);
         let expected = BandwidthSchedulerParams {
             base_bandwidth: (4_500_000 - max_receipt_size) / 6,
             max_shard_bandwidth: 4_500_000,
@@ -416,10 +410,7 @@ mod tests {
         let max_receipt_size = 40 * 1024 * 1024;
         let num_shards = 6;
         let runtime_config = make_runtime_config(max_receipt_size);
-        BandwidthSchedulerParams::calculate_from_config(
-            NonZeroU64::new(num_shards).unwrap(),
-            &runtime_config,
-        );
+        BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &runtime_config);
     }
 
     #[test]
@@ -447,7 +438,7 @@ mod tests {
     fn test_bandwidth_request_values() {
         let max_receipt_size = 4 * 1024 * 1024;
 
-        let params = BandwidthSchedulerParams::calculate_from_config(
+        let params = BandwidthSchedulerParams::new(
             NonZeroU64::new(6).unwrap(),
             &make_runtime_config(max_receipt_size),
         );
@@ -485,7 +476,7 @@ mod tests {
     #[test]
     fn test_make_bandwidth_request_from_receipt_sizes() {
         let max_receipt_size = 4 * 1024 * 1024;
-        let params = BandwidthSchedulerParams::calculate_from_config(
+        let params = BandwidthSchedulerParams::new(
             NonZeroU64::new(6).unwrap(),
             &make_runtime_config(max_receipt_size),
         );
@@ -566,7 +557,7 @@ mod tests {
     fn test_make_bandwidth_request_random() {
         let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
         let max_receipt_size = 4 * 1024 * 1024;
-        let params = BandwidthSchedulerParams::calculate_from_config(
+        let params = BandwidthSchedulerParams::new(
             NonZeroU64::new(6).unwrap(),
             &make_runtime_config(max_receipt_size),
         );
