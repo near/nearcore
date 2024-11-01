@@ -328,6 +328,10 @@ class BandwidthRequest:
     pass
 
 
+class BandwidthRequestBitmap:
+    pass
+
+
 class ChunkEndorsement:
     pass
 
@@ -1093,15 +1097,17 @@ block_schema = [
         }
     ],
     [
-        BandwidthRequest,
-        {
+        BandwidthRequest, {
             'kind':
                 'struct',
-            'fields': [['to_shard', 'u8'
-                       ]  # TODO(bandwidth_scheduler) - add requested values
-                      ]
+            'fields': [['to_shard', 'u8'],
+                       ['requested_values_bitmap', BandwidthRequestBitmap]]
         }
     ],
+    [BandwidthRequestBitmap, {
+        'kind': 'struct',
+        'fields': [['data', [5]]]
+    }],
     [
         ChunkEndorsement, {
             'kind': 'enum',

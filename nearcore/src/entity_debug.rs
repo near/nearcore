@@ -24,7 +24,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
-    StoredChunkStateTransitionDataV2,
+    StoredChunkStateTransitionDataV2, StoredChunkStateTransitionDataV3,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -326,8 +326,13 @@ impl EntityDebugHandlerImpl {
                             base_state,
                             receipts_hash,
                             ..
-                        }) => (base_state, receipts_hash),
-                        StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                        })
+                        | StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                            base_state,
+                            receipts_hash,
+                            ..
+                        })
+                        | StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
                             base_state,
                             receipts_hash,
                             ..

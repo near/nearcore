@@ -98,7 +98,7 @@ impl StoreValidator {
             .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
             .expect("Store IO error when getting EpochSyncProof")
             .map(|epoch_sync_proof| {
-                epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
+                epoch_sync_proof.into_v1().current_epoch.first_block_header_in_epoch.height()
             });
         StoreValidator {
             me,
