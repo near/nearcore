@@ -4,26 +4,9 @@ use near_primitives::types::EpochId;
 use near_store::{DBCol, Store, StoreUpdate};
 
 use borsh::BorshDeserialize;
-use std::collections::BinaryHeap;
 
 use crate::types::BlockHeader;
 use crate::ChainStoreAccess;
-
-// Used for storing block headers in a heap that returns the lowest heights first
-#[derive(PartialEq, Eq)]
-struct BlockHeaderByHeight<'a>(&'a BlockHeader);
-
-impl<'a> PartialOrd for BlockHeaderByHeight<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<'a> Ord for BlockHeaderByHeight<'a> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.0.height().cmp(&self.0.height())
-    }
-}
 
 fn get_epoch_new_chunks(
     store: &Store,
@@ -116,7 +99,9 @@ fn remove_old_epochs(
     Ok(())
 }
 
-fn update_sync_hashes<T: ChainStoreAccess>(
+/// Updates information in the DB related to calculating the correct "sync_hash" for this header's epoch,
+/// if it hasn't already been found.
+pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     chain_store: &T,
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
@@ -163,29 +148,4 @@ fn update_sync_hashes<T: ChainStoreAccess>(
         }
     }
     Ok(())
-}
-
-pub(crate) struct SyncHashTracker<'a> {
-    headers_by_height: BinaryHeap<BlockHeaderByHeight<'a>>,
-}
-
-impl<'a> SyncHashTracker<'a> {
-    pub(crate) fn new() -> Self {
-        Self { headers_by_height: BinaryHeap::new() }
-    }
-
-    pub(crate) fn push_header(&mut self, header: &'a BlockHeader) {
-        self.headers_by_height.push(BlockHeaderByHeight(header));
-    }
-
-    pub(crate) fn update_store<T: ChainStoreAccess>(
-        mut self,
-        chain_store: &T,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Error> {
-        while let Some(BlockHeaderByHeight(header)) = self.headers_by_height.pop() {
-            update_sync_hashes(chain_store, store_update, header)?;
-        }
-        Ok(())
-    }
 }
