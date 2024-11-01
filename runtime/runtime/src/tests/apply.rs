@@ -1933,7 +1933,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         apply_result.contract_updates.contract_accesses,
         HashSet::from([CodeHash(*contract_code.hash())])
     );
-    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
+    assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 }
 
 // Tests the case in which a function call is made to an account with no contract deployed.
