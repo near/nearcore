@@ -1,14 +1,61 @@
-use super::mem::updating::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, UpdatedTrieStorageNodeWithSize,
-};
-use super::TrieRefcountDeltaMap;
-use crate::trie::{
-    Children, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle, ValueHandle,
-};
-use crate::{StorageError, Trie, TrieChanges};
 use borsh::BorshSerialize;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::ValueRef;
+
+use super::ops::interface::{
+    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedNodeId,
+    GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
+};
+use super::{
+    Children, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle, Trie,
+    TrieChanges, TrieRefcountDeltaMap, ValueHandle,
+};
+
+const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
+
+pub(crate) type TrieStorageNodePtr = CryptoHash;
+
+pub(crate) type UpdatedTrieStorageNode = GenericUpdatedTrieNode<TrieStorageNodePtr, ValueHandle>;
+
+impl UpdatedTrieStorageNode {
+    fn new_branch(children: Children, value: Option<ValueRef>) -> Self {
+        let children =
+            Box::new(children.0.map(|child| child.map(|id| GenericNodeOrIndex::Old(id))));
+        let value = value.map(ValueHandle::HashAndSize);
+        Self::Branch { children, value }
+    }
+
+    /// Conversion from the node just read from trie storage.
+    pub fn from_raw_trie_node(node: RawTrieNode) -> Self {
+        match node {
+            RawTrieNode::Leaf(extension, value) => Self::Leaf {
+                extension: extension.to_vec().into_boxed_slice(),
+                value: ValueHandle::HashAndSize(value),
+            },
+            RawTrieNode::BranchNoValue(children) => Self::new_branch(children, None),
+            RawTrieNode::BranchWithValue(value, children) => {
+                Self::new_branch(children, Some(value))
+            }
+            RawTrieNode::Extension(extension, child) => Self::Extension {
+                extension: extension.to_vec().into_boxed_slice(),
+                child: GenericNodeOrIndex::Old(child),
+            },
+        }
+    }
+}
+
+pub(crate) type UpdatedTrieStorageNodeWithSize =
+    GenericUpdatedTrieNodeWithSize<TrieStorageNodePtr, ValueHandle>;
+
+impl UpdatedTrieStorageNodeWithSize {
+    pub fn from_raw_trie_node_with_size(node: RawTrieNodeWithSize) -> Self {
+        Self {
+            node: UpdatedTrieStorageNode::from_raw_trie_node(node.node),
+            memory_usage: node.memory_usage,
+        }
+    }
+}
 
 pub(crate) struct NodesStorage<'a> {
     pub(crate) nodes: Vec<Option<UpdatedTrieStorageNodeWithSize>>,
@@ -16,8 +63,6 @@ pub(crate) struct NodesStorage<'a> {
     pub(crate) refcount_changes: TrieRefcountDeltaMap,
     pub(crate) trie: &'a Trie,
 }
-
-const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 
 /// Local mutable storage that owns node objects.
 impl<'a> NodesStorage<'a> {
@@ -41,6 +86,70 @@ impl<'a> NodesStorage<'a> {
             .expect(INVALID_STORAGE_HANDLE)
             .as_ref()
             .expect(INVALID_STORAGE_HANDLE)
+    }
+}
+
+impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for NodesStorage<'a> {
+    fn ensure_updated(
+        &mut self,
+        node: GenericNodeOrIndex<TrieStorageNodePtr>,
+    ) -> Result<GenericUpdatedNodeId, StorageError> {
+        match node {
+            GenericNodeOrIndex::Old(node_hash) => {
+                self.trie.move_node_to_mutable(self, &node_hash).map(|handle| handle.0)
+            }
+            GenericNodeOrIndex::Updated(node_id) => Ok(node_id),
+        }
+    }
+
+    fn take_node(&mut self, index: GenericUpdatedNodeId) -> UpdatedTrieStorageNodeWithSize {
+        self.nodes
+            .get_mut(index)
+            .expect(INVALID_STORAGE_HANDLE)
+            .take()
+            .expect(INVALID_STORAGE_HANDLE)
+    }
+
+    fn place_node_at(&mut self, index: GenericUpdatedNodeId, node: UpdatedTrieStorageNodeWithSize) {
+        debug_assert!(self.nodes.get(index).expect(INVALID_STORAGE_HANDLE).is_none());
+        self.nodes[index] = Some(node);
+    }
+
+    fn place_node(&mut self, node: UpdatedTrieStorageNodeWithSize) -> GenericUpdatedNodeId {
+        let index = self.nodes.len();
+        self.nodes.push(Some(node));
+        index
+    }
+
+    fn get_node_ref(&self, index: GenericUpdatedNodeId) -> &UpdatedTrieStorageNodeWithSize {
+        self.nodes.get(index).expect(INVALID_STORAGE_HANDLE).as_ref().expect(INVALID_STORAGE_HANDLE)
+    }
+
+    fn store_value(&mut self, value: GenericTrieValue) -> ValueHandle {
+        let GenericTrieValue::MemtrieAndDisk(value) = value else {
+            unimplemented!(
+                "NodesStorage for Trie doesn't support value {value:?} \
+                because disk updates must be generated."
+            );
+        };
+
+        let value_len = value.len();
+        self.values.push(Some(value));
+        ValueHandle::InMemory(StorageValueHandle(self.values.len() - 1, value_len))
+    }
+
+    fn delete_value(&mut self, value: ValueHandle) -> Result<(), StorageError> {
+        match value {
+            ValueHandle::HashAndSize(value) => {
+                self.trie.internal_retrieve_trie_node(&value.hash, true, true)?;
+                self.refcount_changes.subtract(value.hash, 1);
+            }
+            ValueHandle::InMemory(_) => {
+                // Do nothing. Values which were just inserted were not
+                // refcounted yet.
+            }
+        }
+        Ok(())
     }
 }
 

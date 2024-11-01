@@ -1,7 +1,6 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::mem::updating::{GenericTrieUpdateInsertDelete, UpdatedMemTrieNodeId};
 use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
@@ -9,7 +8,6 @@ pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
@@ -22,9 +20,7 @@ use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
 use mem::mem_tries::MemTries;
-#[cfg(test)]
-use mem::updating::{GenericNodeOrIndex, GenericTrieUpdate, UpdatedTrieStorageNode};
-use mem::updating::{UpdatedMemTrieNodeWithSize, UpdatedTrieStorageNodeWithSize};
+use mem::updating::{UpdatedMemTrieNodeId, UpdatedMemTrieNodeWithSize};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -35,6 +31,13 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
+#[cfg(test)]
+use node_storage::UpdatedTrieStorageNode;
+use node_storage::{NodesStorage, UpdatedTrieStorageNodeWithSize};
+use ops::insert_delete::GenericTrieUpdateInsertDelete;
+use ops::interface::GenericTrieValue;
+#[cfg(test)]
+use ops::interface::{GenericNodeOrIndex, GenericTrieUpdate};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -47,10 +50,11 @@ pub use trie_recording::{SubtreeSize, TrieRecorderStats};
 pub mod accounting_cache;
 mod config;
 mod from_flat;
-mod insert_delete;
 pub mod iterator;
 pub mod mem;
 mod nibble_slice;
+pub mod node_storage;
+pub mod ops;
 mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
@@ -1691,7 +1695,7 @@ impl Trie {
                         Some(arr) => memory.generic_insert(
                             root_node.0,
                             &key,
-                            near_primitives::state::GenericTrieValue::MemtrieAndDisk(arr),
+                            GenericTrieValue::MemtrieAndDisk(arr),
                         )?,
                         None => memory.generic_delete(0, &key)?,
                     };
