@@ -5,6 +5,8 @@ use super::{ChunkProductionKey, SignatureDifferentiator};
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
+#[cfg(feature = "solomon")]
+use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
@@ -45,6 +47,20 @@ impl
         STATE_WITNESS_COMPRESSION_LEVEL,
     > for EncodedChunkStateWitness
 {
+}
+
+#[cfg(feature = "solomon")]
+impl ReedSolomonEncoderSerialize for EncodedChunkStateWitness {
+    fn serialize_single_part(&self) -> std::io::Result<Vec<u8>> {
+        Ok(self.as_slice().to_vec())
+    }
+}
+
+#[cfg(feature = "solomon")]
+impl ReedSolomonEncoderDeserialize for EncodedChunkStateWitness {
+    fn deserialize_single_part(data: &[u8]) -> std::io::Result<Self> {
+        Ok(EncodedChunkStateWitness::from_boxed_slice(data.to_vec().into_boxed_slice()))
+    }
 }
 
 pub type ChunkStateWitnessSize = usize;

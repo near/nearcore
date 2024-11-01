@@ -5,8 +5,7 @@ use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_client::Client;
-use near_client::ProcessTxResponse;
+use near_client::{Client, ProcessTxResponse};
 use near_network::client::ProcessTxRequest;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -136,15 +135,12 @@ pub fn deploy_contract(
     node_datas: &[TestData],
     rpc_id: &AccountId,
     contract_id: &AccountId,
+    code: Vec<u8>,
+    nonce: u64,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, test_loop);
 
-    // TOOD make nonce an argument
-    let nonce = 1;
     let signer = create_user_test_signer(&contract_id).into();
-
-    let code = near_test_contracts::rs_contract();
-    let code = code.to_vec();
 
     let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
     let tx_hash = tx.get_hash();
@@ -167,23 +163,17 @@ pub fn deploy_contract(
 pub fn call_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
+    rpc_id: &AccountId,
     sender_id: &AccountId,
     contract_id: &AccountId,
+    method_name: String,
+    args: Vec<u8>,
+    nonce: u64,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, test_loop);
-
-    // TOOD make nonce an argument
-    let nonce = 2;
     let signer = create_user_test_signer(sender_id);
-
-    let burn_gas = 250 * TGAS;
     let attach_gas = 300 * TGAS;
-
     let deposit = 0;
-
-    // TODO make method and args arguments
-    let method_name = "burn_gas_raw".to_owned();
-    let args = burn_gas.to_le_bytes().to_vec();
 
     let tx = SignedTransaction::call(
         nonce,
@@ -201,11 +191,48 @@ pub fn call_contract(
 
     let process_tx_request =
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-    let future = node_datas[0].client_sender.send_async(process_tx_request);
+
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
+
+    let future = rpc_node_data_sender.send_async(process_tx_request);
     drop(future);
 
     tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
     tx_hash
+}
+
+/// Check the status of the transactions and assert that they are successful.
+///
+/// Please note that it's important to use an rpc node that tracks all shards.
+/// Otherwise, the transactions may not be found.
+pub fn check_txs(
+    test_loop: &TestLoopV2,
+    node_datas: &Vec<TestData>,
+    rpc_id: &AccountId,
+    txs: &[CryptoHash],
+) {
+    let rpc = rpc_client(test_loop, node_datas, rpc_id);
+
+    for &tx in txs {
+        let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
+        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+        let status = status.unwrap();
+        tracing::info!(target: "test", ?tx, ?status, "transaction status");
+        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
+    }
+}
+
+/// Get the client for the provided rpd node account id.
+fn rpc_client<'a>(
+    test_loop: &'a TestLoopV2,
+    node_datas: &'a Vec<TestData>,
+    rpc_id: &AccountId,
+) -> &'a Client {
+    let node_data = get_node_data(node_datas, rpc_id);
+    let client_actor_handle = node_data.client_sender.actor_handle();
+    let client_actor = test_loop.data.get(&client_actor_handle);
+    &client_actor.client
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
@@ -323,4 +350,15 @@ pub fn execute_tx(
         .chain
         .get_final_transaction_result(&tx_hash)
         .unwrap())
+}
+
+/// Creates account ids for the given number of accounts.
+pub fn make_accounts(num_accounts: usize) -> Vec<AccountId> {
+    let accounts = (0..num_accounts).map(|i| make_account(i)).collect_vec();
+    accounts
+}
+
+/// Creates an account id to be contained at the given index.
+pub fn make_account(index: usize) -> AccountId {
+    format!("account{}", index).parse().unwrap()
 }

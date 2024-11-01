@@ -536,6 +536,9 @@ impl BlockHeaderV5 {
 /// Used in the BlockHeader::new_impl to specify the source of the block header signature.
 enum SignatureSource<'a> {
     /// Use the given signer to sign a new block header.
+    /// This variant is used only when some features are enabled. There is a warning
+    /// because it's unused in the default configuration, where the features are disabled.
+    #[allow(dead_code)]
     Signer(&'a ValidatorSigner),
     /// Use a previously-computed signature (for reconstructing an already-produced block header).
     Signature(Signature),
