@@ -232,6 +232,35 @@ impl ShardsOutgoingReceiptBuffer {
     fn write_indices(&self, state_update: &mut TrieUpdate) {
         set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
     }
+
+    /// Fetch the first receipt from the buffer.
+    /// Can't implement using OutgoingReceiptBuffer::iter() because it requires a &mut reference.
+    pub fn get_first_receipt(
+        &self,
+        to_shard: ShardId,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+    ) -> Result<Option<ReceiptOrStateStoredReceipt>, StorageError> {
+        let Some(indices) = self.shards_indices.shard_buffers.get(&to_shard) else {
+            return Ok(None);
+        };
+
+        if indices.len() == 0 {
+            return Ok(None);
+        }
+
+        let receipt_key =
+            TrieKey::BufferedReceipt { receiving_shard: to_shard, index: indices.first_index };
+        let trie_receipt =
+            if side_effects { get(trie, &receipt_key) } else { get_pure(trie, &receipt_key) };
+        let receipt: ReceiptOrStateStoredReceipt = trie_receipt?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(
+                "Receipt referenced by index should be in the state".to_string(),
+            )
+        })?;
+
+        Ok(Some(receipt))
+    }
 }
 
 impl TrieQueue for OutgoingReceiptBuffer<'_> {

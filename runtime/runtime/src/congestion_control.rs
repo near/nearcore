@@ -4,6 +4,9 @@ use crate::config::{
 };
 use crate::ApplyState;
 use near_parameters::{ActionCosts, RuntimeConfig};
+use near_primitives::bandwidth_scheduler::{
+    BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
+};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
@@ -217,6 +220,18 @@ impl<'a> ReceiptSink {
             ReceiptSink::V2(inner) => inner.bandwidth_scheduler_output.as_ref(),
         }
     }
+
+    /// Generate bandwidth requests based on the receipts stored in the outgoing buffers.
+    pub(crate) fn generate_bandwidth_requests(
+        &self,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+    ) -> Result<Option<BandwidthRequests>, StorageError> {
+        match self {
+            ReceiptSink::V1(_) => Ok(None),
+            ReceiptSink::V2(inner) => inner.generate_bandwidth_requests(trie, side_effects),
+        }
+    }
 }
 
 impl ReceiptSinkV1 {
@@ -392,7 +407,11 @@ impl ReceiptSinkV2 {
 
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
-        self.outgoing_buffer_metadatas.on_receipt_buffered(shard, size);
+
+        if receipt.queue_metadata_version() == Some(QueueMetadataVersion::OutgoingBufferMetadataV0)
+        {
+            self.outgoing_buffer_metadatas.on_receipt_buffered(shard, size);
+        }
 
         self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
         Ok(())
@@ -400,6 +419,85 @@ impl ReceiptSinkV2 {
 
     fn save_outgoing_buffer_metadatas(&self, state_update: &mut TrieUpdate) {
         self.outgoing_buffer_metadatas.save(state_update, self.protocol_version);
+    }
+
+    fn generate_bandwidth_requests(
+        &self,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+    ) -> Result<Option<BandwidthRequests>, StorageError> {
+        if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
+            return Ok(None);
+        }
+
+        let Some(params) = self.bandwidth_scheduler_output.as_ref().map(|output| output.params)
+        else {
+            return Ok(None);
+        };
+
+        let mut requests = Vec::new();
+        for shard_id in self.outgoing_buffers.shards() {
+            if let Some(request) =
+                self.generate_bandwidth_request(shard_id, trie, side_effects, &params)?
+            {
+                requests.push(request);
+            }
+        }
+
+        Ok(Some(BandwidthRequests::V1(BandwidthRequestsV1 { requests })))
+    }
+
+    fn generate_bandwidth_request(
+        &self,
+        to_shard: ShardId,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+        params: &BandwidthSchedulerParams,
+    ) -> Result<Option<BandwidthRequest>, StorageError> {
+        let Some(first_receipt) =
+            self.outgoing_buffers.get_first_receipt(to_shard, trie, side_effects)?
+        else {
+            // No receipts in the outgoing buffer
+            return Ok(None);
+        };
+        let first_receipt_size: u64 =
+            receipt_size(&first_receipt).expect("First receipt size doesn't fit in u64");
+
+        let shard_u8: u8 = to_shard.try_into().expect("ShardId doesn't fit into u8");
+
+        // We start collecting metadata information after the protocol upgrade,
+        // but it can take a moment for the older receipts to be removed from
+        // the buffer and the metadata to become fully initialized.
+        // Metadata contains only information about the receipts added after the
+        // protocol upgrade. We can't generate a request based on the metadata
+        // if doesn't cover all of the receipts stored in the buffer.
+        let is_metadata_fully_initialized = first_receipt.queue_metadata_version()
+            == Some(QueueMetadataVersion::OutgoingBufferMetadataV0);
+
+        let request = if is_metadata_fully_initialized {
+            let metadata = self.outgoing_buffer_metadatas.metadatas.get(&to_shard).expect(
+                "Outgoing buffer metadata should exist for shard with fully initialized metadata",
+            );
+            // Collect sizes of receipts stored in this outgoing buffer.
+            // We need to start with the size of the first receipt. It could happen that
+            // the size of the first group is larger than max_receipt_size, and it could be that
+            // num_shards * base_bandwidth + first_group_size > max_shard_bandwidth, in which case
+            // we would never be able to grant the bandwidth required to send the first group.
+            // It's an unlikely scenario, but to protect against it we always request bandwidth for the first receipt,
+            // it's always possible to grant enough bandwidth for one receipt.
+            let mut receipt_group_sizes = metadata.iter_receipt_group_sizes();
+            let first_group_size = receipt_group_sizes.next().unwrap();
+            let receipt_sizes = [first_receipt_size, first_group_size - first_receipt_size]
+                .into_iter()
+                .chain(receipt_group_sizes);
+            BandwidthRequest::make_from_receipt_sizes(shard_u8, receipt_sizes, params)
+        } else {
+            // Metadata is not ready yet, generate a basic request while we're waiting for
+            // the metadata to be become fully initialized.
+            Some(BandwidthRequest::make_basic(shard_u8, first_receipt_size, params))
+        };
+
+        Ok(request)
     }
 }
 

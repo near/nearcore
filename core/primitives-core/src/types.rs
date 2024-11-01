@@ -183,6 +183,14 @@ impl Into<usize> for ShardId {
     }
 }
 
+impl TryInto<u8> for ShardId {
+    type Error = std::num::TryFromIntError;
+
+    fn try_into(self) -> Result<u8, Self::Error> {
+        self.0.try_into()
+    }
+}
+
 impl<T> Add<T> for ShardId
 where
     T: Add<u64, Output = u64>,

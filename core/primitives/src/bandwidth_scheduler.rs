@@ -129,6 +129,39 @@ impl BandwidthRequest {
 
         Some(BandwidthRequest { to_shard, requested_values_bitmap: bitmap })
     }
+
+    /// Create a basic bandwidth request when receipt sizes are not available.
+    /// It'll request two values - one corresponding to the first receipt in
+    /// the outgoing buffer and one corresponding to max_receipt_size.
+    /// This ensures that the blockchain will be able to make progress while
+    /// waiting for the receipt sizes to become available.
+    /// The resulting behaviour is similar to the previous approach with allowed shard.
+    pub fn make_basic(
+        to_shard: u8,
+        first_receipt_size: u64,
+        params: &BandwidthSchedulerParams,
+    ) -> BandwidthRequest {
+        let mut bitmap = BandwidthRequestBitmap::new();
+        let values = BandwidthRequestValues::new(params).values;
+
+        if first_receipt_size > params.base_bandwidth {
+            for i in 0..values.len() {
+                if values[i] >= first_receipt_size {
+                    bitmap.set_bit(i, true);
+                    break;
+                }
+            }
+        }
+
+        for i in 0..values.len() {
+            if values[i] == params.max_receipt_size {
+                bitmap.set_bit(i, true);
+                break;
+            }
+        }
+
+        BandwidthRequest { to_shard, requested_values_bitmap: bitmap }
+    }
 }
 
 /// There are this many predefined values of bandwidth that can be requested in a BandwidthRequest.
