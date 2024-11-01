@@ -163,6 +163,7 @@ pub fn setup(
         signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 

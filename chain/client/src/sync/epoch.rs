@@ -5,7 +5,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
@@ -316,14 +316,11 @@ impl EpochSync {
             )?
             .ok_or_else(|| Error::Other("Could not find first block of next epoch".to_string()))?;
 
-        // TODO(#12255) That currently does not work because we might need some old block hashes
-        // in order to build the merkle proof.
-        // let merkle_proof_for_first_block_of_current_epoch = store
-        //     .compute_past_block_proof_in_merkle_tree_of_later_block(
-        //         first_block_of_current_epoch.hash(),
-        //         final_block_header_in_current_epoch.hash(),
-        //     )?;
-        let merkle_proof_for_first_block_of_current_epoch = Default::default();
+        let merkle_proof_for_first_block_of_current_epoch = store
+            .compute_past_block_proof_in_merkle_tree_of_later_block(
+                first_block_of_current_epoch.hash(),
+                last_final_block_header_in_current_epoch.hash(),
+            )?;
 
         let partial_merkle_tree_for_first_block_of_current_epoch = store
             .get_ser::<PartialMerkleTree>(
@@ -837,35 +834,55 @@ impl EpochSync {
 
     fn verify_current_epoch_data(
         current_epoch: &EpochSyncProofCurrentEpochData,
-        _current_epoch_final_block_header: &BlockHeader,
+        current_epoch_final_block_header: &BlockHeader,
     ) -> Result<(), Error> {
         // Verify first_block_header_in_epoch
         let first_block_header = &current_epoch.first_block_header_in_epoch;
-        // TODO(#12255) Uncomment the check below when `merkle_proof_for_first_block` is generated.
-        // if !merkle::verify_hash(
-        //     *current_epoch_final_block_header.block_merkle_root(),
-        //     &current_epoch.merkle_proof_for_first_block,
-        //     *first_block_header.hash(),
-        // ) {
-        //     return Err(Error::InvalidEpochSyncProof(
-        //         "invalid merkle_proof_for_first_block".to_string(),
-        //     ));
-        // }
-
-        // Verify partial_merkle_tree_for_first_block
-        if current_epoch.partial_merkle_tree_for_first_block.root()
-            != *first_block_header.block_merkle_root()
-        {
+        if !near_primitives::merkle::verify_hash(
+            *current_epoch_final_block_header.block_merkle_root(),
+            &current_epoch.merkle_proof_for_first_block,
+            *first_block_header.hash(),
+        ) {
             return Err(Error::InvalidEpochSyncProof(
-                "invalid path in partial_merkle_tree_for_first_block".to_string(),
+                "invalid merkle_proof_for_first_block".to_string(),
             ));
         }
-        // TODO(#12256) Investigate why "+1" was needed here, looks like it should not be there.
+
+        // Verify partial_merkle_tree_for_first_block. The size needs to match to ensure that
+        // the partial merkle tree is for the right block ordinal, and the partial tree itself
+        // needs to be valid and have the correct root.
+        //
+        // Note that the block_ordinal in the header is 1-based, so we need to add 1 to the size.
         if current_epoch.partial_merkle_tree_for_first_block.size() + 1
             != first_block_header.block_ordinal()
         {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid size in partial_merkle_tree_for_first_block".to_string(),
+            ));
+        }
+
+        if !current_epoch.partial_merkle_tree_for_first_block.is_well_formed()
+            || current_epoch.partial_merkle_tree_for_first_block.root()
+                != *first_block_header.block_merkle_root()
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid path in partial_merkle_tree_for_first_block".to_string(),
+            ));
+        }
+
+        // Verify the two headers before the first block.
+        if current_epoch.last_block_header_in_prev_epoch.hash()
+            != current_epoch.first_block_header_in_epoch.prev_hash()
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid last_block_header_in_prev_epoch".to_string(),
+            ));
+        }
+        if current_epoch.second_last_block_header_in_prev_epoch.hash()
+            != current_epoch.last_block_header_in_prev_epoch.prev_hash()
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid second_last_block_header_in_prev_epoch".to_string(),
             ));
         }
 
