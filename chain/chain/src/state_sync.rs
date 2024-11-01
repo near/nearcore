@@ -1,5 +1,6 @@
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::EpochId;
 use near_store::{DBCol, Store, StoreUpdate};
 
 use borsh::BorshDeserialize;
@@ -37,6 +38,14 @@ fn iter_epoch_new_chunks_keys<'a>(
     store
         .iter(DBCol::StateSyncNewChunks)
         .map(|item| item.and_then(|(k, _v)| CryptoHash::try_from_slice(&k)))
+}
+
+fn iter_state_sync_hashes_keys<'a>(
+    store: &'a Store,
+) -> impl Iterator<Item = Result<EpochId, std::io::Error>> + 'a {
+    store
+        .iter(DBCol::StateSyncHashes)
+        .map(|item| item.and_then(|(k, _v)| EpochId::try_from_slice(&k)))
 }
 
 fn save_epoch_new_chunks<T: ChainStoreAccess>(
@@ -86,6 +95,27 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     Ok(())
 }
 
+fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) -> Result<(), Error> {
+    let num_new_chunks = vec![0usize; header.chunk_mask().len()];
+    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
+    Ok(())
+}
+
+fn remove_old_epochs(
+    store: &Store,
+    store_update: &mut StoreUpdate,
+    header: &BlockHeader,
+    prev_header: &BlockHeader,
+) -> Result<(), Error> {
+    for epoch_id in iter_state_sync_hashes_keys(store) {
+        let epoch_id = epoch_id?;
+        if &epoch_id != header.epoch_id() && &epoch_id != prev_header.epoch_id() {
+            store_update.delete(DBCol::StateSyncHashes, epoch_id.as_ref());
+        }
+    }
+    Ok(())
+}
+
 fn update_sync_hashes<T: ChainStoreAccess>(
     chain_store: &T,
     store_update: &mut StoreUpdate,
@@ -104,12 +134,12 @@ fn update_sync_hashes<T: ChainStoreAccess>(
         Err(e) => return Err(e),
     };
 
-    if prev_header.height() == chain_store.get_genesis_height()
-        || prev_header.epoch_id() != header.epoch_id()
-    {
-        let num_new_chunks = vec![0usize; header.chunk_mask().len()];
-        store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
-        return Ok(());
+    if prev_header.height() == chain_store.get_genesis_height() {
+        return on_new_epoch(store_update, header);
+    }
+    if prev_header.epoch_id() != header.epoch_id() {
+        on_new_epoch(store_update, header)?;
+        return remove_old_epochs(chain_store.store(), store_update, header, &prev_header);
     }
 
     save_epoch_new_chunks(chain_store, store_update, header)?;

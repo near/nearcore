@@ -1005,6 +1005,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             | DBCol::StateShardUIdMapping
+            // Note that StateSyncHashes and StateSyncNewChunks should not ever have too many keys in them
+            // because we remove unneeded keys as we add new ones.
             | DBCol::StateSyncHashes
             | DBCol::StateSyncNewChunks
             => unreachable!(),
