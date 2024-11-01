@@ -1,3 +1,4 @@
+use crate::bandwidth_scheduler::BandwidthSchedulerOutput;
 use crate::config::{
     safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
@@ -22,14 +23,14 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Handle receipt forwarding for different protocol versions.
-pub(crate) enum ReceiptSink<'a> {
-    V1(ReceiptSinkV1<'a>),
-    V2(ReceiptSinkV2<'a>),
+pub(crate) enum ReceiptSink {
+    V1(ReceiptSinkV1),
+    V2(ReceiptSinkV2),
 }
 
 /// Always put receipt to the outgoing receipts.
-pub(crate) struct ReceiptSinkV1<'a> {
-    pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
+pub(crate) struct ReceiptSinkV1 {
+    pub(crate) outgoing_receipts: Vec<Receipt>,
 }
 
 /// A helper struct to buffer or forward receipts.
@@ -41,16 +42,17 @@ pub(crate) struct ReceiptSinkV1<'a> {
 /// This is for congestion control, allowing to apply backpressure from the
 /// receiving shard and stopping us from sending more receipts to it than its
 /// nodes can keep in memory.
-pub(crate) struct ReceiptSinkV2<'a> {
+pub(crate) struct ReceiptSinkV2 {
     /// Keeps track of the local shard's congestion info while adding and
     /// removing buffered or delayed receipts. At the end of applying receipts,
     /// it will be a field in the [`ApplyResult`]. For this chunk, it is not
     /// used to make forwarding decisions.
-    pub(crate) own_congestion_info: &'a mut CongestionInfo,
-    pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
+    pub(crate) own_congestion_info: CongestionInfo,
+    pub(crate) outgoing_receipts: Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
+    pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
     pub(crate) protocol_version: ProtocolVersion,
 }
 
@@ -86,13 +88,13 @@ pub(crate) struct DelayedReceiptQueueWrapper {
     removed_delayed_bytes: u64,
 }
 
-impl<'a> ReceiptSink<'a> {
+impl<'a> ReceiptSink {
     pub(crate) fn new(
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
-        prev_own_congestion_info: &'a mut Option<CongestionInfo>,
-        outgoing_receipts: &'a mut Vec<Receipt>,
+        prev_own_congestion_info: Option<CongestionInfo>,
+        bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
     ) -> Result<Self, StorageError> {
         if let Some(own_congestion_info) = prev_own_congestion_info {
             debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
@@ -132,15 +134,16 @@ impl<'a> ReceiptSink<'a> {
 
             Ok(ReceiptSink::V2(ReceiptSinkV2 {
                 own_congestion_info,
-                outgoing_receipts: outgoing_receipts,
+                outgoing_receipts: Vec::new(),
                 outgoing_limit,
                 outgoing_buffers,
                 outgoing_metadatas,
+                bandwidth_scheduler_output,
                 protocol_version,
             }))
         } else {
             debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
-            Ok(ReceiptSink::V1(ReceiptSinkV1 { outgoing_receipts: outgoing_receipts }))
+            Ok(ReceiptSink::V1(ReceiptSinkV1 { outgoing_receipts: Vec::new() }))
         }
     }
 
@@ -180,16 +183,44 @@ impl<'a> ReceiptSink<'a> {
             ),
         }
     }
+
+    pub(crate) fn outgoing_receipts(&self) -> &[Receipt] {
+        match self {
+            ReceiptSink::V1(inner) => &inner.outgoing_receipts,
+            ReceiptSink::V2(inner) => &inner.outgoing_receipts,
+        }
+    }
+
+    pub(crate) fn into_outgoing_receipts(self) -> Vec<Receipt> {
+        match self {
+            ReceiptSink::V1(inner) => inner.outgoing_receipts,
+            ReceiptSink::V2(inner) => inner.outgoing_receipts,
+        }
+    }
+
+    pub(crate) fn own_congestion_info(&self) -> Option<CongestionInfo> {
+        match self {
+            ReceiptSink::V1(_) => None,
+            ReceiptSink::V2(inner) => Some(inner.own_congestion_info),
+        }
+    }
+
+    pub(crate) fn bandwidth_scheduler_output(&self) -> Option<&BandwidthSchedulerOutput> {
+        match self {
+            ReceiptSink::V1(_) => None,
+            ReceiptSink::V2(inner) => inner.bandwidth_scheduler_output.as_ref(),
+        }
+    }
 }
 
-impl ReceiptSinkV1<'_> {
+impl ReceiptSinkV1 {
     /// V1 can only forward receipts.
     pub(crate) fn forward(&mut self, receipt: Receipt) {
         self.outgoing_receipts.push(receipt);
     }
 }
 
-impl ReceiptSinkV2<'_> {
+impl ReceiptSinkV2 {
     /// Forward receipts already in the buffer to the outgoing receipts vector, as
     /// much as the gas limits allow.
     pub(crate) fn forward_from_buffer(
@@ -228,7 +259,7 @@ impl ReceiptSinkV2<'_> {
                 size,
                 shard_id,
                 &mut self.outgoing_limit,
-                self.outgoing_receipts,
+                &mut self.outgoing_receipts,
                 apply_state,
             )? {
                 ReceiptForwarding::Forwarded => {
@@ -277,7 +308,7 @@ impl ReceiptSinkV2<'_> {
             size,
             shard,
             &mut self.outgoing_limit,
-            self.outgoing_receipts,
+            &mut self.outgoing_receipts,
             apply_state,
         )? {
             ReceiptForwarding::Forwarded => (),
