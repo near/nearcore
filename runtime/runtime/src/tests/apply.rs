@@ -1729,7 +1729,13 @@ fn test_deploy_and_call_in_apply() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([
+            CodeHash(*first_contract_code.hash()),
+            CodeHash(*second_contract_code.hash())
+        ])
+    );
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
         HashSet::from([
@@ -1811,7 +1817,10 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 1);
-    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*first_contract_code.hash())])
+    );
     // We record both deployments even if the function call to one of them fails.
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
@@ -1865,7 +1874,10 @@ fn test_deploy_and_call_in_same_receipt() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
     assert_eq!(
         apply_result.contract_updates.contract_deploy_hashes(),
         HashSet::from([CodeHash(*contract_code.hash()),])
@@ -1917,7 +1929,10 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
-    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
     assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
 }
 

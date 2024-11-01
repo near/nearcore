@@ -113,10 +113,12 @@ impl Client {
 
         // TODO(#11099): Consider moving this also to partial witness actor by passing ContractUpdates in DistributeStateWitnessRequest.
         if !contract_accesses.is_empty() {
+            let contract_deploys_hashes =
+                contract_deploys.iter().map(|contract| (*contract.hash()).into()).collect();
             self.send_contract_accesses_to_chunk_validators(
                 state_witness.chunk_production_key(),
                 contract_accesses,
-                contract_deploys.iter().map(|contract| (*contract.hash()).into()).collect(),
+                contract_deploys_hashes,
                 my_signer.as_ref(),
             );
         }
@@ -451,17 +453,20 @@ impl Client {
             .into_iter()
             .collect();
 
+        // Since chunk validators will receive the newly deployed contracts as part of the state witness (as DeployActions in receipts),
+        // they will update their contract cache while applying these deploy actions, thus we can exclude code-hash for these contracts from the message.
+        let predeployed_contract_accesses = contract_accesses
+            .into_iter()
+            .filter(|code_hash| !contract_deploys.contains(code_hash))
+            .collect();
+
         // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.
         let target_chunk_validators =
             chunk_validators.difference(&chunk_producers).cloned().collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(
-                    chunk_production_key,
-                    contract_accesses,
-                    my_signer,
-                ),
+                ChunkContractAccesses::new(key, predeployed_contract_accesses, my_signer),
             ),
         ));
     }
