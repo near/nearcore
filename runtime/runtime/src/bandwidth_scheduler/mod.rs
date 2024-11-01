@@ -1,5 +1,8 @@
+use std::num::NonZeroU64;
+
 use near_primitives::bandwidth_scheduler::{
-    BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerState,
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
+    BandwidthSchedulerParams, BandwidthSchedulerState,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateChangeCause};
@@ -13,6 +16,10 @@ use crate::ApplyState;
 pub struct BandwidthSchedulerOutput {
     /// In future the output will contain the granted bandwidth.
     pub mock_data: [u8; 32],
+    /// Parameters used by the bandwidth scheduler algorithm.
+    /// Will be used for generating bandwidth requests.
+    #[allow(unused)]
+    pub params: BandwidthSchedulerParams,
     /// Used only for a sanity check.
     pub scheduler_state_hash: CryptoHash,
 }
@@ -47,6 +54,11 @@ pub fn run_bandwidth_scheduler(
     if all_shards.is_empty() {
         all_shards = vec![ShardId::new(0)];
     }
+    let num_shards =
+        NonZeroU64::new(all_shards.len().try_into().expect("Can't convert usize to u64"))
+            .expect("Number of shards can't be zero");
+
+    let params = BandwidthSchedulerParams::new(num_shards, &apply_state.config);
 
     let prev_block_hash = apply_state.prev_block_hash;
     let bandwidth_requests = &apply_state.bandwidth_requests;
@@ -83,6 +95,7 @@ pub fn run_bandwidth_scheduler(
 
     Ok(Some(BandwidthSchedulerOutput {
         mock_data: scheduler_state.mock_data,
+        params,
         scheduler_state_hash,
     }))
 }
@@ -118,7 +131,10 @@ pub fn generate_mock_bandwidth_requests(
     let mut requests = Vec::new();
     let mut debug_ids = Vec::new();
     for hash_byte in hash_data.iter().take(4) {
-        requests.push(BandwidthRequest { to_shard: *hash_byte });
+        requests.push(BandwidthRequest {
+            to_shard: *hash_byte,
+            requested_values_bitmap: BandwidthRequestBitmap::new(),
+        });
         debug_ids.push(*hash_byte);
     }
     tracing::debug!(

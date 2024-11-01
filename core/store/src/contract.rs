@@ -71,7 +71,7 @@ impl ContractsTracker {
     fn finalize(mut self) -> ContractUpdates {
         ContractUpdates {
             contract_accesses: std::mem::take(&mut self.contract_calls),
-            contract_deploys: self.committed_deploys.into_keys().collect(),
+            contract_deploys: self.committed_deploys.into_values().collect(),
         }
     }
 }
