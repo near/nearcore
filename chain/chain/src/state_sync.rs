@@ -8,14 +8,14 @@ use borsh::BorshDeserialize;
 use crate::types::BlockHeader;
 use crate::ChainStoreAccess;
 
-fn get_epoch_new_chunks(
+fn get_state_sync_new_chunks(
     store: &Store,
     block_hash: &CryptoHash,
 ) -> Result<Option<Vec<usize>>, Error> {
     Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
 }
 
-fn iter_epoch_new_chunks_keys<'a>(
+fn iter_state_sync_new_chunks_keys<'a>(
     store: &'a Store,
 ) -> impl Iterator<Item = Result<CryptoHash, std::io::Error>> + 'a {
     store
@@ -36,7 +36,8 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
-    let Some(mut num_new_chunks) = get_epoch_new_chunks(chain_store.store(), header.prev_hash())?
+    let Some(mut num_new_chunks) =
+        get_state_sync_new_chunks(chain_store.store(), header.prev_hash())?
     else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
@@ -117,7 +118,7 @@ fn remove_old_blocks<T: ChainStoreAccess>(
         Err(e) => return Err(e),
     };
 
-    for block_hash in iter_epoch_new_chunks_keys(chain_store.store()) {
+    for block_hash in iter_state_sync_new_chunks_keys(chain_store.store()) {
         let block_hash = block_hash?;
         let old_header = chain_store.get_block_header(&block_hash)?;
         if old_header.height() < last_final_header.height() {
