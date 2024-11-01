@@ -1551,6 +1551,25 @@ impl Trie {
         }
     }
 
+    /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
+    ///
+    /// This method is similar to `get_optimized` but has no side effects (not charging gas or recording trie nodes).
+    fn get_optimized_ref_no_side_effects(
+        &self,
+        key: &[u8],
+        mode: KeyLookupMode,
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+        if self.memtries.is_some() {
+            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())
+        } else if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(&key, false)
+        } else {
+            Ok(self
+                .lookup_from_state_column(NibbleSlice::new(&key), false, false)?
+                .map(OptimizedValueRef::Ref))
+        }
+    }
+
     /// Dereferences an `OptimizedValueRef` into the full value, and properly
     /// accounts for the gas, caching, and recording (if enabled). This may or
     /// may not incur a on-disk lookup, depending on whether the
@@ -1735,16 +1754,11 @@ impl TrieAccess for Trie {
     }
 
     fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        let node = if self.memtries.is_some() {
-            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())?
-        } else if self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(&key, false)?
-        } else {
-            self.lookup_from_state_column(NibbleSlice::new(&key), false, false)?
-                .map(OptimizedValueRef::Ref)
-        };
-        match node {
+        match Trie::get_optimized_ref_no_side_effects(
+            self,
+            &key.to_vec(),
+            KeyLookupMode::FlatStorage,
+        )? {
             Some(optimized_ref) => Ok(Some(match &optimized_ref {
                 OptimizedValueRef::Ref(value_ref) => {
                     let bytes = self.internal_retrieve_trie_node(&value_ref.hash, false, false)?;
