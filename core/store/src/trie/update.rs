@@ -258,10 +258,23 @@ impl TrieUpdate {
         code_hash: CryptoHash,
         protocol_version: ProtocolVersion,
     ) {
-        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
-            self.contract_storage.record_call(code_hash);
-        } else {
+        if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
             self.trie.request_code_recording(account_id);
+            return;
+        }
+
+        // Only record the call if the trie has the contract being called.
+        // This avoids recording the contracts that do not exist or are newly-deployed.
+        if code_hash == CryptoHash::default() {
+            return;
+        }
+        let trie_key = TrieKey::ContractCode { account_id };
+        if self
+            .trie
+            .contains_key_no_side_effects(&trie_key.to_vec())
+            .expect("trie lookup must succeed")
+        {
+            self.contract_storage.record_call(code_hash);
         }
     }
 }
