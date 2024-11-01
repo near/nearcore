@@ -1479,35 +1479,19 @@ impl Trie {
     /// This method is guaranteed to not inspect the value stored for this key, which would
     /// otherwise have potential gas cost implications.
     pub fn contains_key(&self, key: &[u8]) -> Result<bool, StorageError> {
-        self.contains_key_mode(key, KeyLookupMode::FlatStorage, true)
+        self.contains_key_mode(key, KeyLookupMode::FlatStorage)
     }
 
     /// Check if the column contains a value with the given `key`.
-    ///
-    /// This method is similar to `contains_key` but does not charge for gas or record the trie nodes.
-    fn contains_key_no_side_effects(&self, key: &[u8]) -> Result<bool, StorageError> {
-        self.contains_key_mode(key, KeyLookupMode::FlatStorage, false)
-    }
-
-    /// Check if the column contains a value with the given `key`.
-    ///
-    /// If `side_effects` is false, this method does not charge for gas or record the trie nodes.
-    /// Otherwise it charges for gas if lookup mode is `KeyLookupMode::Trie` or `charge_gas_for_trie_node_access`
-    /// is true for this trie instance, and records the trie nodes if there is a trie-recorder set.
     ///
     /// This method is guaranteed to not inspect the value stored for this key, which would
     /// otherwise have potential gas cost implications.
-    fn contains_key_mode(
-        &self,
-        key: &[u8],
-        mode: KeyLookupMode,
-        side_effects: bool,
-    ) -> Result<bool, StorageError> {
+    pub fn contains_key_mode(&self, key: &[u8], mode: KeyLookupMode) -> Result<bool, StorageError> {
         let charge_gas_for_trie_node_access =
-            side_effects && (mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access);
+            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if self.memtries.is_some() {
             return Ok(self
-                .lookup_from_memory(key, charge_gas_for_trie_node_access, side_effects, |_| ())?
+                .lookup_from_memory(key, charge_gas_for_trie_node_access, true, |_| ())?
                 .is_some());
         }
 
@@ -1515,7 +1499,7 @@ impl Trie {
             let KeyLookupMode::FlatStorage = mode else { break 'flat };
             let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view else { break 'flat };
             let value = flat_storage_chunk_view.contains_key(key)?;
-            if side_effects && self.recorder.is_some() {
+            if self.recorder.is_some() {
                 // If recording, we need to look up in the trie as well to record the trie nodes,
                 // as they are needed to prove the value. Also, it's important that this lookup
                 // is done even if the key was not found, because intermediate trie nodes may be
@@ -1528,11 +1512,7 @@ impl Trie {
         }
 
         Ok(self
-            .lookup_from_state_column(
-                NibbleSlice::new(key),
-                charge_gas_for_trie_node_access,
-                side_effects,
-            )?
+            .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access, true)?
             .is_some())
     }
 
@@ -1567,6 +1547,25 @@ impl Trie {
                     charge_gas_for_trie_node_access,
                     true,
                 )?
+                .map(OptimizedValueRef::Ref))
+        }
+    }
+
+    /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
+    ///
+    /// This method is similar to `get_optimized` but has no side effects (not charging gas or recording trie nodes).
+    fn get_optimized_ref_no_side_effects(
+        &self,
+        key: &[u8],
+        mode: KeyLookupMode,
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+        if self.memtries.is_some() {
+            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())
+        } else if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(&key, false)
+        } else {
+            Ok(self
+                .lookup_from_state_column(NibbleSlice::new(&key), false, false)?
                 .map(OptimizedValueRef::Ref))
         }
     }
@@ -1755,16 +1754,11 @@ impl TrieAccess for Trie {
     }
 
     fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        let node = if self.memtries.is_some() {
-            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())?
-        } else if self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(&key, false)?
-        } else {
-            self.lookup_from_state_column(NibbleSlice::new(&key), false, false)?
-                .map(OptimizedValueRef::Ref)
-        };
-        match node {
+        match Trie::get_optimized_ref_no_side_effects(
+            self,
+            &key.to_vec(),
+            KeyLookupMode::FlatStorage,
+        )? {
             Some(optimized_ref) => Ok(Some(match &optimized_ref {
                 OptimizedValueRef::Ref(value_ref) => {
                     let bytes = self.internal_retrieve_trie_node(&value_ref.hash, false, false)?;
@@ -2006,7 +2000,8 @@ mod tests {
         }
     }
 
-    fn test_contains_key(side_effects: bool) {
+    #[test]
+    fn test_contains_key() {
         let sid = ShardUId::single_shard();
         let bid = CryptoHash::default();
         let tries = TestTriesBuilder::new().with_flat_storage(true).build();
@@ -2017,109 +2012,29 @@ mod tests {
         ];
         test_populate_flat_storage(&tries, sid, &bid, &bid, &initial);
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, sid, initial);
-        let trie =
-            tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false).recording_reads();
+        let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
+        assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie).unwrap());
         assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie, side_effects)
+            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
             .unwrap());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage, side_effects)
-            .unwrap());
+        assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::Trie).unwrap());
         assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::Trie, side_effects)
-            .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage, side_effects)
-            .unwrap());
-
-        if side_effects {
-            assert!(trie.recorded_storage().unwrap().nodes.len() > 0);
-        } else {
-            assert!(trie.recorded_storage().unwrap().nodes.len() == 0);
-        }
-
-        let changes = vec![(vec![99, 44, 100, 58, 58, 49], None)];
-        test_populate_flat_storage(&tries, sid, &bid, &bid, &changes);
-        let root = test_populate_trie(&tries, &root, sid, changes);
-        let trie =
-            tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false).recording_reads();
-        assert!(trie.has_flat_storage_chunk_view());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::Trie, side_effects)
-            .unwrap());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::FlatStorage, side_effects)
-            .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage, side_effects)
-            .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie, side_effects)
-            .unwrap());
-
-        if side_effects {
-            assert!(trie.recorded_storage().unwrap().nodes.len() > 0);
-        } else {
-            assert!(trie.recorded_storage().unwrap().nodes.len() == 0);
-        }
-    }
-
-    #[test]
-    fn test_contains_key_with_side_effects() {
-        test_contains_key(true);
-    }
-
-    #[test]
-    fn test_contains_key_no_side_effects() {
-        test_contains_key(false);
-    }
-
-    #[test]
-    fn test_contains_key_recording_reads() {
-        let sid = ShardUId::single_shard();
-        let bid = CryptoHash::default();
-        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
-        let initial = vec![
-            (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
-            (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
-            (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
-        ];
-        test_populate_flat_storage(&tries, sid, &bid, &bid, &initial);
-        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, sid, initial);
-        let trie =
-            tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false).recording_reads();
-        assert!(trie.has_flat_storage_chunk_view());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie, true)
-            .unwrap());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage, true)
-            .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::Trie, true)
-            .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage, true)
+            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage)
             .unwrap());
         let changes = vec![(vec![99, 44, 100, 58, 58, 49], None)];
         test_populate_flat_storage(&tries, sid, &bid, &bid, &changes);
         let root = test_populate_trie(&tries, &root, sid, changes);
-        let trie =
-            tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false).recording_reads();
+        let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
+        assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::Trie).unwrap());
         assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::Trie, true)
-            .unwrap());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::FlatStorage, true)
+            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::FlatStorage)
             .unwrap());
         assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage, true)
+            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
             .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie, true)
-            .unwrap());
+        assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie).unwrap());
     }
 
     #[test]

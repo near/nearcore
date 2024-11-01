@@ -1,10 +1,10 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
-use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use super::{OptimizedValueRef, Trie, TrieWithReadLock, ValueAccessToken};
 use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -253,7 +253,7 @@ impl TrieUpdate {
     /// the storage-proof limit. Instead we just record that the code with the given hash was called,
     /// so that we can identify which contract-code to distribute to the validators.
     pub fn record_contract_call(
-        &mut self,
+        &self,
         account_id: AccountId,
         code_hash: CryptoHash,
         protocol_version: ProtocolVersion,
@@ -271,10 +271,17 @@ impl TrieUpdate {
             return;
         }
         let trie_key = TrieKey::ContractCode { account_id };
-        let contract_exists = self
+        let contract_exists: bool = match self
             .trie
-            .contains_key_no_side_effects(&trie_key.to_vec())
-            .expect("trie lookup must succeed");
+            .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
+            .unwrap()
+        {
+            Some(OptimizedValueRef::Ref(value_ref)) => value_ref.hash == code_hash,
+            Some(OptimizedValueRef::AvailableValue(ValueAccessToken { value })) => {
+                hash(value.as_slice()) == code_hash
+            }
+            None => false,
+        };
         if contract_exists {
             self.contract_storage.record_call(code_hash);
         }
