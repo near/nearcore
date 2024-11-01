@@ -103,7 +103,7 @@ pub fn run_bandwidth_scheduler(
 /// Generate mock bandwidth requests based on scheduler output and shard id.
 pub fn generate_mock_bandwidth_requests(
     apply_state: &ApplyState,
-    scheduler_output_opt: &Option<BandwidthSchedulerOutput>,
+    scheduler_output_opt: Option<&BandwidthSchedulerOutput>,
 ) -> Option<BandwidthRequests> {
     if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
         return None;
