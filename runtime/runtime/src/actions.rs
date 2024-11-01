@@ -189,7 +189,7 @@ pub(crate) fn action_function_call(
         account_id.clone(),
         code_hash,
         apply_state.current_protocol_version,
-    );
+    )?;
 
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);

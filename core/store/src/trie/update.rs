@@ -257,25 +257,31 @@ impl TrieUpdate {
         account_id: AccountId,
         code_hash: CryptoHash,
         protocol_version: ProtocolVersion,
-    ) {
+    ) -> Result<(), StorageError> {
         if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
             // This causes trie lookup for the contract code to happen with side effects (charging gas and recording trie nodes).
             self.trie.request_code_recording(account_id);
-            return;
+            return Ok(());
         }
 
-        // Only record the call if the trie contains the contract being called. This avoids recording the contracts
-        // that do not exist or are newly-deployed. Note that the check if the contract exists has no side effects
-        // (not charging gas or recording trie nodes)
+        // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
+        // This avoids recording the contracts that do not exist or are newly-deployed.
+        // Note that the check if the contract exists has no side effects (not charging gas or recording trie nodes)
         if code_hash == CryptoHash::default() {
-            return;
+            return Ok(());
         }
         let trie_key = TrieKey::ContractCode { account_id };
-        let contract_exists: bool = match self
+        let contract_ref = self
             .trie
             .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
-            .unwrap()
-        {
+            .or_else(|err| {
+                if matches!(err, StorageError::MissingTrieValue(_, _)) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            })?;
+        let contract_exists: bool = match contract_ref {
             Some(OptimizedValueRef::Ref(value_ref)) => value_ref.hash == code_hash,
             Some(OptimizedValueRef::AvailableValue(ValueAccessToken { value })) => {
                 hash(value.as_slice()) == code_hash
@@ -285,6 +291,7 @@ impl TrieUpdate {
         if contract_exists {
             self.contract_storage.record_call(code_hash);
         }
+        Ok(())
     }
 }
 
