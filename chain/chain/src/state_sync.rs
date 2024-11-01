@@ -99,6 +99,34 @@ fn remove_old_epochs(
     Ok(())
 }
 
+fn remove_old_blocks<T: ChainStoreAccess>(
+    chain_store: &T,
+    store_update: &mut StoreUpdate,
+    header: &BlockHeader,
+) -> Result<(), Error> {
+    if header.last_final_block() == &CryptoHash::default() {
+        return Ok(());
+    }
+    // We don't need to keep info for old blocks around. After a block is finalized, we don't need anything before it
+    let last_final_header = match chain_store.get_block_header(header.last_final_block()) {
+        Ok(h) => h,
+        // This might happen in the case of epoch sync where we save individual headers without having all
+        // headers that belong to the epoch.
+        Err(Error::DBNotFoundErr(_)) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+
+    for block_hash in iter_epoch_new_chunks_keys(chain_store.store()) {
+        let block_hash = block_hash?;
+        let old_header = chain_store.get_block_header(&block_hash)?;
+        if old_header.height() < last_final_header.height() {
+            store_update.delete(DBCol::StateSyncNewChunks, block_hash.as_ref());
+        }
+    }
+
+    Ok(())
+}
+
 /// Updates information in the DB related to calculating the correct "sync_hash" for this header's epoch,
 /// if it hasn't already been found.
 pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
@@ -128,24 +156,5 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     }
 
     save_epoch_new_chunks(chain_store, store_update, header)?;
-
-    if header.last_final_block() != &CryptoHash::default() {
-        // We don't need to keep info for old blocks around. After a block is finalized, we don't need anything before it
-        let last_final_header = match chain_store.get_block_header(header.last_final_block()) {
-            Ok(h) => h,
-            // This might happen in the case of epoch sync where we save individual headers without having all
-            // headers that belong to the epoch.
-            Err(Error::DBNotFoundErr(_)) => return Ok(()),
-            Err(e) => return Err(e),
-        };
-
-        for block_hash in iter_epoch_new_chunks_keys(chain_store.store()) {
-            let block_hash = block_hash?;
-            let old_header = chain_store.get_block_header(&block_hash)?;
-            if old_header.height() < last_final_header.height() {
-                store_update.delete(DBCol::StateSyncNewChunks, block_hash.as_ref());
-            }
-        }
-    }
-    Ok(())
+    remove_old_blocks(chain_store, store_update, header)
 }
