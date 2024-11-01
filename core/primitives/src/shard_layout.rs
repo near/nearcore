@@ -356,6 +356,7 @@ impl ShardLayout {
     }
 
     /// Return a V0 Shardlayout
+    #[deprecated(note = "Use multi_shard() or v1()/v2() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
