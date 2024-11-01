@@ -10,9 +10,7 @@ use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError
 pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
-use bandwidth_scheduler::{
-    generate_mock_bandwidth_requests, run_bandwidth_scheduler, BandwidthSchedulerOutput,
-};
+use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
@@ -2083,10 +2081,7 @@ impl Runtime {
             );
         }
 
-        let bandwidth_requests = generate_mock_bandwidth_requests(
-            apply_state,
-            receipt_sink.bandwidth_scheduler_output(),
-        );
+        let bandwidth_requests = receipt_sink.generate_bandwidth_requests(&state_update, true)?;
 
         check_balance(
             &apply_state.config,

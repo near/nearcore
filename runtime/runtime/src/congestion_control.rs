@@ -5,6 +5,9 @@ use crate::config::{
 use crate::ApplyState;
 use bytesize::ByteSize;
 use near_parameters::{ActionCosts, RuntimeConfig};
+use near_primitives::bandwidth_scheduler::{
+    BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
+};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
@@ -211,6 +214,18 @@ impl<'a> ReceiptSink {
             ReceiptSink::V2(inner) => inner.bandwidth_scheduler_output.as_ref(),
         }
     }
+
+    /// Generate bandwidth requests based on the receipts stored in the outgoing buffers.
+    pub(crate) fn generate_bandwidth_requests(
+        &self,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+    ) -> Result<Option<BandwidthRequests>, StorageError> {
+        match self {
+            ReceiptSink::V1(_) => Ok(None),
+            ReceiptSink::V2(inner) => inner.generate_bandwidth_requests(trie, side_effects),
+        }
+    }
 }
 
 impl ReceiptSinkV1 {
@@ -400,6 +415,75 @@ impl ReceiptSinkV2 {
 
         self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
         Ok(())
+    }
+
+    fn generate_bandwidth_requests(
+        &self,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+    ) -> Result<Option<BandwidthRequests>, StorageError> {
+        if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
+            return Ok(None);
+        }
+
+        let params = self
+            .bandwidth_scheduler_output
+            .as_ref()
+            .expect("BandwidthScheduler is enabled and should produce params")
+            .params;
+
+        let mut requests = Vec::new();
+        for shard_id in self.outgoing_buffers.shards() {
+            if let Some(request) =
+                self.generate_bandwidth_request(shard_id, trie, side_effects, &params)?
+            {
+                requests.push(request);
+            }
+        }
+
+        Ok(Some(BandwidthRequests::V1(BandwidthRequestsV1 { requests })))
+    }
+
+    fn generate_bandwidth_request(
+        &self,
+        to_shard: ShardId,
+        trie: &dyn TrieAccess,
+        side_effects: bool,
+        params: &BandwidthSchedulerParams,
+    ) -> Result<Option<BandwidthRequest>, StorageError> {
+        let outgoing_receipts_buffer_len = self.outgoing_buffers.buffer_len(to_shard).unwrap_or(0);
+
+        if outgoing_receipts_buffer_len == 0 {
+            // No receipts in the outgoing buffer, nothing to request.
+            return Ok(None);
+        };
+
+        let shard_u8: u8 = to_shard.try_into().expect("ShardId doesn't fit into u8");
+
+        // To make a proper bandwidth request we need the metadata for the outgoing buffer to be fully initialized
+        // (i.e. contain data about all of the receipts in the outgoing buffer). There is a moment right after the
+        // protocol upgrade where the outgoing buffer contains receipts which were buffered in the previous protocol
+        // version where metadata was not enabled. Metadata doesn't contain information about them.
+        // We can't make a proper request in this case, so we make a basic request while we wait for
+        // metadata to become fully initialized. The basic request requests just `max_receipt_size`. This is enough to
+        // ensure liveness, as all receipts are smaller than `max_receipt_size`. The resulting behaviour is similar
+        // to the previous approach where the `allowed_shard` was assigned most of the bandwidth.
+        // Over time these old receipts will be removed from the outgoing buffer and eventually metadata will contain
+        // information about every receipt in the buffer. From that point on we will be able to make
+        // proper bandwidth requests.
+        let Some(metadata) = self.outgoing_metadatas.get_metadata_for_shard(&to_shard) else {
+            // Metadata not ready, make a basic request.
+            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(shard_u8, params)));
+        };
+
+        if metadata.total_receipts_num() != outgoing_receipts_buffer_len {
+            // Metadata not ready, contains less receipts than the outgoing buffer. Make a basic request.
+            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(shard_u8, params)));
+        }
+
+        // Metadata is fully intialized, make a proper bandwidth request using it.
+        let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
+        BandwidthRequest::make_from_receipt_sizes(shard_u8, receipt_sizes_iter, params)
     }
 }
 
