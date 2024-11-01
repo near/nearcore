@@ -263,7 +263,6 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV4 => 145,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
             ProtocolFeature::BandwidthScheduler => 147,
-
             // Place features that are not yet in Nightly below this line.
         }
     }
