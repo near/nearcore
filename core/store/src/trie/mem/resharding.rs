@@ -123,8 +123,10 @@ impl Trie {
     }
 }
 
-trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasValueLength>:
-    GenericTrieUpdateSquash<'a, N, V>
+trait GenericTrieUpdateRetain<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
 {
     /// Recursive implementation of the algorithm of retaining keys belonging to
     /// any of the ranges given in `intervals` from the trie. All changes are
@@ -231,12 +233,11 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
     }
 }
 
-impl<
-        'a,
-        N: std::fmt::Debug,
-        V: std::fmt::Debug + HasValueLength,
-        T: GenericTrieUpdate<'a, N, V>,
-    > GenericTrieUpdateRetain<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+    T: GenericTrieUpdate<'a, N, V>,
 {
 }
 

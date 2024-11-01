@@ -104,8 +104,6 @@ impl<GenericTrieNodePtr, FlatStateValue: HasValueLength>
 
     /// Returns the memory usage of the **single** node, in Near's trie cost
     /// terms, not in terms of the physical memory usage.
-    /// TODO(#12324): replace `TrieNode::memory_usage_direct_internal` and
-    ///`MemTrieNodeView::memory_usage` by this method.
     pub fn memory_usage_direct(&self) -> u64 {
         match self {
             Self::Empty => {
@@ -163,11 +161,11 @@ pub type UpdatedMemTrieNodeWithSize = GenericUpdatedTrieNodeWithSize<MemTrieNode
 /// - Finally, we end up with storage of new nodes, which are used to produce
 /// new state root. The exact logic depends on trait implementation.
 ///
-/// TODO(#12324): instead of `GenericValueHandle`, consider always using
+/// TODO(#12361): instead of `GenericValueHandle`, consider always using
 /// `FlatStateValue`.
 ///
 /// Note that it has nothing to do with `TrieUpdate` used for runtime to store
-/// temporary state changes (TODO(#12324) - consider renaming it).
+/// temporary state changes (TODO(#12361) - consider renaming it).
 pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     /// If the ID was old, converts underlying node to an updated one.
     fn ensure_updated(
@@ -260,7 +258,7 @@ pub struct MemTrieUpdate<'a, M: ArenaMemory> {
     /// All the new nodes that are to be constructed. A node may be None if
     /// (1) temporarily we take out the node from the slot to process it and put it back
     /// later; or (2) the node is deleted afterwards.
-    /// TODO(#12324): IMPORTANT: while we compute memory usage on the
+    /// TODO(#12361): IMPORTANT: while we compute memory usage on the
     /// fly for memtries, it is ignored and recomputed later in
     /// `compute_hashes_and_serialized_nodes`.
     /// This is wrong because it needs ALL children of any changed branch
@@ -573,20 +571,19 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     }
 }
 
-impl<
-        'a,
-        N: std::fmt::Debug,
-        V: std::fmt::Debug + HasValueLength,
-        T: GenericTrieUpdate<'a, N, V>,
-    > GenericTrieUpdateInsertDelete<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateInsertDelete<'a, N, V> for T
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+    T: GenericTrieUpdate<'a, N, V>,
 {
 }
 
-pub(crate) trait GenericTrieUpdateInsertDelete<
-    'a,
+pub(crate) trait GenericTrieUpdateInsertDelete<'a, N, V>:
+    GenericTrieUpdateSquash<'a, N, V>
+where
     N: std::fmt::Debug,
     V: std::fmt::Debug + HasValueLength,
->: GenericTrieUpdateSquash<'a, N, V>
 {
     fn calc_memory_usage_and_store(
         &mut self,
@@ -1022,20 +1019,18 @@ pub(crate) trait GenericTrieUpdateInsertDelete<
     }
 }
 
-impl<
-        'a,
-        N: std::fmt::Debug,
-        V: std::fmt::Debug + HasValueLength,
-        T: GenericTrieUpdate<'a, N, V>,
-    > GenericTrieUpdateSquash<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateSquash<'a, N, V> for T
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+    T: GenericTrieUpdate<'a, N, V>,
 {
 }
 
-pub(crate) trait GenericTrieUpdateSquash<
-    'a,
+pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>
+where
     N: std::fmt::Debug,
     V: std::fmt::Debug + HasValueLength,
->: GenericTrieUpdate<'a, N, V>
 {
     /// When we delete keys, it may be necessary to change types of some nodes,
     /// in order to keep the trie structure unique. For example, if a branch

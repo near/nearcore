@@ -95,9 +95,9 @@ pub enum KeyLookupMode {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
+// TODO(#12361): replace with `RawTrieNodeWithSize` fields.
 #[derive(Clone, Hash)]
 enum NodeHandle {
-    // InMemory(StorageHandle),
     Hash(CryptoHash),
 }
 
@@ -105,7 +105,6 @@ impl NodeHandle {
     fn unwrap_hash(&self) -> &CryptoHash {
         match self {
             Self::Hash(hash) => hash,
-            // Self::InMemory(_) => unreachable!(),
         }
     }
 }
@@ -114,7 +113,6 @@ impl std::fmt::Debug for NodeHandle {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Hash(hash) => write!(fmtr, "{hash}"),
-            // Self::InMemory(handle) => write!(fmtr, "@{}", handle.0),
         }
     }
 }
@@ -134,6 +132,7 @@ impl std::fmt::Debug for ValueHandle {
     }
 }
 
+// TODO(#12361): replace with `RawTrieNode`.
 #[derive(Clone, Hash)]
 enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
@@ -146,6 +145,7 @@ enum TrieNode {
     Extension(Vec<u8>, NodeHandle),
 }
 
+// TODO(#12361): replace with `RawTrieNodeWithSize`.
 #[derive(Clone, Debug)]
 pub struct TrieNodeWithSize {
     node: TrieNode,
@@ -277,6 +277,8 @@ impl TrieNode {
         Self::memory_usage_for_value_length(value_length)
     }
 
+    /// TODO(#12361): in particular, consider replacing with
+    /// `GenericUpdatedTrieNode::memory_usage_direct`.
     fn memory_usage_direct(&self) -> u64 {
         match self {
             TrieNode::Empty => {
