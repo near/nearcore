@@ -2291,6 +2291,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
             }
+            // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();
             for (hash, header) in self.chain_store_cache_update.headers.iter() {
                 if self.chain_store.get_block_header(hash).is_ok() {
