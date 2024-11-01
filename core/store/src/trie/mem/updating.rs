@@ -13,13 +13,12 @@ use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
 use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::{
-    Children, MemTrieChanges, NodeHandle, StorageHandle, StorageValueHandle, TrieNode,
-    TrieNodeWithSize, TrieRefcountDeltaMap, ValueHandle, TRIE_COSTS,
+    Children, MemTrieChanges, StorageValueHandle, TrieRefcountDeltaMap, ValueHandle, TRIE_COSTS,
 };
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::{FlatStateValue, GenericTrieValue};
+use near_primitives::state::{FlatStateValue, GenericTrieValue, ValueRef};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -105,8 +104,6 @@ impl<GenericTrieNodePtr, FlatStateValue: HasValueLength>
 
     /// Returns the memory usage of the **single** node, in Near's trie cost
     /// terms, not in terms of the physical memory usage.
-    /// TODO(#12324): replace `TrieNode::memory_usage_direct_internal` and
-    ///`MemTrieNodeView::memory_usage` by this method.
     pub fn memory_usage_direct(&self) -> u64 {
         match self {
             Self::Empty => {
@@ -164,14 +161,14 @@ pub type UpdatedMemTrieNodeWithSize = GenericUpdatedTrieNodeWithSize<MemTrieNode
 /// - Finally, we end up with storage of new nodes, which are used to produce
 /// new state root. The exact logic depends on trait implementation.
 ///
-/// TODO(#12324): instead of `GenericValueHandle`, consider always using
+/// TODO(#12361): instead of `GenericValueHandle`, consider always using
 /// `FlatStateValue`.
 ///
 /// Note that it has nothing to do with `TrieUpdate` used for runtime to store
-/// temporary state changes (TODO(#12324) - consider renaming it).
+/// temporary state changes (TODO(#12361) - consider renaming it).
 pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     /// If the ID was old, converts underlying node to an updated one.
-    fn generic_ensure_updated(
+    fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<GenericTrieNodePtr>,
     ) -> Result<GenericUpdatedNodeId, StorageError>;
@@ -179,31 +176,36 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     /// Takes a node from the set of updated nodes, setting it to None.
     /// It is expected that place_node is then called to return the node to
     /// the same slot.
-    fn generic_take_node(
+    fn take_node(
         &mut self,
         node_id: GenericUpdatedNodeId,
     ) -> GenericUpdatedTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>;
 
-    /// Puts a node to the set of updated nodes.
-    fn generic_place_node(
+    /// Puts a node to the set of updated nodes at specific index.
+    /// Needed when reference to node from parent needs to be preserved.
+    fn place_node_at(
         &mut self,
         node_id: GenericUpdatedNodeId,
         node: GenericUpdatedTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>,
     );
 
-    /// Gets a node from the set of updated nodes.
-    /// TODO(#12324): we actually should get a reference, but type
-    /// incompatibility don't allow it for now.
-    fn generic_get_node(
+    /// Puts a new node into the set of updated nodes.
+    fn place_node(
+        &mut self,
+        node: GenericUpdatedTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>,
+    ) -> GenericUpdatedNodeId;
+
+    /// Gets a node reference in the set of updated nodes.
+    fn get_node_ref(
         &self,
         node_id: GenericUpdatedNodeId,
-    ) -> GenericUpdatedTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>;
+    ) -> &GenericUpdatedTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle>;
 
     /// Stores a state value in the trie.
-    fn generic_store_value(&mut self, value: GenericTrieValue) -> GenericValueHandle;
+    fn store_value(&mut self, value: GenericTrieValue) -> GenericValueHandle;
 
     /// Deletes a state value from the trie.
-    fn generic_delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
+    fn delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
 }
 
 /// Keeps values and internal nodes accessed on updating memtrie.
@@ -256,34 +258,43 @@ pub struct MemTrieUpdate<'a, M: ArenaMemory> {
     /// All the new nodes that are to be constructed. A node may be None if
     /// (1) temporarily we take out the node from the slot to process it and put it back
     /// later; or (2) the node is deleted afterwards.
-    pub updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
+    /// TODO(#12361): IMPORTANT: while we compute memory usage on the
+    /// fly for memtries, it is ignored and recomputed later in
+    /// `compute_hashes_and_serialized_nodes`.
+    /// This is wrong because it needs ALL children of any changed branch
+    /// in memtrie. Switch to using memory usages from here.
+    pub updated_nodes: Vec<Option<UpdatedMemTrieNodeWithSize>>,
     /// Tracks trie changes necessary to make on-disk updates and recorded
     /// storage.
     tracked_trie_changes: Option<TrieChangesTracker>,
 }
 
-impl UpdatedMemTrieNode {
+impl UpdatedMemTrieNodeWithSize {
     /// Converts an existing in-memory trie node into an updated one that is
     /// equivalent.
     pub fn from_existing_node_view<'a, M: ArenaMemory>(view: MemTrieNodeView<'a, M>) -> Self {
-        match view {
-            MemTrieNodeView::Leaf { extension, value } => Self::Leaf {
+        let memory_usage = view.memory_usage();
+        let node = match view {
+            MemTrieNodeView::Leaf { extension, value } => UpdatedMemTrieNode::Leaf {
                 extension: extension.to_vec().into_boxed_slice(),
                 value: value.to_flat_value(),
             },
-            MemTrieNodeView::Branch { children, .. } => Self::Branch {
+            MemTrieNodeView::Branch { children, .. } => UpdatedMemTrieNode::Branch {
                 children: Box::new(Self::convert_children_to_updated(children)),
                 value: None,
             },
-            MemTrieNodeView::BranchWithValue { children, value, .. } => Self::Branch {
-                children: Box::new(Self::convert_children_to_updated(children)),
-                value: Some(value.to_flat_value()),
-            },
-            MemTrieNodeView::Extension { extension, child, .. } => Self::Extension {
+            MemTrieNodeView::BranchWithValue { children, value, .. } => {
+                UpdatedMemTrieNode::Branch {
+                    children: Box::new(Self::convert_children_to_updated(children)),
+                    value: Some(value.to_flat_value()),
+                }
+            }
+            MemTrieNodeView::Extension { extension, child, .. } => UpdatedMemTrieNode::Extension {
                 extension: extension.to_vec().into_boxed_slice(),
                 child: OldOrUpdatedNodeId::Old(child.id()),
             },
-        }
+        };
+        Self { node, memory_usage }
     }
 
     fn convert_children_to_updated<'a, M: ArenaMemory>(
@@ -302,41 +313,36 @@ impl UpdatedMemTrieNode {
 impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
     for MemTrieUpdate<'a, M>
 {
-    fn generic_ensure_updated(
+    fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<MemTrieNodeId>,
     ) -> Result<GenericUpdatedNodeId, StorageError> {
-        Ok(self.ensure_updated(node))
+        Ok(match node {
+            GenericNodeOrIndex::Old(node_id) => self.convert_existing_to_updated(Some(node_id)),
+            GenericNodeOrIndex::Updated(node_id) => node_id,
+        })
     }
 
-    fn generic_take_node(&mut self, index: UpdatedMemTrieNodeId) -> UpdatedMemTrieNodeWithSize {
-        // TODO(#12324): IMPORTANT: now, we don't compute memory usage on the
-        // fly for memtries. This happens in `compute_hashes_and_serialized_nodes`.
-        // Memory usages here are zeroed and ignored.
-        // However, this is fundamentally wrong because the current approach
-        // needs ALL children of any changed branch in memtrie. In reality, it
-        // is enough to have only children that are changed.
-        // So, we need to change `MemTrieUpdate` to store current memory usages
-        // and retrieve them correctly.
-        UpdatedMemTrieNodeWithSize { node: self.take_node(index), memory_usage: 0 }
+    fn take_node(&mut self, index: UpdatedMemTrieNodeId) -> UpdatedMemTrieNodeWithSize {
+        self.updated_nodes.get_mut(index).unwrap().take().expect("Node taken twice")
     }
 
-    fn generic_place_node(
-        &mut self,
-        index: UpdatedMemTrieNodeId,
-        node: UpdatedMemTrieNodeWithSize,
-    ) {
-        self.place_node(index, node.node);
+    fn place_node_at(&mut self, index: UpdatedMemTrieNodeId, node: UpdatedMemTrieNodeWithSize) {
+        assert!(self.updated_nodes[index].is_none(), "Node placed twice");
+        self.updated_nodes[index] = Some(node);
     }
 
-    fn generic_get_node(&self, node_id: GenericUpdatedNodeId) -> UpdatedMemTrieNodeWithSize {
-        UpdatedMemTrieNodeWithSize {
-            node: self.updated_nodes[node_id].as_ref().unwrap().clone(),
-            memory_usage: 0,
-        }
+    fn get_node_ref(&self, node_id: GenericUpdatedNodeId) -> &UpdatedMemTrieNodeWithSize {
+        self.updated_nodes[node_id].as_ref().unwrap()
     }
 
-    fn generic_store_value(&mut self, value: GenericTrieValue) -> FlatStateValue {
+    fn place_node(&mut self, node: UpdatedMemTrieNodeWithSize) -> GenericUpdatedNodeId {
+        let index = self.updated_nodes.len();
+        self.updated_nodes.push(Some(node));
+        index
+    }
+
+    fn store_value(&mut self, value: GenericTrieValue) -> FlatStateValue {
         // First, set the value which will be stored in memtrie.
         let flat_value = match &value {
             GenericTrieValue::MemtrieOnly(value) => return value.clone(),
@@ -359,7 +365,7 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
         flat_value
     }
 
-    fn generic_delete_value(&mut self, value: FlatStateValue) -> Result<(), StorageError> {
+    fn delete_value(&mut self, value: FlatStateValue) -> Result<(), StorageError> {
         if let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() {
             let hash = value.to_value_ref().hash;
             tracked_node_changes.accesses.values.insert(hash, value);
@@ -381,71 +387,46 @@ pub(crate) type UpdatedTrieStorageNode = GenericUpdatedTrieNode<TrieStorageNodeP
 pub(crate) type UpdatedTrieStorageNodeWithSize =
     GenericUpdatedTrieNodeWithSize<TrieStorageNodePtr, ValueHandle>;
 
-/// Conversion between updated node for trie storage and generic updated node.
-/// TODO(#12324): remove once the whole trie storage logic is rewritten in
-/// generic terms.
-impl UpdatedTrieStorageNode {
-    pub fn from_trie_node_with_size(node: TrieNodeWithSize) -> Self {
-        match node.node {
-            TrieNode::Empty => Self::Empty,
-            TrieNode::Leaf(extension, value) => {
-                Self::Leaf { extension: extension.to_vec().into_boxed_slice(), value }
-            }
-            TrieNode::Branch(children, value) => Self::Branch {
-                children: Box::new(children.0.map(|child| {
-                    child.map(|id| match id {
-                        NodeHandle::Hash(id) => GenericNodeOrIndex::Old(id),
-                        NodeHandle::InMemory(id) => GenericNodeOrIndex::Updated(id.0),
-                    })
-                })),
-                value,
-            },
-            TrieNode::Extension(extension, child) => Self::Extension {
-                extension: extension.to_vec().into_boxed_slice(),
-                child: match child {
-                    NodeHandle::Hash(id) => GenericNodeOrIndex::Old(id),
-                    NodeHandle::InMemory(id) => GenericNodeOrIndex::Updated(id.0),
-                },
-            },
+impl UpdatedTrieStorageNodeWithSize {
+    pub fn from_raw_trie_node_with_size(node: RawTrieNodeWithSize) -> Self {
+        Self {
+            node: UpdatedTrieStorageNode::from_raw_trie_node(node.node),
+            memory_usage: node.memory_usage,
         }
     }
+}
 
-    pub fn into_trie_node_with_size(self, memory_usage: u64) -> TrieNodeWithSize {
-        match self {
-            Self::Empty => TrieNodeWithSize { node: TrieNode::Empty, memory_usage },
-            Self::Leaf { extension, value } => {
-                TrieNodeWithSize { node: TrieNode::Leaf(extension.into_vec(), value), memory_usage }
-            }
-            Self::Branch { children, value } => TrieNodeWithSize {
-                node: TrieNode::Branch(
-                    Box::new(Children(children.map(|child| {
-                        child.map(|id| match id {
-                            GenericNodeOrIndex::Old(id) => NodeHandle::Hash(id),
-                            GenericNodeOrIndex::Updated(id) => {
-                                NodeHandle::InMemory(StorageHandle(id))
-                            }
-                        })
-                    }))),
-                    value,
-                ),
-                memory_usage,
+impl UpdatedTrieStorageNode {
+    fn new_branch(children: Children, value: Option<ValueRef>) -> Self {
+        let children =
+            Box::new(children.0.map(|child| child.map(|id| GenericNodeOrIndex::Old(id))));
+        let value = value.map(ValueHandle::HashAndSize);
+        Self::Branch { children, value }
+    }
+
+    /// Conversion from the node just read from trie storage.
+    pub fn from_raw_trie_node(node: RawTrieNode) -> Self {
+        match node {
+            RawTrieNode::Leaf(extension, value) => Self::Leaf {
+                extension: extension.to_vec().into_boxed_slice(),
+                value: ValueHandle::HashAndSize(value),
             },
-            Self::Extension { extension, child } => TrieNodeWithSize {
-                node: TrieNode::Extension(
-                    extension.into_vec(),
-                    match child {
-                        GenericNodeOrIndex::Old(id) => NodeHandle::Hash(id),
-                        GenericNodeOrIndex::Updated(id) => NodeHandle::InMemory(StorageHandle(id)),
-                    },
-                ),
-                memory_usage,
+            RawTrieNode::BranchNoValue(children) => Self::new_branch(children, None),
+            RawTrieNode::BranchWithValue(value, children) => {
+                Self::new_branch(children, Some(value))
+            }
+            RawTrieNode::Extension(extension, child) => Self::Extension {
+                extension: extension.to_vec().into_boxed_slice(),
+                child: GenericNodeOrIndex::Old(child),
             },
         }
     }
 }
 
+const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
+
 impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for NodesStorage<'a> {
-    fn generic_ensure_updated(
+    fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<TrieStorageNodePtr>,
     ) -> Result<GenericUpdatedNodeId, StorageError> {
@@ -457,35 +438,30 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for NodesStorage
         }
     }
 
-    fn generic_take_node(&mut self, index: GenericUpdatedNodeId) -> UpdatedTrieStorageNodeWithSize {
-        let node = self.destroy(StorageHandle(index));
-        let memory_usage = node.memory_usage;
-        UpdatedTrieStorageNodeWithSize {
-            node: UpdatedTrieStorageNode::from_trie_node_with_size(node),
-            memory_usage,
-        }
+    fn take_node(&mut self, index: GenericUpdatedNodeId) -> UpdatedTrieStorageNodeWithSize {
+        self.nodes
+            .get_mut(index)
+            .expect(INVALID_STORAGE_HANDLE)
+            .take()
+            .expect(INVALID_STORAGE_HANDLE)
     }
 
-    fn generic_place_node(
-        &mut self,
-        index: GenericUpdatedNodeId,
-        node: UpdatedTrieStorageNodeWithSize,
-    ) {
-        let UpdatedTrieStorageNodeWithSize { node, memory_usage } = node;
-        let node = node.into_trie_node_with_size(memory_usage);
-        self.store_at(StorageHandle(index), node);
+    fn place_node_at(&mut self, index: GenericUpdatedNodeId, node: UpdatedTrieStorageNodeWithSize) {
+        debug_assert!(self.nodes.get(index).expect(INVALID_STORAGE_HANDLE).is_none());
+        self.nodes[index] = Some(node);
     }
 
-    fn generic_get_node(&self, index: GenericUpdatedNodeId) -> UpdatedTrieStorageNodeWithSize {
-        let node = self.node_ref(StorageHandle(index)).clone();
-        let memory_usage = node.memory_usage;
-        UpdatedTrieStorageNodeWithSize {
-            node: UpdatedTrieStorageNode::from_trie_node_with_size(node),
-            memory_usage,
-        }
+    fn place_node(&mut self, node: UpdatedTrieStorageNodeWithSize) -> GenericUpdatedNodeId {
+        let index = self.nodes.len();
+        self.nodes.push(Some(node));
+        index
     }
 
-    fn generic_store_value(&mut self, value: GenericTrieValue) -> ValueHandle {
+    fn get_node_ref(&self, index: GenericUpdatedNodeId) -> &UpdatedTrieStorageNodeWithSize {
+        self.nodes.get(index).expect(INVALID_STORAGE_HANDLE).as_ref().expect(INVALID_STORAGE_HANDLE)
+    }
+
+    fn store_value(&mut self, value: GenericTrieValue) -> ValueHandle {
         let GenericTrieValue::MemtrieAndDisk(value) = value else {
             unimplemented!(
                 "NodesStorage for Trie doesn't support value {value:?} \
@@ -498,14 +474,15 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for NodesStorage
         ValueHandle::InMemory(StorageValueHandle(self.values.len() - 1, value_len))
     }
 
-    fn generic_delete_value(&mut self, value: ValueHandle) -> Result<(), StorageError> {
+    fn delete_value(&mut self, value: ValueHandle) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
                 self.trie.internal_retrieve_trie_node(&value.hash, true, true)?;
                 self.refcount_changes.subtract(value.hash, 1);
             }
             ValueHandle::InMemory(_) => {
-                // do nothing
+                // Do nothing. Values which were just inserted were not
+                // refcounted yet.
             }
         }
         Ok(())
@@ -538,21 +515,8 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         trie_update
     }
 
-    /// Internal function to take a node from the array of updated nodes, setting it
-    /// to None. It is expected that place_node is then called to return the node to
-    /// the same slot.
-    pub(crate) fn take_node(&mut self, index: UpdatedMemTrieNodeId) -> UpdatedMemTrieNode {
-        self.updated_nodes.get_mut(index).unwrap().take().expect("Node taken twice")
-    }
-
-    /// Does the opposite of take_node; returns the node to the specified ID.
-    pub(crate) fn place_node(&mut self, index: UpdatedMemTrieNodeId, node: UpdatedMemTrieNode) {
-        assert!(self.updated_nodes[index].is_none(), "Node placed twice");
-        self.updated_nodes[index] = Some(node);
-    }
-
     /// Creates a new updated node, assigning it a new ID.
-    fn new_updated_node(&mut self, node: UpdatedMemTrieNode) -> UpdatedMemTrieNodeId {
+    fn new_updated_node(&mut self, node: UpdatedMemTrieNodeWithSize) -> UpdatedMemTrieNodeId {
         let index = self.updated_nodes.len();
         self.updated_nodes.push(Some(node));
         index
@@ -567,7 +531,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// trie.
     fn convert_existing_to_updated(&mut self, node: Option<MemTrieNodeId>) -> UpdatedMemTrieNodeId {
         match node {
-            None => self.new_updated_node(UpdatedMemTrieNode::Empty),
+            None => self.new_updated_node(UpdatedMemTrieNodeWithSize::empty()),
             Some(node) => {
                 if let Some(tracked_trie_changes) = self.tracked_trie_changes.as_mut() {
                     let node_view = node.as_ptr(self.memory).view();
@@ -584,23 +548,16 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                         .and_modify(|rc| *rc += 1)
                         .or_insert(1);
                 }
-                self.new_updated_node(UpdatedMemTrieNode::from_existing_node_view(
+                self.new_updated_node(UpdatedMemTrieNodeWithSize::from_existing_node_view(
                     node.as_ptr(self.memory).view(),
                 ))
             }
         }
     }
 
-    pub(crate) fn ensure_updated(&mut self, node: OldOrUpdatedNodeId) -> UpdatedMemTrieNodeId {
-        match node {
-            OldOrUpdatedNodeId::Old(node_id) => self.convert_existing_to_updated(Some(node_id)),
-            OldOrUpdatedNodeId::Updated(node_id) => node_id,
-        }
-    }
-
     /// Inserts the given key value pair into the trie.
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) -> Result<(), StorageError> {
-        self.insert_impl(key, GenericTrieValue::MemtrieAndDisk(value))
+        self.generic_insert(0, key, GenericTrieValue::MemtrieAndDisk(value))
     }
 
     /// Inserts the given key value pair into the trie, but the value may be a reference.
@@ -610,7 +567,39 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         key: &[u8],
         value: FlatStateValue,
     ) -> Result<(), StorageError> {
-        self.insert_impl(key, GenericTrieValue::MemtrieOnly(value))
+        self.generic_insert(0, key, GenericTrieValue::MemtrieOnly(value))
+    }
+}
+
+impl<'a, N, V, T> GenericTrieUpdateInsertDelete<'a, N, V> for T
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+    T: GenericTrieUpdate<'a, N, V>,
+{
+}
+
+pub(crate) trait GenericTrieUpdateInsertDelete<'a, N, V>:
+    GenericTrieUpdateSquash<'a, N, V>
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+{
+    fn calc_memory_usage_and_store(
+        &mut self,
+        node_id: GenericUpdatedNodeId,
+        children_memory_usage: u64,
+        new_node: GenericUpdatedTrieNode<N, V>,
+        old_child: Option<GenericUpdatedNodeId>,
+    ) {
+        let new_memory_usage =
+            children_memory_usage.saturating_add(new_node.memory_usage_direct()).saturating_sub(
+                old_child.map(|child| self.get_node_ref(child).memory_usage).unwrap_or_default(),
+            );
+        self.place_node_at(
+            node_id,
+            GenericUpdatedTrieNodeWithSize { node: new_node, memory_usage: new_memory_usage },
+        );
     }
 
     /// Insertion logic. We descend from the root down to whatever node corresponds to
@@ -618,36 +607,51 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// the way to achieve that. This takes care of refcounting changes for existing
     /// nodes as well as values, but will not yet increment refcount for any newly
     /// created nodes - that's done at the end.
-    fn insert_impl(&mut self, key: &[u8], value: GenericTrieValue) -> Result<(), StorageError> {
-        let mut node_id = 0; // root
+    fn generic_insert(
+        &mut self,
+        mut node_id: GenericUpdatedNodeId,
+        key: &[u8],
+        value: GenericTrieValue,
+    ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);
+        // Path to the key being inserted.
+        // Needed to recompute memory usages in the end.
+        let mut path = Vec::new();
 
         loop {
+            path.push(node_id);
             // Take out the current node; we'd have to change it no matter what.
-            let node = self.take_node(node_id);
+            let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
+            let children_memory_usage = memory_usage.saturating_sub(node.memory_usage_direct());
+
             match node {
-                UpdatedMemTrieNode::Empty => {
+                GenericUpdatedTrieNode::Empty => {
                     // There was no node here, create a new leaf.
-                    let value_handle = self.generic_store_value(value);
-                    self.place_node(
+                    let value_handle = self.store_value(value);
+                    let node = GenericUpdatedTrieNode::Leaf {
+                        extension: partial.encoded(true).into_vec().into_boxed_slice(),
+                        value: value_handle,
+                    };
+                    let memory_usage = node.memory_usage_direct();
+                    self.place_node_at(
                         node_id,
-                        UpdatedMemTrieNode::Leaf {
-                            extension: partial.encoded(true).into_vec().into_boxed_slice(),
-                            value: value_handle,
-                        },
+                        GenericUpdatedTrieNodeWithSize { node, memory_usage },
                     );
                     break;
                 }
-                UpdatedMemTrieNode::Branch { children, value: old_value } => {
+                GenericUpdatedTrieNode::Branch { children, value: old_value } => {
                     if partial.is_empty() {
                         // This branch node is exactly where the value should be added.
                         if let Some(value) = old_value {
-                            self.generic_delete_value(value)?;
+                            self.delete_value(value)?;
                         }
-                        let value_handle = self.generic_store_value(value);
-                        self.place_node(
+                        let value_handle = self.store_value(value);
+                        let node =
+                            GenericUpdatedTrieNode::Branch { children, value: Some(value_handle) };
+                        let memory_usage = children_memory_usage + node.memory_usage_direct();
+                        self.place_node_at(
                             node_id,
-                            UpdatedMemTrieNode::Branch { children, value: Some(value_handle) },
+                            GenericUpdatedTrieNodeWithSize { node, memory_usage },
                         );
                         break;
                     } else {
@@ -655,83 +659,118 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                         let mut new_children = children;
                         let child = &mut new_children[partial.at(0) as usize];
                         let new_node_id = match child.take() {
-                            Some(node_id) => self.ensure_updated(node_id),
-                            None => self.new_updated_node(UpdatedMemTrieNode::Empty),
+                            Some(node_id) => self.ensure_updated(node_id)?,
+                            None => self.place_node(GenericUpdatedTrieNodeWithSize::empty()),
                         };
-                        *child = Some(OldOrUpdatedNodeId::Updated(new_node_id));
-                        self.place_node(
+                        *child = Some(GenericNodeOrIndex::Updated(new_node_id));
+                        self.calc_memory_usage_and_store(
                             node_id,
-                            UpdatedMemTrieNode::Branch { children: new_children, value: old_value },
+                            children_memory_usage,
+                            GenericUpdatedTrieNode::Branch {
+                                children: new_children,
+                                value: old_value,
+                            },
+                            Some(new_node_id),
                         );
                         node_id = new_node_id;
                         partial = partial.mid(1);
                         continue;
                     }
                 }
-                UpdatedMemTrieNode::Leaf { extension, value: old_value } => {
+                GenericUpdatedTrieNode::Leaf { extension, value: old_value } => {
                     let existing_key = NibbleSlice::from_encoded(&extension).0;
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == existing_key.len() && common_prefix == partial.len() {
                         // We're at the exact leaf. Rewrite the value at this leaf.
-                        self.generic_delete_value(old_value)?;
-                        let value_handle = self.generic_store_value(value);
-                        self.place_node(
+                        self.delete_value(old_value)?;
+                        let value_handle = self.store_value(value);
+                        let node = GenericUpdatedTrieNode::Leaf { extension, value: value_handle };
+                        let memory_usage = node.memory_usage_direct();
+                        self.place_node_at(
                             node_id,
-                            UpdatedMemTrieNode::Leaf { extension, value: value_handle },
+                            GenericUpdatedTrieNodeWithSize { node, memory_usage },
                         );
                         break;
                     } else if common_prefix == 0 {
                         // Convert the leaf to an equivalent branch. We are not adding
                         // the new branch yet; that will be done in the next iteration.
                         let mut children = Box::<[_; 16]>::default();
+                        let children_memory_usage;
                         let branch_node = if existing_key.is_empty() {
                             // Existing key being empty means the old value now lives at the branch.
-                            UpdatedMemTrieNode::Branch { children, value: Some(old_value) }
+                            children_memory_usage = 0;
+                            GenericUpdatedTrieNode::Branch { children, value: Some(old_value) }
                         } else {
                             let branch_idx = existing_key.at(0) as usize;
                             let new_extension = existing_key.mid(1).encoded(true).into_vec();
-                            let new_node_id = self.new_updated_node(UpdatedMemTrieNode::Leaf {
+                            let new_node = GenericUpdatedTrieNode::Leaf {
                                 extension: new_extension.into_boxed_slice(),
                                 value: old_value,
+                            };
+                            let memory_usage = new_node.memory_usage_direct();
+                            children_memory_usage = memory_usage;
+                            let new_node_id = self.place_node(GenericUpdatedTrieNodeWithSize {
+                                node: new_node,
+                                memory_usage,
                             });
-                            children[branch_idx] = Some(OldOrUpdatedNodeId::Updated(new_node_id));
-                            UpdatedMemTrieNode::Branch { children, value: None }
+                            children[branch_idx] = Some(GenericNodeOrIndex::Updated(new_node_id));
+                            GenericUpdatedTrieNode::Branch { children, value: None }
                         };
-                        self.place_node(node_id, branch_node);
+                        let memory_usage =
+                            branch_node.memory_usage_direct() + children_memory_usage;
+                        self.place_node_at(
+                            node_id,
+                            GenericUpdatedTrieNodeWithSize { node: branch_node, memory_usage },
+                        );
+                        path.pop();
                         continue;
                     } else {
                         // Split this leaf into an extension plus a leaf, and descend into the leaf.
-                        let new_node_id = self.new_updated_node(UpdatedMemTrieNode::Leaf {
+                        let leaf_node = GenericUpdatedTrieNode::Leaf {
                             extension: existing_key
                                 .mid(common_prefix)
                                 .encoded(true)
                                 .into_vec()
                                 .into_boxed_slice(),
                             value: old_value,
+                        };
+                        let leaf_memory_usage = leaf_node.memory_usage_direct();
+                        let leaf_node_id = self.place_node(GenericUpdatedTrieNodeWithSize {
+                            node: leaf_node,
+                            memory_usage: leaf_memory_usage,
                         });
-                        let node = UpdatedMemTrieNode::Extension {
+                        let extension_node = GenericUpdatedTrieNode::Extension {
                             extension: partial
                                 .encoded_leftmost(common_prefix, false)
                                 .into_vec()
                                 .into_boxed_slice(),
-                            child: OldOrUpdatedNodeId::Updated(new_node_id),
+                            child: GenericNodeOrIndex::Updated(leaf_node_id),
                         };
-                        self.place_node(node_id, node);
-                        node_id = new_node_id;
+                        let extension_memory_usage = extension_node.memory_usage_direct();
+                        self.place_node_at(
+                            node_id,
+                            GenericUpdatedTrieNodeWithSize {
+                                node: extension_node,
+                                memory_usage: extension_memory_usage,
+                            },
+                        );
+                        node_id = leaf_node_id;
                         partial = partial.mid(common_prefix);
                         continue;
                     }
                 }
-                UpdatedMemTrieNode::Extension { extension, child: old_child, .. } => {
+                GenericUpdatedTrieNode::Extension { extension, child: old_child, .. } => {
                     let existing_key = NibbleSlice::from_encoded(&extension).0;
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == 0 {
                         // Split Extension to Branch.
                         let idx = existing_key.at(0);
+                        let child_memory_usage;
                         let child = if existing_key.len() == 1 {
+                            child_memory_usage = children_memory_usage;
                             old_child
                         } else {
-                            let inner_child = UpdatedMemTrieNode::Extension {
+                            let inner_child_node = GenericUpdatedTrieNode::Extension {
                                 extension: existing_key
                                     .mid(1)
                                     .encoded(false)
@@ -739,52 +778,89 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                                     .into_boxed_slice(),
                                 child: old_child,
                             };
-                            OldOrUpdatedNodeId::Updated(self.new_updated_node(inner_child))
+                            child_memory_usage =
+                                children_memory_usage + inner_child_node.memory_usage_direct();
+                            let inner_child = GenericUpdatedTrieNodeWithSize {
+                                node: inner_child_node,
+                                memory_usage: child_memory_usage,
+                            };
+                            GenericNodeOrIndex::Updated(self.place_node(inner_child))
                         };
 
                         let mut children = Box::<[_; 16]>::default();
                         children[idx as usize] = Some(child);
-                        let branch_node = UpdatedMemTrieNode::Branch { children, value: None };
-                        self.place_node(node_id, branch_node);
+                        let branch_node = GenericUpdatedTrieNode::Branch { children, value: None };
+                        let branch_memory_usage =
+                            branch_node.memory_usage_direct() + child_memory_usage;
+                        self.place_node_at(
+                            node_id,
+                            GenericUpdatedTrieNodeWithSize {
+                                node: branch_node,
+                                memory_usage: branch_memory_usage,
+                            },
+                        );
                         // Start over from the same position.
+                        path.pop();
                         continue;
                     } else if common_prefix == existing_key.len() {
                         // Dereference child and descend into it.
-                        let child = self.ensure_updated(old_child);
-                        let node = UpdatedMemTrieNode::Extension {
+                        let child_id = self.ensure_updated(old_child)?;
+                        let node = GenericUpdatedTrieNode::Extension {
                             extension,
-                            child: OldOrUpdatedNodeId::Updated(child),
+                            child: GenericNodeOrIndex::Updated(child_id),
                         };
-                        self.place_node(node_id, node);
-                        node_id = child;
+                        let memory_usage = node.memory_usage_direct();
+                        self.place_node_at(
+                            node_id,
+                            GenericUpdatedTrieNodeWithSize { node, memory_usage },
+                        );
+                        node_id = child_id;
                         partial = partial.mid(common_prefix);
                         continue;
                     } else {
                         // Partially shared prefix. Convert to shorter extension and descend into it.
                         // On the next step, branch will be created.
-                        let inner_child_node_id =
-                            self.new_updated_node(UpdatedMemTrieNode::Extension {
-                                extension: existing_key
-                                    .mid(common_prefix)
-                                    .encoded(false)
-                                    .into_vec()
-                                    .into_boxed_slice(),
-                                child: old_child,
-                            });
-                        let child_node = UpdatedMemTrieNode::Extension {
+                        let inner_child_node = GenericUpdatedTrieNode::Extension {
+                            extension: existing_key
+                                .mid(common_prefix)
+                                .encoded(false)
+                                .into_vec()
+                                .into_boxed_slice(),
+                            child: old_child,
+                        };
+                        let inner_child_memory_usage =
+                            children_memory_usage + inner_child_node.memory_usage_direct();
+                        let inner_child_node_id = self.place_node(GenericUpdatedTrieNodeWithSize {
+                            node: inner_child_node,
+                            memory_usage: inner_child_memory_usage,
+                        });
+                        let child_node = GenericUpdatedTrieNode::Extension {
                             extension: existing_key
                                 .encoded_leftmost(common_prefix, false)
                                 .into_vec()
                                 .into_boxed_slice(),
-                            child: OldOrUpdatedNodeId::Updated(inner_child_node_id),
+                            child: GenericNodeOrIndex::Updated(inner_child_node_id),
                         };
-                        self.place_node(node_id, child_node);
+                        let memory_usage = child_node.memory_usage_direct();
+                        self.place_node_at(
+                            node_id,
+                            GenericUpdatedTrieNodeWithSize { node: child_node, memory_usage },
+                        );
                         node_id = inner_child_node_id;
                         partial = partial.mid(common_prefix);
                         continue;
                     }
                 }
             }
+        }
+
+        for i in (0..path.len() - 1).rev() {
+            let node_id = path.get(i).unwrap();
+            let child_id = path.get(i + 1).unwrap();
+            let child_memory_usage = self.get_node_ref(*child_id).memory_usage;
+            let mut node = self.take_node(*node_id);
+            node.memory_usage += child_memory_usage;
+            self.place_node_at(*node_id, node);
         }
 
         Ok(())
@@ -797,68 +873,88 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// consistent by changing the types of any nodes along the way.
     ///
     /// Deleting a non-existent key is allowed, and is a no-op.
-    pub fn delete(&mut self, key: &[u8]) -> Result<(), StorageError> {
-        let mut node_id = 0; // root
+    fn generic_delete(
+        &mut self,
+        mut node_id: GenericUpdatedNodeId,
+        key: &[u8],
+    ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);
-        let mut path = vec![]; // for squashing at the end.
+        // Path to find the key to delete.
+        // Needed to squash nodes and recompute memory usages in the end.
+        let mut path = vec![];
+        let mut key_deleted = true;
 
         loop {
             path.push(node_id);
-            let node = self.take_node(node_id);
+            let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
+            let children_memory_usage = memory_usage.saturating_sub(node.memory_usage_direct());
 
             match node {
-                UpdatedMemTrieNode::Empty => {
+                GenericUpdatedTrieNode::Empty => {
                     // Nothing to delete.
-                    self.place_node(node_id, UpdatedMemTrieNode::Empty);
-                    return Ok(());
+                    self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
+                    key_deleted = false;
+                    break;
                 }
-                UpdatedMemTrieNode::Leaf { extension, value } => {
+                GenericUpdatedTrieNode::Leaf { extension, value } => {
                     if NibbleSlice::from_encoded(&extension).0 == partial {
-                        self.generic_delete_value(value)?;
-                        self.place_node(node_id, UpdatedMemTrieNode::Empty);
+                        self.delete_value(value)?;
+                        self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
                         break;
                     } else {
-                        // Key being deleted doesn't exist.
-                        self.place_node(node_id, UpdatedMemTrieNode::Leaf { extension, value });
-                        return Ok(());
+                        // Key being deleted doesn't exist. Put the leaf back.
+                        let node = GenericUpdatedTrieNode::Leaf { extension, value };
+                        self.place_node_at(
+                            node_id,
+                            GenericUpdatedTrieNodeWithSize { node, memory_usage },
+                        );
+                        key_deleted = false;
+                        break;
                     }
                 }
-                UpdatedMemTrieNode::Branch { children: old_children, value } => {
+                GenericUpdatedTrieNode::Branch { mut children, value } => {
                     if partial.is_empty() {
                         if value.is_none() {
                             // Key being deleted doesn't exist.
-                            self.place_node(
+                            let node = GenericUpdatedTrieNode::Branch { children, value };
+                            self.place_node_at(
                                 node_id,
-                                UpdatedMemTrieNode::Branch { children: old_children, value },
+                                GenericUpdatedTrieNodeWithSize { node, memory_usage },
                             );
-                            return Ok(());
+                            key_deleted = false;
+                            break;
                         };
-                        self.generic_delete_value(value.unwrap())?;
-                        self.place_node(
+                        self.delete_value(value.unwrap())?;
+                        self.calc_memory_usage_and_store(
                             node_id,
-                            UpdatedMemTrieNode::Branch { children: old_children, value: None },
+                            children_memory_usage,
+                            GenericUpdatedTrieNode::Branch { children, value: None },
+                            None,
                         );
                         // if needed, branch will be squashed at the end of the function.
                         break;
                     } else {
-                        let mut new_children = old_children.clone();
-                        let child = &mut new_children[partial.at(0) as usize];
+                        let child = &mut children[partial.at(0) as usize];
                         let old_child_id = match child.take() {
                             Some(node_id) => node_id,
                             None => {
                                 // Key being deleted doesn't exist.
-                                self.place_node(
+                                let node = GenericUpdatedTrieNode::Branch { children, value };
+                                self.place_node_at(
                                     node_id,
-                                    UpdatedMemTrieNode::Branch { children: old_children, value },
+                                    GenericUpdatedTrieNodeWithSize { node, memory_usage },
                                 );
-                                return Ok(());
+                                key_deleted = false;
+                                break;
                             }
                         };
-                        let new_child_id = self.ensure_updated(old_child_id);
-                        *child = Some(OldOrUpdatedNodeId::Updated(new_child_id));
-                        self.place_node(
+                        let new_child_id = self.ensure_updated(old_child_id)?;
+                        *child = Some(GenericNodeOrIndex::Updated(new_child_id));
+                        self.calc_memory_usage_and_store(
                             node_id,
-                            UpdatedMemTrieNode::Branch { children: new_children, value },
+                            children_memory_usage,
+                            GenericUpdatedTrieNode::Branch { children, value },
+                            Some(new_child_id),
                         );
 
                         node_id = new_child_id;
@@ -866,19 +962,21 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                         continue;
                     }
                 }
-                UpdatedMemTrieNode::Extension { extension, child } => {
+                GenericUpdatedTrieNode::Extension { extension, child } => {
                     let (common_prefix, existing_len) = {
                         let extension_nibbles = NibbleSlice::from_encoded(&extension).0;
                         (extension_nibbles.common_prefix(&partial), extension_nibbles.len())
                     };
                     if common_prefix == existing_len {
-                        let new_child_id = self.ensure_updated(child);
-                        self.place_node(
+                        let new_child_id = self.ensure_updated(child)?;
+                        self.calc_memory_usage_and_store(
                             node_id,
-                            UpdatedMemTrieNode::Extension {
+                            children_memory_usage,
+                            GenericUpdatedTrieNode::Extension {
                                 extension,
-                                child: OldOrUpdatedNodeId::Updated(new_child_id),
+                                child: GenericNodeOrIndex::Updated(new_child_id),
                             },
+                            Some(new_child_id),
                         );
 
                         node_id = new_child_id;
@@ -886,38 +984,53 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                         continue;
                     } else {
                         // Key being deleted doesn't exist.
-                        self.place_node(
+                        let node = GenericUpdatedTrieNode::Extension { extension, child };
+                        self.place_node_at(
                             node_id,
-                            UpdatedMemTrieNode::Extension { extension, child },
+                            GenericUpdatedTrieNodeWithSize { node, memory_usage },
                         );
-                        return Ok(());
+                        key_deleted = false;
+                        break;
                     }
                 }
             }
         }
 
-        // We may need to change node type to keep the trie structure unique.
+        // Now we recompute memory usage and possibly squash nodes to keep the
+        // trie structure unique.
+        let mut child_memory_usage = 0;
         for node_id in path.into_iter().rev() {
-            self.squash_node(node_id).unwrap();
+            // First, recompute memory usage, emulating the recursive descent.
+            let GenericUpdatedTrieNodeWithSize { node, mut memory_usage } = self.take_node(node_id);
+            memory_usage += child_memory_usage;
+            self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
+
+            // Then, squash node to ensure unique trie structure, changing its
+            // type if needed. If `key_deleted` is false, trie structure is
+            // untouched.
+            if key_deleted {
+                self.squash_node(node_id)?;
+            }
+
+            child_memory_usage = self.get_node_ref(node_id).memory_usage;
         }
+
         Ok(())
     }
 }
 
-impl<
-        'a,
-        N: std::fmt::Debug,
-        V: std::fmt::Debug + HasValueLength,
-        T: GenericTrieUpdate<'a, N, V>,
-    > GenericTrieUpdateSquash<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateSquash<'a, N, V> for T
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+    T: GenericTrieUpdate<'a, N, V>,
 {
 }
 
-pub(crate) trait GenericTrieUpdateSquash<
-    'a,
+pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>
+where
     N: std::fmt::Debug,
     V: std::fmt::Debug + HasValueLength,
->: GenericTrieUpdate<'a, N, V>
 {
     /// When we delete keys, it may be necessary to change types of some nodes,
     /// in order to keep the trie structure unique. For example, if a branch
@@ -935,11 +1048,11 @@ pub(crate) trait GenericTrieUpdateSquash<
     /// For range removal, it is called in the end of recursive range removal
     /// function, which is the definition of post-order traversal.
     fn squash_node(&mut self, node_id: GenericUpdatedNodeId) -> Result<(), StorageError> {
-        let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.generic_take_node(node_id);
+        let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
         match node {
             GenericUpdatedTrieNode::Empty => {
                 // Empty node will be absorbed by its parent node, so defer that.
-                self.generic_place_node(node_id, GenericUpdatedTrieNodeWithSize::empty());
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
             }
             GenericUpdatedTrieNode::Leaf { .. } => {
                 // It's impossible that we would squash a leaf node, because if we
@@ -951,7 +1064,7 @@ pub(crate) trait GenericTrieUpdateSquash<
                 for child in children.iter_mut() {
                     if let Some(GenericNodeOrIndex::Updated(child_node_id)) = child {
                         if let GenericUpdatedTrieNode::Empty =
-                            self.generic_get_node(*child_node_id).node
+                            self.get_node_ref(*child_node_id).node
                         {
                             *child = None;
                         }
@@ -960,8 +1073,9 @@ pub(crate) trait GenericTrieUpdateSquash<
                 let num_children = children.iter().filter(|node| node.is_some()).count();
                 if num_children == 0 {
                     match value {
-                        None => self
-                            .generic_place_node(node_id, GenericUpdatedTrieNodeWithSize::empty()),
+                        None => {
+                            self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty())
+                        }
                         Some(value) => {
                             // Branch with zero children and a value becomes leaf.
                             let leaf_node = GenericUpdatedTrieNode::Leaf {
@@ -972,7 +1086,7 @@ pub(crate) trait GenericTrieUpdateSquash<
                                 value,
                             };
                             let memory_usage = leaf_node.memory_usage_direct();
-                            self.generic_place_node(
+                            self.place_node_at(
                                 node_id,
                                 GenericUpdatedTrieNodeWithSize { node: leaf_node, memory_usage },
                             );
@@ -992,7 +1106,7 @@ pub(crate) trait GenericTrieUpdateSquash<
                     self.extend_child(node_id, extension, child)?;
                 } else {
                     // Branch with more than 1 children stays branch.
-                    self.generic_place_node(
+                    self.place_node_at(
                         node_id,
                         GenericUpdatedTrieNodeWithSize {
                             node: GenericUpdatedTrieNode::Branch { children, value },
@@ -1019,13 +1133,12 @@ pub(crate) trait GenericTrieUpdateSquash<
         // The current child.
         child_id: GenericNodeOrIndex<N>,
     ) -> Result<(), StorageError> {
-        let child_id = self.generic_ensure_updated(child_id)?;
-        let GenericUpdatedTrieNodeWithSize { node, memory_usage } =
-            self.generic_take_node(child_id);
+        let child_id = self.ensure_updated(child_id)?;
+        let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(child_id);
         let child_child_memory_usage = memory_usage.saturating_sub(node.memory_usage_direct());
         match node {
             GenericUpdatedTrieNode::Empty => {
-                self.generic_place_node(node_id, GenericUpdatedTrieNodeWithSize::empty());
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
             }
             // If the child is a leaf (which could happen if a branch node lost
             // all its branches and only had a value left, or is left with only
@@ -1039,14 +1152,11 @@ pub(crate) trait GenericTrieUpdateSquash<
                     .into_boxed_slice();
                 let node = GenericUpdatedTrieNode::Leaf { extension, value };
                 let memory_usage = node.memory_usage_direct();
-                self.generic_place_node(
-                    node_id,
-                    GenericUpdatedTrieNodeWithSize { node, memory_usage },
-                );
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
             }
             // If the child is a branch, there's nothing to squash.
             child_node @ GenericUpdatedTrieNode::Branch { .. } => {
-                self.generic_place_node(
+                self.place_node_at(
                     child_id,
                     GenericUpdatedTrieNodeWithSize { node: child_node, memory_usage },
                 );
@@ -1055,10 +1165,7 @@ pub(crate) trait GenericTrieUpdateSquash<
                     child: GenericNodeOrIndex::Updated(child_id),
                 };
                 let memory_usage = memory_usage + node.memory_usage_direct();
-                self.generic_place_node(
-                    node_id,
-                    GenericUpdatedTrieNodeWithSize { node, memory_usage },
-                );
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
             }
             // If the child is an extension (which could happen if a branch node
             // is left with only one branch), join the two extensions into one.
@@ -1077,10 +1184,7 @@ pub(crate) trait GenericTrieUpdateSquash<
                     child: inner_child,
                 };
                 let memory_usage = node.memory_usage_direct() + child_child_memory_usage;
-                self.generic_place_node(
-                    node_id,
-                    GenericUpdatedTrieNodeWithSize { node, memory_usage },
-                );
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
             }
         }
         Ok(())
@@ -1095,11 +1199,11 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     /// the updated nodes in the order they should be created.
     fn post_order_traverse_updated_nodes(
         node_id: UpdatedMemTrieNodeId,
-        updated_nodes: &Vec<Option<UpdatedMemTrieNode>>,
+        updated_nodes: &Vec<Option<UpdatedMemTrieNodeWithSize>>,
         ordered_nodes: &mut Vec<UpdatedMemTrieNodeId>,
     ) {
         let node = updated_nodes[node_id].as_ref().unwrap();
-        match node {
+        match &node.node {
             UpdatedMemTrieNode::Empty => {
                 assert_eq!(node_id, 0); // only root can be empty
                 return;
@@ -1136,7 +1240,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     pub(crate) fn compute_hashes_and_serialized_nodes(
         &self,
         ordered_nodes: &Vec<UpdatedMemTrieNodeId>,
-        updated_nodes: &Vec<Option<UpdatedMemTrieNode>>,
+        updated_nodes: &Vec<Option<UpdatedMemTrieNodeWithSize>>,
     ) -> Vec<(UpdatedMemTrieNodeId, CryptoHash, Vec<u8>)> {
         let memory = self.memory;
         let mut result = Vec::<(CryptoHash, u64, Vec<u8>)>::new();
@@ -1160,7 +1264,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
         for node_id in ordered_nodes.iter() {
             let node = updated_nodes[*node_id].as_ref().unwrap();
-            let (raw_node, memory_usage) = match node {
+            let (raw_node, memory_usage) = match &node.node {
                 UpdatedMemTrieNode::Empty => unreachable!(),
                 UpdatedMemTrieNode::Branch { children, value } => {
                     let mut memory_usage = TRIE_COSTS.node_cost;
@@ -1308,7 +1412,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
     for (node_id, node_hash) in node_ids_with_hashes.iter() {
         let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
-        let node = match &node {
+        let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
             UpdatedMemTrieNode::Branch { children, value } => {
                 let mut new_children = [None; 16];
@@ -1346,6 +1450,7 @@ mod tests {
     use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::mem_tries::MemTries;
+    use crate::trie::mem::updating::GenericTrieUpdateInsertDelete;
     use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::hash::CryptoHash;
@@ -1384,7 +1489,7 @@ mod tests {
                 if let Some(value) = value {
                     update.insert(&key, value).unwrap();
                 } else {
-                    update.delete(&key).unwrap();
+                    update.generic_delete(0, &key).unwrap();
                 }
             }
             update.to_trie_changes().0
@@ -1401,7 +1506,7 @@ mod tests {
                 if let Some(value) = value {
                     update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value)).unwrap();
                 } else {
-                    update.delete(&key).unwrap();
+                    update.generic_delete(0, &key).unwrap();
                 }
             }
             update.to_mem_trie_changes_only()
@@ -1781,7 +1886,7 @@ mod tests {
             if let Some(value) = value {
                 update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value)).unwrap();
             } else {
-                update.delete(&key).unwrap();
+                update.generic_delete(0, &key).unwrap();
             }
         }
 
