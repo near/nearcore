@@ -265,8 +265,8 @@ impl TrieUpdate {
         }
 
         // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
-        // This avoids recording the contracts that do not exist or are newly-deployed.
-        // Note that the check if the contract exists has no side effects (not charging gas or recording trie nodes)
+        // This avoids recording contracts that do not exist or are newly-deployed to the account.
+        // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
         if code_hash == CryptoHash::default() {
             return Ok(());
         }
@@ -275,6 +275,8 @@ impl TrieUpdate {
             .trie
             .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
             .or_else(|err| {
+                // If the value for the trie key is not found, we treat it as if the contract does not exist.
+                // In this case, we ignore the error and skip recording the contract call below.
                 if matches!(err, StorageError::MissingTrieValue(_, _)) {
                     Ok(None)
                 } else {
