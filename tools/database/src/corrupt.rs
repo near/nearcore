@@ -21,6 +21,7 @@ impl CorruptStateSnapshotCommand {
         let mut store_update = store.store_update();
         // TODO(resharding) automatically detect the shard version
         let shard_layout = match self.shard_layout_version {
+            #[allow(deprecated)]
             0 => ShardLayout::v0(1, 0),
             1 => ShardLayout::get_simple_nightshade_layout(),
             2 => ShardLayout::get_simple_nightshade_layout_v2(),

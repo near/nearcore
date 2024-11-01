@@ -986,6 +986,7 @@ mod tests {
     #[test]
     fn test_shard_layout_v0() {
         let num_shards = 4;
+        #[allow(deprecated)]
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<ShardId, _> =
             shard_layout.shard_ids().map(|shard_id| (shard_id.into(), 0)).collect();
@@ -1142,6 +1143,7 @@ mod tests {
 
     #[test]
     fn test_shard_layout_all() {
+        #[allow(deprecated)]
         let v0 = ShardLayout::v0(1, 0);
         let v1 = ShardLayout::get_simple_nightshade_layout();
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
