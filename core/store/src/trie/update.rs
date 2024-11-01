@@ -4,12 +4,15 @@ use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
-    TrieCacheMode,
+    AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+    StateRoot, TrieCacheMode,
 };
+use near_primitives::version::ProtocolFeature;
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -239,6 +242,27 @@ impl TrieUpdate {
             }
         }
         fallback(&key)
+    }
+
+    /// Records an access to the contract code due to a function call.
+    ///
+    /// The contract code is either included in the state witness or distributed
+    /// separately from the witness (see `ExcludeContractCodeFromStateWitness` feature).
+    /// In the former case, we record a Trie read from the `TrieKey::ContractCode` for each contract.
+    /// In the latter case, the Trie read does not happen and the code-size does not contribute to
+    /// the storage-proof limit. Instead we just record that the code with the given hash was called,
+    /// so that we can identify which contract-code to distribute to the validators.
+    pub fn record_contract_call(
+        &mut self,
+        account_id: AccountId,
+        code_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
+    ) {
+        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
+            self.contract_storage.record_call(code_hash);
+        } else {
+            self.trie.request_code_recording(account_id);
+        }
     }
 }
 

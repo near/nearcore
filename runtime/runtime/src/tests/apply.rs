@@ -1972,7 +1972,7 @@ fn test_call_account_without_contract() {
 
     assert_eq!(apply_result.delayed_receipts_count, 0);
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
-    assert_eq!(apply_result.contract_updates.contract_deploys, HashSet::new());
+    assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 }
 
 /// Check that applying nothing does not change the state trie.
