@@ -2527,11 +2527,8 @@ impl Client {
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let sync_hash =
-                match self.get_catchup_sync_hash(&mut state_sync_info, &epoch_first_block)? {
-                    Some(h) => h,
-                    None => continue,
-                };
+            let sync_hash = self.get_catchup_sync_hash(&mut state_sync_info, &epoch_first_block)?;
+            let Some(sync_hash) = sync_hash else { continue };
 
             let CatchupState { state_sync, sync_status: status, catchup } = self
                 .catchup_state_syncs
