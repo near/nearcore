@@ -17,7 +17,7 @@ pub(crate) static RESERVED_LISTENER_ADDRS: std::sync::LazyLock<
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
 // TODO(gprusak): add a link to the design on github docs (but first write those docs).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr, strum::IntoStaticStr)]
 pub enum Tier {
     /// Tier1 connections are established between the BFT consensus participants (or their proxies)
     /// and are reserved exclusively for exchanging BFT consensus messages.
