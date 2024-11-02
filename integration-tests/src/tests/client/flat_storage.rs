@@ -394,7 +394,7 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let store = create_test_store().flat_store();
-    let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
+    let shard_uid = ShardLayout::single_shard().shard_uids().next().unwrap();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
@@ -503,7 +503,7 @@ fn test_flat_storage_iter() {
 fn test_not_supported_block() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let shard_layout = ShardLayout::v0_single_shard();
+    let shard_layout = ShardLayout::single_shard();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let store = create_test_store();
 

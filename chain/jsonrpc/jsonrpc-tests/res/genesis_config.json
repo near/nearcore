@@ -57,8 +57,19 @@
   "fishermen_threshold": "10000000000000000000000000",
   "minimum_stake_divisor": 10,
   "shard_layout": {
-    "V0": {
-      "num_shards": 1,
+    "V2": {
+      "boundary_accounts": [],
+      "shard_ids": [
+        0
+      ],
+      "id_to_index_map": {
+        "0": 0
+      },
+      "index_to_id_map": {
+        "0": 0
+      },
+      "shards_split_map": null,
+      "shards_parent_map": null,
       "version": 0
     }
   },
