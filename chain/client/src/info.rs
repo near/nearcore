@@ -251,7 +251,7 @@ impl InfoHelper {
             });
 
             for shard_id in shard_ids {
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();

@@ -271,7 +271,7 @@ fn head_chunk_header(env: &TestEnv, shard_id: ShardId) -> ShardChunkHeader {
 
     let epoch_id = block.header().epoch_id();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     chunks.get(shard_index).expect("chunk header must be available").clone()
 }
 
@@ -335,7 +335,7 @@ fn test_protocol_upgrade_under_congestion() {
         .epoch_manager
         .account_id_to_shard_id(&CONTRACT_ID.parse().unwrap(), &tip.epoch_id)
         .unwrap();
-    let contract_shard_index = shard_layout.get_shard_index(contract_shard_id);
+    let contract_shard_index = shard_layout.get_shard_index(contract_shard_id).unwrap();
 
     // Check there is still congestion, which this test is all about.
 

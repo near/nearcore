@@ -8,7 +8,7 @@ use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
 use crate::version::PROTOCOL_VERSION;
-use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ShardIndex, ValidatorId};
+use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
 use near_primitives_core::version::ProtocolFeature;
 use near_primitives_core::{
     checked_feature,
