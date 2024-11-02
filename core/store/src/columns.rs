@@ -315,7 +315,7 @@ pub enum DBCol {
     /// of the number of new chunks up to that block after the first block in the epoch. Used in calculating
     /// the right "sync_hash" for state sync after the StateSyncHashUpdate protocol feature is enabled.
     /// - *Rows*: `CryptoHash`
-    /// - *Column type*: `Vec<usize>`
+    /// - *Column type*: `Vec<u8>`
     StateSyncNewChunks,
 }
 

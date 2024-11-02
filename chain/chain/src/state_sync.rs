@@ -11,7 +11,7 @@ use crate::ChainStoreAccess;
 fn get_state_sync_new_chunks(
     store: &Store,
     block_hash: &CryptoHash,
-) -> Result<Option<Vec<usize>>, Error> {
+) -> Result<Option<Vec<u8>>, Error> {
     Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
 }
 
@@ -81,7 +81,7 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
 }
 
 fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) -> Result<(), Error> {
-    let num_new_chunks = vec![0usize; header.chunk_mask().len()];
+    let num_new_chunks = vec![0u8; header.chunk_mask().len()];
     store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
     Ok(())
 }
