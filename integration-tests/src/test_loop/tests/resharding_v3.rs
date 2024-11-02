@@ -22,6 +22,7 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
 
+#[allow(unused)]
 fn create_new_shard_layout(base_shard_layout: &ShardLayout, boundary_account: &str) -> ShardLayout {
     let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
     let mut shard_ids: Vec<_> = base_shard_layout.shard_ids().collect();
@@ -137,7 +138,8 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     let base_shard_layout = base_epoch_config.shard_layout.clone();
     let mut epoch_config = base_epoch_config.clone();
     let boundary_account = "account6";
-    epoch_config.shard_layout = create_new_shard_layout(&base_shard_layout, boundary_account);
+    epoch_config.shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, boundary_account).unwrap();
     let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),
