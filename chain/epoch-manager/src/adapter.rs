@@ -688,31 +688,26 @@ impl EpochManagerAdapter for EpochManagerHandle {
         shard_ids: Vec<ShardId>,
     ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-        if self.is_next_block_epoch_start(prev_hash)? {
-            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
-            if prev_shard_layout != shard_layout {
-                return Ok(shard_ids
-                    .into_iter()
-                    .map(|shard_id| {
-                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
-                            assert!(prev_shard_layout.shard_ids().any(|i| i == parent_shard_id),
-                                    "invalid shard layout.  parent_shard_id: {}\nshard_layout: {:?}\nprev_shard_layout: {:?}",
-                                    parent_shard_id,
-                                    shard_layout,
-                                    parent_shard_id
-                            );
-                            let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id);
-                            (parent_shard_id, parent_shard_index)
-                        })
-                    })
-                    .collect::<Result<_, ShardLayoutError>>()?);
-            }
-        }
+        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+        let is_resharding_boundary =
+            self.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
 
-        Ok(shard_ids
-            .iter()
-            .map(|&shard_id| (shard_id, shard_layout.get_shard_index(shard_id)))
-            .collect())
+        if is_resharding_boundary {
+            let mut result = vec![];
+            for shard_id in shard_ids {
+                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
+                result.push((parent_shard_id, parent_shard_index));
+            }
+            Ok(result)
+        } else {
+            let mut result = vec![];
+            for shard_id in shard_ids {
+                let shard_index = shard_layout.get_shard_index(shard_id)?;
+                result.push((shard_id, shard_index));
+            }
+            Ok(result)
+        }
     }
 
     fn get_prev_shard_id(
@@ -721,21 +716,18 @@ impl EpochManagerAdapter for EpochManagerHandle {
         shard_id: ShardId,
     ) -> Result<(ShardId, ShardIndex), Error> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-        if self.is_next_block_epoch_start(prev_hash)? {
-            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
-            if prev_shard_layout != shard_layout {
-                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
-                assert!(prev_shard_layout.shard_ids().any(|i| i == parent_shard_id),
-                                    "invalid shard layout.  parent_shard_id: {}\nshard_layout: {:?}\nprev_shard_layout: {:?}",
-                                    parent_shard_id,
-                                    shard_layout,
-                                    parent_shard_id
-                            );
-                let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id);
-                return Ok((parent_shard_id, parent_shard_index));
-            }
+        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+        let is_resharding_boundary =
+            self.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
+
+        if is_resharding_boundary {
+            let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+            let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
+            Ok((parent_shard_id, parent_shard_index))
+        } else {
+            let shard_index = shard_layout.get_shard_index(shard_id)?;
+            Ok((shard_id, shard_index))
         }
-        Ok((shard_id, shard_layout.get_shard_index(shard_id)))
     }
 
     fn get_shard_layout_from_prev_block(
