@@ -592,7 +592,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let shard_id = account_id_to_shard_id(account_id, &shard_layout);
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         Ok(ShardUIdAndIndex { shard_uid, shard_index })
     }
 
@@ -613,7 +613,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<ShardIndex, EpochError> {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.get_shard_index(shard_id))
+        Ok(shard_layout.get_shard_index(shard_id)?)
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {

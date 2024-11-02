@@ -324,6 +324,12 @@ pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
 }
 
+impl fmt::Display for ShardLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {
@@ -607,7 +613,7 @@ impl ShardLayout {
                 // we can safely unwrap here because the construction of to_parent_shard_map guarantees
                 // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
-                    let shard_index = self.get_shard_index(shard_id);
+                    let shard_index = self.get_shard_index(shard_id)?;
                     *to_parent_shard_map.get(shard_index).unwrap()
                 }
                 None => panic!("shard_layout has no parent shard"),
