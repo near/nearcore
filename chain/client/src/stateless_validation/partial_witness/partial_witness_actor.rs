@@ -416,16 +416,10 @@ impl PartialWitnessActor {
         )? {
             return Ok(());
         }
-        let key = partial_deploys.chunk_production_key().clone();
-        if self.partial_deploys_tracker.check_already_processed(&partial_deploys) {
-            tracing::warn!(
-                target: "client",
-                ?key,
-                part = ?partial_deploys.part(),
-                "Received already processed part"
-            );
+        if self.partial_deploys_tracker.already_processed(&partial_deploys) {
             return Ok(());
         }
+        let key = partial_deploys.chunk_production_key().clone();
         let validators = self.ordered_contract_deploys_validators(&key)?;
         if validators.is_empty() {
             // Note that target validators do not include the chunk producers, and thus in some case
