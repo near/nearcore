@@ -79,6 +79,12 @@ impl PartialEncodedContractDeploysTracker {
         Self { parts_cache: LruCache::new(NonZeroUsize::new(DEPLOY_PARTS_CACHE_SIZE).unwrap()) }
     }
 
+    pub fn check_already_processed(&self, partial_deploys: &PartialEncodedContractDeploys) -> bool {
+        self.parts_cache
+            .peek(partial_deploys.chunk_production_key())
+            .is_some_and(|entry| entry.parts.has_part(partial_deploys.part().part_ord))
+    }
+
     pub fn store_partial_encoded_contract_deploys(
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,

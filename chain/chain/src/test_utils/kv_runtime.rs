@@ -33,7 +33,9 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, PartialEncodedContractDeploys,
+};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
@@ -1031,6 +1033,13 @@ impl EpochManagerAdapter for MockEpochManager {
     fn verify_witness_contract_accesses_signature(
         &self,
         _accesses: &ChunkContractAccesses,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_partial_deploys_signature(
+        &self,
+        _partial_deploys: &PartialEncodedContractDeploys,
     ) -> Result<bool, Error> {
         Ok(true)
     }

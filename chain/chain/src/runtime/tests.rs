@@ -15,6 +15,7 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -846,7 +847,9 @@ fn test_get_validator_info() {
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
-            let cp = em.get_chunk_producer_info(&epoch_id, height, ShardId::new(0)).unwrap();
+            let cp_key =
+                ChunkProductionKey { epoch_id, height_created: height, shard_id: ShardId::new(0) };
+            let cp = em.get_chunk_producer_info(&cp_key).unwrap();
             let stateless_validators =
                 em.get_chunk_validator_assignments(&epoch_id, ShardId::new(0), height).ok();
 

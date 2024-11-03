@@ -222,11 +222,15 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         self.encoded_length
     }
 
+    pub fn has_part(&self, part_ord: usize) -> bool {
+        self.parts.get(part_ord).is_some_and(|part| part.is_some())
+    }
+
     pub fn insert_part(&mut self, part_ord: usize, part: Box<[u8]>) -> InsertPartResult<T> {
         if part_ord >= self.parts.len() {
             return InsertPartResult::InvalidPartOrd;
         }
-        if self.parts[part_ord].is_some() {
+        if self.has_part(part_ord) {
             return InsertPartResult::PartAlreadyAvailable;
         }
 

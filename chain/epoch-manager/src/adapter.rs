@@ -11,7 +11,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, PartialEncodedContractDeploys,
+};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -490,6 +492,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         accesses: &ChunkContractAccesses,
     ) -> Result<bool, Error>;
 
+    fn verify_partial_deploys_signature(
+        &self,
+        partial_deploys: &PartialEncodedContractDeploys,
+    ) -> Result<bool, Error>;
+
     fn cares_about_shard_in_epoch(
         &self,
         epoch_id: EpochId,
@@ -827,7 +834,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         shard_id: ShardId,
     ) -> Result<AccountId, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
+        let key = ChunkProductionKey { epoch_id: *epoch_id, height_created: height, shard_id };
+        Ok(epoch_manager.get_chunk_producer_info(&key)?.take_account_id())
     }
 
     fn get_chunk_validator_assignments(
@@ -1047,8 +1055,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         let epoch_manager = self.read();
-        let chunk_producer =
-            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)?;
+        let key =
+            ChunkProductionKey { epoch_id: *epoch_id, height_created: height_created, shard_id };
+        let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
         let block_info = epoch_manager.get_block_info(last_known_hash)?;
         if block_info.slashed().contains_key(chunk_producer.account_id()) {
             return Ok(false);
@@ -1167,12 +1176,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error> {
-        // Get the chunk producer from the epoch_id, height_created and shard_id, verify if signature is correct
-        let epoch_manager = self.read();
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            partial_witness.chunk_production_key();
         let chunk_producer =
-            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)?;
+            self.read().get_chunk_producer_info(&partial_witness.chunk_production_key())?;
         Ok(partial_witness.verify(chunk_producer.public_key()))
     }
 
@@ -1180,12 +1185,18 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         accesses: &ChunkContractAccesses,
     ) -> Result<bool, Error> {
-        let epoch_manager = self.read();
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            accesses.chunk_production_key();
         let chunk_producer =
-            epoch_manager.get_chunk_producer_info(epoch_id, *height_created, *shard_id)?;
+            self.read().get_chunk_producer_info(accesses.chunk_production_key())?;
         Ok(accesses.verify_signature(chunk_producer.public_key()))
+    }
+
+    fn verify_partial_deploys_signature(
+        &self,
+        partial_deploys: &PartialEncodedContractDeploys,
+    ) -> Result<bool, Error> {
+        let chunk_producer =
+            self.read().get_chunk_producer_info(partial_deploys.chunk_production_key())?;
+        Ok(partial_deploys.verify_signature(chunk_producer.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(
