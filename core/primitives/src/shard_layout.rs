@@ -2,6 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
+use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
@@ -620,10 +621,11 @@ impl ShardLayout {
         Ok(parent_shard_id)
     }
 
+    /// Derive new shard layout from an existing one
     pub fn derive_shard_layout(
         base_layout: &ShardLayout,
         new_boundary_account: &str,
-    ) -> Result<ShardLayout, near_primitives_core::account::id::ParseAccountError> {
+    ) -> Result<ShardLayout, ParseAccountError> {
         let mut boundary_accounts = base_layout.boundary_accounts().clone();
         let mut shard_ids = base_layout.shard_ids().collect::<Vec<_>>();
         let mut shards_split_map = shard_ids
@@ -631,24 +633,25 @@ impl ShardLayout {
             .map(|id| (*id, vec![*id]))
             .collect::<BTreeMap<ShardId, Vec<ShardId>>>();
 
+        // boundary accounts should be sorted such that the index points to the shard to be split
         let new_boundary_account = new_boundary_account.parse::<AccountId>()?;
         boundary_accounts.push(new_boundary_account.clone());
         boundary_accounts.sort();
-
         let new_boundary_account_index = boundary_accounts
             .iter()
             .position(|acc| acc == &new_boundary_account)
             .expect("account should be guaranteed to exist at this point");
+
+        // new shard ids start from the current max
         let max_shard_id =
             *shard_ids.iter().max().expect("there should always be at least one shard");
-        let splits = vec![max_shard_id + 1, max_shard_id + 2];
+        let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
         let parent_shard_id = shard_ids
-            .splice(new_boundary_account_index..new_boundary_account_index + 1, splits.clone())
+            .splice(new_boundary_account_index..new_boundary_account_index + 1, new_shards.clone())
             .collect::<Vec<_>>();
         debug_assert!(parent_shard_id.len() == 1, "should only splice one shard");
         let parent_shard_id = parent_shard_id[0];
-
-        shards_split_map.insert(parent_shard_id, splits);
+        shards_split_map.insert(parent_shard_id, new_shards);
 
         Ok(ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map)))
     }
