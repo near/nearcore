@@ -170,9 +170,37 @@ impl ContractStorage {
     ///
     /// It also finalizes and destructs the inner`ContractsTracker` so there must be no other deployments or
     /// calls to contracts after this returns.
-    pub(crate) fn finalize(self) -> ContractUpdates {
-        let mut guard = self.tracker.lock().expect("no panics");
-        let tracker = guard.take().expect("finalize must be called only once");
-        tracker.finalize()
+    pub(crate) fn finalize(self) -> Result<ContractUpdates, StorageError> {
+        let ContractUpdates { contract_accesses, contract_deploys } = {
+            let mut guard = self.tracker.lock().expect("no panics");
+            let tracker = guard.take().expect("finalize must be called only once");
+            tracker.finalize()
+        };
+        // The same contract may be deployed to different accounts. To avoid distributing the same contract again,
+        // we exclude the previously-deployed contracts (which already exist in storage) from the list returned.
+        let new_contract_deploys = self.get_new_contract_deploys(contract_deploys)?;
+        Ok(ContractUpdates { contract_accesses, contract_deploys: new_contract_deploys })
+    }
+
+    /// Returns the list of the contracts from the input list that are not already in the storage.
+    fn get_new_contract_deploys(
+        &self,
+        contracts: Vec<ContractCode>,
+    ) -> Result<Vec<ContractCode>, StorageError> {
+        // The same contract may be deployed to different accounts. To avoid distributing the same contract again,
+        // we exclude the previously-deployed contracts (which already exist in storage) from the list returned.
+        let mut new_deploys = vec![];
+        for contract in contracts.into_iter() {
+            match self.storage.retrieve_raw_bytes(contract.hash()) {
+                // Existing contract in storage, skip returning it.
+                Ok(_) => {}
+                // New contract not found in storage, return it.
+                Err(StorageError::MissingTrieValue(_, _)) => {
+                    new_deploys.push(contract);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(new_deploys)
     }
 }
