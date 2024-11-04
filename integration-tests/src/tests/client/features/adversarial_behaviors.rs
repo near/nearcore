@@ -288,7 +288,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             let prev_block =
                 test.env.clients[0].chain.get_block(&block.header().prev_hash()).unwrap();
             for shard_id in shard_layout.shard_ids() {
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 if invalid_chunks_in_this_block.contains(&shard_id) && !this_block_should_be_skipped
                 {
                     assert_eq!(

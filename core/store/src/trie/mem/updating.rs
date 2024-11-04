@@ -1,11 +1,4 @@
 //! Structures and logic for updating in-memory trie.
-//!
-//! DISCLAIMER: This is in process of rewriting to generic structures.
-//! See #12324.
-//! For now we keep the old types together with new ones to change logic
-//! incrementally (for example, `GenericNodeOrIndex` and `OldOrUpdatedNodeId`).
-//! New methods will be prefixed with `generic_` to distinguish them from the
-//! old ones. When the old methods are removed, the prefix will be dropped.
 
 use super::arena::{ArenaMemory, ArenaMut};
 use super::flexible_data::children::ChildrenView;
@@ -258,11 +251,6 @@ pub struct MemTrieUpdate<'a, M: ArenaMemory> {
     /// All the new nodes that are to be constructed. A node may be None if
     /// (1) temporarily we take out the node from the slot to process it and put it back
     /// later; or (2) the node is deleted afterwards.
-    /// TODO(#12361): IMPORTANT: while we compute memory usage on the
-    /// fly for memtries, it is ignored and recomputed later in
-    /// `compute_hashes_and_serialized_nodes`.
-    /// This is wrong because it needs ALL children of any changed branch
-    /// in memtrie. Switch to using memory usages from here.
     pub updated_nodes: Vec<Option<UpdatedMemTrieNodeWithSize>>,
     /// Tracks trie changes necessary to make on-disk updates and recorded
     /// storage.
@@ -1243,39 +1231,35 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         updated_nodes: &Vec<Option<UpdatedMemTrieNodeWithSize>>,
     ) -> Vec<(UpdatedMemTrieNodeId, CryptoHash, Vec<u8>)> {
         let memory = self.memory;
-        let mut result = Vec::<(CryptoHash, u64, Vec<u8>)>::new();
+        let mut result = Vec::<(CryptoHash, Vec<u8>)>::new();
         for _ in 0..updated_nodes.len() {
-            result.push((CryptoHash::default(), 0, Vec::new()));
+            result.push((CryptoHash::default(), Vec::new()));
         }
-        let get_hash_and_memory_usage = |node: OldOrUpdatedNodeId,
-                                         result: &Vec<(CryptoHash, u64, Vec<u8>)>|
-         -> (CryptoHash, u64) {
-            match node {
-                OldOrUpdatedNodeId::Updated(node_id) => {
-                    let (hash, memory_usage, _) = result[node_id];
-                    (hash, memory_usage)
+        let get_hash =
+            |node: OldOrUpdatedNodeId, result: &Vec<(CryptoHash, Vec<u8>)>| -> CryptoHash {
+                match node {
+                    OldOrUpdatedNodeId::Updated(node_id) => result[node_id].0,
+                    // IMPORTANT: getting a node hash for a child doesn't
+                    // record a new node read. In recorded storage, child node
+                    // is referenced by its hash, and we don't need to need the
+                    // whole node to verify parent hash.
+                    // TODO(#12361): consider fixing it, perhaps by taking this
+                    // hash from old version of the parent node.
+                    OldOrUpdatedNodeId::Old(node_id) => node_id.as_ptr(memory).view().node_hash(),
                 }
-                OldOrUpdatedNodeId::Old(node_id) => {
-                    let view = node_id.as_ptr(memory).view();
-                    (view.node_hash(), view.memory_usage())
-                }
-            }
-        };
+            };
 
         for node_id in ordered_nodes.iter() {
             let node = updated_nodes[*node_id].as_ref().unwrap();
-            let (raw_node, memory_usage) = match &node.node {
+            let raw_node = match &node.node {
                 UpdatedMemTrieNode::Empty => unreachable!(),
                 UpdatedMemTrieNode::Branch { children, value } => {
-                    let mut memory_usage = TRIE_COSTS.node_cost;
                     let mut child_hashes = vec![];
                     for child in children.iter() {
                         match child {
                             Some(child) => {
-                                let (child_hash, child_memory_usage) =
-                                    get_hash_and_memory_usage(*child, &result);
+                                let child_hash = get_hash(*child, &result);
                                 child_hashes.push(Some(child_hash));
-                                memory_usage += child_memory_usage;
                             }
                             None => {
                                 child_hashes.push(None);
@@ -1284,42 +1268,28 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                     }
                     let children = Children(child_hashes.as_slice().try_into().unwrap());
                     let value_ref = value.as_ref().map(|value| value.to_value_ref());
-                    memory_usage += match &value_ref {
-                        Some(value_ref) => {
-                            value_ref.length as u64 * TRIE_COSTS.byte_of_value
-                                + TRIE_COSTS.node_cost
-                        }
-                        None => 0,
-                    };
-                    (RawTrieNode::branch(children, value_ref), memory_usage)
+                    RawTrieNode::branch(children, value_ref)
                 }
                 UpdatedMemTrieNode::Extension { extension, child } => {
-                    let (child_hash, child_memory_usage) =
-                        get_hash_and_memory_usage(*child, &result);
-                    let memory_usage = TRIE_COSTS.node_cost
-                        + extension.len() as u64 * TRIE_COSTS.byte_of_key
-                        + child_memory_usage;
-                    (RawTrieNode::Extension(extension.to_vec(), child_hash), memory_usage)
+                    let child_hash = get_hash(*child, &result);
+                    RawTrieNode::Extension(extension.to_vec(), child_hash)
                 }
                 UpdatedMemTrieNode::Leaf { extension, value } => {
-                    let memory_usage = TRIE_COSTS.node_cost
-                        + extension.len() as u64 * TRIE_COSTS.byte_of_key
-                        + value.value_len() as u64 * TRIE_COSTS.byte_of_value
-                        + TRIE_COSTS.node_cost;
-                    (RawTrieNode::Leaf(extension.to_vec(), value.to_value_ref()), memory_usage)
+                    RawTrieNode::Leaf(extension.to_vec(), value.to_value_ref())
                 }
             };
 
+            let memory_usage = node.memory_usage;
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
             let node_serialized = borsh::to_vec(&raw_node_with_size).unwrap();
             let node_hash = hash(&node_serialized);
-            result[*node_id] = (node_hash, memory_usage, node_serialized);
+            result[*node_id] = (node_hash, node_serialized);
         }
 
         ordered_nodes
             .iter()
             .map(|node_id| {
-                let (hash, _, serialized) = &mut result[*node_id];
+                let (hash, serialized) = &mut result[*node_id];
                 (*node_id, *hash, std::mem::take(serialized))
             })
             .collect()

@@ -187,9 +187,7 @@ pub struct SplittingParentStatus {
     /// The new shard layout.
     pub shard_layout: ShardLayout,
     /// Hash of the last block having the old shard layout.
-    pub block_hash: CryptoHash,
-    /// The block before `block_hash`.
-    pub prev_block_hash: CryptoHash,
+    pub resharding_hash: CryptoHash,
     /// Parent's flat head state when the split began.
     pub flat_head: BlockInfo,
 }
