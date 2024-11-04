@@ -138,7 +138,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             vec![num_validator_seats],
-            ShardLayout::v0_single_shard(),
+            ShardLayout::single_shard(),
         )
     }
 
@@ -154,7 +154,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 0),
+            ShardLayout::multi_shard(num_shards, 0),
         )
     }
 
@@ -169,7 +169,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 1),
+            ShardLayout::multi_shard(num_shards, 1),
         )
     }
 }

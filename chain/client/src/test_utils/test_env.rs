@@ -359,7 +359,7 @@ impl TestEnv {
         let partial_witness_adapters = self.partial_witness_adapters.clone();
         for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
+                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness, .. } =
                     request;
 
                 let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
@@ -525,7 +525,7 @@ impl TestEnv {
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_index];
 
@@ -585,7 +585,7 @@ impl TestEnv {
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_index];
         let response = client
             .runtime_adapter

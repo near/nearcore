@@ -4020,6 +4020,7 @@ dependencies = [
  "near-primitives",
  "near-schema-checker-lib",
  "near-store",
+ "near-test-contracts",
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",

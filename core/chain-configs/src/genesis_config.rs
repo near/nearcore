@@ -65,7 +65,7 @@ fn default_protocol_upgrade_stake_threshold() -> Rational32 {
 }
 
 fn default_shard_layout() -> ShardLayout {
-    ShardLayout::v0_single_shard()
+    ShardLayout::single_shard()
 }
 
 fn default_minimum_stake_ratio() -> Rational32 {
@@ -194,7 +194,7 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
     #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::v0_single_shard())]
+    #[default(default_shard_layout())]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]

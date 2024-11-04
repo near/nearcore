@@ -288,7 +288,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             let prev_block =
                 test.env.clients[0].chain.get_block(&block.header().prev_hash()).unwrap();
             for shard_id in shard_layout.shard_ids() {
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 if invalid_chunks_in_this_block.contains(&shard_id) && !this_block_should_be_skipped
                 {
                     assert_eq!(
@@ -373,9 +373,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_chunks = true;
-    for client in test.env.clients.iter_mut() {
-        client.chunk_validator.set_should_panic_on_validation_error(false);
-    }
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
 
@@ -385,8 +382,5 @@ fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_tx_in_chunks = true;
-    for client in test.env.clients.iter_mut() {
-        client.chunk_validator.set_should_panic_on_validation_error(false);
-    }
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }

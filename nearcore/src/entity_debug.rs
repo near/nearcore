@@ -15,6 +15,7 @@ use near_primitives::challenge::{PartialState, TrieValue};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
@@ -24,7 +25,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
-    StoredChunkStateTransitionDataV2,
+    StoredChunkStateTransitionDataV2, StoredChunkStateTransitionDataV3,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -263,7 +264,8 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
                 let shard_id = chunk.shard_id();
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
                 let shard_uid = shard_layout
                     .shard_uids()
                     .nth(shard_index)
@@ -298,7 +300,8 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
 
                 let shard_uid = shard_layout
                     .shard_uids()
@@ -326,8 +329,13 @@ impl EntityDebugHandlerImpl {
                             base_state,
                             receipts_hash,
                             ..
-                        }) => (base_state, receipts_hash),
-                        StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                        })
+                        | StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                            base_state,
+                            receipts_hash,
+                            ..
+                        })
+                        | StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
                             base_state,
                             receipts_hash,
                             ..
@@ -391,7 +399,8 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
                 let shard_id = chunk.shard_id();
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
                 let shard_uid = shard_layout
                     .shard_uids()
                     .nth(shard_index)

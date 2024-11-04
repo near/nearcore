@@ -369,7 +369,7 @@ impl TestReshardingEnv {
                 Some((new_block_hash, target_shard_id)) => {
                     let new_block = client.chain.get_block(&new_block_hash).unwrap().clone();
                     let chunks = new_block.chunks();
-                    let target_shard_index = shard_layout.get_shard_index(target_shard_id);
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id).unwrap();
                     // check that the target chunk in the new block is new
                     assert_eq!(
                         chunks.get(target_shard_index).unwrap().height_included(),
@@ -405,7 +405,7 @@ impl TestReshardingEnv {
                 };
 
                 for target_shard_id in target_shard_ids {
-                    let target_shard_index = shard_layout.get_shard_index(target_shard_id);
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id).unwrap();
                     let chunk = chunks.get(target_shard_index).unwrap();
                     assert_ne!(chunk.height_included(), last_block.header().height());
                 }
@@ -520,7 +520,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
         env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
     let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
     let shard_id = shard_uid.shard_id();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     for (i, me) in env.validators.iter().enumerate() {
         let client = &env.clients[i];
         let care_about_shard =

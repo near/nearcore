@@ -277,7 +277,8 @@ impl NewChunkTracker {
 
         let mut done = true;
         for (shard_id, num_new_chunks) in self.num_new_chunks.iter_mut() {
-            let shard_index = shard_layout.get_shard_index(*shard_id);
+            let shard_index =
+                shard_layout.get_shard_index(*shard_id).map_err(Into::<EpochError>::into)?;
             let Some(included) = header.chunk_mask().get(shard_index) else {
                 return Err(Error::Other(format!(
                     "can't get shard {} in chunk mask for block {}",
@@ -444,16 +445,12 @@ impl Client {
             epoch_manager.clone(),
             chain.chain_store().store().clone(),
         );
-        // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
-        let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
-            && config.chain_id != near_primitives::chains::TESTNET;
         let chunk_validator = ChunkValidator::new(
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
-            panic_on_validation_error,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
@@ -844,7 +841,8 @@ impl Client {
         // Collect new chunk headers and endorsements.
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_id, chunk_hash) in new_chunks {
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index =
+                shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
@@ -1574,7 +1572,8 @@ impl Client {
             .expect("Could not obtain shard layout");
 
         let shard_id = partial_chunk.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index =
+            shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 

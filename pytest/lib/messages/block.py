@@ -328,6 +328,10 @@ class BandwidthRequest:
     pass
 
 
+class BandwidthRequestBitmap:
+    pass
+
+
 class ChunkEndorsement:
     pass
 
@@ -361,6 +365,62 @@ class PartialEncodedStateWitnessInner:
 
 
 class SignatureDifferentiator:
+    pass
+
+
+class ChunkContractAccesses:
+    pass
+
+
+class ChunkContractAccessesV1:
+    pass
+
+
+class ChunkContractAccessesInner:
+    pass
+
+
+class PartialEncodedContractDeploys:
+    pass
+
+
+class PartialEncodedContractDeploysV1:
+    pass
+
+
+class PartialEncodedContractDeploysInner:
+    pass
+
+
+class PartialEncodedContractDeploysPart:
+    pass
+
+
+class ContractCodeRequest:
+    pass
+
+
+class ContractCodeRequestV1:
+    pass
+
+
+class ContractCodeRequestInner:
+    pass
+
+
+class ContractCodeResponse:
+    pass
+
+
+class ContractCodeResponseV1:
+    pass
+
+
+class ContractCodeResponseInner:
+    pass
+
+
+class ChunkProductionKey:
     pass
 
 
@@ -1037,15 +1097,17 @@ block_schema = [
         }
     ],
     [
-        BandwidthRequest,
-        {
+        BandwidthRequest, {
             'kind':
                 'struct',
-            'fields': [['to_shard', 'u8'
-                       ]  # TODO(bandwidth_scheduler) - add requested values
-                      ]
+            'fields': [['to_shard', 'u8'],
+                       ['requested_values_bitmap', BandwidthRequestBitmap]]
         }
     ],
+    [BandwidthRequestBitmap, {
+        'kind': 'struct',
+        'fields': [['data', [5]]]
+    }],
     [
         ChunkEndorsement, {
             'kind': 'enum',
@@ -1132,5 +1194,140 @@ block_schema = [
     [SignatureDifferentiator, {
         'kind': 'struct',
         'fields': [['0', 'string']]
-    }]
+    }],
+    [
+        ChunkContractAccesses, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ChunkContractAccessesV1],]
+        }
+    ],
+    [
+        ChunkContractAccessesV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkContractAccessesInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkContractAccessesInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploys, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', PartialEncodedContractDeploysV1],]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', PartialEncodedContractDeploysInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['part', PartialEncodedContractDeploysPart],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysPart, {
+            'kind':
+                'struct',
+            'fields': [
+                ['part_ord', 'u64'],
+                ['data', ['u8']],
+                ['encoded_length', 'u64'],
+            ]
+        }
+    ],
+    [
+        ContractCodeRequest, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ContractCodeRequestV1],]
+        }
+    ],
+    [
+        ContractCodeRequestV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ContractCodeRequestInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ContractCodeRequestInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['requester', 'string'],
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ContractCodeResponse, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ContractCodeResponseV1],]
+        }
+    ],
+    [
+        ContractCodeResponseV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ContractCodeResponseInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ContractCodeResponseInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['compressed_contracts', ['u8']],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkProductionKey, {
+            'kind':
+                'struct',
+            'fields': [
+                ['shard_id', 'u64'],
+                ['epoch_id', [32]],
+                ['height_created', 'u64'],
+            ]
+        }
+    ]
 ]

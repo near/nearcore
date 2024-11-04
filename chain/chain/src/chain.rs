@@ -644,7 +644,7 @@ impl Chain {
         genesis_protocol_version: ProtocolVersion,
         congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let state_root = *get_genesis_state_roots(self.chain_store.store())?
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
@@ -827,7 +827,7 @@ impl Chain {
                 &prev_block,
                 &shard_layout,
                 &shards_to_state_sync,
-            );
+            )?;
             Ok(Some(state_sync_info))
         }
     }
@@ -1977,7 +1977,7 @@ impl Chain {
         // TODO(#8055): this zip relies on the ordering of the apply_results.
         // TODO(wacban): do the above todo
         for (shard_id, apply_result) in apply_results.iter() {
-            let shard_index = shard_layout.get_shard_index(*shard_id);
+            let shard_index = shard_layout.get_shard_index(*shard_id)?;
             if let Err(err) = apply_result {
                 if err.is_bad_data() {
                     let chunk = block.chunks()[shard_index].clone();
@@ -2578,7 +2578,7 @@ impl Chain {
 
             let mut done = true;
             for (shard_id, num_new_chunks) in num_new_chunks.iter_mut() {
-                let shard_index = shard_layout.get_shard_index(*shard_id);
+                let shard_index = shard_layout.get_shard_index(*shard_id)?;
                 let Some(included) = header.chunk_mask().get(shard_index) else {
                     return Err(Error::Other(format!(
                         "can't get shard {} in chunk mask for block {}",
@@ -2631,7 +2631,7 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(&sync_block_epoch_id)?;
         let prev_epoch_id = sync_prev_block.header().epoch_id();
         let prev_shard_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
-        let prev_shard_index = prev_shard_layout.get_shard_index(shard_id);
+        let prev_shard_index = prev_shard_layout.get_shard_index(shard_id)?;
 
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = sync_prev_block.hash();
@@ -2732,7 +2732,7 @@ impl Chain {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
-                let from_shard_index = prev_shard_layout.get_shard_index(*from_shard_id);
+                let from_shard_index = prev_shard_layout.get_shard_index(*from_shard_id)?;
 
                 let root_proof = block.chunks()[from_shard_index].prev_outgoing_receipts_root();
                 root_proofs_cur
@@ -2837,7 +2837,7 @@ impl Chain {
             return Err(shard_id_out_of_bounds(shard_id));
         }
         let prev_block = self.get_block(header.prev_hash())?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let state_root = prev_block
             .chunks()
             .get(shard_index)
@@ -3262,7 +3262,7 @@ impl Chain {
             let epoch_id = block.header().epoch_id();
             let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
             let shard_id = chunk.shard_id();
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index = shard_layout.get_shard_index(shard_id)?;
 
             let chunk_proof = ChunkProofs {
                 block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
@@ -3593,7 +3593,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = chunk_header.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let prev_merkle_proofs =
             Block::compute_chunk_headers_root(prev_block.chunks().iter_deprecated()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
@@ -3765,7 +3765,7 @@ impl Chain {
                     if err.is_bad_data() {
                         let epoch_id = block.header().epoch_id();
                         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                        let shard_index = shard_layout.get_shard_index(shard_id);
+                        let shard_index = shard_layout.get_shard_index(shard_id)?;
 
                         let chunk_header = block
                             .chunks()
@@ -4333,7 +4333,7 @@ impl Chain {
             let block = self.get_block(&block_hash)?;
             let chunks = block.chunks();
             for &shard_id in shard_ids.iter() {
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index = shard_layout.get_shard_index(shard_id)?;
                 let chunk_header =
                     &chunks.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
                 if chunk_header.height_included() == block.header().height() {

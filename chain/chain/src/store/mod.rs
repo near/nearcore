@@ -25,7 +25,7 @@ use near_primitives::state_sync::{
 };
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV2,
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV3,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -354,7 +354,7 @@ pub trait ChainStoreAccess {
         let block_header = self.get_block_header(&candidate_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut shard_id = shard_id;
-        let mut shard_index = shard_layout.get_shard_index(shard_id);
+        let mut shard_index = shard_layout.get_shard_index(shard_id)?;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
             if *block_header
@@ -2016,11 +2016,11 @@ impl<'a> ChainStoreUpdate<'a> {
             let ContractUpdates { contract_accesses, contract_deploys } = contract_updates;
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     contract_accesses: contract_accesses.into_iter().collect(),
-                    contract_deploys: contract_deploys.into_iter().collect(),
+                    contract_deploys: contract_deploys.into_iter().map(|c| c.into()).collect(),
                 }),
             );
         }

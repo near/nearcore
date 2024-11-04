@@ -108,7 +108,7 @@ pub(crate) fn apply_chunk(
         chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_epoch_id = prev_block.header().epoch_id();
     let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
-    let prev_shard_index = prev_shard_layout.get_shard_index(shard_id);
+    let prev_shard_index = prev_shard_layout.get_shard_index(shard_id).unwrap();
     let prev_height_included = prev_block.chunks()[prev_shard_index].height_included();
     let prev_height = prev_block.header().height();
     let target_height = match target_height {
@@ -694,7 +694,7 @@ mod test {
 
             if height >= 2 {
                 for &shard_id in shard_ids.iter() {
-                    let shard_index = shard_layout.get_shard_index(shard_id);
+                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                     let chunk = chain_store.get_chunk(&chunk_hashes[shard_index]).unwrap();
 
                     for tx in chunk.transactions() {
@@ -716,7 +716,7 @@ mod test {
                             receipt.receiver_id(),
                             &shard_layout,
                         );
-                        let to_shard_index = shard_layout.get_shard_index(to_shard_id);
+                        let to_shard_index = shard_layout.get_shard_index(to_shard_id).unwrap();
 
                         let results = crate::apply_chunk::apply_receipt(
                             genesis.config.genesis_height,
