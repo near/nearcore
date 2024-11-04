@@ -2,7 +2,7 @@
 /// `res` directory.
 ///
 /// It writes a few logs with the `debug` prefix. Those are ignored by cargo (as
-/// any other messages with prefix other than `cargo::`) but can be seen in the
+/// any other messages with prefix other than `cargo:`) but can be seen in the
 /// build logs.
 use std::env;
 use std::path::{Path, PathBuf};
@@ -62,7 +62,7 @@ fn res_contract(name: &str) {
     manifest_dir.push("res");
     manifest_dir.push(format!("{name}.wasm"));
     println!("cargo:rerun-if-changed={}", manifest_dir.display());
-    println!("cargo::rustc-env=CONTRACT_{}={}", name, manifest_dir.display());
+    println!("cargo:rustc-env=CONTRACT_{}={}", name, manifest_dir.display());
 }
 
 /// build the contract and copy the wasm file to the `res` directory
@@ -81,7 +81,7 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
     let to = target_dir.join(format!("{}.wasm", output));
     std::fs::rename(&from, &to)
         .map_err(|err| format!("failed to copy `{}`: {}", from.display(), err))?;
-    println!("cargo::rustc-env=CONTRACT_{}={}", output, to.display());
+    println!("cargo:rustc-env=CONTRACT_{}={}", output, to.display());
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
     println!("debug: from = {from:?}, to = {to:?}");
