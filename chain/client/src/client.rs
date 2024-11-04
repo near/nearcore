@@ -277,7 +277,8 @@ impl NewChunkTracker {
 
         let mut done = true;
         for (shard_id, num_new_chunks) in self.num_new_chunks.iter_mut() {
-            let shard_index = shard_layout.get_shard_index(*shard_id);
+            let shard_index =
+                shard_layout.get_shard_index(*shard_id).map_err(Into::<EpochError>::into)?;
             let Some(included) = header.chunk_mask().get(shard_index) else {
                 return Err(Error::Other(format!(
                     "can't get shard {} in chunk mask for block {}",
@@ -532,6 +533,7 @@ impl Client {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if cares_about_shard_this_or_next_epoch(
@@ -564,6 +566,7 @@ impl Client {
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
             if block.header().height() == chunk_header.height_included() {
@@ -840,7 +843,8 @@ impl Client {
         // Collect new chunk headers and endorsements.
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_id, chunk_hash) in new_chunks {
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index =
+                shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
@@ -1570,7 +1574,8 @@ impl Client {
             .expect("Could not obtain shard layout");
 
         let shard_id = partial_chunk.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index =
+            shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
@@ -1578,7 +1583,6 @@ impl Client {
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1965,17 +1969,6 @@ impl Client {
         }
     }
 
-    pub fn mark_chunk_header_ready_for_inclusion(
-        &mut self,
-        chunk_header: ShardChunkHeader,
-        chunk_producer: AccountId,
-    ) {
-        // If endorsement was received before chunk header, we can process it only now.
-        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
-    }
-
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
@@ -2009,7 +2002,8 @@ impl Client {
             }
         }
 
-        self.mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,

@@ -369,7 +369,7 @@ pub(crate) fn dump_account_storage(
     let epoch_id = header.epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
     for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie =
             runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
         let key = TrieKey::ContractData {
@@ -411,7 +411,7 @@ pub(crate) fn dump_code(
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
         if let Ok(contract_code) =
             runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
@@ -694,7 +694,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     let shard_layout = &epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
     for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie =
             runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
         for item in trie.disk_iter().unwrap() {
@@ -739,7 +739,7 @@ pub(crate) fn view_chain(
     let mut chunks = vec![];
     for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
             let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
@@ -1188,7 +1188,7 @@ pub(crate) fn contract_accounts(
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
         // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
         let shard_layout = ShardLayout::get_simple_nightshade_layout();
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.trie_store(), shard_uid);

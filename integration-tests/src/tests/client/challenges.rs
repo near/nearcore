@@ -19,11 +19,11 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -315,7 +315,7 @@ fn challenge(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let epoch_id = block.header().epoch_id();
     let shard_layout = env.clients[0].chain.epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
 
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
     let valid_challenge = Challenge::produce(
@@ -421,7 +421,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
-        ChunkEndorsementV1::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
+        ChunkEndorsement::new(EpochId::default(), &invalid_chunk.cloned_header(), signer.as_ref());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
@@ -429,7 +429,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature))]],
+        vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
         None,

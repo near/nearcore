@@ -370,7 +370,7 @@ impl NightshadeRuntime {
         );
 
         let apply_state = ApplyState {
-            apply_reason: Some(apply_reason),
+            apply_reason,
             block_height,
             prev_block_hash: *prev_block_hash,
             block_hash,

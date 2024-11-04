@@ -5,8 +5,9 @@ use near_chain::{
     Block, BlockHeader, ChainStore, ChainStoreAccess,
 };
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::types::{
-    chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot,
+use near_primitives::{
+    errors::EpochError,
+    types::{chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot},
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -169,7 +170,7 @@ pub fn check_apply_block_result(
     let protocol_version = block.header().latest_protocol_version();
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
     let new_chunk_extra = resulting_chunk_extra(
         apply_result,
         block.chunks()[shard_index].gas_limit(),

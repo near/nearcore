@@ -170,6 +170,10 @@ impl ContractStorage {
     ///
     /// It also finalizes and destructs the inner`ContractsTracker` so there must be no other deployments or
     /// calls to contracts after this returns.
+    ///
+    /// NOTE: The same contract may be deployed multiple times to different accounts. Thus, if a contract that was previously
+    /// deployed to an account is now deployed to a different account, we still include the contract in the list of `contracts_deployed`.
+    /// This can be optimized later by checking if the deployed contract already exists in the storage and excluding from the returned list.
     pub(crate) fn finalize(self) -> ContractUpdates {
         let mut guard = self.tracker.lock().expect("no panics");
         let tracker = guard.take().expect("finalize must be called only once");

@@ -235,7 +235,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
         .into_iter()
         .enumerate()
         .map(move |(proof_shard_index, proof)| {
-            let proof_shard_id = shard_layout.get_shard_id(proof_shard_index);
+            let proof_shard_id = shard_layout.get_shard_id(proof_shard_index).unwrap();
             let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
             let shard_proof =
                 ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
