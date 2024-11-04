@@ -261,12 +261,9 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::StateSyncHashUpdate => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
-            ProtocolFeature::BandwidthScheduler => 146,
-
-            // Features that are not yet in Nightly.
-
-            // TODO(#11099): Move this feature to Nightly.
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 147,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
+            ProtocolFeature::BandwidthScheduler => 147,
+            // Place features that are not yet in Nightly below this line.
         }
     }
 
@@ -279,7 +276,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 146;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 147;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
