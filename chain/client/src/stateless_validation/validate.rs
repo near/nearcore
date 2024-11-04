@@ -53,7 +53,7 @@ pub fn validate_partial_encoded_state_witness(
         )));
     }
 
-    if !validate_as_chunk_validator(
+    if !validate_chunk_relevant_as_validator(
         epoch_manager,
         &partial_witness.chunk_production_key(),
         signer.validator_id(),
@@ -92,7 +92,7 @@ pub fn validate_chunk_endorsement(
     endorsement: &ChunkEndorsement,
     store: &Store,
 ) -> Result<bool, Error> {
-    if !validate_as_chunk_validator(
+    if !validate_chunk_relevant_as_validator(
         epoch_manager,
         &endorsement.chunk_production_key(),
         endorsement.account_id(),
@@ -116,7 +116,7 @@ pub fn validate_chunk_contract_accesses(
 ) -> Result<bool, Error> {
     let key = accesses.chunk_production_key();
     validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
-    if !validate_as_chunk_validator(epoch_manager, key, signer.validator_id(), store)? {
+    if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
         return Ok(false);
     }
     if !epoch_manager.verify_witness_contract_accesses_signature(accesses)? {
@@ -125,7 +125,7 @@ pub fn validate_chunk_contract_accesses(
     Ok(true)
 }
 
-fn validate_as_chunk_validator(
+fn validate_chunk_relevant_as_validator(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk: &ChunkProductionKey,
     validator_account_id: &AccountId,
