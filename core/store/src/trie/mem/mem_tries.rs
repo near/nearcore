@@ -18,8 +18,8 @@ use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
 use super::lookup::memtrie_lookup;
+use super::mem_trie_update::{construct_root_from_changes, MemTrieUpdate};
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
-use super::updating::{construct_root_from_changes, MemTrieUpdate};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
 /// Tries may share nodes with each other via refcounting. The way the

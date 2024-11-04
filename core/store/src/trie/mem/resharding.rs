@@ -1,13 +1,13 @@
-use crate::trie::node_storage::NodesStorage;
 #[cfg(test)]
 use crate::trie::ops::interface::GenericNodeOrIndex;
 use crate::trie::ops::resharding::{
     boundary_account_to_intervals, intervals_to_nibbles, GenericTrieUpdateRetain, RetainMode,
 };
+use crate::trie::trie_storage_update::TrieStorageUpdate;
 use crate::{Trie, TrieChanges};
 
 use super::arena::ArenaMemory;
-use super::updating::{MemTrieUpdate, TrieAccesses};
+use super::mem_trie_update::{MemTrieUpdate, TrieAccesses};
 use near_primitives::errors::StorageError;
 use near_primitives::types::{AccountId, StateRoot};
 use std::ops::Range;
@@ -58,16 +58,16 @@ impl Trie {
         debug_assert!(intervals.iter().all(|range| range.start < range.end));
         let intervals_nibbles = intervals_to_nibbles(intervals);
 
-        let mut memory = NodesStorage::new(&self);
-        let root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
+        let mut trie_update = TrieStorageUpdate::new(&self);
+        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
 
-        memory.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+        trie_update.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
 
         #[cfg(test)]
         {
-            self.memory_usage_verify(&memory, GenericNodeOrIndex::Updated(root_node.0));
+            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
         }
-        let result = Trie::flatten_nodes(&self.root, memory, root_node.0)?;
+        let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
         Ok(result.new_root)
     }
 }
