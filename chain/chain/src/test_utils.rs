@@ -305,7 +305,7 @@ mod test {
     }
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
-        let shard_layout = ShardLayout::v0(num_shards, 0);
+        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let create_receipt_from_receiver_id =
             |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
         let mut rng = rand::thread_rng();

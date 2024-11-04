@@ -149,14 +149,11 @@ mod tests {
         let s5 = ShardId::new(5);
 
         // Shard layouts V0 and V1 are rejected.
-        assert!(ReshardingEventType::from_shard_layout(
-            &ShardLayout::v0_single_shard(),
-            block,
-            prev_block
-        )
-        .is_err());
-        assert!(ReshardingEventType::from_shard_layout(&ShardLayout::v1_test(), block, prev_block)
-            .is_err());
+        #[allow(deprecated)]
+        let layout_v0 = ShardLayout::v0(1, 0);
+        let layout_v1 = ShardLayout::v1_test();
+        assert!(ReshardingEventType::from_shard_layout(&layout_v0, block, prev_block).is_err());
+        assert!(ReshardingEventType::from_shard_layout(&layout_v1, block, prev_block).is_err());
 
         // No resharding is ok.
         let shards_split_map = BTreeMap::from([(s0, vec![s0])]);

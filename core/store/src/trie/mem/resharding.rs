@@ -1,6 +1,4 @@
 use crate::trie::insert_delete::NodesStorage;
-#[cfg(test)]
-use crate::trie::NodeHandle;
 use crate::{NibbleSlice, Trie, TrieChanges};
 
 use super::arena::ArenaMemory;
@@ -118,15 +116,17 @@ impl Trie {
 
         #[cfg(test)]
         {
-            self.memory_usage_verify(&memory, NodeHandle::InMemory(root_node));
+            self.memory_usage_verify(&memory, GenericNodeOrIndex::Updated(root_node.0));
         }
-        let result = Trie::flatten_nodes(&self.root, memory, root_node)?;
+        let result = Trie::flatten_nodes(&self.root, memory, root_node.0)?;
         Ok(result.new_root)
     }
 }
 
-trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasValueLength>:
-    GenericTrieUpdateSquash<'a, N, V>
+trait GenericTrieUpdateRetain<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
 {
     /// Recursive implementation of the algorithm of retaining keys belonging to
     /// any of the ranges given in `intervals` from the trie. All changes are
@@ -145,8 +145,8 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
         match decision {
             RetainDecision::RetainAll => return Ok(()),
             RetainDecision::DiscardAll => {
-                let _ = self.generic_take_node(node_id);
-                self.generic_place_node(node_id, GenericUpdatedTrieNodeWithSize::empty());
+                let _ = self.take_node(node_id);
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
                 return Ok(());
             }
             RetainDecision::Descend => {
@@ -154,11 +154,11 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
             }
         }
 
-        let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.generic_take_node(node_id);
+        let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
         match node {
             GenericUpdatedTrieNode::Empty => {
                 // Nowhere to descend.
-                self.generic_place_node(node_id, GenericUpdatedTrieNodeWithSize::empty());
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
                 return Ok(());
             }
             GenericUpdatedTrieNode::Leaf { extension, value } => {
@@ -166,9 +166,9 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
                     [key_nibbles, NibbleSlice::from_encoded(&extension).0.iter().collect_vec()]
                         .concat();
                 if !intervals_nibbles.iter().any(|interval| interval.contains(&full_key_nibbles)) {
-                    self.generic_place_node(node_id, GenericUpdatedTrieNodeWithSize::empty());
+                    self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize::empty());
                 } else {
-                    self.generic_place_node(
+                    self.place_node_at(
                         node_id,
                         GenericUpdatedTrieNodeWithSize {
                             node: GenericUpdatedTrieNode::Leaf { extension, value },
@@ -189,7 +189,7 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
                         continue;
                     };
 
-                    let new_child_id = self.generic_ensure_updated(old_child_id)?;
+                    let new_child_id = self.ensure_updated(old_child_id)?;
                     let child_key_nibbles = [key_nibbles.clone(), vec![i as u8]].concat();
                     self.retain_multi_range_recursive(
                         new_child_id,
@@ -198,7 +198,7 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
                     )?;
 
                     let GenericUpdatedTrieNodeWithSize { node, memory_usage: child_memory_usage } =
-                        self.generic_get_node(new_child_id);
+                        self.get_node_ref(new_child_id);
                     if matches!(node, GenericUpdatedTrieNode::Empty) {
                         *child = None;
                     } else {
@@ -209,13 +209,10 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
 
                 let node = GenericUpdatedTrieNode::Branch { children, value };
                 memory_usage += node.memory_usage_direct();
-                self.generic_place_node(
-                    node_id,
-                    GenericUpdatedTrieNodeWithSize { node, memory_usage },
-                );
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
             }
             GenericUpdatedTrieNode::Extension { extension, child } => {
-                let new_child_id = self.generic_ensure_updated(child)?;
+                let new_child_id = self.ensure_updated(child)?;
                 let extension_nibbles =
                     NibbleSlice::from_encoded(&extension).0.iter().collect_vec();
                 let child_key = [key_nibbles, extension_nibbles].concat();
@@ -225,12 +222,9 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
                     extension,
                     child: GenericNodeOrIndex::Updated(new_child_id),
                 };
-                let child_memory_usage = self.generic_get_node(new_child_id).memory_usage;
+                let child_memory_usage = self.get_node_ref(new_child_id).memory_usage;
                 let memory_usage = node.memory_usage_direct() + child_memory_usage;
-                self.generic_place_node(
-                    node_id,
-                    GenericUpdatedTrieNodeWithSize { node, memory_usage },
-                );
+                self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
             }
         }
 
@@ -239,12 +233,11 @@ trait GenericTrieUpdateRetain<'a, N: std::fmt::Debug, V: std::fmt::Debug + HasVa
     }
 }
 
-impl<
-        'a,
-        N: std::fmt::Debug,
-        V: std::fmt::Debug + HasValueLength,
-        T: GenericTrieUpdate<'a, N, V>,
-    > GenericTrieUpdateRetain<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
+where
+    N: std::fmt::Debug,
+    V: std::fmt::Debug + HasValueLength,
+    T: GenericTrieUpdate<'a, N, V>,
 {
 }
 
