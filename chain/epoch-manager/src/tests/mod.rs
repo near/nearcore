@@ -887,8 +887,10 @@ fn test_reward_multiple_shards() {
         let chunk_mask = shard_layout
             .shard_ids()
             .map(|shard_id| {
+                let chunk_production_key =
+                    ChunkProductionKey { epoch_id, height_created: height, shard_id };
                 let expected_chunk_producer =
-                    epoch_manager.get_chunk_producer_info(&epoch_id, height, shard_id).unwrap();
+                    epoch_manager.get_chunk_producer_info(&chunk_production_key).unwrap();
                 if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false

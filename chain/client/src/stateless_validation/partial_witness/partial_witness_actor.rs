@@ -409,14 +409,14 @@ impl PartialWitnessActor {
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_deploys, "Receive PartialEncodedContractDeploys");
-
-        let signer = self.my_validator_signer()?;
         if !validate_partial_encoded_contract_deploys(
             self.epoch_manager.as_ref(),
             &partial_deploys,
-            &signer,
             self.runtime.store(),
         )? {
+            return Ok(());
+        }
+        if self.partial_deploys_tracker.already_processed(&partial_deploys) {
             return Ok(());
         }
         let key = partial_deploys.chunk_production_key().clone();
@@ -433,10 +433,15 @@ impl PartialWitnessActor {
         // Forward to other validators if the part received is my part
         let signer = self.my_validator_signer()?;
         let my_account_id = signer.validator_id();
-        let my_part_ord = validators
-            .iter()
-            .position(|validator| validator == my_account_id)
-            .expect("expected to be validated");
+        let Some(my_part_ord) = validators.iter().position(|validator| validator == my_account_id)
+        else {
+            tracing::warn!(
+                target: "client",
+                ?key,
+                "Validator is not a part of contract deploys distribution"
+            );
+            return Ok(());
+        };
         if partial_deploys.part().part_ord == my_part_ord {
             let other_validators = validators
                 .iter()

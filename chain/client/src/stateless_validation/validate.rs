@@ -53,9 +53,9 @@ pub fn validate_partial_encoded_state_witness(
         )));
     }
 
-    if !validate_chunk_production_key(
+    if !validate_chunk_relevant_as_validator(
         epoch_manager,
-        partial_witness.chunk_production_key(),
+        &partial_witness.chunk_production_key(),
         signer.validator_id(),
         store,
     )? {
@@ -70,12 +70,18 @@ pub fn validate_partial_encoded_state_witness(
 }
 
 pub fn validate_partial_encoded_contract_deploys(
-    _epoch_manager: &dyn EpochManagerAdapter,
-    _partial_deploys: &PartialEncodedContractDeploys,
-    _signer: &ValidatorSigner,
-    _store: &Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    partial_deploys: &PartialEncodedContractDeploys,
+    store: &Store,
 ) -> Result<bool, Error> {
-    // TODO(#11099): implement
+    let key = partial_deploys.chunk_production_key();
+    validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
+    if !validate_chunk_relevant(epoch_manager, key, store)? {
+        return Ok(false);
+    }
+    if !epoch_manager.verify_partial_deploys_signature(partial_deploys)? {
+        return Err(Error::Other("Invalid contract deploys signature".to_owned()));
+    }
     Ok(true)
 }
 
@@ -86,9 +92,9 @@ pub fn validate_chunk_endorsement(
     endorsement: &ChunkEndorsement,
     store: &Store,
 ) -> Result<bool, Error> {
-    if !validate_chunk_production_key(
+    if !validate_chunk_relevant_as_validator(
         epoch_manager,
-        endorsement.chunk_production_key(),
+        &endorsement.chunk_production_key(),
         endorsement.account_id(),
         store,
     )? {
@@ -110,7 +116,7 @@ pub fn validate_chunk_contract_accesses(
 ) -> Result<bool, Error> {
     let key = accesses.chunk_production_key();
     validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
-    if !validate_chunk_production_key(epoch_manager, key.clone(), signer.validator_id(), store)? {
+    if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
         return Ok(false);
     }
     if !epoch_manager.verify_witness_contract_accesses_signature(accesses)? {
@@ -119,9 +125,37 @@ pub fn validate_chunk_contract_accesses(
     Ok(true)
 }
 
+fn validate_chunk_relevant_as_validator(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk: &ChunkProductionKey,
+    validator_account_id: &AccountId,
+    store: &Store,
+) -> Result<bool, Error> {
+    if !validate_chunk_relevant(epoch_manager, chunk, store)? {
+        return Ok(false);
+    }
+    ensure_chunk_validator(epoch_manager, chunk, validator_account_id)?;
+    Ok(true)
+}
+
+fn ensure_chunk_validator(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk: &ChunkProductionKey,
+    account_id: &AccountId,
+) -> Result<(), Error> {
+    let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
+        &chunk.epoch_id,
+        chunk.shard_id,
+        chunk.height_created,
+    )?;
+    if !chunk_validator_assignments.contains(account_id) {
+        return Err(Error::NotAChunkValidator);
+    }
+    Ok(())
+}
+
 /// Function to validate ChunkProductionKey. We check the following:
 /// - shard_id is valid
-/// - account_id is one of the validators for the chunk
 /// - height_created is in (last_final_height..chain_head_height + MAX_HEIGHTS_AHEAD] range
 /// - epoch_id is within epoch_manager's possible_epochs_of_height_around_tip
 /// Returns:
@@ -129,10 +163,9 @@ pub fn validate_chunk_contract_accesses(
 /// - Ok(false) if ChunkProductionKey is potentially valid, but at this point we should not
 ///   process it. One example of that is if the witness is too old.
 /// - Err if ChunkProductionKey is invalid which most probably indicates malicious behavior.
-fn validate_chunk_production_key(
+fn validate_chunk_relevant(
     epoch_manager: &dyn EpochManagerAdapter,
-    chunk_production_key: ChunkProductionKey,
-    account_id: &AccountId,
+    chunk_production_key: &ChunkProductionKey,
     store: &Store,
 ) -> Result<bool, Error> {
     let shard_id = chunk_production_key.shard_id;
@@ -146,14 +179,6 @@ fn validate_chunk_production_key(
             "ShardId is not in the shard layout of the epoch",
         );
         return Err(Error::InvalidShardId(shard_id));
-    }
-
-    // Reject witnesses/endorsements for chunks for which the account_id isn't a validator.
-    // It's an error, as chunk producer shouldn't send the witness/endorsement to/from a non-validator node.
-    let chunk_validator_assignments =
-        epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?;
-    if !chunk_validator_assignments.contains(account_id) {
-        return Err(Error::NotAChunkValidator);
     }
 
     // TODO(https://github.com/near/nearcore/issues/11301): replace these direct DB accesses with messages

@@ -13,6 +13,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
@@ -1228,14 +1229,16 @@ impl EpochManager {
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
+        key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let validator_id =
-            Self::chunk_producer_from_info(&epoch_info, &shard_layout, shard_id, height)?;
+        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let validator_id = Self::chunk_producer_from_info(
+            &epoch_info,
+            &shard_layout,
+            key.shard_id,
+            key.height_created,
+        )?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
