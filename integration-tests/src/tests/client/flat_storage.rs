@@ -456,7 +456,7 @@ fn test_flat_storage_iter() {
         };
 
     for shard_index in 0..3 {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let items: Vec<_> = store.iter(shard_uid).collect();
 

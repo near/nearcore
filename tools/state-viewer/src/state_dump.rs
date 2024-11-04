@@ -148,7 +148,7 @@ pub fn state_dump_redis(
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie = runtime
             .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
@@ -248,7 +248,7 @@ fn iterate_over_records(
 
     let mut total_supply = 0;
     for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie = runtime
             .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
             .unwrap();

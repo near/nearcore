@@ -852,7 +852,7 @@ impl Chain {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             if chunk_header.height_created() == genesis_block.header().height() {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
                 // We must verify that content matches and signature is empty.
@@ -1346,7 +1346,7 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
@@ -3738,7 +3738,7 @@ impl Chain {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
@@ -4087,7 +4087,7 @@ fn get_genesis_congestion_infos_impl(
 
     let mut new_infos = vec![];
     for (shard_index, &state_root) in state_roots.iter().enumerate() {
-        let shard_id = genesis_shard_layout.get_shard_id(shard_index);
+        let shard_id = genesis_shard_layout.get_shard_id(shard_index)?;
         let congestion_info = get_genesis_congestion_info(
             runtime,
             genesis_protocol_version,

@@ -1147,7 +1147,7 @@ impl EpochManager {
                     (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
                 })
                 .collect();
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             let cache_key = (*epoch_id, shard_id, height);
             self.chunk_validators_cache
                 .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
@@ -1526,7 +1526,7 @@ impl EpochManager {
         for (shard_index, validators) in
             cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
         {
-            let shard_id = cur_shard_layout.get_shard_id(shard_index);
+            let shard_id = cur_shard_layout.get_shard_id(shard_index)?;
             for validator_id in validators {
                 validator_to_shard[*validator_id as usize].insert(shard_id);
             }
@@ -1698,7 +1698,7 @@ impl EpochManager {
         for (shard_index, validators) in
             next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
-            let shard_id = next_shard_layout.get_shard_id(shard_index);
+            let shard_id = next_shard_layout.get_shard_id(shard_index)?;
             for validator_id in validators {
                 next_validator_to_shard[*validator_id as usize].insert(shard_id);
             }
