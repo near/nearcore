@@ -3,7 +3,7 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV2;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, PartialEncodedContractDeploys,
 };
@@ -83,7 +83,7 @@ pub fn validate_partial_encoded_contract_deploys(
 /// - signature of endorsement and metadata is valid
 pub fn validate_chunk_endorsement(
     epoch_manager: &dyn EpochManagerAdapter,
-    endorsement: &ChunkEndorsementV2,
+    endorsement: &ChunkEndorsement,
     store: &Store,
 ) -> Result<bool, Error> {
     if !validate_chunk_production_key(
