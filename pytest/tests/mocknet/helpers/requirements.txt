@@ -1,3 +1,4 @@
+jq
 json-rpc
 psutil
 requests

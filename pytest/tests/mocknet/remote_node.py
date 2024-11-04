@@ -97,8 +97,11 @@ class RemoteNeardRunner:
         r = cmd_utils.run_cmd(self.node, f'curl localhost:3000 -d \'{body}\'')
         return json.loads(r.stdout)
 
-    def new_test_params(self):
-        return []
+    def new_test_params(self, genesis_protocol_version, epoch_config_overrides):
+        return {
+            'genesis_protocol_version': genesis_protocol_version,
+            'epoch_config_overrides': epoch_config_overrides
+        }
 
     def get_validators(self):
         return self.node.get_validators()

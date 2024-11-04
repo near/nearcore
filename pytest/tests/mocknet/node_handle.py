@@ -101,8 +101,10 @@ class NodeHandle:
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
 
-    def neard_runner_new_test(self):
-        params = self.node.new_test_params()
+    def neard_runner_new_test(self, genesis_protocol_version,
+                              epoch_config_overrides):
+        params = self.node.new_test_params(genesis_protocol_version,
+                                           epoch_config_overrides)
         return self.neard_runner_jsonrpc('new_test', params)
 
     def neard_runner_network_init(self,
