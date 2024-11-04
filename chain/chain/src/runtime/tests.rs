@@ -222,7 +222,7 @@ impl TestEnv {
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let state_root = self.state_roots[shard_index];
         let gas_limit = u64::MAX;
         let height = self.head.height + 1;
@@ -330,7 +330,7 @@ impl TestEnv {
         let mut all_proposals = vec![];
         let mut all_receipts = vec![];
         for shard_id in shard_ids {
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let (state_root, proposals, receipts) = self.update_runtime(
                 shard_id,
                 new_hash,
@@ -402,7 +402,7 @@ impl TestEnv {
         )
         .unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
         self.runtime
             .view_account(&shard_uid, self.state_roots[shard_index], account_id)
