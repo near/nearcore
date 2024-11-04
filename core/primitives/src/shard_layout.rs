@@ -622,7 +622,7 @@ impl ShardLayout {
                 Some(to_parent_shard_map) => {
                     let parent_shard_id = to_parent_shard_map.get(&shard_id);
                     let parent_shard_id = parent_shard_id
-                        .ok_or_else(|| ShardLayoutError::InvalidShardIdError { shard_id })?;
+                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
                     *parent_shard_id
                 }
                 None => panic!("shard_layout has no parent shard"),
@@ -683,7 +683,7 @@ impl ShardLayout {
                 .id_to_index_map
                 .get(&shard_id)
                 .copied()
-                .ok_or_else(|| ShardLayoutError::InvalidShardIdError { shard_id }),
+                .ok_or(ShardLayoutError::InvalidShardIdError { shard_id }),
         }
     }
 
