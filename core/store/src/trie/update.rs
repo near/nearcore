@@ -1,15 +1,18 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
-use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use super::{OptimizedValueRef, Trie, TrieWithReadLock, ValueAccessToken};
 use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
-    TrieCacheMode,
+    AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+    StateRoot, TrieCacheMode,
 };
+use near_primitives::version::ProtocolFeature;
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -239,6 +242,58 @@ impl TrieUpdate {
             }
         }
         fallback(&key)
+    }
+
+    /// Records an access to the contract code due to a function call.
+    ///
+    /// The contract code is either included in the state witness or distributed
+    /// separately from the witness (see `ExcludeContractCodeFromStateWitness` feature).
+    /// In the former case, we record a Trie read from the `TrieKey::ContractCode` for each contract.
+    /// In the latter case, the Trie read does not happen and the code-size does not contribute to
+    /// the storage-proof limit. Instead we just record that the code with the given hash was called,
+    /// so that we can identify which contract-code to distribute to the validators.
+    pub fn record_contract_call(
+        &self,
+        account_id: AccountId,
+        code_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), StorageError> {
+        if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
+            // This causes trie lookup for the contract code to happen with side effects (charging gas and recording trie nodes).
+            self.trie.request_code_recording(account_id);
+            return Ok(());
+        }
+
+        // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
+        // This avoids recording contracts that do not exist or are newly-deployed to the account.
+        // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
+        if code_hash == CryptoHash::default() {
+            return Ok(());
+        }
+        let trie_key = TrieKey::ContractCode { account_id };
+        let contract_ref = self
+            .trie
+            .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
+            .or_else(|err| {
+                // If the value for the trie key is not found, we treat it as if the contract does not exist.
+                // In this case, we ignore the error and skip recording the contract call below.
+                if matches!(err, StorageError::MissingTrieValue(_, _)) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            })?;
+        let contract_exists: bool = match contract_ref {
+            Some(OptimizedValueRef::Ref(value_ref)) => value_ref.hash == code_hash,
+            Some(OptimizedValueRef::AvailableValue(ValueAccessToken { value })) => {
+                hash(value.as_slice()) == code_hash
+            }
+            None => false,
+        };
+        if contract_exists {
+            self.contract_storage.record_call(code_hash);
+        }
+        Ok(())
     }
 }
 

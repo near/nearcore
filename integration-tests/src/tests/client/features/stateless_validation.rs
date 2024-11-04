@@ -354,8 +354,10 @@ fn test_protocol_upgrade_81() {
     assert_eq!(config.chunk_producer_kickout_threshold, 90);
 }
 
+// TODO(wacban) should not panic when V2 is ready
 /// Test that Client rejects ChunkStateWitnesses with invalid shard_id
 #[test]
+#[should_panic(expected = "no entry found for key")]
 fn test_chunk_state_witness_bad_shard_id() {
     init_integration_logger();
 

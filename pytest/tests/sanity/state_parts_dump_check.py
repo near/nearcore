@@ -14,8 +14,10 @@ from itertools import islice, takewhile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+import key
 from utils import poll_blocks, poll_epochs
-from cluster import init_cluster, spin_up_node, load_config
+from cluster import BaseNode, init_cluster, spin_up_node, load_config
+import transaction
 import state_sync_lib
 from configured_logger import logger
 
@@ -34,15 +36,42 @@ def get_dump_check_metrics(target):
     return metrics
 
 
+def create_account(node: BaseNode, account_id: str, nonce):
+    """ Create an account with full access key and balance. """
+    block_hash = node.get_latest_block().hash_bytes
+    account = key.Key.from_random(account_id)
+    balance = 10**24
+    account_tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
+        node.signer_key,
+        account.account_id,
+        account,
+        balance,
+        nonce,
+        block_hash,
+    )
+    response = node.send_tx_and_wait(account_tx, timeout=20)
+    assert 'error' not in response, response
+    assert 'Failure' not in response['result']['status'], response
+    return account
+
+
 def main():
     node_config_dump, node_config = state_sync_lib.get_state_sync_configs_pair()
     config = load_config()
-    near_root, node_dirs = init_cluster(1, 2, 4, config,
-                                        [["epoch_length", EPOCH_LENGTH]], {
-                                            0: node_config,
-                                            1: node_config_dump,
-                                            2: node_config
-                                        })
+    genesis_config_changes = [["epoch_length", EPOCH_LENGTH]]
+    client_config_changes = {
+        0: node_config,
+        1: node_config_dump,
+        2: node_config
+    }
+    near_root, node_dirs = init_cluster(
+        1,
+        2,
+        4,
+        config,
+        genesis_config_changes,
+        client_config_changes,
+    )
 
     boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
     logger.info('Started boot_node')
@@ -56,6 +85,13 @@ def main():
                               node_dirs[2],
                               2,
                               boot_node=boot_node)
+
+    # create account in each shard so that the state is not empty
+    create_account(boot_node, "000.test0", 1)
+    create_account(boot_node, "shard0.test0", 2)
+    create_account(boot_node, "shard1.test0", 3)
+    create_account(boot_node, "shard2.test0", 4)
+
     dump_check.kill()
     chain_id = boot_node.get_status()['chain_id']
     dump_folder = node_config_dump["state_sync"]["dump"]["location"][

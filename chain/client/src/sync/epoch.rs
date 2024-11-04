@@ -5,7 +5,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
@@ -21,7 +21,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::{
     CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
-    EpochSyncProofEpochData, EpochSyncProofLastEpochData,
+    EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
@@ -63,7 +63,8 @@ impl EpochSync {
     ) -> Self {
         let epoch_sync_proof_we_used_to_bootstrap = store
             .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-            .expect("IO error querying epoch sync proof");
+            .expect("IO error querying epoch sync proof")
+            .map(|proof| proof.into_v1());
         let my_own_epoch_sync_boundary_block_header = epoch_sync_proof_we_used_to_bootstrap
             .map(|proof| proof.current_epoch.first_block_header_in_epoch);
 
@@ -223,8 +224,9 @@ impl EpochSync {
         // If we have an existing (possibly and likely outdated) EpochSyncProof stored on disk,
         // the last epoch we have a proof for is the "previous epoch" included in that EpochSyncProof.
         // Otherwise, the last epoch we have a "proof" for is the genesis epoch.
-        let existing_epoch_sync_proof =
-            store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?;
+        let existing_epoch_sync_proof = store
+            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?
+            .map(|proof| proof.into_v1());
         let last_epoch_we_have_proof_for = existing_epoch_sync_proof
             .as_ref()
             .and_then(|existing_proof| {
@@ -242,7 +244,7 @@ impl EpochSync {
         // If the proof we stored is for the same epoch as current or older, then just return that.
         if current_epoch_info.epoch_height() <= last_epoch_height_we_have_proof_for {
             if let Some(existing_proof) = existing_epoch_sync_proof {
-                return Ok(existing_proof);
+                return Ok(EpochSyncProof::V1(existing_proof));
             }
             // Corner case for if the current epoch is genesis or right after genesis.
             return Err(Error::Other("Not enough epochs after genesis to epoch sync".to_string()));
@@ -314,14 +316,11 @@ impl EpochSync {
             )?
             .ok_or_else(|| Error::Other("Could not find first block of next epoch".to_string()))?;
 
-        // TODO(#12255) That currently does not work because we might need some old block hashes
-        // in order to build the merkle proof.
-        // let merkle_proof_for_first_block_of_current_epoch = store
-        //     .compute_past_block_proof_in_merkle_tree_of_later_block(
-        //         first_block_of_current_epoch.hash(),
-        //         final_block_header_in_current_epoch.hash(),
-        //     )?;
-        let merkle_proof_for_first_block_of_current_epoch = Default::default();
+        let merkle_proof_for_first_block_of_current_epoch = store
+            .compute_past_block_proof_in_merkle_tree_of_later_block(
+                first_block_of_current_epoch.hash(),
+                last_final_block_header_in_current_epoch.hash(),
+            )?;
 
         let partial_merkle_tree_for_first_block_of_current_epoch = store
             .get_ser::<PartialMerkleTree>(
@@ -340,7 +339,7 @@ impl EpochSync {
             .into_iter()
             .chain(all_epochs_since_last_proof.into_iter())
             .collect();
-        let proof = EpochSyncProof {
+        let proof = EpochSyncProofV1 {
             all_epochs: all_epochs_including_old_proof,
             last_epoch: EpochSyncProofLastEpochData {
                 epoch_info: prev_epoch_info,
@@ -360,7 +359,7 @@ impl EpochSync {
             },
         };
 
-        Ok(proof)
+        Ok(EpochSyncProof::V1(proof))
     }
 
     /// Get all the past epoch data needed for epoch sync, between `after_epoch` and `next_epoch`
@@ -590,7 +589,7 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        if !self.config.enabled {
+        if self.config.disable_epoch_sync_for_bootstrapping {
             return Ok(());
         }
         let tip_height = chain.chain_store().header_head()?.height;
@@ -646,6 +645,7 @@ impl EpochSync {
         source_peer: PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
+        let proof = proof.into_v1();
         if let SyncStatus::EpochSync(status) = status {
             if status.source_peer_id != source_peer {
                 tracing::warn!("Ignoring epoch sync proof from unexpected peer: {}", source_peer);
@@ -688,7 +688,9 @@ impl EpochSync {
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
         // to faciliate epoch sync of other nodes.
+        let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
         store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
+        let proof = proof.into_v1();
 
         let last_header = proof.current_epoch.first_block_header_in_epoch;
         let mut update = chain.mut_chain_store().store_update();
@@ -770,10 +772,10 @@ impl EpochSync {
 
     fn verify_proof(
         &self,
-        proof: &EpochSyncProof,
+        proof: &EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
-        let EpochSyncProof { all_epochs, last_epoch, current_epoch } = proof;
+        let EpochSyncProofV1 { all_epochs, last_epoch, current_epoch } = proof;
         if all_epochs.len() < 2 {
             return Err(Error::InvalidEpochSyncProof(
                 "need at least two epochs in all_epochs".to_string(),
@@ -832,35 +834,55 @@ impl EpochSync {
 
     fn verify_current_epoch_data(
         current_epoch: &EpochSyncProofCurrentEpochData,
-        _current_epoch_final_block_header: &BlockHeader,
+        current_epoch_final_block_header: &BlockHeader,
     ) -> Result<(), Error> {
         // Verify first_block_header_in_epoch
         let first_block_header = &current_epoch.first_block_header_in_epoch;
-        // TODO(#12255) Uncomment the check below when `merkle_proof_for_first_block` is generated.
-        // if !merkle::verify_hash(
-        //     *current_epoch_final_block_header.block_merkle_root(),
-        //     &current_epoch.merkle_proof_for_first_block,
-        //     *first_block_header.hash(),
-        // ) {
-        //     return Err(Error::InvalidEpochSyncProof(
-        //         "invalid merkle_proof_for_first_block".to_string(),
-        //     ));
-        // }
-
-        // Verify partial_merkle_tree_for_first_block
-        if current_epoch.partial_merkle_tree_for_first_block.root()
-            != *first_block_header.block_merkle_root()
-        {
+        if !near_primitives::merkle::verify_hash(
+            *current_epoch_final_block_header.block_merkle_root(),
+            &current_epoch.merkle_proof_for_first_block,
+            *first_block_header.hash(),
+        ) {
             return Err(Error::InvalidEpochSyncProof(
-                "invalid path in partial_merkle_tree_for_first_block".to_string(),
+                "invalid merkle_proof_for_first_block".to_string(),
             ));
         }
-        // TODO(#12256) Investigate why "+1" was needed here, looks like it should not be there.
+
+        // Verify partial_merkle_tree_for_first_block. The size needs to match to ensure that
+        // the partial merkle tree is for the right block ordinal, and the partial tree itself
+        // needs to be valid and have the correct root.
+        //
+        // Note that the block_ordinal in the header is 1-based, so we need to add 1 to the size.
         if current_epoch.partial_merkle_tree_for_first_block.size() + 1
             != first_block_header.block_ordinal()
         {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid size in partial_merkle_tree_for_first_block".to_string(),
+            ));
+        }
+
+        if !current_epoch.partial_merkle_tree_for_first_block.is_well_formed()
+            || current_epoch.partial_merkle_tree_for_first_block.root()
+                != *first_block_header.block_merkle_root()
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid path in partial_merkle_tree_for_first_block".to_string(),
+            ));
+        }
+
+        // Verify the two headers before the first block.
+        if current_epoch.last_block_header_in_prev_epoch.hash()
+            != current_epoch.first_block_header_in_epoch.prev_hash()
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid last_block_header_in_prev_epoch".to_string(),
+            ));
+        }
+        if current_epoch.second_last_block_header_in_prev_epoch.hash()
+            != current_epoch.last_block_header_in_prev_epoch.prev_hash()
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid second_last_block_header_in_prev_epoch".to_string(),
             ));
         }
 
@@ -966,9 +988,8 @@ impl EpochSync {
 impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
-        if !self.client.epoch_sync.config.enabled {
-            // TODO(#11937): before we have rate limiting, don't respond to epoch sync requests
-            // unless config is enabled.
+        if self.client.epoch_sync.config.ignore_epoch_sync_network_requests {
+            // Temporary killswitch for the rare case there were issues with this network request.
             return;
         }
         let store = self.client.chain.chain_store.store().clone();

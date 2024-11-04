@@ -248,7 +248,7 @@ mod tests {
             online_min_threshold: Ratio::new(90, 100),
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(80, 100),
-            shard_layout: ShardLayout::v0(num_shards, 0),
+            shard_layout: ShardLayout::multi_shard(num_shards, 0),
             validator_selection_config: Default::default(),
             validator_max_kickout_stake_perc: 100,
         };

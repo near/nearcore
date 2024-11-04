@@ -58,6 +58,7 @@ near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 near-primitives = { workspace = true, features = ["clock"] }
+near-test-contracts.workspace = true
 serde_json.workspace = true
 primitive-types.workspace = true
 insta.workspace = true

@@ -57,7 +57,7 @@ use near_store::{
     set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
     TrieChanges, WrappedTrieChanges,
 };
-use near_vm_runner::{ContractRuntimeCache, NoContractRuntimeCache};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use num_rational::Ratio;
 use rand::Rng;
 use std::cmp::Ordering;
@@ -404,6 +404,7 @@ impl KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+    #[allow(deprecated)]
     let shard_layout = ShardLayout::v0(num_shards, 0);
     shard_layout::account_id_to_shard_id(account_id, &shard_layout)
 }
@@ -564,6 +565,7 @@ impl EpochManagerAdapter for MockEpochManager {
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        #[allow(deprecated)]
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
@@ -648,6 +650,7 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _parent_hash: &CryptoHash,
     ) -> Result<ShardLayout, EpochError> {
+        #[allow(deprecated)]
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
@@ -1579,5 +1582,14 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
         &self.contract_cache
+    }
+
+    fn precompile_contracts(
+        &self,
+        _epoch_id: &EpochId,
+        _contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error> {
+        // Note that KeyValueRuntime does not use compiled contract cache, so this is no-op.
+        Ok(())
     }
 }

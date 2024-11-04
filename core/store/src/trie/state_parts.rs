@@ -341,7 +341,7 @@ impl Trie {
         memory_skipped: &mut u64,
         key_nibbles: &mut Vec<u8>,
     ) -> Result<bool, StorageError> {
-        *memory_skipped += node.node.memory_usage_direct_no_memory();
+        *memory_skipped += node.node.memory_usage_direct();
 
         match &node.node {
             TrieNode::Empty => Ok(false),
@@ -360,11 +360,8 @@ impl Trie {
 
                 let mut iter = children.iter();
                 while let Some((index, child)) = iter.next() {
-                    let child = if let NodeHandle::Hash(h) = child {
-                        self.retrieve_node(h)?.1
-                    } else {
-                        unreachable!("only possible while mutating")
-                    };
+                    let NodeHandle::Hash(h) = child;
+                    let child = self.retrieve_node(h)?.1;
                     if *memory_skipped + child.memory_usage > memory_threshold {
                         core::mem::drop(iter);
                         key_nibbles.push(index);
@@ -382,7 +379,6 @@ impl Trie {
             }
             TrieNode::Extension(key, child_handle) => {
                 let child = match child_handle {
-                    NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
                     NodeHandle::Hash(h) => self.retrieve_node(h)?.1,
                 };
                 let (slice, _) = NibbleSlice::from_encoded(key);
@@ -712,13 +708,10 @@ mod tests {
                     },
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
-                            if let NodeHandle::Hash(h) = child.clone() {
-                                let child = self.retrieve_node(&h)?.1;
-                                stack.push((h, node, CrumbStatus::Exiting));
-                                stack.push((h, child, CrumbStatus::Entering));
-                            } else {
-                                unreachable!("only possible while mutating")
-                            }
+                            let NodeHandle::Hash(h) = child.clone();
+                            let child = self.retrieve_node(&h)?.1;
+                            stack.push((h, node, CrumbStatus::Exiting));
+                            stack.push((h, child, CrumbStatus::Entering));
                         }
                     }
                 }
