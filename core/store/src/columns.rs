@@ -306,6 +306,17 @@ pub enum DBCol {
     /// - *Rows*: `ShardUId`
     /// - *Column type*: `ShardUId`
     StateShardUIdMapping,
+    /// Stores a mapping from epoch IDs to the hash of the block that should be used as the "sync_hash" in state sync
+    /// when syncing state to the current epoch after the StateSyncHashUpdate protocol feature is enabled.
+    /// - *Rows*: `EpochId`
+    /// - *Column type*: `CryptoHash`
+    StateSyncHashes,
+    /// Stores a mapping from a block's hash to a list (indexed by ShardIndex like a header's chunk_mask())
+    /// of the number of new chunks up to that block after the first block in the epoch. Used in calculating
+    /// the right "sync_hash" for state sync after the StateSyncHashUpdate protocol feature is enabled.
+    /// - *Rows*: `CryptoHash`
+    /// - *Column type*: `Vec<u8>`
+    StateSyncNewChunks,
 }
 
 /// Defines different logical parts of a db key.
@@ -510,7 +521,9 @@ impl DBCol {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
-            | DBCol::EpochSyncProof => false,
+            | DBCol::EpochSyncProof
+            | DBCol::StateSyncHashes
+            | DBCol::StateSyncNewChunks => false,
         }
     }
 
@@ -584,6 +597,8 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
+            DBCol::StateSyncHashes => &[DBKeyType::EpochId],
+            DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
         }
     }
 }

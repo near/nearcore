@@ -2185,8 +2185,7 @@ fn test_sync_hash_validity() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     for i in 1..19 {
         env.produce_block(0, i);
-    }
-    for i in 1..19 {
+
         let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
         let block_hash = *header.hash();
         let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();

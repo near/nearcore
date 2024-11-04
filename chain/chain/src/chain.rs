@@ -2535,67 +2535,13 @@ impl Chain {
         let header = self.get_block_header(block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-            self.get_current_epoch_sync_hash(block_hash)
+            self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
         } else {
             // In the first epoch, it doesn't make sense to sync state to the previous epoch.
             if header.epoch_id() == &EpochId::default() {
                 return Ok(None);
             }
-            self.get_previous_epoch_sync_hash(block_hash).map(Some)
-        }
-    }
-
-    /// Find the hash of the first block in the epoch the block with hash `block_hash` belongs to.
-    /// This is the "sync_hash" that will be used as a reference point when state syncing the previous epoch's state
-    fn get_previous_epoch_sync_hash(&self, block_hash: &CryptoHash) -> Result<CryptoHash, Error> {
-        Ok(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block())
-    }
-
-    /// Returns the first block for which at least two new chunks have been produced for every shard in the epoch
-    /// This is the "sync_hash" that will be used as a reference point when state syncing the current epoch's state
-    // TODO(current_epoch_state_sync): remove this and replace it with a single more efficient function that somehow
-    // keeps track of the number of new chunks per shard so for, like in `NewChunkTracker::find_sync_hash()`, and then
-    // only implement this in one place.
-    fn get_current_epoch_sync_hash(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Option<CryptoHash>, Error> {
-        let epoch_start = self.get_previous_epoch_sync_hash(block_hash)?;
-        let mut header = self.get_block_header(&epoch_start)?;
-
-        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
-        let shard_ids = self.epoch_manager.shard_ids(header.epoch_id())?;
-        let mut num_new_chunks: HashMap<_, _> =
-            shard_ids.iter().map(|shard_id| (*shard_id, 0)).collect();
-
-        loop {
-            let next_hash = match self.chain_store().get_next_block_hash(header.hash()) {
-                Ok(h) => h,
-                Err(Error::DBNotFoundErr(_)) => return Ok(None),
-                Err(e) => return Err(e),
-            };
-            header = self.get_block_header(&next_hash)?;
-
-            let mut done = true;
-            for (shard_id, num_new_chunks) in num_new_chunks.iter_mut() {
-                let shard_index = shard_layout.get_shard_index(*shard_id)?;
-                let Some(included) = header.chunk_mask().get(shard_index) else {
-                    return Err(Error::Other(format!(
-                        "can't get shard {} in chunk mask for block {}",
-                        shard_id,
-                        header.hash()
-                    )));
-                };
-                if *included {
-                    *num_new_chunks += 1;
-                }
-                if *num_new_chunks < 2 {
-                    done = false;
-                }
-            }
-            if done {
-                return Ok(Some(*header.hash()));
-            }
+            Ok(Some(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block()))
         }
     }
 
@@ -4016,11 +3962,7 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    // TODO(current_epoch_state_sync): this needs to be fixed. can't be iterating over the whole chain inside of preprocess
-                    // block like that if there are many missed chunks
-                    let Some(sync_hash) =
-                        self.get_current_epoch_sync_hash(&head.last_block_hash)?
-                    else {
+                    let Some(sync_hash) = self.get_sync_hash(&head.last_block_hash)? else {
                         return Ok(SnapshotAction::None);
                     };
                     if sync_hash == head.last_block_hash {
@@ -4408,8 +4350,6 @@ impl Chain {
         // Do not replace with `get_block_header()`.
         let _sync_block = self.get_block(sync_hash)?;
 
-        // TODO(current_epoch_state_sync): replace this with a more efficient lookup. In the case
-        // we're syncing to the current epoch, this iterates over blocks in the epoch
         let good_sync_hash = self.get_sync_hash(sync_hash)?;
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
     }
