@@ -692,8 +692,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let is_resharding_boundary =
             self.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
 
+        let mut result = vec![];
         if is_resharding_boundary {
-            let mut result = vec![];
             for shard_id in shard_ids {
                 let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
                 let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
@@ -701,7 +701,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             }
             Ok(result)
         } else {
-            let mut result = vec![];
             for shard_id in shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id)?;
                 result.push((shard_id, shard_index));
