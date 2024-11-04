@@ -628,14 +628,13 @@ impl PeerManagerActor {
     /// retry logic anyway. TODO(saketh): consider if we can improve this in a simple way.
     fn stop_tier3_idle_connections(&self) {
         let now = self.clock.now();
-        let _ = self
-            .state
+        self.state
             .tier3
             .load()
             .ready
             .values()
             .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
-            .map(|p| p.stop(None));
+            .for_each(|p| p.stop(None));
     }
 
     /// Periodically monitor list of peers and:
