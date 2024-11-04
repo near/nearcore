@@ -1650,6 +1650,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
         .unwrap();
 
     assert_eq!(apply_result.delayed_receipts_count, 1);
+    // Since the second call fails due to insufficient gas, only the first call is recorded.
     assert_eq!(
         apply_result.contract_updates.contract_accesses,
         HashSet::from([CodeHash(*first_contract_code.hash())])
@@ -1819,6 +1820,104 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
             CodeHash(*first_contract_code.hash()),
             CodeHash(*second_contract_code.hash())
         ])
+    );
+}
+
+// Tests that an existing contract is deployed and called from a different account.
+#[test]
+fn test_deploy_existing_contract_to_different_account() {
+    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+
+    apply_state.config = Arc::new(RuntimeConfig::free());
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+
+    // First deploy the contract to Alice account and call it.
+    let first_deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() })],
+    );
+    let first_call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ext_sha256".to_string(),
+            args: b"first".to_vec(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[first_deploy_receipt, first_call_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    // No contract access is recorded because it was newly deployed.
+    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
+    assert_eq!(
+        apply_result.contract_updates.contract_deploy_hashes(),
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    // Second deploy the contract to Bob account and call it.
+    let second_deploy_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() })],
+    );
+    let second_call_receipt = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ext_sha256".to_string(),
+            args: b"first".to_vec(),
+            gas: 1,
+            deposit: 0,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[second_deploy_receipt, second_call_receipt],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    // No contract access is recorded because it was newly deployed.
+    assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
+    // The contract deployment is still recorded even if it was deployed to another account before.
+    assert_eq!(
+        apply_result.contract_updates.contract_deploy_hashes(),
+        HashSet::from([CodeHash(*contract_code.hash())])
     );
 }
 
