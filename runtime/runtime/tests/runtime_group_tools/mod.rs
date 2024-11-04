@@ -2,6 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{hash, CryptoHash};
@@ -106,7 +107,7 @@ impl StandaloneRuntime {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

@@ -97,9 +97,8 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
-    /// Represents a phase of the chain lifecycle that we want to run apply for.
-    /// This is currently represented as a static string and used as dimension in some metrics.
-    pub apply_reason: Option<ApplyChunkReason>,
+    /// Points to a phase of the chain lifecycle that we want to run apply for.
+    pub apply_reason: ApplyChunkReason,
     /// Currently building block height.
     pub block_height: BlockHeight,
     /// Prev block hash
