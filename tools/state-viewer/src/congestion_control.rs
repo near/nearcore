@@ -90,7 +90,7 @@ impl BootstrapCmd {
             (None, None) => {
                 let mut result = vec![];
                 for (shard_index, state_root) in state_roots.into_iter().enumerate() {
-                    let shard_id = shard_layout.get_shard_id(shard_index);
+                    let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                     result.push((shard_id, state_root));
                 }
                 result
@@ -163,7 +163,7 @@ impl PrepareBenchmarkCmd {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
         for (shard_index, &state_root) in state_roots.iter().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             println!("old - {:?} - {:?}", shard_id, state_root);
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
 

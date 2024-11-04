@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::EpochManagerAdapter;
+use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::ClientConfig;
 use near_primitives::errors::EpochError;
@@ -76,17 +77,20 @@ impl ShardTracker {
         match &self.tracked_config {
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                let tracking_mask = self.tracking_shards_cache.get_or_put(*epoch_id, |_| {
-                    let mut tracking_mask: Vec<_> =
-                        shard_layout.shard_ids().map(|_| false).collect();
-                    for account_id in tracked_accounts {
-                        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
-                        let shard_index = shard_layout.get_shard_index(shard_id);
-                        tracking_mask[shard_index] = true;
-                    }
-                    tracking_mask
-                });
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let tracking_mask = self.tracking_shards_cache.get_or_try_put(
+                    *epoch_id,
+                    |_| -> Result<Vec<bool>, EpochError> {
+                        let mut tracking_mask =
+                            shard_layout.shard_ids().map(|_| false).collect_vec();
+                        for account_id in tracked_accounts {
+                            let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+                            let shard_index = shard_layout.get_shard_index(shard_id)?;
+                            tracking_mask[shard_index] = true;
+                        }
+                        Ok(tracking_mask)
+                    },
+                )?;
+                let shard_index = shard_layout.get_shard_index(shard_id)?;
                 Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
             }
             TrackedConfig::AllShards => Ok(true),
@@ -248,7 +252,7 @@ mod tests {
             online_min_threshold: Ratio::new(90, 100),
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(80, 100),
-            shard_layout: ShardLayout::v0(num_shards, 0),
+            shard_layout: ShardLayout::multi_shard(num_shards, 0),
             validator_selection_config: Default::default(),
             validator_max_kickout_stake_perc: 100,
         };

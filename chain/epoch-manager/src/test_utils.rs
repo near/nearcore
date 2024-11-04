@@ -155,7 +155,7 @@ pub fn epoch_config_with_production_config(
             num_chunk_producer_seats,
             ..Default::default()
         },
-        shard_layout: ShardLayout::v0(num_shards, 0),
+        shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
     AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")

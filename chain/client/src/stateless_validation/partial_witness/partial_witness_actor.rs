@@ -261,6 +261,12 @@ impl PartialWitnessActor {
         deploys: ChunkContractDeploys,
     ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
         let validators = self.ordered_contract_deploys_validators(key)?;
+        // Note that target validators do not include the chunk producers, and thus in some case
+        // (eg. tests or small networks) there may be no other validators to send the new contracts to.
+        if validators.is_empty() {
+            return Ok(vec![]);
+        }
+
         let encoder = self.contract_deploys_encoder(validators.len());
         let (parts, encoded_length) = encoder.encode(&deploys);
         let signer = self.my_validator_signer()?;
@@ -403,38 +409,53 @@ impl PartialWitnessActor {
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_deploys, "Receive PartialEncodedContractDeploys");
-
-        let signer = self.my_validator_signer()?;
         if !validate_partial_encoded_contract_deploys(
             self.epoch_manager.as_ref(),
             &partial_deploys,
-            &signer,
             self.runtime.store(),
         )? {
             return Ok(());
         }
+        if self.partial_deploys_tracker.already_processed(&partial_deploys) {
+            return Ok(());
+        }
         let key = partial_deploys.chunk_production_key().clone();
         let validators = self.ordered_contract_deploys_validators(&key)?;
+        if validators.is_empty() {
+            // Note that target validators do not include the chunk producers, and thus in some case
+            // (eg. tests or small networks) there may be no other validators to send the new contracts to.
+            // In such case, the message we are handling here should not be sent in the first place,
+            // unless there is a bug or adversarial behavior that sends the message.
+            debug_assert!(false, "No target validators, we must not receive this message");
+            return Ok(());
+        }
 
         // Forward to other validators if the part received is my part
         let signer = self.my_validator_signer()?;
         let my_account_id = signer.validator_id();
-        let my_part_ord = validators
-            .iter()
-            .position(|validator| validator == my_account_id)
-            .expect("expected to be validated");
+        let Some(my_part_ord) = validators.iter().position(|validator| validator == my_account_id)
+        else {
+            tracing::warn!(
+                target: "client",
+                ?key,
+                "Validator is not a part of contract deploys distribution"
+            );
+            return Ok(());
+        };
         if partial_deploys.part().part_ord == my_part_ord {
             let other_validators = validators
                 .iter()
                 .filter(|&validator| validator != my_account_id)
                 .cloned()
                 .collect_vec();
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedContractDeploys(
-                    other_validators,
-                    partial_deploys.clone(),
-                ),
-            ));
+            if !other_validators.is_empty() {
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedContractDeploys(
+                        other_validators,
+                        partial_deploys.clone(),
+                    ),
+                ));
+            }
         }
 
         // Store part

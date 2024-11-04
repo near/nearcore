@@ -64,7 +64,7 @@ pub fn validate_chunk_endorsements_in_block(
         // Validation for chunks in each shard
         // The signatures from chunk validators for each shard must match the ordered_chunk_validators
         let shard_id = chunk_header.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
@@ -172,7 +172,7 @@ pub fn validate_chunk_endorsements_in_header(
     }
     let chunk_mask = header.chunk_mask();
     for shard_id in shard_ids.into_iter() {
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         // For old chunks, we optimize the block and its header by not including the chunk endorsements and
         // corresponding bitmaps. Thus, we expect that the bitmap is empty for shard with no new chunk.
         if chunk_mask[shard_index] != (chunk_endorsements.len(shard_index).unwrap() > 0) {

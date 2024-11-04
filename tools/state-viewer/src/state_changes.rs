@@ -92,7 +92,7 @@ fn dump_state_changes(
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
             let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             state_changes_per_shard[shard_index].push(value);
         }
 
@@ -102,7 +102,7 @@ fn dump_state_changes(
                 // Skip serializing state changes for a shard if no state changes were found for this shard in this block.
                 None
             } else {
-                let shard_id = shard_layout.get_shard_id(shard_index);
+                let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 Some(StateChangesForShard{shard_id, state_changes})
             }
         }).collect();

@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1029,6 +1030,12 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
+    }
+}
+
+impl From<ShardLayoutError> for EpochError {
+    fn from(error: ShardLayoutError) -> Self {
+        EpochError::ShardingError(error.to_string())
     }
 }
 

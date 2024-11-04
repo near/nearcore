@@ -3,7 +3,7 @@ use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
 use near_time::Utc;
 use std::io;
 
@@ -191,6 +191,8 @@ pub enum Error {
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
+    #[error("Shard index {0} does not exist")]
+    InvalidShardIndex(ShardIndex),
     /// Invalid shard id
     #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
@@ -323,6 +325,7 @@ impl Error {
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
+            | Error::InvalidShardIndex(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
@@ -403,6 +406,7 @@ impl Error {
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",
+            Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
@@ -443,6 +447,9 @@ impl From<ShardLayoutError> for Error {
     fn from(error: ShardLayoutError) -> Self {
         match error {
             ShardLayoutError::InvalidShardIdError { shard_id } => Error::InvalidShardId(shard_id),
+            ShardLayoutError::InvalidShardIndexError { shard_index } => {
+                Error::InvalidShardIndex(shard_index)
+            }
         }
     }
 }
