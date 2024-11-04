@@ -7,6 +7,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{RuntimeError, TxExecutionError};
@@ -167,7 +168,7 @@ impl RuntimeUser {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

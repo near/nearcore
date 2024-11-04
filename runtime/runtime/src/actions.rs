@@ -106,10 +106,7 @@ pub(crate) fn execute_function_call(
     drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
-        &apply_state
-            .apply_reason
-            .as_ref()
-            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+        &apply_state.apply_reason.to_string(),
     );
 
     // There are many specific errors that the runtime can encounter.
@@ -188,6 +185,7 @@ pub(crate) fn action_function_call(
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
+        apply_state.apply_reason.clone(),
         apply_state.current_protocol_version,
     )?;
 
@@ -1163,6 +1161,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
@@ -1410,7 +1409,7 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
