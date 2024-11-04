@@ -118,14 +118,14 @@ impl TrieIterationBenchmarkCmd {
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             if chunk_header.height_included() != block.header().height() {
                 println!("chunk for shard {shard_id} is missing and will be skipped");
             }
         }
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             if chunk_header.height_included() != block.header().height() {
                 println!("chunk for shard {shard_id} is missing, skipping it");
                 continue;

@@ -215,7 +215,7 @@ fn find_tx_or_receipt(
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
     for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index);
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up canditate chunk")?;
         for tx in chunk.transactions() {

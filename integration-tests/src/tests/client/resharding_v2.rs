@@ -233,7 +233,7 @@ impl TestReshardingEnv {
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let mut chunk_producer_to_shard_id: HashMap<AccountId, Vec<ShardId>> = HashMap::new();
         for shard_index in 0..block.chunks().len() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let validator_id = get_chunk_producer(env, &block, shard_id);
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }

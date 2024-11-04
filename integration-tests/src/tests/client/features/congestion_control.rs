@@ -160,7 +160,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
         let runtime_config = protocol_config.runtime_config;
 
         for (shard_index, chunk) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
 
             let prev_state_root = chunk.prev_state_root();
 

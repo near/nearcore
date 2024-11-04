@@ -108,7 +108,7 @@ impl EpochInfoAggregator {
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let chunk_producer_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 shard_layout,

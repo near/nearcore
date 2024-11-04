@@ -102,7 +102,7 @@ fn dump_state_changes(
                 // Skip serializing state changes for a shard if no state changes were found for this shard in this block.
                 None
             } else {
-                let shard_id = shard_layout.get_shard_id(shard_index);
+                let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 Some(StateChangesForShard{shard_id, state_changes})
             }
         }).collect();

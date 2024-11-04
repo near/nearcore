@@ -322,6 +322,7 @@ impl ShardLayoutV2 {
 #[derive(Debug)]
 pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
+    InvalidShardIndexError { shard_index: ShardIndex },
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -689,11 +690,20 @@ impl ShardLayout {
 
     /// Get the shard id for a given shard index. The shard id should be used to
     /// identify the shard and starting from the ShardLayoutV2 it is unique.
-    pub fn get_shard_id(&self, shard_index: ShardIndex) -> ShardId {
+    pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
+        let num_shards = self.num_shards() as usize;
         match self {
-            Self::V0(_) => ShardId::new(shard_index as u64),
-            Self::V1(_) => ShardId::new(shard_index as u64),
-            Self::V2(v2) => v2.index_to_id_map[&shard_index],
+            Self::V0(_) | Self::V1(_) => {
+                if shard_index >= num_shards {
+                    return Err(ShardLayoutError::InvalidShardIndexError { shard_index });
+                }
+                Ok(ShardId::new(shard_index as u64))
+            }
+            Self::V2(v2) => v2
+                .index_to_id_map
+                .get(&shard_index)
+                .copied()
+                .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
         }
     }
 }
