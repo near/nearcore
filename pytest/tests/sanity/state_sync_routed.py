@@ -125,9 +125,11 @@ assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
                                                           boot_heights)
 
 while True:
-    assert time.time() - started < TIMEOUT, "Waiting for node 4 to connect to two peers"
+    assert time.time(
+    ) - started < TIMEOUT, "Waiting for node 4 to connect to two peers"
     num_connections = 0
-    for (conn_type, count) in metrics4.get_metric_all_values("near_peer_connections"):
+    for (conn_type,
+         count) in metrics4.get_metric_all_values("near_peer_connections"):
         if conn_type['tier'] == 'T2':
             num_connections += count
     if num_connections == 2:
@@ -142,7 +144,8 @@ if mode == 'manytx':
             "Waiting for the old node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
-    logger.info("Old node caught up to expected balances: %s" % ctx.expected_balances)
+    logger.info("Old node caught up to expected balances: %s" %
+                ctx.expected_balances)
 
     # requery the balances from the newly started node
     ctx.nodes.append(node4)
@@ -154,4 +157,5 @@ if mode == 'manytx':
             "Waiting for the new node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
-    logger.info("New node caught up to expected balances: %s" % ctx.expected_balances)
+    logger.info("New node caught up to expected balances: %s" %
+                ctx.expected_balances)
