@@ -7,7 +7,8 @@ use near_primitives::state::FlatStateValue;
 
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::trie::ops::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedNodeId, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize
+    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedNodeId,
+    GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
 };
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};

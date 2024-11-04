@@ -63,7 +63,8 @@ pub(crate) fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Ve
         .collect_vec()
 }
 
-pub(crate) trait GenericTrieUpdateRetain<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
+pub(crate) trait GenericTrieUpdateRetain<'a, N, V>:
+    GenericTrieUpdateSquash<'a, N, V>
 where
     N: std::fmt::Debug,
     V: std::fmt::Debug + HasValueLength,
