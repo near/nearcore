@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -98,6 +99,17 @@ pub enum MissingTrieValueContext {
     TrieMemoryPartialStorage,
     /// Missing trie value when reading from TrieStorage.
     TrieStorage,
+}
+
+impl MissingTrieValueContext {
+    pub fn metrics_label(&self) -> &str {
+        match self {
+            Self::TrieIterator => "trie_iterator",
+            Self::TriePrefetchingStorage => "trie_prefetching_storage",
+            Self::TrieMemoryPartialStorage => "trie_memory_partial_storage",
+            Self::TrieStorage => "trie_storage",
+        }
+    }
 }
 
 /// Errors which may occur during working with trie storages, storing
@@ -1018,6 +1030,12 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
+    }
+}
+
+impl From<ShardLayoutError> for EpochError {
+    fn from(error: ShardLayoutError) -> Self {
+        EpochError::ShardingError(error.to_string())
     }
 }
 

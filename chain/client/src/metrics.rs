@@ -482,6 +482,16 @@ pub(crate) static STATE_SYNC_PARTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_P2P_REQUEST_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_p2p_request_delay_sec",
+        "Latency of state requests to peers",
+        &["shard_id", "type"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
@@ -629,6 +639,17 @@ pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: LazyLock<HistogramVec> = La
     )
     .unwrap()
 });
+
+pub(crate) static PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+        "near_partial_contract_deploys_time_to_last_part",
+        "Time taken from receiving first partial contract deploys to receiving enough parts to decode",
+        &["shard_id"],
+        Some(exponential_buckets(0.05, 2.0, 10).unwrap()),
+    )
+    .unwrap()
+    });
 
 pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<Gauge> = LazyLock::new(|| {
     try_create_gauge(

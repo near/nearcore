@@ -6,9 +6,10 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
 use near_primitives::state::FlatStateValue;
-use near_primitives::types::{shard_id_as_u32, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
@@ -163,8 +164,11 @@ impl FlatStorageCommand {
         mode: Mode,
     ) -> (NodeStorage, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, ChainStore, Store) {
         let node_storage = opener.open_in_mode(mode).unwrap();
-        let epoch_manager =
-            EpochManager::new_arc_handle(node_storage.get_hot_store(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            node_storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir.as_path()),
+        );
         let hot_runtime = NightshadeRuntime::from_config(
             home_dir,
             node_storage.get_hot_store(),
@@ -482,7 +486,8 @@ impl FlatStorageCommand {
             let epoch_id = header.epoch_id();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index =
+                shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
 
             let state_root = block.chunks().get(shard_index).unwrap().prev_state_root();
             let prev_hash = header.prev_hash();
@@ -583,7 +588,7 @@ impl FlatStorageCommand {
         let (_, epoch_manager, runtime, chain_store, _) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
 
-        let shard_uid = ShardUId { version: cmd.version, shard_id: shard_id_as_u32(cmd.shard_id) };
+        let shard_uid = ShardUId::new(cmd.version, cmd.shard_id);
         let flat_storage_manager = runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();

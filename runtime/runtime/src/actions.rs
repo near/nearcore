@@ -185,17 +185,11 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    // When the contract code is excluded from the witness, the Trie read for the contract code
-    // is not recorded and the code-size does not contribute to the storage-proof limit.
-    // Instead we just record that the code with the given hash was called, so that we can identify
-    // which contract-code to distribute to the validators.
-    if ProtocolFeature::ExcludeContractCodeFromStateWitness
-        .enabled(apply_state.current_protocol_version)
-    {
-        state_update.contract_storage.record_call(code_hash);
-    } else {
-        state_update.trie.request_code_recording(account_id.clone());
-    }
+    state_update.record_contract_call(
+        account_id.clone(),
+        code_hash,
+        apply_state.current_protocol_version,
+    )?;
 
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
@@ -1169,6 +1163,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::runtime::migration_data::MigrationFlags;
@@ -1433,6 +1428,7 @@ mod tests {
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
             congestion_info: BlockCongestionInfo::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         }
     }
 

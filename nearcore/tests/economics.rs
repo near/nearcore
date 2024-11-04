@@ -34,7 +34,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime = NightshadeRuntime::test(
         Path::new("."),
         store.clone(),

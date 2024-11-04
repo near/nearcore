@@ -58,7 +58,7 @@ fn test_fix_min_stake_ratio() {
 
     // Take epoch configuration before the protocol upgrade, where minimum
     // stake ratio was 1/6250.
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet").unwrap();
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version() - 1;
 
     // Create chain with version before FixMinStakeRatio was enabled.
@@ -69,7 +69,7 @@ fn test_fix_min_stake_ratio() {
         .shard_layout(epoch_config_store.get_config(protocol_version).as_ref().shard_layout.clone())
         .protocol_version(protocol_version)
         .epoch_length(epoch_length)
-        .validators_raw(validators, 1, 2)
+        .validators_raw(validators, 1, 1, 2)
         // Disable validator rewards.
         .max_inflation_rate(Rational32::new(0, 1));
     for account in &accounts {

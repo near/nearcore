@@ -477,7 +477,8 @@ fn test_cold_loop_on_gc_boundary() {
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
-    let epoch_manager = EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
     spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 

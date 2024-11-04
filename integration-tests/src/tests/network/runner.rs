@@ -5,6 +5,7 @@ use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::futures::ActixFutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
@@ -58,7 +59,8 @@ fn setup_network_node(
     genesis.config.epoch_length = 5;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = NightshadeRuntime::test(
         tempdir.path(),
@@ -145,6 +147,7 @@ fn setup_network_node(
         validator_signer,
         epoch_manager,
         runtime,
+        Arc::new(RayonAsyncComputationSpawner),
     ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(

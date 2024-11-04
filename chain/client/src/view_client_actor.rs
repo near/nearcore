@@ -760,7 +760,7 @@ fn get_chunk_from_block(
 ) -> Result<ShardChunk, near_chain::Error> {
     let epoch_id = block.header().epoch_id();
     let shard_layout = chain.epoch_manager.get_shard_layout(epoch_id)?;
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunk_header = block
         .chunks()
         .get(shard_index)
@@ -1092,7 +1092,10 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     .epoch_manager
                     .account_id_to_shard_id(&account_id, &epoch_id)
                     .into_chain_error()?;
-                let target_shard_index = shard_layout.get_shard_index(target_shard_id);
+                let target_shard_index = shard_layout
+                    .get_shard_index(target_shard_id)
+                    .map_err(Into::into)
+                    .into_chain_error()?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -1396,8 +1399,11 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
                 can_generate: false,
             }),
         };
-        let info =
-            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
+        let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
+            shard_id,
+            sync_hash,
+            state_response,
+        }));
         Some(StateResponse(Box::new(info)))
     }
 }
@@ -1455,8 +1461,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
             cached_parts: None,
             can_generate,
         });
-        let info =
-            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
+        let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
+            shard_id,
+            sync_hash,
+            state_response,
+        }));
         Some(StateResponse(Box::new(info)))
     }
 }

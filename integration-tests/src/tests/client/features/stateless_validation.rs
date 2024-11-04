@@ -1,6 +1,7 @@
 use crate::tests::client::features::wallet_contract::{
     create_rlp_execute_tx, view_balance, NearSigner,
 };
+use assert_matches::assert_matches;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountIdRef;
@@ -348,7 +349,7 @@ fn test_protocol_upgrade_81() {
         chunk_producer_kickout_threshold: 90,
         ..Default::default()
     };
-    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
+    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config, None);
     let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
     assert_eq!(config.block_producer_kickout_threshold, 90);
     assert_eq!(config.chunk_producer_kickout_threshold, 90);
@@ -388,6 +389,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
     assert!(error_message.contains("shard"));
+    assert_matches!(error, near_chain::Error::InvalidShardId(_));
 }
 
 /// Test that processing chunks with invalid transactions does not lead to panics

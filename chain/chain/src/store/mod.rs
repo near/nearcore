@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -23,9 +23,9 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV2,
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV3,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -354,7 +354,7 @@ pub trait ChainStoreAccess {
         let block_header = self.get_block_header(&candidate_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut shard_id = shard_id;
-        let mut shard_index = shard_layout.get_shard_index(shard_id);
+        let mut shard_index = shard_layout.get_shard_index(shard_id)?;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
             if *block_header
@@ -2010,17 +2010,17 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
         applied_receipts_hash: CryptoHash,
-        contract_accesses: BTreeSet<CodeHash>,
-        contract_deploys: BTreeSet<CodeHash>,
+        contract_updates: ContractUpdates,
     ) {
         if let Some(partial_storage) = partial_storage {
+            let ContractUpdates { contract_accesses, contract_deploys } = contract_updates;
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     contract_accesses: contract_accesses.into_iter().collect(),
-                    contract_deploys: contract_deploys.into_iter().collect(),
+                    contract_deploys: contract_deploys.into_iter().map(|c| c.into()).collect(),
                 }),
             );
         }
@@ -2561,7 +2561,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for state_sync_info in self.add_state_sync_infos.drain(..) {
             store_update.set_ser(
                 DBCol::StateDlInfos,
-                state_sync_info.epoch_tail_hash.as_ref(),
+                state_sync_info.epoch_first_block().as_ref(),
                 &state_sync_info,
             )?;
         }

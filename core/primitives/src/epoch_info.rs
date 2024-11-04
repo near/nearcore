@@ -606,7 +606,7 @@ impl EpochInfo {
         shard_id: ShardId,
         height: BlockHeight,
     ) -> Option<ValidatorId> {
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
         match &self {
             Self::V1(v1) => {
                 let cp_settlement = &v1.chunk_producers_settlement;

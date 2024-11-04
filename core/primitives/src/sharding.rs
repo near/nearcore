@@ -1,7 +1,10 @@
+use crate::bandwidth_scheduler::BandwidthRequests;
+use crate::block::Block;
 use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
+use crate::shard_layout::{ShardLayout, ShardLayoutError};
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -11,6 +14,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
 use near_schema_checker_lib::ProtocolSchema;
+use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug_span;
@@ -56,16 +60,120 @@ impl From<CryptoHash> for ChunkHash {
     }
 }
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
-/// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct StateSyncInfo {
-    /// The first block of the epoch for which syncing is happening
-    pub epoch_tail_hash: CryptoHash,
+impl ShardInfo {
+    fn new(
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+    ) -> Result<Self, ShardLayoutError> {
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunk = &prev_block.chunks()[shard_index];
+        Ok(Self(shard_id, chunk.chunk_hash()))
+    }
+}
+
+/// This version of the type is used in the old state sync, where we sync to the state right before the new epoch
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct StateSyncInfoV0 {
+    /// The "sync_hash" block referred to in the state sync algorithm. This is the first block of the
+    /// epoch we want to state sync for. This field is not strictly required since this struct is keyed
+    /// by this hash in the database, but it's a small amount of data that makes the info in this type more complete.
+    pub sync_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
+}
+
+/// This version of the type is used when syncing to the current epoch's state, and `sync_hash` is an
+/// Option because it is not known at the beginning of the epoch, but only until a few more blocks are produced.
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct StateSyncInfoV1 {
+    /// The first block of the epoch we want to state sync for. This field is not strictly required since
+    /// this struct is keyed by this hash in the database, but it's a small amount of data that makes
+    /// the info in this type more complete.
+    pub epoch_first_block: CryptoHash,
+    /// The block we'll use as the "sync_hash" when state syncing. Previously, state sync
+    /// used the first block of an epoch as the "sync_hash", and synced state to the epoch before.
+    /// Now that state sync downloads the state of the current epoch, we need to wait a few blocks
+    /// after applying the first block in an epoch to know what "sync_hash" we'll use, so this field
+    /// is first set to None until we find the right "sync_hash".
+    pub sync_hash: Option<CryptoHash>,
+    /// Shards to fetch state
+    pub shards: Vec<ShardInfo>,
+}
+
+/// Contains the information that is used to sync state for shards as epochs switch
+/// Currently there is only one version possible, but an improvement we might want to make in the future
+/// is that when syncing to the current epoch's state, we currently wait for two new chunks in each shard, but
+/// with some changes to the meaning of the "sync_hash", we should only need to wait for one. So this is included
+/// in order to allow for this change in the future without needing another database migration.
+#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+pub enum StateSyncInfo {
+    /// Old state sync: sync to the state right before the new epoch
+    V0(StateSyncInfoV0),
+    /// New state sync: sync to the state right after the new epoch
+    V1(StateSyncInfoV1),
+}
+
+fn shard_infos(
+    prev_block: &Block,
+    shard_layout: &ShardLayout,
+    shards: &[ShardId],
+) -> Result<Vec<ShardInfo>, ShardLayoutError> {
+    shards.iter().map(|shard_id| ShardInfo::new(prev_block, shard_layout, *shard_id)).collect()
+}
+
+impl StateSyncInfo {
+    pub fn new_previous_epoch(
+        epoch_first_block: CryptoHash,
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shards: &[ShardId],
+    ) -> Result<Self, ShardLayoutError> {
+        let shards = shard_infos(prev_block, shard_layout, shards)?;
+        Ok(Self::V0(StateSyncInfoV0 { sync_hash: epoch_first_block, shards }))
+    }
+
+    fn new_current_epoch(
+        epoch_first_block: CryptoHash,
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shards: &[ShardId],
+    ) -> Result<Self, ShardLayoutError> {
+        let shards = shard_infos(prev_block, shard_layout, shards)?;
+        Ok(Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards }))
+    }
+
+    pub fn new(
+        protocol_version: ProtocolVersion,
+        epoch_first_block: CryptoHash,
+        prev_block: &Block,
+        shard_layout: &ShardLayout,
+        shards: &[ShardId],
+    ) -> Result<Self, ShardLayoutError> {
+        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+            Self::new_current_epoch(epoch_first_block, prev_block, shard_layout, shards)
+        } else {
+            Self::new_previous_epoch(epoch_first_block, prev_block, shard_layout, shards)
+        }
+    }
+
+    /// Block hash that identifies this state sync struct on disk
+    pub fn epoch_first_block(&self) -> &CryptoHash {
+        match self {
+            Self::V0(info) => &info.sync_hash,
+            Self::V1(info) => &info.epoch_first_block,
+        }
+    }
+
+    pub fn shards(&self) -> &[ShardInfo] {
+        match self {
+            Self::V0(info) => &info.shards,
+            Self::V1(info) => &info.shards,
+        }
+    }
 }
 
 pub mod shard_chunk_header_inner;
@@ -194,9 +302,35 @@ impl ShardChunkHeaderV3 {
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         congestion_info: Option<CongestionInfo>,
+        bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = if let Some(congestion_info) = congestion_info {
+        let inner = if let Some(bandwidth_requests) = bandwidth_requests {
+            // `bandwidth_requests` can only be `Some` when bandwidth scheduler is enabled.
+            assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
+
+            // Congestion control has to be enabled before bandwidth scheduler
+            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
+            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                prev_block_hash,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created: height,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info: congestion_info
+                    .expect("Congestion info must exist when bandwidth scheduler is enabled"),
+                bandwidth_requests,
+            })
+        } else if let Some(congestion_info) = congestion_info {
+            // `congestion_info`` can only be `Some` when congestion control is enabled.
             assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                 prev_block_hash,
@@ -439,14 +573,27 @@ impl ShardChunkHeader {
         }
     }
 
+    #[inline]
+    pub fn bandwidth_requests(&self) -> Option<&BandwidthRequests> {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.bandwidth_requests(),
+        }
+    }
+
     /// Returns whether the header is valid for given `ProtocolVersion`.
-    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
+    pub fn validate_version(
+        &self,
+        version: ProtocolVersion,
+    ) -> Result<(), BadHeaderForProtocolVersionError> {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
             ProtocolFeature::CongestionControl.protocol_version();
+        const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
+            ProtocolFeature::BandwidthScheduler.protocol_version();
 
-        match &self {
+        let is_valid = match &self {
             ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
             ShardChunkHeader::V2(_) => {
                 SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
@@ -458,9 +605,57 @@ impl ShardChunkHeader {
                 // Note that we allow V2 in the congestion control version.
                 // That is because the first chunk where this feature is
                 // enabled does not have the congestion info.
+                // In bandwidth scheduler version v3 and v4 are allowed. The first chunk in
+                // the bandwidth scheduler version will be v3 because the chunk extra for the
+                // last chunk of previous version doesn't have bandwidth requests.
+                // v2 is also allowed in the bandwidth scheduler version because there
+                // are multiple tests which upgrade from an old version directly to the
+                // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
                 ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
                 ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+                ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
+        };
+
+        if is_valid {
+            Ok(())
+        } else {
+            Err(BadHeaderForProtocolVersionError {
+                protocol_version: version,
+                header_version: self.header_version_number(),
+                header_inner_version: self.inner_version_number(),
+            })
+        }
+    }
+
+    /// Used for error messages, use `match` for other code.
+    #[inline]
+    pub(crate) fn header_version_number(&self) -> u64 {
+        match self {
+            ShardChunkHeader::V1(_) => 1,
+            ShardChunkHeader::V2(_) => 2,
+            ShardChunkHeader::V3(_) => 3,
+        }
+    }
+
+    /// Used for error messages, use `match` for other code.
+    #[inline]
+    pub(crate) fn inner_version_number(&self) -> u64 {
+        match self {
+            ShardChunkHeader::V1(v1) => {
+                // Shows that Header V1 contains Inner V1
+                let _inner_v1: &ShardChunkHeaderInnerV1 = &v1.inner;
+                1
+            }
+            ShardChunkHeader::V2(v2) => {
+                // Shows that Header V2 also contains Inner V1, not Inner V2
+                let _inner_v1: &ShardChunkHeaderInnerV1 = &v2.inner;
+                1
+            }
+            ShardChunkHeader::V3(v3) => {
+                let inner_enum: &ShardChunkHeaderInner = &v3.inner;
+                inner_enum.version_number()
+            }
         }
     }
 
@@ -471,6 +666,14 @@ impl ShardChunkHeader {
             ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
         }
     }
+}
+
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[error("Invalid chunk header version for protocol version {protocol_version}. (header: {header_version}, inner: {header_inner_version})")]
+pub struct BadHeaderForProtocolVersionError {
+    pub protocol_version: ProtocolVersion,
+    pub header_version: u64,
+    pub header_inner_version: u64,
 }
 
 #[derive(
@@ -1060,6 +1263,7 @@ impl EncodedShardChunk {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
+        bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
@@ -1133,6 +1337,7 @@ impl EncodedShardChunk {
                 tx_root,
                 prev_validator_proposals,
                 congestion_info,
+                bandwidth_requests,
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };

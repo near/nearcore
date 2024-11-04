@@ -1287,7 +1287,7 @@ mod tests {
             fishermen_threshold: 0,
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
-            shard_layout: ShardLayout::v0(num_shards, 0),
+            shard_layout: ShardLayout::multi_shard(num_shards, 0),
             validator_selection_config,
         }
     }

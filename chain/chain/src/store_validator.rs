@@ -98,7 +98,7 @@ impl StoreValidator {
             .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
             .expect("Store IO error when getting EpochSyncProof")
             .map(|epoch_sync_proof| {
-                epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
+                epoch_sync_proof.into_v1().current_epoch.first_block_header_in_epoch.height()
             });
         StoreValidator {
             me,
@@ -411,7 +411,7 @@ mod tests {
         let genesis = Genesis::test(vec!["test".parse().unwrap()], 1);
         let tempdir = tempfile::tempdir().unwrap();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = NightshadeRuntime::test(
             tempdir.path(),

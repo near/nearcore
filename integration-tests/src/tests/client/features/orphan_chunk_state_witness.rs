@@ -134,7 +134,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let partial_witness_adapter =
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-        let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = request;
+        let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness, .. } = request;
         let raw_witness_size = borsh_size(&state_witness);
         let chunk_validators = env
             .client(&block2_chunk_producer)
@@ -267,6 +267,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V1(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
     });
 
     let outcome =

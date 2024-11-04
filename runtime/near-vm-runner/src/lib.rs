@@ -2,7 +2,6 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 mod cache;
-mod code;
 mod errors;
 mod features;
 mod imports;
@@ -33,9 +32,9 @@ pub use cache::{
     ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
     NoContractRuntimeCache,
 };
-pub use code::ContractCode;
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
+pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
 pub use runner::{prepare, run, Contract, PreparedContract, VM};
 

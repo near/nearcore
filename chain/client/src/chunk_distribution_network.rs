@@ -220,11 +220,12 @@ mod tests {
         time::Clock,
     };
     use near_primitives::{
+        bandwidth_scheduler::BandwidthRequests,
         congestion_info::CongestionInfo,
         hash::hash,
         sharding::{
-            PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderInnerV3,
-            ShardChunkHeaderV3,
+            shard_chunk_header_inner::ShardChunkHeaderInnerV4, PartialEncodedChunkV2,
+            ShardChunkHeaderInner, ShardChunkHeaderV3,
         },
         validator_signer::EmptyValidatorSigner,
     };
@@ -398,7 +399,7 @@ mod tests {
         let mut mock_hashes = MockHashes::new(prev_block_hash);
 
         let signer = EmptyValidatorSigner::default().into();
-        let header_inner = ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+        let header_inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
             prev_block_hash,
             prev_state_root: mock_hashes.next().unwrap(),
             prev_outcome_root: mock_hashes.next().unwrap(),
@@ -413,6 +414,7 @@ mod tests {
             tx_root: mock_hashes.next().unwrap(),
             prev_validator_proposals: Vec::new(),
             congestion_info: CongestionInfo::default(),
+            bandwidth_requests: BandwidthRequests::empty(),
         });
         let header = ShardChunkHeaderV3::from_inner(header_inner, &signer);
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {

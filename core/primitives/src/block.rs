@@ -1,3 +1,4 @@
+use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
@@ -14,7 +15,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{ShardId, ShardIndex};
+use near_primitives_core::types::ShardIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
@@ -141,10 +142,12 @@ fn genesis_chunk(
     genesis_protocol_version: u32,
     genesis_height: u64,
     initial_gas_limit: u64,
-    shard_id: ShardId,
+    shard_id: crate::types::ShardId,
     state_root: CryptoHash,
     congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
+    use crate::bandwidth_scheduler::BandwidthRequests;
+
     let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
         CryptoHash::default(),
         state_root,
@@ -161,6 +164,7 @@ fn genesis_chunk(
         &[],
         CryptoHash::default(),
         congestion_info,
+        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &crate::validator_signer::EmptyValidatorSigner::default().into(),
         genesis_protocol_version,
     )
@@ -673,6 +677,28 @@ impl Block {
             }
         }
         BlockCongestionInfo::new(result)
+    }
+
+    pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.chunks().iter() {
+            // It's okay to take bandwidth requests from a missing chunk,
+            // the chunk was missing so it didn't send anything and still
+            // wants to send out the same receipts.
+            let chunk = match chunk {
+                MaybeNew::New(new_chunk) => new_chunk,
+                MaybeNew::Old(missing_chunk) => missing_chunk,
+            };
+
+            let shard_id = chunk.shard_id();
+
+            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
+                result.insert(shard_id, bandwidth_requests.clone());
+            }
+        }
+
+        BlockBandwidthRequests { shards_bandwidth_requests: result }
     }
 
     pub fn hash(&self) -> &CryptoHash {

@@ -5,8 +5,9 @@ use near_chain::{
     Block, BlockHeader, ChainStore, ChainStoreAccess,
 };
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::types::{
-    chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot,
+use near_primitives::{
+    errors::EpochError,
+    types::{chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot},
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -40,7 +41,8 @@ pub fn load_trie_stop_at_height(
         near_config.client_config.save_trie_changes,
     );
 
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime =
         NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
     let runtime = runtime.expect("could not create the transaction runtime");
@@ -105,10 +107,13 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
         (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
+        (ChunkExtra::V4(l), ChunkExtra::V4(r)) => return l == r,
         (ChunkExtra::V1(_), ChunkExtra::V2(_))
         | (ChunkExtra::V2(_), ChunkExtra::V1(_))
         | (_, ChunkExtra::V3(_))
-        | (ChunkExtra::V3(_), _) => {}
+        | (ChunkExtra::V3(_), _)
+        | (_, ChunkExtra::V4(_))
+        | (ChunkExtra::V4(_), _) => {}
     };
     if l.state_root() != r.state_root() {
         return false;
@@ -126,6 +131,9 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         return false;
     }
     if l.congestion_info() != r.congestion_info() {
+        return false;
+    }
+    if l.bandwidth_requests() != r.bandwidth_requests() {
         return false;
     }
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
@@ -146,6 +154,7 @@ pub fn resulting_chunk_extra(
         gas_limit,
         result.total_balance_burnt,
         result.congestion_info,
+        result.bandwidth_requests.clone(),
     )
 }
 
@@ -161,7 +170,7 @@ pub fn check_apply_block_result(
     let protocol_version = block.header().latest_protocol_version();
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
     let new_chunk_extra = resulting_chunk_extra(
         apply_result,
         block.chunks()[shard_index].gas_limit(),

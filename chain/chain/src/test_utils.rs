@@ -62,7 +62,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
@@ -147,7 +147,7 @@ pub fn setup_with_tx_validity_period(
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
@@ -305,7 +305,7 @@ mod test {
     }
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
-        let shard_layout = ShardLayout::v0(num_shards, 0);
+        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let create_receipt_from_receiver_id =
             |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
         let mut rng = rand::thread_rng();

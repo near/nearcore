@@ -9,9 +9,9 @@ mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractDeployments;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
+use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -439,7 +439,7 @@ pub enum PeerMessage {
 
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
-    Challenge(Challenge),
+    Challenge(Box<Challenge>),
 
     SyncSnapshotHosts(SyncSnapshotHosts),
     StateRequestHeader(ShardId, CryptoHash),
@@ -561,9 +561,9 @@ pub enum RoutedMessageBody {
     _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
     ChunkContractAccesses(ChunkContractAccesses),
-    ChunkContractDeployments(ChunkContractDeployments),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
 }
 
 impl RoutedMessageBody {
@@ -660,13 +660,13 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
             }
-            RoutedMessageBody::ChunkContractDeployments(deploys) => {
-                write!(f, "ChunkContractDeployments(code_hashes={:?}", deploys.contracts())
-            }
             RoutedMessageBody::ContractCodeRequest(request) => {
                 write!(f, "ContractCodeRequest(code_hashes={:?})", request.contracts())
             }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
+            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+                write!(f, "PartialEncodedContractDeploys(part={:?}", deploys.part())
+            }
         }
     }
 }
@@ -893,8 +893,8 @@ pub struct StateResponseInfoV2 {
     PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
 )]
 pub enum StateResponseInfo {
-    V1(StateResponseInfoV1),
-    V2(StateResponseInfoV2),
+    V1(Box<StateResponseInfoV1>),
+    V2(Box<StateResponseInfoV2>),
 }
 
 impl StateResponseInfo {

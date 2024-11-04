@@ -3,7 +3,7 @@
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{shard_id_as_u32, AccountId};
+use near_primitives::types::AccountId;
 use near_store::ShardUId;
 use tracing::error;
 
@@ -27,9 +27,13 @@ pub struct ReshardingSplitShardParams {
     /// The account at the boundary between the two children.
     pub boundary_account: AccountId,
     /// Hash of the last block having the old shard layout.
-    pub block_hash: CryptoHash,
-    /// The block before `block_hash`.
-    pub prev_block_hash: CryptoHash,
+    pub resharding_hash: CryptoHash,
+}
+
+impl ReshardingSplitShardParams {
+    pub fn children_shards(&self) -> Vec<ShardUId> {
+        vec![self.left_child_shard, self.right_child_shard]
+    }
 }
 
 impl ReshardingEventType {
@@ -38,15 +42,13 @@ impl ReshardingEventType {
     ///
     /// # Args:
     /// * `next_shard_layout`: the new shard layout
-    /// * `block_hash`: hash of the last block with the shard layout before `next_shard_layout`
-    /// * `prev_block_hash`: hash of the block preceding `block_hash`
+    /// * `resharding_hash`: hash of the last block with the shard layout before `next_shard_layout`
     ///
     /// Returns a [ReshardingEventType] if exactly one resharding change is contained in
     /// `next_shard_layout`, otherwise returns `None`.
     pub fn from_shard_layout(
         next_shard_layout: &ShardLayout,
-        block_hash: CryptoHash,
-        prev_block_hash: CryptoHash,
+        resharding_hash: CryptoHash,
     ) -> Result<Option<ReshardingEventType>, Error> {
         let log_and_error = |err_msg: &str| {
             error!(target: "resharding", ?next_shard_layout, err_msg);
@@ -77,10 +79,7 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
-                    let parent_shard = ShardUId {
-                        version: next_shard_layout.version(),
-                        shard_id: shard_id_as_u32(*parent_id),
-                    };
+                    let parent_shard = ShardUId::new(next_shard_layout.version(), *parent_id);
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);
                     let right_child_shard =
@@ -100,8 +99,7 @@ impl ReshardingEventType {
                         left_child_shard,
                         right_child_shard,
                         boundary_account,
-                        block_hash,
-                        prev_block_hash,
+                        resharding_hash,
                     }));
                 }
                 _ => {
@@ -136,7 +134,6 @@ mod tests {
     #[test]
     fn parse_event_type_from_shard_layout() {
         let block = CryptoHash::hash_bytes(&[1]);
-        let prev_block = CryptoHash::hash_bytes(&[2]);
 
         let s0 = ShardId::new(0);
         let s1 = ShardId::new(1);
@@ -146,19 +143,16 @@ mod tests {
         let s5 = ShardId::new(5);
 
         // Shard layouts V0 and V1 are rejected.
-        assert!(ReshardingEventType::from_shard_layout(
-            &ShardLayout::v0_single_shard(),
-            block,
-            prev_block
-        )
-        .is_err());
-        assert!(ReshardingEventType::from_shard_layout(&ShardLayout::v1_test(), block, prev_block)
-            .is_err());
+        #[allow(deprecated)]
+        let layout_v0 = ShardLayout::v0(1, 0);
+        let layout_v1 = ShardLayout::v1_test();
+        assert!(ReshardingEventType::from_shard_layout(&layout_v0, block).is_err());
+        assert!(ReshardingEventType::from_shard_layout(&layout_v1, block).is_err());
 
         // No resharding is ok.
         let shards_split_map = BTreeMap::from([(s0, vec![s0])]);
         let layout = ShardLayout::v2(vec![], vec![s0], Some(shards_split_map));
-        assert!(ReshardingEventType::from_shard_layout(&layout, block, prev_block)
+        assert!(ReshardingEventType::from_shard_layout(&layout, block)
             .is_ok_and(|event| event.is_none()));
 
         // Single split shard is ok.
@@ -169,16 +163,14 @@ mod tests {
             Some(shards_split_map),
         );
 
-        let event_type =
-            ReshardingEventType::from_shard_layout(&layout, block, prev_block).unwrap();
+        let event_type = ReshardingEventType::from_shard_layout(&layout, block).unwrap();
         assert_eq!(
             event_type,
             Some(ReshardingEventType::SplitShard(ReshardingSplitShardParams {
                 parent_shard: ShardUId { version: 3, shard_id: 1 },
                 left_child_shard: ShardUId { version: 3, shard_id: 2 },
                 right_child_shard: ShardUId { version: 3, shard_id: 3 },
-                block_hash: block,
-                prev_block_hash: prev_block,
+                resharding_hash: block,
                 boundary_account: account!("pp")
             }))
         );
@@ -190,6 +182,6 @@ mod tests {
             vec![s2, s3, s4, s5],
             Some(shards_split_map),
         );
-        assert!(ReshardingEventType::from_shard_layout(&layout, block, prev_block).is_err());
+        assert!(ReshardingEventType::from_shard_layout(&layout, block).is_err());
     }
 }

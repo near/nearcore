@@ -188,6 +188,8 @@ class ShardChunkHeaderV3:
             encoded_merkle_root = inner.V2.encoded_merkle_root
         elif inner.enum == 'V3':
             encoded_merkle_root = inner.V3.encoded_merkle_root
+        elif inner.enum == 'V4':
+            encoded_merkle_root = inner.V4.encoded_merkle_root
         assert encoded_merkle_root is not None, f"Unknown ShardChunkHeaderV3 enum variant: {inner.enum}"
 
         inner_serialized = BinarySerializer(
@@ -210,6 +212,10 @@ class ShardChunkHeaderInnerV2:
 
 
 class ShardChunkHeaderInnerV3:
+    pass
+
+
+class ShardChunkHeaderInnerV4:
     pass
 
 
@@ -242,6 +248,8 @@ class PartialEncodedChunk:
                     return header.V3.inner.V2
                 elif v3_inner_version == 'V3':
                     return header.V3.inner.V3
+                elif v3_inner_version == 'V4':
+                    return header.V3.inner.V4
             assert False, "unknown header version"
 
     def chunk_hash(self):
@@ -308,6 +316,22 @@ class CongestionInfoV1:
     pass
 
 
+class BandwidthRequests:
+    pass
+
+
+class BandwidthRequestsV1:
+    pass
+
+
+class BandwidthRequest:
+    pass
+
+
+class BandwidthRequestBitmap:
+    pass
+
+
 class ChunkEndorsement:
     pass
 
@@ -341,6 +365,62 @@ class PartialEncodedStateWitnessInner:
 
 
 class SignatureDifferentiator:
+    pass
+
+
+class ChunkContractAccesses:
+    pass
+
+
+class ChunkContractAccessesV1:
+    pass
+
+
+class ChunkContractAccessesInner:
+    pass
+
+
+class PartialEncodedContractDeploys:
+    pass
+
+
+class PartialEncodedContractDeploysV1:
+    pass
+
+
+class PartialEncodedContractDeploysInner:
+    pass
+
+
+class PartialEncodedContractDeploysPart:
+    pass
+
+
+class ContractCodeRequest:
+    pass
+
+
+class ContractCodeRequestV1:
+    pass
+
+
+class ContractCodeRequestInner:
+    pass
+
+
+class ContractCodeResponse:
+    pass
+
+
+class ContractCodeResponseV1:
+    pass
+
+
+class ContractCodeResponseInner:
+    pass
+
+
+class ChunkProductionKey:
     pass
 
 
@@ -746,7 +826,8 @@ block_schema = [
                 'enum',
             'values': [['V1', ShardChunkHeaderInnerV1],
                        ['V2', ShardChunkHeaderInnerV2],
-                       ['V3', ShardChunkHeaderInnerV3]]
+                       ['V3', ShardChunkHeaderInnerV3],
+                       ['V4', ShardChunkHeaderInnerV4]]
         }
     ],
     [
@@ -810,6 +891,29 @@ block_schema = [
                 ['tx_root', [32]],
                 ['validator_proposals', [ValidatorStake]],
                 ['congestion_info', CongestionInfo],
+            ]
+        }
+    ],
+    [
+        ShardChunkHeaderInnerV4, {
+            'kind':
+                'struct',
+            'fields': [
+                ['prev_block_hash', [32]],
+                ['prev_state_root', [32]],
+                ['outcome_root', [32]],
+                ['encoded_merkle_root', [32]],
+                ['encoded_length', 'u64'],
+                ['height_created', 'u64'],
+                ['shard_id', 'u64'],
+                ['gas_used', 'u64'],
+                ['gas_limit', 'u64'],
+                ['balance_burnt', 'u128'],
+                ['outgoing_receipt_root', [32]],
+                ['tx_root', [32]],
+                ['validator_proposals', [ValidatorStake]],
+                ['congestion_info', CongestionInfo],
+                ['bandwidth_requests', BandwidthRequests],
             ]
         }
     ],
@@ -980,6 +1084,31 @@ block_schema = [
         }
     ],
     [
+        BandwidthRequests, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', BandwidthRequestsV1]]
+        }
+    ],
+    [
+        BandwidthRequestsV1, {
+            'kind': 'struct',
+            'fields': [['requests', [BandwidthRequest]]]
+        }
+    ],
+    [
+        BandwidthRequest, {
+            'kind':
+                'struct',
+            'fields': [['to_shard', 'u8'],
+                       ['requested_values_bitmap', BandwidthRequestBitmap]]
+        }
+    ],
+    [BandwidthRequestBitmap, {
+        'kind': 'struct',
+        'fields': [['data', [5]]]
+    }],
+    [
         ChunkEndorsement, {
             'kind': 'enum',
             'field': 'enum',
@@ -1065,5 +1194,140 @@ block_schema = [
     [SignatureDifferentiator, {
         'kind': 'struct',
         'fields': [['0', 'string']]
-    }]
+    }],
+    [
+        ChunkContractAccesses, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ChunkContractAccessesV1],]
+        }
+    ],
+    [
+        ChunkContractAccessesV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkContractAccessesInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkContractAccessesInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploys, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', PartialEncodedContractDeploysV1],]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', PartialEncodedContractDeploysInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['part', PartialEncodedContractDeploysPart],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedContractDeploysPart, {
+            'kind':
+                'struct',
+            'fields': [
+                ['part_ord', 'u64'],
+                ['data', ['u8']],
+                ['encoded_length', 'u64'],
+            ]
+        }
+    ],
+    [
+        ContractCodeRequest, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ContractCodeRequestV1],]
+        }
+    ],
+    [
+        ContractCodeRequestV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ContractCodeRequestInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ContractCodeRequestInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['requester', 'string'],
+                ['next_chunk', ChunkProductionKey],
+                ['contracts', [[32]]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ContractCodeResponse, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', ContractCodeResponseV1],]
+        }
+    ],
+    [
+        ContractCodeResponseV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ContractCodeResponseInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ContractCodeResponseInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['next_chunk', ChunkProductionKey],
+                ['compressed_contracts', ['u8']],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkProductionKey, {
+            'kind':
+                'struct',
+            'fields': [
+                ['shard_id', 'u64'],
+                ['epoch_id', [32]],
+                ['height_created', 'u64'],
+            ]
+        }
+    ]
 ]

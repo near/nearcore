@@ -48,7 +48,7 @@ impl StateChangesSubCommand {
                 apply_state_changes(file, shard_id, state_root, home_dir, near_config, store)
             }
             StateChangesSubCommand::Dump { height_from, height_to, file } => {
-                dump_state_changes(height_from, height_to, file, near_config, store)
+                dump_state_changes(height_from, height_to, file, home_dir, near_config, store)
             }
         }
     }
@@ -66,12 +66,14 @@ fn dump_state_changes(
     height_from: BlockHeight,
     height_to: BlockHeight,
     file: PathBuf,
+    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
     assert!(height_from <= height_to, "--height-from must be less than or equal to --height-to");
 
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
@@ -90,7 +92,7 @@ fn dump_state_changes(
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
             let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             state_changes_per_shard[shard_index].push(value);
         }
 
@@ -137,7 +139,8 @@ fn apply_state_changes(
     near_config: NearConfig,
     store: Store,
 ) {
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),

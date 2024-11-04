@@ -6,6 +6,7 @@ use crate::flat::FlatStorageStatus;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
+use crate::trie::mem::updating::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -158,9 +159,9 @@ pub fn load_trie_from_flat_state_and_delta(
             for (key, value) in changes.0 {
                 match value {
                     Some(value) => {
-                        trie_update.insert_memtrie_only(&key, value);
+                        trie_update.insert_memtrie_only(&key, value)?;
                     }
-                    None => trie_update.delete(&key),
+                    None => trie_update.generic_delete(0, &key)?,
                 };
             }
 
@@ -190,6 +191,7 @@ mod tests {
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -527,6 +529,7 @@ mod tests {
             0,
             0,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut store_update = store.store_update();
         store_update

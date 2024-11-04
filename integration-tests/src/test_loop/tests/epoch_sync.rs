@@ -141,7 +141,6 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
         .test_loop_data_dir(tempdir)
         .config_modifier(|config, _| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
-            config.epoch_sync.enabled = true;
             config.epoch_sync.epoch_sync_horizon = 30;
             // Make header sync horizon small enough to trigger it.
             config.block_header_fetch_horizon = 8;
@@ -350,6 +349,7 @@ fn sanity_check_epoch_sync_proof(
     // epochs ago, i.e. the current epoch's previous previous epoch.
     expected_epochs_ago: u64,
 ) {
+    let proof = proof.as_v1();
     let epoch_height_of_final_block =
         (final_head_height - genesis_config.genesis_height - 1) / genesis_config.epoch_length + 1;
     let expected_current_epoch_height = epoch_height_of_final_block - expected_epochs_ago;
@@ -369,14 +369,14 @@ fn sanity_check_epoch_sync_proof(
     // EpochSyncProof starts with epoch height 2 because the first height is proven by
     // genesis.
     let mut epoch_height = 2;
-    for past_epoch in &proof.past_epochs {
+    for past_epoch in &proof.all_epochs {
         assert_eq!(
             past_epoch.last_final_block_header.height(),
             genesis_config.genesis_height + epoch_height * genesis_config.epoch_length - 2
         );
         epoch_height += 1;
     }
-    assert_eq!(epoch_height, expected_current_epoch_height);
+    assert_eq!(epoch_height, expected_current_epoch_height + 1);
 }
 
 #[test]

@@ -176,6 +176,13 @@ pub enum ProtocolFeature {
     SimpleNightshadeV4,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     ExcludeContractCodeFromStateWitness,
+    /// A scheduler which limits bandwidth for sending receipts between shards.
+    BandwidthScheduler,
+    /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
+    /// should no longer be the first block of the epoch, but a couple blocks after that in order
+    /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
+    /// here to coordinate among nodes
+    StateSyncHashUpdate,
 }
 
 impl ProtocolFeature {
@@ -252,12 +259,11 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::StateSyncHashUpdate => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
-
-            // Features that are not yet in Nightly.
-
-            // TODO(#11099): Move this feature to Nightly.
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
+            ProtocolFeature::BandwidthScheduler => 147,
+            // Place features that are not yet in Nightly below this line.
         }
     }
 
@@ -270,7 +276,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 145;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 147;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
