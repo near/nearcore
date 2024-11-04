@@ -57,10 +57,9 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     }
 
     let mut done = true;
-    for (shard_index, num_new_chunks) in num_new_chunks.iter_mut().enumerate() {
-        let new_chunk = header.chunk_mask()[shard_index];
+    for (num_new_chunks, new_chunk) in num_new_chunks.iter_mut().zip(header.chunk_mask().iter()) {
         // Only need to reach 2, so don't bother adding more than that
-        if new_chunk && *num_new_chunks < 2 {
+        if *new_chunk && *num_new_chunks < 2 {
             *num_new_chunks += 1;
         }
         if *num_new_chunks < 2 {
