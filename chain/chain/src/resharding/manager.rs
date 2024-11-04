@@ -14,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::trie::mem::resharding::RetainMode;
+use near_store::trie::ops::resharding::RetainMode;
 use near_store::{DBCol, PartialStorage, ShardTries, ShardUId, Store};
 
 use crate::ChainStoreUpdate;
