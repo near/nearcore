@@ -116,7 +116,6 @@ impl Client {
             self.send_contract_accesses_to_chunk_validators(
                 state_witness.chunk_production_key(),
                 contract_accesses,
-                contract_deploys.iter().map(|contract| (*contract.hash()).into()).collect(),
                 my_signer.as_ref(),
             );
         }
@@ -432,7 +431,6 @@ impl Client {
         &self,
         key: ChunkProductionKey,
         contract_accesses: HashSet<CodeHash>,
-        contract_deploys: HashSet<CodeHash>,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_validators: HashSet<AccountId> = self
@@ -451,17 +449,13 @@ impl Client {
             .into_iter()
             .collect();
 
-        // Since chunk validators will receive the newly deployed contracts as part of the state witness (as DeployActions in receipts),
-        // they will update their contract cache while applying these deploy actions, thus we can exclude hashes of contracts from the message.
-        let predeployed_contract_accesses =
-            contract_accesses.difference(&contract_deploys).cloned().collect();
         // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.
         let target_chunk_validators =
             chunk_validators.difference(&chunk_producers).cloned().collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(key, predeployed_contract_accesses, my_signer),
+                ChunkContractAccesses::new(key, contract_accesses, my_signer),
             ),
         ));
     }

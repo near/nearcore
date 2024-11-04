@@ -13,7 +13,7 @@ used too. In order to use either, first prepare your system:
 
 ```command
 $ sudo sysctl kernel.perf_event_paranoid=0
-$ sudo sysctl kernel.restrict_kptr=0
+$ sudo sysctl kernel.kptr_restrict=0
 ```
 
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">

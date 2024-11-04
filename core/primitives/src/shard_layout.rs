@@ -164,17 +164,7 @@ impl ShardLayoutV1 {
 }
 
 /// Making the shard ids non-contiguous.
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    ProtocolSchema,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub struct ShardLayoutV2 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
@@ -212,6 +202,100 @@ pub struct ShardLayoutV2 {
     version: ShardVersion,
 }
 
+/// Counterpart to `ShardLayoutV2` composed of maps with string keys to aid
+/// serde serialization.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SerdeShardLayoutV2 {
+    boundary_accounts: Vec<AccountId>,
+    shard_ids: Vec<ShardId>,
+    id_to_index_map: BTreeMap<String, ShardIndex>,
+    index_to_id_map: BTreeMap<String, ShardId>,
+    shards_split_map: Option<BTreeMap<String, Vec<ShardId>>>,
+    shards_parent_map: Option<BTreeMap<String, ShardId>>,
+    version: ShardVersion,
+}
+
+impl From<&ShardLayoutV2> for SerdeShardLayoutV2 {
+    fn from(layout: &ShardLayoutV2) -> Self {
+        fn key_to_string<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<String, V>
+        where
+            K: std::fmt::Display,
+            V: Clone,
+        {
+            map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        }
+
+        Self {
+            boundary_accounts: layout.boundary_accounts.clone(),
+            shard_ids: layout.shard_ids.clone(),
+            id_to_index_map: key_to_string(&layout.id_to_index_map),
+            index_to_id_map: key_to_string(&layout.index_to_id_map),
+            shards_split_map: layout.shards_split_map.as_ref().map(key_to_string),
+            shards_parent_map: layout.shards_parent_map.as_ref().map(key_to_string),
+            version: layout.version,
+        }
+    }
+}
+
+impl TryFrom<SerdeShardLayoutV2> for ShardLayoutV2 {
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn try_from(layout: SerdeShardLayoutV2) -> Result<Self, Self::Error> {
+        fn key_to_shard_id<V>(
+            map: BTreeMap<String, V>,
+        ) -> Result<BTreeMap<ShardId, V>, Box<dyn std::error::Error + Send + Sync>> {
+            map.into_iter().map(|(k, v)| Ok((k.parse::<u64>()?.into(), v))).collect()
+        }
+
+        let SerdeShardLayoutV2 {
+            boundary_accounts,
+            shard_ids,
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map,
+            shards_parent_map,
+            version,
+        } = layout;
+
+        let id_to_index_map = key_to_shard_id(id_to_index_map)?;
+        let shards_split_map = shards_split_map.map(key_to_shard_id).transpose()?;
+        let shards_parent_map = shards_parent_map.map(key_to_shard_id).transpose()?;
+        let index_to_id_map = index_to_id_map
+            .into_iter()
+            .map(|(k, v)| Ok((k.parse()?, v)))
+            .collect::<Result<_, Self::Error>>()?;
+
+        Ok(Self {
+            boundary_accounts,
+            shard_ids,
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map,
+            shards_parent_map,
+            version,
+        })
+    }
+}
+
+impl serde::Serialize for ShardLayoutV2 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        SerdeShardLayoutV2::from(self).serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ShardLayoutV2 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let serde_layout = SerdeShardLayoutV2::deserialize(deserializer)?;
+        ShardLayoutV2::try_from(serde_layout).map_err(serde::de::Error::custom)
+    }
+}
+
 impl ShardLayoutV2 {
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         // TODO(resharding) - This could be optimized.
@@ -241,12 +325,38 @@ pub enum ShardLayoutError {
 }
 
 impl ShardLayout {
-    /* Some constructors */
-    pub fn v0_single_shard() -> Self {
-        Self::v0(1, 0)
+    /// Handy constructor for a single-shard layout, mostly for test purposes
+    pub fn single_shard() -> Self {
+        Self::multi_shard(1, 0)
+    }
+
+    /// Can be used to construct a multi-shard layout, mostly for test purposes
+    pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
+        assert!(num_shards > 0, "at least 1 shard is required");
+
+        let boundary_accounts = (0..num_shards - 1)
+            .map(|i| format!("shard{}.test.near", i).parse().unwrap())
+            .collect::<Vec<AccountId>>();
+        let shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        let (id_to_index_map, index_to_id_map) = shard_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &shard_id)| ((shard_id, i), (i, shard_id)))
+            .unzip();
+
+        Self::V2(ShardLayoutV2 {
+            boundary_accounts,
+            shard_ids,
+            id_to_index_map,
+            index_to_id_map,
+            shards_split_map: None,
+            shards_parent_map: None,
+            version,
+        })
     }
 
     /// Return a V0 Shardlayout
+    #[deprecated(note = "Use multi_shard() or v1()/v2() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
@@ -876,6 +986,7 @@ mod tests {
     #[test]
     fn test_shard_layout_v0() {
         let num_shards = 4;
+        #[allow(deprecated)]
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<ShardId, _> =
             shard_layout.shard_ids().map(|shard_id| (shard_id.into(), 0)).collect();
@@ -1032,6 +1143,7 @@ mod tests {
 
     #[test]
     fn test_shard_layout_all() {
+        #[allow(deprecated)]
         let v0 = ShardLayout::v0(1, 0);
         let v1 = ShardLayout::get_simple_nightshade_layout();
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
