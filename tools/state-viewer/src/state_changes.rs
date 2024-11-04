@@ -92,7 +92,7 @@ fn dump_state_changes(
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
             let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             state_changes_per_shard[shard_index].push(value);
         }
 

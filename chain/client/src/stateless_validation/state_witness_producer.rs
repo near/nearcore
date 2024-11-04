@@ -404,7 +404,7 @@ impl Client {
                 self.epoch_manager.get_shard_layout(from_block.header().epoch_id())?;
             for proof in receipt_proof_response.1.iter() {
                 let from_shard_id = proof.1.from_shard_id;
-                let from_shard_index = shard_layout.get_shard_index(from_shard_id);
+                let from_shard_index = shard_layout.get_shard_index(from_shard_id)?;
                 let from_chunk_hash = from_block
                     .chunks()
                     .get(from_shard_index)

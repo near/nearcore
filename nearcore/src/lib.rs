@@ -376,7 +376,8 @@ pub fn start_with_config_and_synchronization(
         config.client_config.archive,
     ));
 
-    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new());
+    let (resharding_sender_addr, _) =
+        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), chain_genesis.height));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());

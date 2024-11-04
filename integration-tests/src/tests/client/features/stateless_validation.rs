@@ -1,6 +1,7 @@
 use crate::tests::client::features::wallet_contract::{
     create_rlp_execute_tx, view_balance, NearSigner,
 };
+use assert_matches::assert_matches;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountIdRef;
@@ -354,10 +355,8 @@ fn test_protocol_upgrade_81() {
     assert_eq!(config.chunk_producer_kickout_threshold, 90);
 }
 
-// TODO(wacban) should not panic when V2 is ready
 /// Test that Client rejects ChunkStateWitnesses with invalid shard_id
 #[test]
-#[should_panic(expected = "no entry found for key")]
 fn test_chunk_state_witness_bad_shard_id() {
     init_integration_logger();
 
@@ -390,6 +389,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
     assert!(error_message.contains("shard"));
+    assert_matches!(error, near_chain::Error::InvalidShardId(_));
 }
 
 /// Test that processing chunks with invalid transactions does not lead to panics
