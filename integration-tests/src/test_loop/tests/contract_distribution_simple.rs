@@ -65,7 +65,7 @@ fn test_contract_distribution_different_accounts(clear_cache: bool) {
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
 
     let rpc_id = make_account(0);
-    let account = make_account(1);
+    let account = rpc_id.clone();
 
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 1);
     do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
@@ -74,6 +74,8 @@ fn test_contract_distribution_different_accounts(clear_cache: bool) {
         #[cfg(feature = "test_features")]
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
+
+    let account = make_account(1);
 
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 3);
     do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 4);
