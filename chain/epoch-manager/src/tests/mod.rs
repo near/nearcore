@@ -21,10 +21,8 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::types::ShardIndex;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
@@ -886,11 +884,13 @@ fn test_reward_multiple_shards() {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         // test1 skips its chunks in the first epoch
-        let chunk_mask = (0..num_shards)
-            .map(|shard_index| {
-                let shard_id = shard_layout.get_shard_id(shard_index as ShardIndex);
+        let chunk_mask = shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let chunk_production_key =
+                    ChunkProductionKey { epoch_id, height_created: height, shard_id };
                 let expected_chunk_producer =
-                    epoch_manager.get_chunk_producer_info(&epoch_id, height, shard_id).unwrap();
+                    epoch_manager.get_chunk_producer_info(&chunk_production_key).unwrap();
                 if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false
@@ -1506,7 +1506,7 @@ fn test_chunk_producer_kickout() {
                 if height >= epoch_length {
                     return true;
                 }
-                let shard_id = shard_layout.get_shard_id(shard_index);
+                let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 let chunk_producer = EpochManager::chunk_producer_from_info(
                     &epoch_info,
                     &shard_layout,
@@ -1655,12 +1655,11 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
         let chunk_mask = vec![true; num_shards as usize];
         // Prepare the chunk endorsements so that "test2" misses some of the endorsements.
         let mut bitmap = ChunkEndorsementsBitmap::new(num_shards as usize);
-        for shard_id in shard_layout.shard_ids() {
+        for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
             let chunk_validators = em
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)
                 .unwrap()
                 .ordered_chunk_validators();
-            let shard_index = shard_layout.get_shard_index(shard_id);
             bitmap.add_endorsements(
                 shard_index,
                 chunk_validators
@@ -2294,7 +2293,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         new_protocol_version - 1
     );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::v0_single_shard(),);
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::single_shard());
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
         new_protocol_version
@@ -2331,7 +2330,7 @@ fn test_protocol_version_switch_with_many_seats() {
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
-        shard_layout: ShardLayout::v0_single_shard(),
+        shard_layout: ShardLayout::single_shard(),
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
@@ -3237,7 +3236,7 @@ fn test_chunk_validator_exempted() {
 
 #[test]
 /// Tests the case where a chunk validator has low endorsement stats and is kicked out (not exempted).
-/// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.  
+/// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.
 fn test_chunk_validator_kicked_out_for_low_endorsement() {
     test_chunk_validator_kickout(
         HashMap::from([(
@@ -3324,69 +3323,6 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         signer,
     ))
-}
-
-#[test]
-fn test_verify_chunk_endorsements() {
-    use near_chain_primitives::Error;
-    use near_crypto::Signature;
-    use near_primitives::test_utils::create_test_signer;
-    use std::str::FromStr;
-
-    let amount_staked = 1_000_000;
-    let account_id = AccountId::from_str("test1").unwrap();
-    let validators = vec![(account_id.clone(), amount_staked)];
-    let h = hash_range(6);
-
-    let mut epoch_manager = setup_default_epoch_manager(validators, 5, 1, 2, 90, 60);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
-
-    // build a chunk endorsement and chunk header
-    let epoch_manager = epoch_manager.into_handle();
-    let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
-
-    // verify if we have one chunk validator
-    let chunk_validator_assignments =
-        &epoch_manager.get_chunk_validator_assignments(&epoch_id, ShardId::new(0), 1).unwrap();
-    assert_eq!(chunk_validator_assignments.ordered_chunk_validators().len(), 1);
-    assert!(chunk_validator_assignments.contains(&account_id));
-
-    // verify if the test signer has same public key as the chunk validator
-    let (validator, _) =
-        epoch_manager.get_validator_by_account_id(&epoch_id, &h[0], &account_id).unwrap();
-    let signer = Arc::new(create_test_signer("test1"));
-    assert_eq!(signer.public_key(), validator.public_key().clone());
-
-    // make chunk header
-    let chunk_header = test_chunk_header(&h, signer.as_ref());
-
-    // check chunk endorsement validity
-    let mut chunk_endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), signer.as_ref());
-    assert!(epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
-
-    // check invalid chunk endorsement signature
-    chunk_endorsement.signature = Signature::default();
-    assert!(!epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
-
-    // check chunk endorsement invalidity when chunk header and chunk endorsement don't match
-    let chunk_endorsement = ChunkEndorsementV1::new(h[3].into(), signer.as_ref());
-    let err =
-        epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
-    match err {
-        Error::InvalidChunkEndorsement => (),
-        _ => assert!(false, "Expected InvalidChunkEndorsement error but got {:?}", err),
-    }
-
-    // check chunk endorsement invalidity when signer is not chunk validator
-    let bad_signer = Arc::new(create_test_signer("test2"));
-    let chunk_endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), bad_signer.as_ref());
-    let err =
-        epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
-    match err {
-        Error::NotAValidator(_) => (),
-        _ => assert!(false, "Expected NotAValidator error but got {:?}", err),
-    }
 }
 
 #[test]

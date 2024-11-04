@@ -4,6 +4,7 @@ use super::{OptimizedValueRef, Trie, TrieWithReadLock, ValueAccessToken};
 use crate::contract::ContractStorage;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::TrieKey;
@@ -256,11 +257,18 @@ impl TrieUpdate {
         &self,
         account_id: AccountId,
         code_hash: CryptoHash,
+        apply_reason: ApplyChunkReason,
         protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
         if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
             // This causes trie lookup for the contract code to happen with side effects (charging gas and recording trie nodes).
             self.trie.request_code_recording(account_id);
+            return Ok(());
+        }
+
+        // The recording of contracts when they are excluded from the witness are only for distributing them to the validators,
+        // and not needed for validating the chunks, thus we skip the recording if we are not applying the chunk for updating the shard.
+        if apply_reason != ApplyChunkReason::UpdateTrackedShard {
             return Ok(());
         }
 

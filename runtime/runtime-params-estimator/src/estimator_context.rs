@@ -6,6 +6,7 @@ use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
@@ -171,7 +172,7 @@ impl<'c> EstimatorContext<'c> {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.

@@ -354,7 +354,7 @@ pub trait ChainStoreAccess {
         let block_header = self.get_block_header(&candidate_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut shard_id = shard_id;
-        let mut shard_index = shard_layout.get_shard_index(shard_id);
+        let mut shard_index = shard_layout.get_shard_index(shard_id)?;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
             if *block_header
@@ -2184,7 +2184,7 @@ impl<'a> ChainStoreUpdate<'a> {
             );
         }
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             let chunk_hash = chunk_header.chunk_hash();
             chain_store_update
                 .chain_store_cache_update

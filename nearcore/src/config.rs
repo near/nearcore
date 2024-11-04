@@ -57,7 +57,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -964,19 +963,7 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-            let shards = if num_shards > 1 {
-                ShardLayout::v1(
-                    (1..num_shards)
-                        .map(|f| {
-                            AccountId::from_str(format!("shard{f}.test.near").as_str()).unwrap()
-                        })
-                        .collect(),
-                    None,
-                    1,
-                )
-            } else {
-                ShardLayout::v0_single_shard()
-            };
+            let shards = ShardLayout::multi_shard(num_shards, 0);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -1087,7 +1074,7 @@ pub fn create_localnet_configs_from_seeds(
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
 
-    let shard_layout = ShardLayout::v0(num_shards, 0);
+    let shard_layout = ShardLayout::multi_shard(num_shards, 0);
     let accounts_to_add_to_genesis: Vec<AccountId> =
         seeds.iter().map(|s| s.parse().unwrap()).collect();
 
@@ -1566,10 +1553,17 @@ mod tests {
         );
         assert_eq!(
             account_id_to_shard_id(
-                &AccountId::from_str("shard1.test.near").unwrap(),
+                &AccountId::from_str("shard0.test.near").unwrap(),
                 &genesis.config.shard_layout,
             ),
             ShardId::new(1)
+        );
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("shard1.test.near").unwrap(),
+                &genesis.config.shard_layout,
+            ),
+            ShardId::new(2)
         );
         assert_eq!(
             account_id_to_shard_id(

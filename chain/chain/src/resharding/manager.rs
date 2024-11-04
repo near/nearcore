@@ -5,7 +5,6 @@ use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use super::types::ReshardingSender;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
 use crate::types::RuntimeAdapter;
-use near_async::messaging::IntoSender;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -15,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::trie::mem::resharding::RetainMode;
+use near_store::trie::ops::resharding::RetainMode;
 use near_store::{DBCol, PartialStorage, ShardTries, ShardUId, Store};
 
 use crate::ChainStoreUpdate;
@@ -43,7 +42,7 @@ impl ReshardingManager {
         let resharding_handle = ReshardingHandle::new();
         let flat_storage_resharder = FlatStorageResharder::new(
             runtime_adapter,
-            resharding_sender.into_sender(),
+            resharding_sender,
             FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
             resharding_config.clone(),
         );
@@ -84,7 +83,7 @@ impl ReshardingManager {
         }
 
         let resharding_event_type =
-            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash, *prev_hash)?;
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
                 self.split_shard(

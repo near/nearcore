@@ -99,7 +99,7 @@ pub fn make_outgoing_receipts_proofs(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts: &[Receipt],
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<impl Iterator<Item = ReceiptProof>, EpochError> {
+) -> Result<Vec<ReceiptProof>, EpochError> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
@@ -110,14 +110,15 @@ pub fn make_outgoing_receipts_proofs(
 
     let mut receipts_by_shard =
         Chain::group_receipts_by_shard(outgoing_receipts.to_vec(), &shard_layout);
-    let it = proofs.into_iter().enumerate().map(move |(proof_shard_index, proof)| {
-        let proof_shard_id = shard_layout.get_shard_id(proof_shard_index);
+    let mut result = vec![];
+    for (proof_shard_index, proof) in proofs.into_iter().enumerate() {
+        let proof_shard_id = shard_layout.get_shard_id(proof_shard_index)?;
         let receipts = receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
         let shard_proof =
             ShardProof { from_shard_id: shard_id, to_shard_id: proof_shard_id, proof };
-        ReceiptProof(receipts, shard_proof)
-    });
-    Ok(it)
+        result.push(ReceiptProof(receipts, shard_proof));
+    }
+    Ok(result)
 }
 
 pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
@@ -223,7 +224,7 @@ fn create_partial_chunk(
 ) -> Result<PartialEncodedChunk, EpochError> {
     let header = encoded_chunk.cloned_header();
     let prev_outgoing_receipts =
-        make_outgoing_receipts_proofs(&header, &outgoing_receipts, epoch_manager)?.collect();
+        make_outgoing_receipts_proofs(&header, &outgoing_receipts, epoch_manager)?;
     let partial_chunk = PartialEncodedChunkV2 {
         header,
         parts: encoded_chunk
