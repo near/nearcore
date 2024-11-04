@@ -1914,8 +1914,11 @@ fn test_deploy_existing_contract_to_different_account() {
     assert_eq!(apply_result.delayed_receipts_count, 0);
     // No contract access is recorded because it was newly deployed.
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
-    // No contract deploy is recorded because the same contract was deployed to another account.
-    assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
+    // The contract deployment is still recorded even if it was deployed to another account before.
+    assert_eq!(
+        apply_result.contract_updates.contract_deploy_hashes(),
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
 }
 
 // Tests the case in which deploy and call are contained in the same receipt.
