@@ -150,7 +150,7 @@ when it comes to small details.</p>
 <p>Linux's <code>perf</code> has been a tool of choice in most cases, although tools like Intel VTune could be
 used too. In order to use either, first prepare your system:</p>
 <pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
-$ sudo sysctl kernel.restrict_kptr=0
+$ sudo sysctl kernel.kptr_restrict=0
 </code></pre>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 <p>Beware that this gives access to certain kernel state and environment to the unprivileged user.
