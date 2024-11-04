@@ -61,6 +61,7 @@ fn res_contract(name: &str) {
         PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     manifest_dir.push("res");
     manifest_dir.push(format!("{name}.wasm"));
+    println!("cargo:rerun-if-changed={}", manifest_dir.display());
     println!("cargo::rustc-env=CONTRACT_{}={}", name, manifest_dir.display());
 }
 
