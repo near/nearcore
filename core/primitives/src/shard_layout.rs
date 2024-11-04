@@ -632,10 +632,7 @@ impl ShardLayout {
             .map(|id| (*id, vec![*id]))
             .collect::<BTreeMap<ShardId, Vec<ShardId>>>();
 
-        debug_assert!(
-            boundary_accounts.iter().position(|acc| acc == &new_boundary_account).is_none(),
-            "duplicated boundary account",
-        );
+        assert!(!boundary_accounts.contains(&new_boundary_account), "duplicated boundary account");
 
         // boundary accounts should be sorted such that the index points to the shard to be split
         boundary_accounts.push(new_boundary_account.clone());
@@ -652,9 +649,10 @@ impl ShardLayout {
         let parent_shard_id = shard_ids
             .splice(new_boundary_account_index..new_boundary_account_index + 1, new_shards.clone())
             .collect::<Vec<_>>();
-        debug_assert!(parent_shard_id.len() == 1, "should only splice one shard");
-        let parent_shard_id = parent_shard_id[0];
-        shards_split_map.insert(parent_shard_id, new_shards);
+        let [parent_shard_id] = parent_shard_id.as_slice() else {
+            panic!("should only splice one shard");
+        };
+        shards_split_map.insert(*parent_shard_id, new_shards);
 
         ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map))
     }
