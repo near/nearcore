@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
@@ -624,8 +623,8 @@ impl ShardLayout {
     /// Derive new shard layout from an existing one
     pub fn derive_shard_layout(
         base_layout: &ShardLayout,
-        new_boundary_account: &str,
-    ) -> Result<ShardLayout, ParseAccountError> {
+        new_boundary_account: AccountId,
+    ) -> ShardLayout {
         let mut boundary_accounts = base_layout.boundary_accounts().clone();
         let mut shard_ids = base_layout.shard_ids().collect::<Vec<_>>();
         let mut shards_split_map = shard_ids
@@ -633,8 +632,12 @@ impl ShardLayout {
             .map(|id| (*id, vec![*id]))
             .collect::<BTreeMap<ShardId, Vec<ShardId>>>();
 
+        debug_assert!(
+            boundary_accounts.iter().position(|acc| acc == &new_boundary_account).is_none(),
+            "duplicated boundary account",
+        );
+
         // boundary accounts should be sorted such that the index points to the shard to be split
-        let new_boundary_account = new_boundary_account.parse::<AccountId>()?;
         boundary_accounts.push(new_boundary_account.clone());
         boundary_accounts.sort();
         let new_boundary_account_index = boundary_accounts
@@ -653,7 +656,7 @@ impl ShardLayout {
         let parent_shard_id = parent_shard_id[0];
         shards_split_map.insert(parent_shard_id, new_shards);
 
-        Ok(ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map)))
+        ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map))
     }
 
     #[inline]
@@ -1392,16 +1395,12 @@ mod tests {
 
     #[test]
     fn test_deriving_shard_layout() {
-        macro_rules! boundaries {
-            ($($b:expr),*) => {
-                vec![$($b.parse().unwrap()),*]
-            };
+        fn to_boundary_accounts<const N: usize>(accounts: [&str; N]) -> Vec<AccountId> {
+            accounts.into_iter().map(|a| a.parse().unwrap()).collect()
         }
 
-        macro_rules! shards {
-            ($($s:expr),*) => {
-                vec![$(ShardId::new($s as u64)),*]
-            };
+        fn to_shard_ids<const N: usize>(ids: [u32; N]) -> Vec<ShardId> {
+            ids.into_iter().map(|id| ShardId::new(id as u64)).collect()
         }
 
         fn to_shards_split_map<const N: usize>(
@@ -1421,13 +1420,13 @@ mod tests {
         // [(0, [1,2])]
         // [0] -> [1,2]
         let base_layout = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
-        assert_eq!(base_layout, ShardLayout::v2(boundaries!(), shards!(0), None));
-        let derived_layout = ShardLayout::derive_shard_layout(&base_layout, "test1.near").unwrap();
+        let derived_layout =
+            ShardLayout::derive_shard_layout(&base_layout, "test1.near".parse().unwrap());
         assert_eq!(
             derived_layout,
             ShardLayout::v2(
-                boundaries!("test1.near"),
-                shards!(1, 2),
+                to_boundary_accounts(["test1.near"]),
+                to_shard_ids([1, 2]),
                 Some(to_shards_split_map([(0, vec![1, 2])])),
             ),
         );
@@ -1436,12 +1435,13 @@ mod tests {
         // [(1, [1]), (2, [3, 4])]
         // [1, 2] -> [1, 3, 4]
         let base_layout = derived_layout;
-        let derived_layout = ShardLayout::derive_shard_layout(&base_layout, "test3.near").unwrap();
+        let derived_layout =
+            ShardLayout::derive_shard_layout(&base_layout, "test3.near".parse().unwrap());
         assert_eq!(
             derived_layout,
             ShardLayout::v2(
-                boundaries!("test1.near", "test3.near"),
-                shards!(1, 3, 4),
+                to_boundary_accounts(["test1.near", "test3.near"]),
+                to_shard_ids([1, 3, 4]),
                 Some(to_shards_split_map([(1, vec![1]), (2, vec![3, 4])])),
             ),
         );
@@ -1450,12 +1450,13 @@ mod tests {
         // [(1, [5, 6]), (3, [3]), (4, [4])]
         // [1, 3, 4] -> [5, 6, 3, 4]
         let base_layout = derived_layout;
-        let derived_layout = ShardLayout::derive_shard_layout(&base_layout, "test0.near").unwrap();
+        let derived_layout =
+            ShardLayout::derive_shard_layout(&base_layout, "test0.near".parse().unwrap());
         assert_eq!(
             derived_layout,
             ShardLayout::v2(
-                boundaries!("test0.near", "test1.near", "test3.near"),
-                shards!(5, 6, 3, 4),
+                to_boundary_accounts(["test0.near", "test1.near", "test3.near"]),
+                to_shard_ids([5, 6, 3, 4]),
                 Some(to_shards_split_map([(1, vec![5, 6]), (3, vec![3]), (4, vec![4]),])),
             ),
         );
@@ -1464,12 +1465,13 @@ mod tests {
         // [(5, [5]), (6, [6]), (3, [7, 8]), (4, [4])]
         // [5, 6, 3, 4] -> [5, 6, 7, 8, 4]
         let base_layout = derived_layout;
-        let derived_layout = ShardLayout::derive_shard_layout(&base_layout, "test2.near").unwrap();
+        let derived_layout =
+            ShardLayout::derive_shard_layout(&base_layout, "test2.near".parse().unwrap());
         assert_eq!(
             derived_layout,
             ShardLayout::v2(
-                boundaries!("test0.near", "test1.near", "test2.near", "test3.near"),
-                shards!(5, 6, 7, 8, 4),
+                to_boundary_accounts(["test0.near", "test1.near", "test2.near", "test3.near"]),
+                to_shard_ids([5, 6, 7, 8, 4]),
                 Some(to_shards_split_map([
                     (5, vec![5]),
                     (6, vec![6]),
