@@ -331,12 +331,6 @@ impl fmt::Display for ShardLayoutError {
     }
 }
 
-impl fmt::Display for ShardLayoutError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {
