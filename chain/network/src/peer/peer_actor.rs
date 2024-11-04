@@ -675,6 +675,7 @@ impl PeerActor {
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
+                tier: tier,
                 type_: self.peer_type,
                 encoding: self.encoding(),
             }),
