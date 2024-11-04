@@ -1095,7 +1095,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
 
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement
@@ -1114,7 +1114,7 @@ impl EpochManager {
     ) -> Result<AccountId, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = epoch_info
             .chunk_producers_settlement()
             .get(shard_index)
@@ -1296,7 +1296,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
 
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement

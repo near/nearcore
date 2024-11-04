@@ -261,6 +261,12 @@ impl PartialWitnessActor {
         deploys: ChunkContractDeploys,
     ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
         let validators = self.ordered_contract_deploys_validators(key)?;
+        // Note that target validators do not include the chunk producers, and thus in some case
+        // (eg. tests or small networks) there may be no other validators to send the new contracts to.
+        if validators.is_empty() {
+            return Ok(vec![]);
+        }
+
         let encoder = self.contract_deploys_encoder(validators.len());
         let (parts, encoded_length) = encoder.encode(&deploys);
         let signer = self.my_validator_signer()?;
@@ -415,6 +421,14 @@ impl PartialWitnessActor {
         }
         let key = partial_deploys.chunk_production_key().clone();
         let validators = self.ordered_contract_deploys_validators(&key)?;
+        if validators.is_empty() {
+            // Note that target validators do not include the chunk producers, and thus in some case
+            // (eg. tests or small networks) there may be no other validators to send the new contracts to.
+            // In such case, the message we are handling here should not be sent in the first place,
+            // unless there is a bug or adversarial behavior that sends the message.
+            debug_assert!(false, "No target validators, we must not receive this message");
+            return Ok(());
+        }
 
         // Forward to other validators if the part received is my part
         let signer = self.my_validator_signer()?;
@@ -429,12 +443,14 @@ impl PartialWitnessActor {
                 .filter(|&validator| validator != my_account_id)
                 .cloned()
                 .collect_vec();
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedContractDeploys(
-                    other_validators,
-                    partial_deploys.clone(),
-                ),
-            ));
+            if !other_validators.is_empty() {
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedContractDeploys(
+                        other_validators,
+                        partial_deploys.clone(),
+                    ),
+                ));
+            }
         }
 
         // Store part

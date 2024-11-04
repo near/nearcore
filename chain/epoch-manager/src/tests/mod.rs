@@ -1655,12 +1655,11 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
         let chunk_mask = vec![true; num_shards as usize];
         // Prepare the chunk endorsements so that "test2" misses some of the endorsements.
         let mut bitmap = ChunkEndorsementsBitmap::new(num_shards as usize);
-        for shard_id in shard_layout.shard_ids() {
+        for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
             let chunk_validators = em
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)
                 .unwrap()
                 .ordered_chunk_validators();
-            let shard_index = shard_layout.get_shard_index(shard_id);
             bitmap.add_endorsements(
                 shard_index,
                 chunk_validators
@@ -2294,7 +2293,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         new_protocol_version - 1
     );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::v0_single_shard(),);
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::single_shard());
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
         new_protocol_version
@@ -2331,7 +2330,7 @@ fn test_protocol_version_switch_with_many_seats() {
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
-        shard_layout: ShardLayout::v0_single_shard(),
+        shard_layout: ShardLayout::single_shard(),
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
@@ -3237,7 +3236,7 @@ fn test_chunk_validator_exempted() {
 
 #[test]
 /// Tests the case where a chunk validator has low endorsement stats and is kicked out (not exempted).
-/// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.  
+/// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.
 fn test_chunk_validator_kicked_out_for_low_endorsement() {
     test_chunk_validator_kickout(
         HashMap::from([(

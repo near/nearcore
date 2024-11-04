@@ -315,7 +315,7 @@ fn challenge(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let epoch_id = block.header().epoch_id();
     let shard_layout = env.clients[0].chain.epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
 
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
     let valid_challenge = Challenge::produce(
