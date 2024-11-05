@@ -1,19 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
-use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, CodeHash, ContractUpdates,
-};
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness,
 };
@@ -21,7 +18,6 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
     StoredChunkStateTransitionDataV2, StoredChunkStateTransitionDataV3,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
@@ -101,30 +97,17 @@ impl Client {
             );
         }
 
-        let ContractUpdates { contract_accesses, contract_deploys } =
-            if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
-                contract_updates
-            } else {
-                Default::default()
-            };
-
-        // We send the hashes of the contract code accessed (if applicable) before the state witness in order to
-        // allow validators to check and request missing contract code, while waiting for witness parts.
-
-        // TODO(#11099): Consider moving this also to partial witness actor by passing ContractUpdates in DistributeStateWitnessRequest.
-        if !contract_accesses.is_empty() {
-            self.send_contract_accesses_to_chunk_validators(
-                state_witness.chunk_production_key(),
-                contract_accesses,
-                my_signer.as_ref(),
-            );
-        }
+        // Pass the contract changes to PartialWitnessActor only if we exclude contract code from state witness.
+        let contract_updates = ProtocolFeature::ExcludeContractCodeFromStateWitness
+            .enabled(protocol_version)
+            .then_some(contract_updates)
+            .unwrap_or_default();
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             epoch_id: *epoch_id,
             chunk_header,
             state_witness,
-            contract_deploys,
+            contract_updates,
         });
         Ok(())
     }
@@ -422,41 +405,5 @@ impl Client {
             }
         }
         Ok(source_receipt_proofs)
-    }
-
-    /// Sends the contract accesses to the same chunk validators
-    /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.  
-    fn send_contract_accesses_to_chunk_validators(
-        &self,
-        key: ChunkProductionKey,
-        contract_accesses: HashSet<CodeHash>,
-        my_signer: &ValidatorSigner,
-    ) {
-        let chunk_validators: HashSet<AccountId> = self
-            .epoch_manager
-            .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
-            .expect("Chunk validators must be defined")
-            .assignments()
-            .iter()
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        let chunk_producers: HashSet<AccountId> = self
-            .epoch_manager
-            .get_epoch_chunk_producers_for_shard(&key.epoch_id, key.shard_id)
-            .expect("Chunk producers must be defined")
-            .into_iter()
-            .collect();
-
-        // Exclude chunk producers that track the same shard from the target list, since they track the state that contains the respective code.
-        let target_chunk_validators =
-            chunk_validators.difference(&chunk_producers).cloned().collect();
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkContractAccesses(
-                target_chunk_validators,
-                ChunkContractAccesses::new(key, contract_accesses, my_signer),
-            ),
-        ));
     }
 }
