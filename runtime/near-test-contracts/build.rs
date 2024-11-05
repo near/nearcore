@@ -2,9 +2,10 @@
 /// `res` directory.
 ///
 /// It writes a few logs with the `debug` prefix. Those are ignored by cargo (as
-/// any other messages with prefix other than `cargo::`) but can be seen in the
+/// any other messages with prefix other than `cargo:`) but can be seen in the
 /// build logs.
 use std::env;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 type Error = Box<dyn std::error::Error>;
@@ -21,6 +22,7 @@ fn main() {
 fn try_main() -> Result<(), Error> {
     let mut test_contract_features = vec!["latest_protocol"];
 
+    let is_nightly = std::env::var_os("CARGO_FEATURE_nightly").is_some();
     let test_features = &env::var(TEST_FEATURES_ENV);
     println!("cargo:rerun-if-env-changed={TEST_FEATURES_ENV}");
     println!("debug: test_features = {test_features:?}");
@@ -43,13 +45,24 @@ fn try_main() -> Result<(), Error> {
         "nightly_test_contract_rs",
     )?;
     build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
-    build_contract("./estimator-contract", &[], "stable_estimator_contract")?;
     build_contract(
         "./estimator-contract",
-        &["--features", "nightly"],
-        "nightly_estimator_contract",
+        if is_nightly { &["--features", "nightly"] } else { &[] },
+        "estimator_contract",
     )?;
+    res_contract("backwards_compatible_rs_contract");
+    res_contract("test_contract_ts");
+    res_contract("fungible_token");
     Ok(())
+}
+
+fn res_contract(name: &str) {
+    let mut manifest_dir =
+        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    manifest_dir.push("res");
+    manifest_dir.push(format!("{name}.wasm"));
+    println!("cargo:rerun-if-changed={}", manifest_dir.display());
+    println!("cargo:rustc-env=CONTRACT_{}={}", name, manifest_dir.display());
 }
 
 /// build the contract and copy the wasm file to the `res` directory
@@ -63,21 +76,19 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
     check_status(cmd)?;
 
     // copy the wasm file to the `res` directory
-    let target_path = format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_"));
-    let from = target_dir.join(target_path);
-    let to = format!("./res/{}.wasm", output);
-    let copy_result = std::fs::copy(&from, &to);
-    copy_result.map_err(|err| format!("failed to copy `{}`: {}", from.display(), err))?;
-
+    let file_path = format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_"));
+    let from = target_dir.join(file_path);
+    let to = target_dir.join(format!("{}.wasm", output));
+    std::fs::rename(&from, &to)
+        .map_err(|err| format!("failed to copy `{}`: {}", from.display(), err))?;
+    println!("cargo:rustc-env=CONTRACT_{}={}", output, to.display());
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
-
     println!("debug: from = {from:?}, to = {to:?}");
-
     Ok(())
 }
 
-fn cargo_build_cmd(target_dir: &std::path::Path) -> Command {
+fn cargo_build_cmd(target_dir: &Path) -> Command {
     let mut res = Command::new("cargo");
 
     res.env_remove("CARGO_BUILD_RUSTFLAGS");

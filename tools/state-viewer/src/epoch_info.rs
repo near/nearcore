@@ -6,6 +6,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
 use near_store::{DBCol, Store};
@@ -295,7 +296,8 @@ fn display_validator_info(
         for (block_height, shard_id) in cp_for_chunks {
             if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
                 let block = chain_store.get_block(&block_hash).unwrap();
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
                 if block.chunks()[shard_index].height_included() != block_height {
                     missing_chunks.push((block_height, shard_id));
                 }

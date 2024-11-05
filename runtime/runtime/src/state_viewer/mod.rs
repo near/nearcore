@@ -6,6 +6,7 @@ use crate::ApplyState;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
@@ -205,7 +206,7 @@ impl TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::ViewTrackedShard,
             block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,

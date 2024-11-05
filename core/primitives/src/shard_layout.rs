@@ -322,6 +322,13 @@ impl ShardLayoutV2 {
 #[derive(Debug)]
 pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
+    InvalidShardIndexError { shard_index: ShardIndex },
+}
+
+impl fmt::Display for ShardLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl ShardLayout {
@@ -607,13 +614,18 @@ impl ShardLayout {
                 // we can safely unwrap here because the construction of to_parent_shard_map guarantees
                 // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
-                    let shard_index = self.get_shard_index(shard_id);
+                    let shard_index = self.get_shard_index(shard_id)?;
                     *to_parent_shard_map.get(shard_index).unwrap()
                 }
                 None => panic!("shard_layout has no parent shard"),
             },
             Self::V2(v2) => match &v2.shards_parent_map {
-                Some(to_parent_shard_map) => *to_parent_shard_map.get(&shard_id).unwrap(),
+                Some(to_parent_shard_map) => {
+                    let parent_shard_id = to_parent_shard_map.get(&shard_id);
+                    let parent_shard_id = parent_shard_id
+                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
+                    *parent_shard_id
+                }
                 None => panic!("shard_layout has no parent shard"),
             },
         };
@@ -661,24 +673,37 @@ impl ShardLayout {
 
     /// Returns the shard index for a given shard id. The shard index should be
     /// used when indexing into an array of chunk data.
-    pub fn get_shard_index(&self, shard_id: ShardId) -> ShardIndex {
+    pub fn get_shard_index(&self, shard_id: ShardId) -> Result<ShardIndex, ShardLayoutError> {
         match self {
             // In V0 the shard id and shard index are the same.
-            Self::V0(_) => shard_id.into(),
+            Self::V0(_) => Ok(shard_id.into()),
             // In V1 the shard id and shard index are the same.
-            Self::V1(_) => shard_id.into(),
+            Self::V1(_) => Ok(shard_id.into()),
             // In V2 the shard id and shard index are **not** the same.
-            Self::V2(v2) => v2.id_to_index_map[&shard_id],
+            Self::V2(v2) => v2
+                .id_to_index_map
+                .get(&shard_id)
+                .copied()
+                .ok_or(ShardLayoutError::InvalidShardIdError { shard_id }),
         }
     }
 
     /// Get the shard id for a given shard index. The shard id should be used to
     /// identify the shard and starting from the ShardLayoutV2 it is unique.
-    pub fn get_shard_id(&self, shard_index: ShardIndex) -> ShardId {
+    pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
+        let num_shards = self.num_shards() as usize;
         match self {
-            Self::V0(_) => ShardId::new(shard_index as u64),
-            Self::V1(_) => ShardId::new(shard_index as u64),
-            Self::V2(v2) => v2.index_to_id_map[&shard_index],
+            Self::V0(_) | Self::V1(_) => {
+                if shard_index >= num_shards {
+                    return Err(ShardLayoutError::InvalidShardIndexError { shard_index });
+                }
+                Ok(ShardId::new(shard_index as u64))
+            }
+            Self::V2(v2) => v2
+                .index_to_id_map
+                .get(&shard_index)
+                .copied()
+                .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
         }
     }
 }

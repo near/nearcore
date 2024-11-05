@@ -20,20 +20,24 @@ const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 1;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
-fn test_contract_distribution(clear_cache: bool) {
+/// Executes a test that deploys to a contract to an account and calls it.
+fn test_contract_distribution_single_account(clear_cache: bool) {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
 
-    do_deploy_contract(&mut test_loop, &node_datas, 1);
+    let rpc_id = make_account(0);
+    let account = rpc_id.clone();
+
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 1);
 
     if clear_cache {
         #[cfg(feature = "test_features")]
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, 2);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -41,16 +45,57 @@ fn test_contract_distribution(clear_cache: bool) {
 
 /// Tests a simple scenario where we deploy and call a contract.
 #[test]
-fn test_contract_distribution_deploy_and_call() {
-    test_contract_distribution(false);
+fn test_contract_distribution_deploy_and_call_single_account() {
+    test_contract_distribution_single_account(false);
 }
 
 /// Tests a simple scenario where we deploy a contract, and then
 /// we clear the compiled contract cache and call the deployed contract call.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-fn test_contract_distribution_call_after_clear() {
-    test_contract_distribution(true);
+fn test_contract_distribution_single_account_call_after_clear() {
+    test_contract_distribution_single_account(true);
+}
+
+/// Executes a test that deploys to a contract to two different accounts and calls them.
+fn test_contract_distribution_different_accounts(clear_cache: bool) {
+    init_test_logger();
+    let accounts = make_accounts(NUM_ACCOUNTS);
+
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
+
+    let rpc_id = make_account(0);
+    let account = rpc_id.clone();
+
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 1);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
+
+    if clear_cache {
+        #[cfg(feature = "test_features")]
+        clear_compiled_contract_caches(&mut test_loop, &node_datas);
+    }
+
+    let account = make_account(1);
+
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 3);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 4);
+
+    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests a simple scenario where we deploy and call a contract on two different accounts.
+#[test]
+fn test_contract_distribution_deploy_and_call_different_accounts() {
+    test_contract_distribution_different_accounts(false);
+}
+
+/// Tests a simple scenario where we deploy and call a contract on an account, and then
+/// we clear the compiled contract cache and deploy and call contract on another account.
+#[cfg_attr(not(feature = "test_features"), ignore)]
+#[test]
+fn test_contract_distribution_different_accounts_call_after_clear() {
+    test_contract_distribution_different_accounts(true);
 }
 
 fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
@@ -89,34 +134,40 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
     env
 }
 
-fn do_deploy_contract(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>, nonce: u64) {
-    // Make all of rpc, sender, and contract id the same:
-    let account = make_account(0);
-
+fn do_deploy_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &Vec<TestData>,
+    rpc_id: &AccountId,
+    account: &AccountId,
+    nonce: u64,
+) {
     tracing::info!(target: "test", "Deploying contract.");
     let code = near_test_contracts::sized_contract(100).to_vec();
-    let tx = deploy_contract(test_loop, &node_datas, &account, &account, code, nonce);
+    let tx = deploy_contract(test_loop, &node_datas, rpc_id, account, code, nonce);
     test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, &account, &[tx]);
+    check_txs(test_loop, node_datas, rpc_id, &[tx]);
 }
 
-fn do_call_contract(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>, nonce: u64) {
-    // Make all of rpc, sender, and contract id the same:
-    let account = make_account(0);
-
+fn do_call_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &Vec<TestData>,
+    rpc_id: &AccountId,
+    account: &AccountId,
+    nonce: u64,
+) {
     tracing::info!(target: "test", "Calling contract.");
     let tx = call_contract(
         test_loop,
         node_datas,
-        &account,
-        &account,
-        &account,
+        rpc_id,
+        account,
+        account,
         "main".to_owned(),
         vec![],
         nonce,
     );
     test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, &account, &[tx]);
+    check_txs(test_loop, node_datas, rpc_id, &[tx]);
 }
 
 /// Clears the compiled contract caches for all the clients.

@@ -635,7 +635,6 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::ShardIndex;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -964,9 +963,7 @@ mod tests {
         .unwrap();
 
         let shard_layout = &epoch_config.shard_layout;
-        for shard_index in 0..num_shards {
-            let shard_index = shard_index as ShardIndex;
-            let shard_id = shard_layout.get_shard_id(shard_index);
+        for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
             for h in 0..100_000 {
                 let cp = epoch_info.sample_chunk_producer(shard_layout, shard_id, h);
                 // Don't read too much into this. The reason the ValidatorId always

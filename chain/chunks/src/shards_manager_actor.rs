@@ -1043,12 +1043,15 @@ impl ShardsManagerActor {
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
         let outgoing_receipts = chunk.prev_outgoing_receipts();
-        let present_receipts: HashMap<ShardId, _> = match make_outgoing_receipts_proofs(
+        let outgoing_receipts_proofs = make_outgoing_receipts_proofs(
             &header,
             &outgoing_receipts,
             self.view_epoch_manager.as_ref(),
-        ) {
-            Ok(receipts) => receipts.map(|receipt| (receipt.1.to_shard_id, receipt)).collect(),
+        );
+        let present_receipts: HashMap<ShardId, _> = match outgoing_receipts_proofs {
+            Ok(receipts) => {
+                receipts.into_iter().map(|receipt| (receipt.1.to_shard_id, receipt)).collect()
+            }
             Err(e) => {
                 warn!(target: "chunks", "Not sending {:?}, failed to make outgoing receipts proofs: {}", chunk.chunk_hash(), e);
                 return;
@@ -2060,6 +2063,7 @@ impl ShardsManagerActor {
             &outgoing_receipts,
             self.epoch_manager.as_ref(),
         )?
+        .into_iter()
         .map(Arc::new)
         .collect::<Vec<_>>();
         for (to_whom, part_ords) in block_producer_mapping {

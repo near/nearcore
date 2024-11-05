@@ -390,6 +390,12 @@ impl PartialEncodedContractDeploys {
             Self::V1(v1) => &v1.inner.part,
         }
     }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        match self {
+            Self::V1(accesses) => accesses.verify_signature(public_key),
+        }
+    }
 }
 
 impl Into<(ChunkProductionKey, PartialEncodedContractDeploysPart)>
@@ -419,6 +425,10 @@ impl PartialEncodedContractDeploysV1 {
         let inner = PartialEncodedContractDeploysInner::new(key, part);
         let signature = signer.sign_partial_encoded_contract_deploys(&inner);
         Self { inner, signature }
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
