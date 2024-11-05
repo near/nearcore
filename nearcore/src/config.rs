@@ -1011,14 +1011,14 @@ pub fn init_configs(
         }
     }
 
-    if let Some(start_protocol_version) = dump_epoch_config {
+    if let Some(first_version) = dump_epoch_config {
         let epoch_config_dir = dir.join("epoch_configs");
         fs::create_dir_all(epoch_config_dir.clone())
             .with_context(|| anyhow!("Failed to create directory {:?}", epoch_config_dir))?;
         EpochConfigStore::for_chain_id(MAINNET, None)
             .expect("Could not load the EpochConfigStore for mainnet.")
             .dump_epoch_configs_between(
-                &start_protocol_version,
+                &first_version,
                 &PROTOCOL_VERSION,
                 epoch_config_dir.to_str().unwrap(),
             );

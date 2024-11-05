@@ -255,6 +255,26 @@ pub(super) enum NeardSubCommand {
     ReplayArchive(ReplayArchiveCommand),
 }
 
+#[derive(Debug, Clone)]
+enum FirstProtocolVersion {
+    Since(ProtocolVersion),
+    Latest,
+}
+
+impl FromStr for FirstProtocolVersion {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "latest" => Ok(FirstProtocolVersion::Latest),
+            _ => input
+                .parse::<ProtocolVersion>()
+                .map(FirstProtocolVersion::Since)
+                .map_err(|_| format!("Invalid value for FirstProtocolVersion: {}", input)),
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
@@ -301,9 +321,9 @@ pub(super) struct InitCmd {
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
     /// Dump epoch config from the given protocol version onwards.
-    /// If the argument is provided with no value, the latest protocol version will be used.
+    /// Can be a number or the word "latest".
     #[clap(long)]
-    dump_epoch_config: Option<Option<ProtocolVersion>>,
+    dump_epoch_config: Option<FirstProtocolVersion>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -361,11 +381,10 @@ impl InitCmd {
             None
         };
 
-        let dump_epoch_config = match self.dump_epoch_config {
-            Some(Some(version)) => Some(version),
-            Some(None) => Some(near_primitives::version::PROTOCOL_VERSION),
-            None => None,
-        };
+        let dump_epoch_config = self.dump_epoch_config.map(|first| match first {
+            FirstProtocolVersion::Since(version) => version,
+            FirstProtocolVersion::Latest => near_primitives::version::PROTOCOL_VERSION,
+        });
 
         nearcore::init_configs(
             home_dir,

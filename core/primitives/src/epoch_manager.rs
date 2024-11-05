@@ -577,20 +577,21 @@ impl EpochConfigStore {
     /// If the beginning version doesn't exist, the closest config to it will be dumped.
     pub fn dump_epoch_configs_between(
         &self,
-        beginning: &ProtocolVersion,
-        end: &ProtocolVersion,
+        first_version: &ProtocolVersion,
+        last_version: &ProtocolVersion,
         directory: &str,
     ) {
         // Dump all the configs between the beginning and end versions, inclusive.
-        self.store.iter().filter(|(version, _)| *version >= beginning && *version <= end).for_each(
-            |(version, config)| {
+        self.store
+            .iter()
+            .filter(|(version, _)| *version >= first_version && *version <= last_version)
+            .for_each(|(version, config)| {
                 Self::dump_epoch_config(directory, version, config);
-            },
-        );
+            });
         // Dump the closest config to the beginning version if it doesn't exist.
-        if !self.store.contains_key(&beginning) {
-            let config = self.get_config(*beginning);
-            Self::dump_epoch_config(directory, beginning, config);
+        if !self.store.contains_key(&first_version) {
+            let config = self.get_config(*first_version);
+            Self::dump_epoch_config(directory, first_version, config);
         }
     }
 }
