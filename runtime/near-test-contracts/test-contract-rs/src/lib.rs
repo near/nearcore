@@ -1835,3 +1835,59 @@ pub unsafe fn max_receipt_size_value_return_method() {
         20 * TGAS,
     );
 }
+
+#[no_mangle]
+pub unsafe fn yield_with_large_args() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+    let large_args = vec![0u8; args_size as usize];
+    let method_name = b"noop";
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        large_args.len() as u64,
+        large_args.as_ptr() as u64,
+        0,
+        1,
+        data_id_register,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn resume_with_large_payload() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let payload_size = input_args_json["payload_size"].as_u64().unwrap();
+
+    let empty_args: &[u8] = &[];
+    let method_name = b"noop";
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        20 * TGAS,
+        0,
+        data_id_register,
+    );
+
+    let data_id = vec![0u8; register_len(data_id_register) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+
+    let resolve_data = vec![0u8; payload_size as usize];
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        resolve_data.len() as u64,
+        resolve_data.as_ptr() as u64,
+    );
+    assert_eq!(success, 1);
+}

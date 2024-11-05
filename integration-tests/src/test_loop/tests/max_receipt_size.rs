@@ -3,7 +3,8 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::errors::{
-    ActionErrorKind, InvalidTxError, ReceiptValidationError, TxExecutionError,
+    ActionError, ActionErrorKind, FunctionCallError, InvalidTxError, ReceiptValidationError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -254,6 +255,87 @@ fn test_max_receipt_size_value_return() {
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
     run_tx(&mut env.test_loop, assert_test_completed, &env.datas, Duration::seconds(5));
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Yielding produces a new action receipt, resuming produces a new data receipt.
+/// Make sure that the size of receipts produced by yield/resume is limited to below `max_receipt_size`.
+#[test]
+fn test_max_receipt_size_yield_resume() {
+    init_test_logger();
+    let mut env: TestLoopEnv = standard_setup_1();
+
+    let account: AccountId = "account0".parse().unwrap();
+    let account_signer = &create_user_test_signer(&account).into();
+
+    // Deploy the test contract
+    let deploy_contract_tx = SignedTransaction::deploy_contract(
+        101,
+        &account,
+        near_test_contracts::rs_contract().into(),
+        &account_signer,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(50));
+
+    let max_receipt_size = 4_194_304;
+
+    // Perform a yield which creates a receipt that is larger than the max_receipt_size.
+    // It should be rejected because of the receipt size limit.
+    let yield_receipt_tx = SignedTransaction::call(
+        102,
+        account.clone(),
+        account.clone(),
+        &account_signer,
+        0,
+        "yield_with_large_args".into(),
+        format!("{{\"args_size\": {}}}", max_receipt_size).into(),
+        300 * TGAS,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    let yield_receipt_res =
+        execute_tx(&mut env.test_loop, yield_receipt_tx, &env.datas, Duration::seconds(10))
+            .unwrap();
+
+    let expected_yield_status =
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::NewReceiptValidationError(
+                ReceiptValidationError::ReceiptSizeExceeded {
+                    size: 4194503,
+                    limit: max_receipt_size,
+                },
+            ),
+        }));
+    assert_eq!(yield_receipt_res.status, expected_yield_status);
+
+    // Perform a resume which would create a large data receipt.
+    // It fails because the max payload size is 1024.
+    // Definitely not exceeding max_receipt_size.
+    let resume_receipt_tx = SignedTransaction::call(
+        103,
+        account.clone(),
+        account,
+        &account_signer,
+        0,
+        "resume_with_large_payload".into(),
+        format!("{{\"payload_size\": {}}}", 2000).into(),
+        300 * TGAS,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    let resume_receipt_res =
+        execute_tx(&mut env.test_loop, resume_receipt_tx, &env.datas, Duration::seconds(5))
+            .unwrap();
+
+    let expected_resume_status =
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "Yield resume payload is 2000 bytes which exceeds the 1024 byte limit".to_string(),
+            )),
+        }));
+    assert_eq!(resume_receipt_res.status, expected_resume_status);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
