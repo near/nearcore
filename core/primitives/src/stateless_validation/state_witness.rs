@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use super::ChunkProductionKey;
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
@@ -161,8 +161,6 @@ pub struct ChunkStateWitness {
     /// accounts have appropriate balances, access keys, nonces, etc.
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
-    // TODO(stateless_validation): Deprecate once we send state witness in parts.
-    signature_differentiator: SignatureDifferentiator,
 }
 
 impl ChunkStateWitness {
@@ -189,7 +187,6 @@ impl ChunkStateWitness {
             implicit_transitions,
             new_transactions,
             new_transactions_validation_state,
-            signature_differentiator: "ChunkStateWitness".to_owned(),
         }
     }
 
