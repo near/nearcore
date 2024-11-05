@@ -2190,7 +2190,7 @@ fn test_sync_hash_validity() {
         let block_hash = *header.hash();
         let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
         println!("height {} -> {}", i, valid);
-        if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // This assumes that all shards have new chunks in every block, which should be true
             // with TestEnv::produce_block()
             assert_eq!(valid, (i % epoch_length) == 3);
@@ -3732,7 +3732,7 @@ mod contract_precompilation_tests {
             start_height,
         );
 
-        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
             // and then one more than that so the node will generate the neede snapshot.
             produce_blocks_from_height(&mut env, 3, height) - 2
@@ -3846,7 +3846,7 @@ mod contract_precompilation_tests {
             height,
         );
 
-        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
             // and then one more than that so the node will generate the neede snapshot.
             produce_blocks_from_height(&mut env, 3, height) - 2
@@ -3929,7 +3929,7 @@ mod contract_precompilation_tests {
         // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
         // to get to produce the first block of the next epoch. If we want to state sync the new
         // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
-        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             produce_blocks_from_height(&mut env, EPOCH_LENGTH + 4, height) - 2
         } else {
             produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1
