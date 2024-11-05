@@ -556,6 +556,34 @@ impl EpochConfigStore {
             })
             .1
     }
+
+    fn dump_epoch_config(directory: &str, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
+        let content = serde_json::to_string_pretty(config.as_ref()).unwrap();
+        let path = PathBuf::from(directory).join(format!("{}.json", version));
+        fs::write(path, content).unwrap();
+    }
+
+    /// Dumps all the configs between the beginning and end protocol versions to the given directory.
+    /// If the beginning version doesn't exist, the closest config to it will be dumped.
+    pub fn dump_epoch_configs_between(
+        &self,
+        first_version: &ProtocolVersion,
+        last_version: &ProtocolVersion,
+        directory: &str,
+    ) {
+        // Dump all the configs between the beginning and end versions, inclusive.
+        self.store
+            .iter()
+            .filter(|(version, _)| *version >= first_version && *version <= last_version)
+            .for_each(|(version, config)| {
+                Self::dump_epoch_config(directory, version, config);
+            });
+        // Dump the closest config to the beginning version if it doesn't exist.
+        if !self.store.contains_key(&first_version) {
+            let config = self.get_config(*first_version);
+            Self::dump_epoch_config(directory, first_version, config);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -626,6 +654,31 @@ mod tests {
             }
             prev_config = next_config;
         }
+    }
+
+    #[test]
+    fn test_dump_epoch_configs_mainnet() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        EpochConfigStore::for_chain_id("mainnet", None).unwrap().dump_epoch_configs_between(
+            &55,
+            &68,
+            tmp_dir.path().to_str().unwrap(),
+        );
+
+        // Check if tmp dir contains the dumped files. 55, 64, 65.
+        let dumped_files = fs::read_dir(tmp_dir.path()).unwrap();
+        let dumped_files: Vec<_> =
+            dumped_files.map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+
+        assert!(dumped_files.contains(&String::from("55.json")));
+        assert!(dumped_files.contains(&String::from("64.json")));
+        assert!(dumped_files.contains(&String::from("65.json")));
+
+        // Check if 55.json is equal to 48.json from res/epcoh_configs/mainnet.
+        let contents_55 = fs::read_to_string(tmp_dir.path().join("55.json")).unwrap();
+        let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
+        let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();
+        assert_eq!(epoch_config_55, epoch_config_48);
     }
 
     #[test]
