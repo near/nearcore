@@ -59,8 +59,11 @@ use std::iter;
 ///   [FlatStorageResharderController].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
 ///       previously.
-///     - Note that once the split is completed children shard catchup can't be manually cancelled.
-///       TODO(resharding): make catchup cancellable
+///     - Children shard catchup is a consequence of splitting a shard, not a resharding event on
+///       its own. As such, it can't be manually cancelled.
+/// - Resilience to chain forks.
+///     - Resharding events will perform changes on the state only after their resharding block
+///       becomes final.  
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
@@ -432,6 +435,9 @@ impl FlatStorageResharder {
                     store_update.remove_flat_storage(child_shard);
                 }
             }
+            FlatStorageReshardingTaskStatus::Postponed => {
+                panic!("can't finalize processing of a postponed split task!");
+            }
         }
         store_update.commit().unwrap();
         // Terminate the resharding event.
@@ -748,7 +754,10 @@ fn shard_split_handle_key_value(
             store_update,
             parse_account_id_from_received_data_key,
         )?,
-        col::POSTPONED_RECEIPT_ID | col::PENDING_DATA_COUNT | col::POSTPONED_RECEIPT => {
+        col::POSTPONED_RECEIPT_ID
+        | col::PENDING_DATA_COUNT
+        | col::POSTPONED_RECEIPT
+        | col::PROMISE_YIELD_RECEIPT => {
             copy_kv_to_child(&status, key, value, store_update, |raw_key: &[u8]| {
                 parse_account_id_from_trie_key_with_separator(
                     key_column_prefix,
@@ -759,8 +768,7 @@ fn shard_split_handle_key_value(
         }
         col::DELAYED_RECEIPT_OR_INDICES
         | col::PROMISE_YIELD_INDICES
-        | col::PROMISE_YIELD_TIMEOUT
-        | col::PROMISE_YIELD_RECEIPT => copy_kv_to_all_children(&status, key, value, store_update),
+        | col::PROMISE_YIELD_TIMEOUT => copy_kv_to_all_children(&status, key, value, store_update),
         col::BUFFERED_RECEIPT_INDICES | col::BUFFERED_RECEIPT => {
             copy_kv_to_left_child(&status, key, value, store_update)
         }
@@ -829,6 +837,7 @@ pub enum FlatStorageReshardingTaskStatus {
     Successful { num_batches_done: usize },
     Failed,
     Cancelled,
+    Postponed,
 }
 
 /// Helps control the flat storage resharder background operations. This struct wraps
@@ -890,6 +899,7 @@ mod tests {
     };
 
     use super::*;
+    use more_asserts::assert_gt;
     use near_async::messaging::{CanSend, IntoMultiSender};
     use near_crypto::{KeyType, PublicKey};
 
@@ -1300,7 +1310,7 @@ mod tests {
             assert!(false);
             return;
         };
-        assert!(num_batches_done > 1);
+        assert_gt!(num_batches_done, 1);
     }
 
     #[test]
@@ -1366,14 +1376,7 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
 
         // In order to have flat state deltas we must bring the chain forward by adding blocks.
-        let signer = Arc::new(create_test_signer("aa"));
-        for height in 1..3 {
-            let prev_block = chain.get_block_by_height(height - 1).unwrap();
-            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
-                .height(height)
-                .build();
-            chain.process_block_test(&None, block).unwrap();
-        }
+        add_blocks_to_chain(&mut chain, 2);
         assert_eq!(chain.head().unwrap().height, 2);
 
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
@@ -1706,7 +1709,7 @@ mod tests {
         };
         let flat_store = resharder.runtime.store().flat_store();
 
-        // Inject a promise yield receipt into the parent flat storage.
+        // Inject two promise yield receipts into the parent flat storage.
         let mut store_update = flat_store.store_update();
 
         let promise_yield_indices_key = TrieKey::PromiseYieldIndices.to_vec();
@@ -1725,15 +1728,25 @@ mod tests {
             promise_yield_timeout_value.clone(),
         );
 
-        let promise_yield_receipt_key = TrieKey::PromiseYieldReceipt {
-            receiver_id: account!("ff"),
+        let promise_yield_receipt_mm_key = TrieKey::PromiseYieldReceipt {
+            receiver_id: account!("mm"),
+            data_id: CryptoHash::default(),
+        }
+        .to_vec();
+        let promise_yield_receipt_vv_key = TrieKey::PromiseYieldReceipt {
+            receiver_id: account!("vv"),
             data_id: CryptoHash::default(),
         }
         .to_vec();
         let promise_yield_receipt_value = Some(FlatStateValue::Inlined(vec![2]));
         store_update.set(
             parent_shard,
-            promise_yield_receipt_key.clone(),
+            promise_yield_receipt_mm_key.clone(),
+            promise_yield_receipt_value.clone(),
+        );
+        store_update.set(
+            parent_shard,
+            promise_yield_receipt_vv_key.clone(),
             promise_yield_receipt_value.clone(),
         );
 
@@ -1742,7 +1755,7 @@ mod tests {
         // Do resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
 
-        // Check that flat storages of both children contain the promise yield.
+        // Check that flat storages of both children contain the promise yield timeout and indices.
         for child_shard in [left_child_shard, right_child_shard] {
             assert_eq!(
                 flat_store.get(child_shard, &promise_yield_indices_key),
@@ -1752,11 +1765,18 @@ mod tests {
                 flat_store.get(child_shard, &promise_yield_timeout_key),
                 Ok(promise_yield_timeout_value.clone())
             );
-            assert_eq!(
-                flat_store.get(child_shard, &promise_yield_receipt_key),
-                Ok(promise_yield_receipt_value.clone())
-            );
         }
+        // Receipts work differently: these should be split depending on the account.
+        assert_eq!(
+            flat_store.get(left_child_shard, &promise_yield_receipt_mm_key),
+            Ok(promise_yield_receipt_value.clone())
+        );
+        assert_eq!(flat_store.get(left_child_shard, &promise_yield_receipt_vv_key), Ok(None));
+        assert_eq!(flat_store.get(right_child_shard, &promise_yield_receipt_mm_key), Ok(None));
+        assert_eq!(
+            flat_store.get(right_child_shard, &promise_yield_receipt_vv_key),
+            Ok(promise_yield_receipt_value)
+        );
     }
 
     /// Tests the split of buffered receipts.
@@ -2008,5 +2028,119 @@ mod tests {
     #[test]
     fn children_catchup_after_restart() {
         children_catchup_base(true);
+    }
+
+    /// The split of a parent shard shouldn't happen until the resharding block has become final.
+    #[test]
+    // TODO(resharding: remove the ignore!
+    #[ignore]
+    fn shard_split_should_wait_final_block() {
+        init_test_logger();
+        let (mut chain, resharder, sender) =
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Add two blocks to the chain.
+        add_blocks_to_chain(&mut chain, 2);
+        assert_eq!(chain.head().unwrap().height, 2);
+        assert_eq!(chain.final_head().unwrap().height, 0);
+
+        // Trigger resharding at block 2 and it shouldn't split the parent shard.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskStatus::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Move final head to the resharding block (2) by adding more blocks.
+        add_blocks_to_chain(&mut chain, 2);
+        assert_eq!(chain.final_head().unwrap().height, 2);
+
+        // Trigger resharding again and now it should split the parent shard.
+        assert_eq!(
+            sender.call_split_shard_task(),
+            FlatStorageReshardingTaskStatus::Successful { num_batches_done: 1 }
+        );
+        assert_eq!(flat_store.iter(parent_shard).count(), 0);
+    }
+
+    /// Utility to add blocks on top of a chain.
+    fn add_blocks_to_chain(chain: &mut Chain, num_blocks: u64) {
+        let signer = Arc::new(create_test_signer("aa"));
+        let next_block_height = chain.head().unwrap().height + 1;
+        for height in next_block_height..next_block_height + num_blocks {
+            let prev_block = chain.get_block_by_height(height - 1).unwrap();
+            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
+                .height(height)
+                .build();
+            chain.process_block_test(&None, block).unwrap();
+        }
+    }
+
+    /// Test to verify that a resharding event not yet started can be replaced by a newer resharding
+    /// event on a different resharding hash. This property is useful to have in the presence of
+    /// chain forks. For instance, the chain may wants to split a shard at some block B; there's a
+    /// chance B never becomes final and instead a new split is triggered at block B'. The latter
+    /// shouldn't be blocked by the presence of an earlier resharding event.
+    #[test]
+    // TODO(resharding: remove the ignore!
+    #[ignore]
+    fn resharding_event_not_started_can_be_replaced() {
+        init_test_logger();
+        let (mut chain, resharder, sender) =
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Add two blocks to the chain.
+        add_blocks_to_chain(&mut chain, 2);
+        assert_eq!(chain.head().unwrap().height, 2);
+        assert_eq!(chain.final_head().unwrap().height, 0);
+
+        // Trigger resharding at block 2. Parent shard shouldn't get split yet.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskStatus::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Add two blocks on top of the first block (simulate a fork).
+        let signer = Arc::new(create_test_signer("aa"));
+        let next_block_height = 2;
+        for height in next_block_height..next_block_height + 2 {
+            let prev_block = chain.get_block_by_height(height - 1).unwrap();
+            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
+                .height(height)
+                .build();
+            chain.process_block_test(&None, block).unwrap();
+        }
+        assert_eq!(chain.head().unwrap().height, 3);
+        assert_eq!(chain.final_head().unwrap().height, 1);
+
+        // Get the new resharding event and re-trigger the shard split.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskStatus::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Add two additional blocks to make the resharding block final.
+        add_blocks_to_chain(&mut chain, 2);
+        assert_eq!(chain.head().unwrap().height, 5);
+        assert_eq!(chain.final_head().unwrap().height, 3);
+
+        // Now the second resharding event should take place.
+        assert_eq!(
+            sender.call_split_shard_task(),
+            FlatStorageReshardingTaskStatus::Successful { num_batches_done: 1 }
+        );
+        assert_eq!(flat_store.iter(parent_shard).count(), 0);
     }
 }

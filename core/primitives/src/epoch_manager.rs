@@ -8,6 +8,7 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
@@ -46,6 +47,7 @@ pub struct EpochConfig {
     /// Online maximum threshold above which validator gets full reward.
     pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -456,18 +458,6 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
-    // Epoch configs for mocknet (forknet) (genesis protool version is 29).
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // include_config!("mocknet", 29, "29.json"),
-    // include_config!("mocknet", 48, "48.json"),
-    // include_config!("mocknet", 64, "64.json"),
-    // include_config!("mocknet", 65, "65.json"),
-    // include_config!("mocknet", 69, "69.json"),
-    // include_config!("mocknet", 70, "70.json"),
-    // include_config!("mocknet", 71, "71.json"),
-    // include_config!("mocknet", 72, "72.json"),
-    // include_config!("mocknet", 100, "100.json"),
-    // include_config!("mocknet", 101, "101.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
@@ -616,12 +606,6 @@ mod tests {
         test_epoch_config_store("testnet", 29);
     }
 
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // fn test_epoch_config_store_mocknet() {
-    //     test_epoch_config_store("mocknet", 29);
-    // }
-
     #[allow(unused)]
     fn generate_epoch_configs(chain_id: &str, genesis_protocol_version: ProtocolVersion) {
         let genesis_epoch_config = parse_config_file(chain_id, genesis_protocol_version).unwrap();
@@ -655,13 +639,6 @@ mod tests {
     fn generate_epoch_configs_testnet() {
         generate_epoch_configs("testnet", 29);
     }
-
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // #[ignore]
-    // fn generate_epoch_configs_mocknet() {
-    //     generate_epoch_configs("mocknet", 29);
-    // }
 
     #[allow(unused)]
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {

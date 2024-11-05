@@ -4003,6 +4003,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lru 0.12.3",
+ "more-asserts",
  "near-async",
  "near-cache",
  "near-chain-configs",
