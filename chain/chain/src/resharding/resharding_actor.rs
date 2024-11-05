@@ -29,6 +29,9 @@ impl Handler<FlatStorageSplitShardRequest> for ReshardingActor {
             FlatStorageReshardingTaskStatus::Cancelled => {
                 // The task has been cancelled. Nothing else to do.
             }
+            FlatStorageReshardingTaskStatus::Postponed => {
+                // The task has been postponed for later execution. Nothing to do.
+            }
         }
     }
 }
@@ -82,6 +85,9 @@ impl ReshardingActor {
             }
             FlatStorageReshardingTaskStatus::Cancelled => {
                 // The task has been cancelled. Nothing else to do.
+            }
+            FlatStorageReshardingTaskStatus::Postponed => {
+                // The task has been postponed for later execution. Nothing to do.
             }
         }
     }

@@ -20,6 +20,7 @@ enum-map.workspace = true
 itertools.workspace = true
 itoa.workspace = true
 lru.workspace = true
+more-asserts.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 rand_chacha.workspace = true
