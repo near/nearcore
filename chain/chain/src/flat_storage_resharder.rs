@@ -754,7 +754,10 @@ fn shard_split_handle_key_value(
             store_update,
             parse_account_id_from_received_data_key,
         )?,
-        col::POSTPONED_RECEIPT_ID | col::PENDING_DATA_COUNT | col::POSTPONED_RECEIPT => {
+        col::POSTPONED_RECEIPT_ID
+        | col::PENDING_DATA_COUNT
+        | col::POSTPONED_RECEIPT
+        | col::PROMISE_YIELD_RECEIPT => {
             copy_kv_to_child(&status, key, value, store_update, |raw_key: &[u8]| {
                 parse_account_id_from_trie_key_with_separator(
                     key_column_prefix,
@@ -765,8 +768,7 @@ fn shard_split_handle_key_value(
         }
         col::DELAYED_RECEIPT_OR_INDICES
         | col::PROMISE_YIELD_INDICES
-        | col::PROMISE_YIELD_TIMEOUT
-        | col::PROMISE_YIELD_RECEIPT => copy_kv_to_all_children(&status, key, value, store_update),
+        | col::PROMISE_YIELD_TIMEOUT => copy_kv_to_all_children(&status, key, value, store_update),
         col::BUFFERED_RECEIPT_INDICES | col::BUFFERED_RECEIPT => {
             copy_kv_to_left_child(&status, key, value, store_update)
         }
@@ -1707,7 +1709,7 @@ mod tests {
         };
         let flat_store = resharder.runtime.store().flat_store();
 
-        // Inject a promise yield receipt into the parent flat storage.
+        // Inject two promise yield receipts into the parent flat storage.
         let mut store_update = flat_store.store_update();
 
         let promise_yield_indices_key = TrieKey::PromiseYieldIndices.to_vec();
@@ -1726,15 +1728,25 @@ mod tests {
             promise_yield_timeout_value.clone(),
         );
 
-        let promise_yield_receipt_key = TrieKey::PromiseYieldReceipt {
-            receiver_id: account!("ff"),
+        let promise_yield_receipt_mm_key = TrieKey::PromiseYieldReceipt {
+            receiver_id: account!("mm"),
+            data_id: CryptoHash::default(),
+        }
+        .to_vec();
+        let promise_yield_receipt_vv_key = TrieKey::PromiseYieldReceipt {
+            receiver_id: account!("vv"),
             data_id: CryptoHash::default(),
         }
         .to_vec();
         let promise_yield_receipt_value = Some(FlatStateValue::Inlined(vec![2]));
         store_update.set(
             parent_shard,
-            promise_yield_receipt_key.clone(),
+            promise_yield_receipt_mm_key.clone(),
+            promise_yield_receipt_value.clone(),
+        );
+        store_update.set(
+            parent_shard,
+            promise_yield_receipt_vv_key.clone(),
             promise_yield_receipt_value.clone(),
         );
 
@@ -1743,7 +1755,7 @@ mod tests {
         // Do resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
 
-        // Check that flat storages of both children contain the promise yield.
+        // Check that flat storages of both children contain the promise yield timeout and indices.
         for child_shard in [left_child_shard, right_child_shard] {
             assert_eq!(
                 flat_store.get(child_shard, &promise_yield_indices_key),
@@ -1753,11 +1765,18 @@ mod tests {
                 flat_store.get(child_shard, &promise_yield_timeout_key),
                 Ok(promise_yield_timeout_value.clone())
             );
-            assert_eq!(
-                flat_store.get(child_shard, &promise_yield_receipt_key),
-                Ok(promise_yield_receipt_value.clone())
-            );
         }
+        // Receipts work differently: these should be split depending on the account.
+        assert_eq!(
+            flat_store.get(left_child_shard, &promise_yield_receipt_mm_key),
+            Ok(promise_yield_receipt_value.clone())
+        );
+        assert_eq!(flat_store.get(left_child_shard, &promise_yield_receipt_vv_key), Ok(None));
+        assert_eq!(flat_store.get(right_child_shard, &promise_yield_receipt_mm_key), Ok(None));
+        assert_eq!(
+            flat_store.get(right_child_shard, &promise_yield_receipt_vv_key),
+            Ok(promise_yield_receipt_value)
+        );
     }
 
     /// Tests the split of buffered receipts.
