@@ -99,6 +99,8 @@ pub enum MissingTrieValueContext {
     TrieMemoryPartialStorage,
     /// Missing trie value when reading from TrieStorage.
     TrieStorage,
+    /// Accessing Empty trie node.
+    TrieNodeEmpty,
 }
 
 impl MissingTrieValueContext {
@@ -108,6 +110,7 @@ impl MissingTrieValueContext {
             Self::TriePrefetchingStorage => "trie_prefetching_storage",
             Self::TrieMemoryPartialStorage => "trie_memory_partial_storage",
             Self::TrieStorage => "trie_storage",
+            Self::TrieNodeEmpty => "trie_node_empty",
         }
     }
 }

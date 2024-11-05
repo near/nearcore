@@ -22,6 +22,7 @@ pub use from_flat::construct_trie_from_flat;
 use mem::mem_trie_update::{UpdatedMemTrieNodeId, UpdatedMemTrieNodeWithSize};
 use mem::mem_tries::MemTries;
 use near_primitives::challenge::PartialState;
+use near_primitives::errors::MissingTrieValueContext;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -139,8 +140,6 @@ impl std::fmt::Debug for ValueHandle {
 // TODO(#12361): replace with `RawTrieNode`.
 #[derive(Clone, Hash)]
 enum TrieNode {
-    /// Null trie node. Could be an empty root or an empty branch entry.
-    Empty,
     /// Key and value of the leaf node.
     Leaf(Vec<u8>, ValueHandle),
     /// Branch of 16 possible children and value if key ends here.
@@ -163,10 +162,6 @@ impl TrieNodeWithSize {
 
     fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
         TrieNodeWithSize { node, memory_usage }
-    }
-
-    fn empty() -> TrieNodeWithSize {
-        TrieNodeWithSize { node: TrieNode::Empty, memory_usage: 0 }
     }
 }
 
@@ -285,12 +280,6 @@ impl TrieNode {
     /// `GenericUpdatedTrieNode::memory_usage_direct`.
     fn memory_usage_direct(&self) -> u64 {
         match self {
-            TrieNode::Empty => {
-                // DEVNOTE: empty nodes don't exist in storage.
-                // In the in-memory implementation Some(TrieNode::Empty) and None are interchangeable as
-                // children of branch nodes which means cost has to be 0
-                0
-            }
             TrieNode::Leaf(key, value) => {
                 TRIE_COSTS.node_cost
                     + (key.len() as u64) * TRIE_COSTS.byte_of_key
@@ -315,7 +304,6 @@ impl std::fmt::Debug for TrieNode {
         let empty = "";
         let indent = fmtr.width().unwrap_or(0);
         match self {
-            TrieNode::Empty => write!(fmtr, "{empty:indent$}Empty"),
             TrieNode::Leaf(key, value) => write!(
                 fmtr,
                 "{empty:indent$}Leaf({:?}, {value:?})",
@@ -1256,7 +1244,9 @@ impl Trie {
         hash: &CryptoHash,
     ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
         match self.retrieve_raw_node(hash, true, true)? {
-            None => Ok((None, TrieNodeWithSize::empty())),
+            None => {
+                Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieNodeEmpty, *hash))
+            }
             Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
