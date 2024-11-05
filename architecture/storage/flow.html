@@ -140,13 +140,22 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="read-and-write-flow-for-storage-requests"><a class="header" href="#read-and-write-flow-for-storage-requests">Read and Write Flow for Storage Requests</a></h1>
-<p>The storage subsystem of nearcore is complex and has many layers. Here we
-present the flow of a single read or write request from the transaction runtime
+                        <h1 id="flow"><a class="header" href="#flow">Flow</a></h1>
+<p>Here we present the flow of a single read or write request from the transaction runtime
 all the way to the OS. As you can see, there are many layers of read-caching and
 write-buffering involved.</p>
-<!-- https://docs.google.com/presentation/d/1kHR8ONffUaCaBiJ4KM23h1tcfe4Z-_yKn2gaqlExaiY/edit#slide=id.p  -->
-<p><img src="https://user-images.githubusercontent.com/6342444/215088748-028b754f-16be-4f56-9edd-6ce58ff1c9ef.svg" alt="Diagram with read and write request flow" /></p>
+<p>Blue arrow means a call triggered by read.</p>
+<p>Red arrow means a call triggered by write.</p>
+<p>Black arrow means a non-trivial data dependency. For example:</p>
+<ul>
+<li>Nodes which are read on TrieStorage go to TrieRecorder to generate proof, so they
+are connected with black arrow.</li>
+<li>Memtrie lookup needs current state of accounting cache to compute costs. When
+query completes, accounting cache is updated with memtrie nodes. So they are connected
+with bidirectional black arrow.</li>
+</ul>
+<!-- Editable source: https://docs.google.com/presentation/d/1_iU5GfznFDUMUNi_7szBRd5hDrjqBxr8ap7eTCK-lZA/edit#slide=id.p  -->
+<p><img src="https://github.com/user-attachments/assets/232ae746-3f86-4a15-8a3a-08a544a88834" alt="Diagram with read and write request flow" /></p>
 
                     </main>
 
