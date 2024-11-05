@@ -14,9 +14,12 @@ Describes all keys which may be inserted to storage:
 * `DelayedReceiptIndices`
 * `DelayedReceipt`
 * `ContractData`
-* `YieldedPromiseQueueIndices`
-* `YieldedPromiseQueueEntries`
+* `PromiseYieldIndices`
+* `PromiseYieldTimeout`
 * `PromiseYieldReceipt`
+* `BufferedReceiptIndices`
+* `BufferedReceipt`
+* `BandwidthSchedulerState`
 
 Each key is uniquely converted to `Vec<u8>`. Internally, each such vector is
 converted to `NibbleSlice` (nibble is a half of a byte), and each its item
