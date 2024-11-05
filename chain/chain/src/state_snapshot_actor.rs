@@ -59,7 +59,10 @@ impl StateSnapshotActor {
         &mut self,
         msg: DeleteAndMaybeCreateSnapshotRequest,
     ) {
-        tracing::debug!(target: "state_snapshot", ?msg);
+        tracing::debug!(
+            target: "state_snapshot", has_creation= %msg.create_snapshot_request.is_some(),
+            "handle DeleteAndMaybeCreateSnapshotRequest"
+        );
 
         // We don't need to acquire any locks on flat storage or snapshot.
         let DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request } = msg;
@@ -72,7 +75,12 @@ impl StateSnapshotActor {
     }
 
     pub fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
-        tracing::debug!(target: "state_snapshot", ?msg);
+        tracing::debug!(
+            target: "state_snapshot",
+            block_hash=%msg.block.hash(), prev_block_hash=%&msg.prev_block_hash, epoch_height=%msg.epoch_height,
+            shard_uids=?msg.shard_indexes_and_uids.iter().map(|(_index, uid)| uid.clone()).collect::<Vec<_>>(),
+            "handle CreateSnapshotRequest"
+        );
 
         let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block } =
             msg;
