@@ -78,7 +78,7 @@ impl StateSnapshotActor {
         tracing::debug!(
             target: "state_snapshot",
             block_hash=%msg.block.hash(), prev_block_hash=%&msg.prev_block_hash, epoch_height=%msg.epoch_height,
-            shard_uids=?msg.shard_indexes_and_uids.iter().map(|(_index, uid)| uid.clone()).collect::<Vec<_>>(),
+            shard_uids=?msg.shard_indexes_and_uids.iter().map(|(_index, uid)| uid).collect::<Vec<_>>(),
             "handle CreateSnapshotRequest"
         );
 
