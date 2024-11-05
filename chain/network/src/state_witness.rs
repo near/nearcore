@@ -41,7 +41,7 @@ pub struct ContractCodeRequestMessage(pub ContractCodeRequest);
 #[rtype(result = "()")]
 pub struct ContractCodeResponseMessage(pub ContractCodeResponse);
 
-// TODO(#11099) Rename this to generalize beyond partial witness.
+/// Multi-sender for forwarding messages received from network to PartialWitnessActor.
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
