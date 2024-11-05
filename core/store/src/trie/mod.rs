@@ -1650,21 +1650,6 @@ impl Trie {
                 }
                 let (trie_changes, trie_accesses) = trie_update.to_trie_changes();
 
-                // Sanity check for tests: all modified trie items must be
-                // present in ever accessed trie items.
-                #[cfg(test)]
-                {
-                    for t in trie_changes.deletions.iter() {
-                        let hash = t.trie_node_or_value_hash;
-                        assert!(
-                            trie_accesses.values.contains_key(&hash)
-                                || trie_accesses.nodes.contains_key(&hash),
-                            "Hash {} is not present in trie accesses",
-                            hash
-                        );
-                    }
-                }
-
                 // Retroactively record all accessed trie items which are
                 // required to process trie update but were not recorded at
                 // processing lookups.
@@ -1675,15 +1660,15 @@ impl Trie {
                     for (node_hash, serialized_node) in trie_accesses.nodes {
                         recorder.borrow_mut().record(&node_hash, serialized_node);
                     }
-                    for (value_hash, value) in trie_accesses.values {
-                        let value = match value {
-                            FlatStateValue::Ref(_) => {
-                                self.storage.retrieve_raw_bytes(&value_hash)?
-                            }
-                            FlatStateValue::Inlined(value) => value.into(),
-                        };
-                        recorder.borrow_mut().record(&value_hash, value);
-                    }
+                    // for (value_hash, value) in trie_accesses.values {
+                    //     let value = match value {
+                    //         FlatStateValue::Ref(_) => {
+                    //             self.storage.retrieve_raw_bytes(&value_hash)?
+                    //         }
+                    //         FlatStateValue::Inlined(value) => value.into(),
+                    //     };
+                    //     recorder.borrow_mut().record(&value_hash, value);
+                    // }
                 }
                 Ok(trie_changes)
             }

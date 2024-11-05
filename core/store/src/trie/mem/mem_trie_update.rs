@@ -71,9 +71,6 @@ impl UpdatedMemTrieNodeWithSize {
 pub struct TrieAccesses {
     /// Hashes and encoded trie nodes.
     pub nodes: HashMap<CryptoHash, Arc<[u8]>>,
-    /// Hashes of accessed values - because values themselves are not
-    /// necessarily present in memtrie.
-    pub values: HashMap<CryptoHash, FlatStateValue>,
 }
 
 /// Tracks intermediate trie changes, final version of which is to be committed
@@ -181,7 +178,6 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
     fn delete_value(&mut self, value: FlatStateValue) -> Result<(), StorageError> {
         if let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() {
             let hash = value.to_value_ref().hash;
-            tracked_node_changes.accesses.values.insert(hash, value);
             tracked_node_changes
                 .refcount_deleted_hashes
                 .entry(hash)
@@ -209,7 +205,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 Some(TrieChangesTracker {
                     refcount_inserted_values: BTreeMap::new(),
                     refcount_deleted_hashes: BTreeMap::new(),
-                    accesses: TrieAccesses { nodes: HashMap::new(), values: HashMap::new() },
+                    accesses: TrieAccesses { nodes: HashMap::new() },
                 })
             } else {
                 None
