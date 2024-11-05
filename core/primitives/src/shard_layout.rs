@@ -116,6 +116,7 @@ fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMap {
     shards_split_map.into_iter().map(new_shard_ids_vec).collect()
 }
 
+#[allow(dead_code)]
 fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsSplitMapV2 {
     shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
 }
@@ -508,31 +509,8 @@ impl ShardLayout {
     /// This layout is provisional, the actual shard layout should be determined
     /// based on the fresh data before the resharding.
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
-        // the boundary accounts in lexicographical order
-        let boundary_accounts = vec![
-            "aurora".parse().unwrap(),
-            "aurora-0".parse().unwrap(),
-            "game.hot.tg".parse().unwrap(),
-            "game.hot.tg-0".parse().unwrap(),
-            "kkuuue2akv_1630967379.near".parse().unwrap(),
-            "tge-lockup.sweat".parse().unwrap(),
-        ];
-
-        let shard_ids = vec![0, 1, 6, 7, 3, 4, 5];
-        let shard_ids = new_shard_ids_vec(shard_ids);
-
-        let shards_split_map = BTreeMap::from([
-            (0, vec![0]),
-            (1, vec![1]),
-            (2, vec![6, 7]),
-            (3, vec![3]),
-            (4, vec![4]),
-            (5, vec![5]),
-        ]);
-        let shards_split_map = new_shards_split_map_v2(shards_split_map);
-        let shards_split_map = Some(shards_split_map);
-
-        ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
+        let v3 = Self::get_simple_nightshade_layout_v3();
+        ShardLayout::derive_shard_layout(&v3, "game.hot.tg-0".parse().unwrap())
     }
 
     /// This layout is used only in resharding tests. It allows testing of any features which were
@@ -1311,27 +1289,27 @@ mod tests {
             "shard_ids": [
               0,
               1,
+              2,
               6,
               7,
-              3,
               4,
               5
             ],
             "id_to_index_map": {
               "0": 0,
               "1": 1,
-              "3": 4,
+              "2": 2,
               "4": 5,
               "5": 6,
-              "6": 2,
-              "7": 3
+              "6": 3,
+              "7": 4
             },
             "index_to_id_map": {
               "0": 0,
               "1": 1,
-              "2": 6,
-              "3": 7,
-              "4": 3,
+              "2": 2,
+              "3": 6,
+              "4": 7,
               "5": 4,
               "6": 5
             },
@@ -1343,11 +1321,11 @@ mod tests {
                 1
               ],
               "2": [
-                6,
-                7
+                2
               ],
               "3": [
-                3
+                6,
+                7
               ],
               "4": [
                 4
@@ -1359,11 +1337,11 @@ mod tests {
             "shards_parent_map": {
               "0": 0,
               "1": 1,
-              "3": 3,
+              "2": 2,
               "4": 4,
               "5": 5,
-              "6": 2,
-              "7": 2
+              "6": 3,
+              "7": 3
             },
             "version": 3
           }
