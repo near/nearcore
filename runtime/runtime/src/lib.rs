@@ -1573,16 +1573,31 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
         for signed_transaction in processing_state.transactions {
-            let Ok((receipt, outcome_with_id)) = self.process_transaction(
+            let tx_result = self.process_transaction(
                 state_update,
                 apply_state,
                 signed_transaction,
                 &mut processing_state.stats,
-            ) else {
-                // TODO(new-tx): do we need to somehow report the invalid transactions somewhere?
-                // TODO(new-tx): if the transaction is invalid, do we still want to charge
-                //               processing fees from somebody somewhere?
-                continue;
+            );
+            let (receipt, outcome_with_id) = match tx_result {
+                Ok(v) => v,
+                Err(e) => {
+                    if checked_feature!(
+                        "protocol_feature_relaxed_chunk_validation",
+                        RelaxedChunkValidation,
+                        processing_state.protocol_version
+                    ) {
+                        // TODO(new-tx): do we need to somehow report the invalid transactions
+                        //               to the callers? Currently the caller bails processing the
+                        //               entire chunk if we return an error here.
+                        // TODO(new-tx): if the transaction is invalid, do we still want to charge
+                        //               processing fees from somebody somewhere? Currently the
+                        //               state is simply rolled back.
+                        continue;
+                    } else {
+                        return Err(e.into());
+                    }
+                }
             };
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
                 processing_state.local_receipts.push_back(receipt);
