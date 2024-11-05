@@ -897,6 +897,7 @@ mod tests {
     };
 
     use super::*;
+    use more_asserts::assert_gt;
     use near_async::messaging::{CanSend, IntoMultiSender};
     use near_crypto::{KeyType, PublicKey};
 
@@ -1307,7 +1308,7 @@ mod tests {
             assert!(false);
             return;
         };
-        assert!(num_batches_done > 1);
+        assert_gt!(num_batches_done, 1);
     }
 
     #[test]
@@ -2012,6 +2013,7 @@ mod tests {
 
     /// The split of a parent shard shouldn't happen until the resharding block has become final.
     #[test]
+    // TODO(resharding: remove the ignore!
     #[ignore]
     fn shard_split_should_wait_final_block() {
         init_test_logger();
@@ -2032,7 +2034,7 @@ mod tests {
         };
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
         assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskStatus::Postponed);
-        assert!(flat_store.iter(parent_shard).count() > 0);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
         // Move final head to the resharding block (2) by adding more blocks.
         add_blocks_to_chain(&mut chain, 2);
@@ -2065,6 +2067,7 @@ mod tests {
     /// chance B never becomes final and instead a new split is triggered at block B'. The latter
     /// shouldn't be blocked by the presence of an earlier resharding event.
     #[test]
+    // TODO(resharding: remove the ignore!
     #[ignore]
     fn resharding_event_not_started_can_be_replaced() {
         init_test_logger();
@@ -2085,7 +2088,7 @@ mod tests {
         };
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
         assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskStatus::Postponed);
-        assert!(flat_store.iter(parent_shard).count() > 0);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
         // Add two blocks on top of the first block (simulate a fork).
         let signer = Arc::new(create_test_signer("aa"));
@@ -2107,7 +2110,7 @@ mod tests {
         };
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
         assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskStatus::Postponed);
-        assert!(flat_store.iter(parent_shard).count() > 0);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
         // Add two additional blocks to make the resharding block final.
         add_blocks_to_chain(&mut chain, 2);
