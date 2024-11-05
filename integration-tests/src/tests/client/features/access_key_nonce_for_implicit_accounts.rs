@@ -2,7 +2,7 @@ use crate::tests::client::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{Error, Provenance};
+use near_chain::{ChainStoreAccess as _, Error, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
@@ -260,7 +260,22 @@ fn test_chunk_transaction_validity() {
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
+    match res.as_deref() {
+        Ok([h]) => {
+            let Ok(block) = env.clients[0].chain.get_block(&h) else {
+                panic!("did not find block from result!");
+            };
+            for chunk_hdr in block.chunks().iter_raw() {
+                let hash = chunk_hdr.chunk_hash();
+                let Ok(chunk) = env.clients[0].chain.mut_chain_store().get_chunk(&hash) else {
+                    continue;
+                };
+                assert_eq!(chunk.prev_outgoing_receipts().len(), 0);
+            }
+        }
+        Err(Error::InvalidTransactions) => (),
+        e => panic!("unexpected result {e:?}"),
+    }
 }
 
 #[test]
