@@ -1,9 +1,12 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::errors::{
     ActionErrorKind, InvalidTxError, ReceiptValidationError, TxExecutionError,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -113,6 +116,88 @@ fn slow_test_max_receipt_size() {
     );
     let sum_4_res = run_tx(&mut env.test_loop, sum_4_tx, &env.datas, Duration::seconds(5));
     assert_eq!(sum_4_res, 10u64.to_le_bytes().to_vec());
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+// A function call will generate a new receipt. Size of this receipt will be equal to
+// `max_receipt_size`, it'll pass validation, but then `output_data_receivers` will be modified and
+// the receipt's size will go above max_receipt_size. The receipt should be rejected, but currently
+// isn't because of a bug (See https://github.com/near/nearcore/issues/12606)
+// Runtime shouldn't die when it encounters a receipt with size above `max_receipt_size`.
+#[test]
+fn test_max_receipt_size_promise_return() {
+    init_test_logger();
+    let mut env: TestLoopEnv = standard_setup_1();
+
+    let account: AccountId = "account0".parse().unwrap();
+    let account_signer = &create_user_test_signer(&account).into();
+
+    // Deploy the test contract
+    let deploy_contract_tx = SignedTransaction::deploy_contract(
+        101,
+        &account,
+        near_test_contracts::rs_contract().into(),
+        &account_signer,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
+
+    // User calls a contract method
+    // Contract method creates a DAG with two promises: [A -then-> B]
+    // When promise A is executed, it creates a third promise - `C` and does a `promise_return`.
+    // The DAG changes to: [C ->then-> B]
+    // The receipt for promise C is a maximum size receipt.
+    // Adding the `output_data_receivers` to C's receipt makes it go over the size limit.
+    let base_receipt_template = Receipt::V0(ReceiptV0 {
+        predecessor_id: account.clone(),
+        receiver_id: account.clone(),
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: account.clone(),
+            signer_public_key: account_signer.public_key().into(),
+            gas_price: 0,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "noop".into(),
+                args: vec![],
+                gas: 0,
+                deposit: 0,
+            }))],
+        }),
+    });
+    let base_receipt_size = borsh::object_length(&base_receipt_template).unwrap();
+    let max_receipt_size = 4_194_304;
+    let args_size = max_receipt_size - base_receipt_size;
+
+    // Call the contract
+    let large_receipt_tx = SignedTransaction::call(
+        102,
+        account.clone(),
+        account.clone(),
+        &account_signer,
+        0,
+        "max_receipt_size_promise_return_method1".into(),
+        format!("{{\"args_size\": {}}}", args_size).into(),
+        300 * TGAS,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, large_receipt_tx, &env.datas, Duration::seconds(5));
+
+    // Make sure that the last promise in the DAG was called
+    let assert_test_completed = SignedTransaction::call(
+        103,
+        account.clone(),
+        account,
+        &account_signer,
+        0,
+        "assert_test_completed".into(),
+        "".into(),
+        300 * TGAS,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, assert_test_completed, &env.datas, Duration::seconds(5));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
