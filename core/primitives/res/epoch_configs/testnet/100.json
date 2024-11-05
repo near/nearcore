@@ -32,7 +32,7 @@
     99,
     100
   ],
-  "fishermen_threshold": 340282366920938463463374607431768211455,
+  "fishermen_threshold": "340282366920938463463374607431768211455",
   "minimum_stake_divisor": 10,
   "protocol_upgrade_stake_threshold": [
     4,
