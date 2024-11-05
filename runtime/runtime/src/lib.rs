@@ -69,6 +69,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
+use verifier::validate_new_receipt;
 
 mod actions;
 pub mod adapter;
@@ -644,7 +645,7 @@ impl Runtime {
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
-                    validate_receipt(
+                    validate_new_receipt(
                         &apply_state.config.wasm_config.limit_config,
                         receipt,
                         apply_state.current_protocol_version,

@@ -281,12 +281,17 @@ impl ReceiptSinkV2<'_> {
     fn try_forward(
         receipt: Receipt,
         gas: u64,
-        size: u64,
+        mut size: u64,
         shard: ShardId,
         outgoing_limit: &mut HashMap<ShardId, OutgoingLimit>,
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
     ) -> Result<ReceiptForwarding, RuntimeError> {
+        let max_receipt_size = apply_state.config.wasm_config.limit_config.max_receipt_size;
+        if size > max_receipt_size {
+            size = max_receipt_size;
+        }
+
         // Default case set to `Gas::MAX`: If no outgoing limit was defined for the receiving
         // shard, this usually just means the feature is not enabled. Or, it
         // could be a special case during resharding events. Or even a bug. In
