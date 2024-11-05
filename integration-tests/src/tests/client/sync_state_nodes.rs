@@ -862,13 +862,13 @@ fn test_state_sync_headers() {
                 };
                 tracing::info!(epoch_start_height, "got epoch_start_height");
 
-                let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION)
-                {
-                    // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                    epoch_start_height + 2
-                } else {
-                    epoch_start_height
-                };
+                let sync_height =
+                    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                        epoch_start_height + 2
+                    } else {
+                        epoch_start_height
+                    };
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
                 let block_view = view_client1.send(GetBlock(block_id).with_span_context()).await;
                 let Ok(Ok(block_view)) = block_view else {
@@ -1047,13 +1047,13 @@ fn test_state_sync_headers_no_tracked_shards() {
                     return ControlFlow::Continue(());
                 }
 
-                let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION)
-                {
-                    // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                    epoch_start_height + 2
-                } else {
-                    epoch_start_height
-                };
+                let sync_height =
+                    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                        epoch_start_height + 2
+                    } else {
+                        epoch_start_height
+                    };
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
                 let block_view = view_client2.send(GetBlock(block_id).with_span_context()).await;
                 let Ok(Ok(block_view)) = block_view else {
