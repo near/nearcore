@@ -1783,3 +1783,55 @@ pub unsafe fn assert_test_completed() {
         panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
     }
 }
+
+/// Returns a value of size "value_size".
+/// Accepts json args, e.g {"value_size": 1000}
+#[no_mangle]
+pub unsafe fn return_large_value() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["value_size"].as_u64().unwrap();
+
+    let large_value = vec![0u8; args_size as usize];
+    value_return(large_value.len() as u64, large_value.as_ptr() as u64);
+}
+
+/// Used in the `max_receipt_size_value_return` test.
+#[no_mangle]
+pub unsafe fn max_receipt_size_value_return_method() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let large_value_method = b"return_large_value";
+    let promise_a = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        large_value_method.len() as u64,
+        large_value_method.as_ptr() as u64,
+        args.len() as u64,
+        args.as_ptr() as u64,
+        0,
+        250 * TGAS,
+    );
+
+    let test_completed_method = b"mark_test_completed";
+    let empty_args: &[u8] = &[];
+    let _promise_b = promise_then(
+        promise_a,
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        test_completed_method.len() as u64,
+        test_completed_method.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+}

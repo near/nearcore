@@ -201,3 +201,59 @@ fn test_max_receipt_size_promise_return() {
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
+
+/// Return a value that is as large as max_receipt_size. The value will be wrapped in a data receipt
+/// and the data receipt will be bigger than max_receipt_size. The receipt should be rejected, but
+/// currently isn't because of a bug (See https://github.com/near/nearcore/issues/12606)
+/// Creates the following promise DAG:
+/// A[self.return_large_value()] -then-> B[self.mark_test_completed()]
+#[test]
+fn test_max_receipt_size_value_return() {
+    init_test_logger();
+    let mut env: TestLoopEnv = standard_setup_1();
+
+    let account: AccountId = "account0".parse().unwrap();
+    let account_signer = &create_user_test_signer(&account).into();
+
+    // Deploy the test contract
+    let deploy_contract_tx = SignedTransaction::deploy_contract(
+        101,
+        &account,
+        near_test_contracts::rs_contract().into(),
+        &account_signer,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
+
+    let max_receipt_size = 4_194_304;
+
+    // Call the contract
+    let large_receipt_tx = SignedTransaction::call(
+        102,
+        account.clone(),
+        account.clone(),
+        &account_signer,
+        0,
+        "max_receipt_size_value_return_method".into(),
+        format!("{{\"value_size\": {}}}", max_receipt_size).into(),
+        300 * TGAS,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, large_receipt_tx, &env.datas, Duration::seconds(5));
+
+    // Make sure that the last promise in the DAG was called
+    let assert_test_completed = SignedTransaction::call(
+        103,
+        account.clone(),
+        account,
+        &account_signer,
+        0,
+        "assert_test_completed".into(),
+        "".into(),
+        300 * TGAS,
+        get_shared_block_hash(&env.datas, &env.test_loop),
+    );
+    run_tx(&mut env.test_loop, assert_test_completed, &env.datas, Duration::seconds(5));
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
