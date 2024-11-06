@@ -6,7 +6,7 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::code::ContractCode;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::AccountId;
+use near_primitives_core::types::{AccountId, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
 #[cfg(feature = "solomon")]
@@ -25,13 +25,21 @@ pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1),
 }
 
+/// Contains information necessary to indentify StateTransitionData in the storage.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct MainTransitionKey {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
 impl ChunkContractAccesses {
     pub fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
         signer: &ValidatorSigner,
     ) -> Self {
-        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, signer))
+        Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, main_transition, signer))
     }
 
     pub fn contracts(&self) -> &[CodeHash] {
@@ -43,6 +51,12 @@ impl ChunkContractAccesses {
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
             Self::V1(accesses) => &accesses.inner.next_chunk,
+        }
+    }
+
+    pub fn main_transition(&self) -> &MainTransitionKey {
+        match self {
+            Self::V1(accesses) => &accesses.inner.main_transition,
         }
     }
 
@@ -64,9 +78,10 @@ impl ChunkContractAccessesV1 {
     fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = ChunkContractAccessesInner::new(next_chunk, contracts);
+        let inner = ChunkContractAccessesInner::new(next_chunk, contracts, main_transition);
         let signature = signer.sign_chunk_contract_accesses(&inner);
         Self { inner, signature }
     }
@@ -85,14 +100,21 @@ pub struct ChunkContractAccessesInner {
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
+    /// Corresponds to the StateTransitionData where the contracts were accessed.
+    main_transition: MainTransitionKey,
     signature_differentiator: SignatureDifferentiator,
 }
 
 impl ChunkContractAccessesInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: HashSet<CodeHash>) -> Self {
+    fn new(
+        next_chunk: ChunkProductionKey,
+        contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+    ) -> Self {
         Self {
             next_chunk,
             contracts: contracts.into_iter().collect(),
+            main_transition,
             signature_differentiator: "ChunkContractAccessesInner".to_owned(),
         }
     }
@@ -111,9 +133,10 @@ impl ContractCodeRequest {
     pub fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
         signer: &ValidatorSigner,
     ) -> Self {
-        Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, signer))
+        Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, main_transition, signer))
     }
 
     pub fn requester(&self) -> &AccountId {
@@ -133,6 +156,18 @@ impl ContractCodeRequest {
             Self::V1(request) => &request.inner.next_chunk,
         }
     }
+
+    pub fn main_transition(&self) -> &MainTransitionKey {
+        match self {
+            Self::V1(request) => &request.inner.main_transition,
+        }
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        match self {
+            Self::V1(v1) => v1.verify_signature(public_key),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -146,12 +181,21 @@ impl ContractCodeRequestV1 {
     fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner =
-            ContractCodeRequestInner::new(signer.validator_id().clone(), next_chunk, contracts);
+        let inner = ContractCodeRequestInner::new(
+            signer.validator_id().clone(),
+            next_chunk,
+            contracts,
+            main_transition,
+        );
         let signature = signer.sign_contract_code_request(&inner);
         Self { inner, signature }
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -167,6 +211,7 @@ pub struct ContractCodeRequestInner {
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
+    main_transition: MainTransitionKey,
     signature_differentiator: SignatureDifferentiator,
 }
 
@@ -175,11 +220,13 @@ impl ContractCodeRequestInner {
         requester: AccountId,
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
     ) -> Self {
         Self {
             requester,
             next_chunk,
             contracts: contracts.into_iter().collect(),
+            main_transition,
             signature_differentiator: "ContractCodeRequestInner".to_owned(),
         }
     }

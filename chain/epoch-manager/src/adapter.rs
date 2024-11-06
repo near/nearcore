@@ -12,7 +12,7 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
@@ -490,6 +490,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_witness_contract_accesses_signature(
         &self,
         accesses: &ChunkContractAccesses,
+    ) -> Result<bool, Error>;
+
+    fn verify_witness_contract_code_request_signature(
+        &self,
+        request: &ContractCodeRequest,
     ) -> Result<bool, Error>;
 
     fn verify_partial_deploys_signature(
@@ -1188,6 +1193,17 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let chunk_producer =
             self.read().get_chunk_producer_info(accesses.chunk_production_key())?;
         Ok(accesses.verify_signature(chunk_producer.public_key()))
+    }
+
+    fn verify_witness_contract_code_request_signature(
+        &self,
+        request: &ContractCodeRequest,
+    ) -> Result<bool, Error> {
+        let validator = self.read().get_validator_by_account_id(
+            &request.chunk_production_key().epoch_id,
+            request.requester(),
+        )?;
+        Ok(request.verify_signature(validator.public_key()))
     }
 
     fn verify_partial_deploys_signature(

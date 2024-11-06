@@ -1,7 +1,9 @@
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
@@ -22,32 +24,35 @@ use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache}
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
-    ContractCodeResponse, ContractUpdates, PartialEncodedContractDeploys,
+    ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
     PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
-use near_store::{StorageError, TrieDBStorage, TrieStorage};
+use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    validate_chunk_contract_accesses, validate_partial_encoded_contract_deploys,
-    validate_partial_encoded_state_witness,
+    validate_chunk_contract_accesses, validate_contract_code_request,
+    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
 };
 
 use super::encoding::{CONTRACT_DEPLOYS_RATIO_DATA_PARTS, WITNESS_RATIO_DATA_PARTS};
 use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
+
+const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -66,9 +71,11 @@ pub struct PartialWitnessActor {
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
     witness_encoders: ReedSolomonEncoderCache,
-    /// Same as above for contract deploys
+    /// Same as above for contract deploys.
     contract_deploys_encoders: ReedSolomonEncoderCache,
     compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
+    /// AccountId in the key corresponds to the requester (chunk validator).
+    processed_contract_code_requests: LruCache<(ChunkProductionKey, AccountId), ()>,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -78,6 +85,7 @@ impl Actor for PartialWitnessActor {}
 pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
     pub contract_updates: ContractUpdates,
+    pub main_transition_shard_id: ShardId,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -173,6 +181,9 @@ impl PartialWitnessActor {
                 CONTRACT_DEPLOYS_RATIO_DATA_PARTS,
             ),
             compile_contracts_spawner,
+            processed_contract_code_requests: LruCache::new(
+                NonZeroUsize::new(PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE).unwrap(),
+            ),
         }
     }
 
@@ -183,6 +194,7 @@ impl PartialWitnessActor {
         let DistributeStateWitnessRequest {
             state_witness,
             contract_updates: ContractUpdates { contract_accesses, contract_deploys },
+            main_transition_shard_id,
         } = msg;
 
         tracing::debug!(
@@ -210,6 +222,10 @@ impl PartialWitnessActor {
             self.send_contract_accesses_to_chunk_validators(
                 key.clone(),
                 contract_accesses,
+                MainTransitionKey {
+                    block_hash: state_witness.main_state_transition.block_hash,
+                    shard_id: main_transition_shard_id,
+                },
                 &chunk_validators,
                 &signer,
             );
@@ -561,7 +577,12 @@ impl PartialWitnessActor {
             .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
         let random_chunk_producer =
             self.epoch_manager.get_random_chunk_producer_for_shard(&key.epoch_id, key.shard_id)?;
-        let request = ContractCodeRequest::new(key.clone(), missing_contract_hashes, &signer);
+        let request = ContractCodeRequest::new(
+            key.clone(),
+            missing_contract_hashes,
+            accesses.main_transition().clone(),
+            &signer,
+        );
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
         ));
@@ -575,6 +596,7 @@ impl PartialWitnessActor {
         &self,
         key: ChunkProductionKey,
         contract_accesses: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
         chunk_validators: &[AccountId],
         my_signer: &ValidatorSigner,
     ) {
@@ -594,7 +616,7 @@ impl PartialWitnessActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(key, contract_accesses, my_signer),
+                ChunkContractAccesses::new(key, contract_accesses, main_transition, my_signer),
             ),
         ));
     }
@@ -626,14 +648,69 @@ impl PartialWitnessActor {
     /// the requesting chunk validator for the given hashes of the contract code.
     fn handle_contract_code_request(&mut self, request: ContractCodeRequest) -> Result<(), Error> {
         let signer = self.my_validator_signer()?;
-        // TODO(#11099): validate request
+        if !validate_contract_code_request(
+            self.epoch_manager.as_ref(),
+            &request,
+            self.runtime.store(),
+        )? {
+            return Ok(());
+        }
+
         let key = request.chunk_production_key();
+        let processed_requests_key = (key.clone(), request.requester().clone());
+        if self.processed_contract_code_requests.contains(&processed_requests_key) {
+            tracing::warn!(
+                target: "client",
+                ?processed_requests_key,
+                "Contract code request from this account was already processed"
+            );
+            return Ok(());
+        }
+        self.processed_contract_code_requests.push(processed_requests_key, ());
+
+        let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
+            .with_label_values(&[&key.shard_id.to_string()])
+            .start_timer();
+
+        let main_transition_key = request.main_transition();
+        let Some(transition_data) =
+            self.runtime.store().get_ser::<StoredChunkStateTransitionData>(
+                DBCol::StateTransitionData,
+                &near_primitives::utils::get_block_shard_id(
+                    &main_transition_key.block_hash,
+                    main_transition_key.shard_id,
+                ),
+            )?
+        else {
+            tracing::warn!(
+                target: "client",
+                ?key,
+                ?main_transition_key,
+                "Missing state transition data"
+            );
+            return Ok(());
+        };
+        let valid_accesses: HashSet<CodeHash> =
+            transition_data.contract_accesses().iter().cloned().collect();
+
         let storage = TrieDBStorage::new(
             TrieStoreAdapter::new(self.runtime.store().clone()),
-            self.epoch_manager.shard_id_to_uid(key.shard_id, &key.epoch_id)?,
+            self.epoch_manager.shard_id_to_uid(
+                main_transition_key.shard_id,
+                &self.epoch_manager.get_epoch_id(&main_transition_key.block_hash)?,
+            )?,
         );
         let mut contracts = Vec::new();
         for contract_hash in request.contracts() {
+            if !valid_accesses.contains(contract_hash) {
+                tracing::warn!(
+                    target: "client",
+                    ?key,
+                    ?contract_hash,
+                    "Requested contract code was not accessed when applying the chunk"
+                );
+                return Ok(());
+            }
             match storage.retrieve_raw_bytes(&contract_hash.0) {
                 Ok(bytes) => contracts.push(CodeBytes(bytes)),
                 Err(StorageError::MissingTrieValue(_, _)) => {
@@ -660,7 +737,6 @@ impl PartialWitnessActor {
         &mut self,
         response: ContractCodeResponse,
     ) -> Result<(), Error> {
-        // TODO(#11099): validate response
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
