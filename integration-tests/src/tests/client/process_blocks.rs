@@ -46,7 +46,7 @@ use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
@@ -2185,13 +2185,12 @@ fn test_sync_hash_validity() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     for i in 1..19 {
         env.produce_block(0, i);
-    }
-    for i in 1..19 {
+
         let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
         let block_hash = *header.hash();
         let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
         println!("height {} -> {}", i, valid);
-        if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // This assumes that all shards have new chunks in every block, which should be true
             // with TestEnv::produce_block()
             assert_eq!(valid, (i % epoch_length) == 3);
@@ -2320,8 +2319,9 @@ fn test_validate_chunk_extra() {
             .set_chunk_endorsements(ChunkEndorsementsBitmap::from_endorsements(vec![vec![true]]));
         let outcome_root = Block::compute_outcome_root(block.chunks().iter_deprecated());
         block.mut_header().set_prev_outcome_root(outcome_root);
-        let endorsement = ChunkEndorsementV1::new(chunk_header.chunk_hash(), &validator_signer);
-        block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature))]]);
+        let endorsement =
+            ChunkEndorsement::new(EpochId::default(), &chunk_header, &validator_signer);
+        block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]]);
         let body_hash = block.compute_block_body_hash().unwrap();
         block.mut_header().set_block_body_hash(body_hash);
         block.mut_header().resign(&validator_signer);
@@ -3732,7 +3732,7 @@ mod contract_precompilation_tests {
             start_height,
         );
 
-        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
             // and then one more than that so the node will generate the neede snapshot.
             produce_blocks_from_height(&mut env, 3, height) - 2
@@ -3846,7 +3846,7 @@ mod contract_precompilation_tests {
             height,
         );
 
-        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
             // and then one more than that so the node will generate the neede snapshot.
             produce_blocks_from_height(&mut env, 3, height) - 2
@@ -3929,7 +3929,7 @@ mod contract_precompilation_tests {
         // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
         // to get to produce the first block of the next epoch. If we want to state sync the new
         // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
-        let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION) {
+        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             produce_blocks_from_height(&mut env, EPOCH_LENGTH + 4, height) - 2
         } else {
             produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1

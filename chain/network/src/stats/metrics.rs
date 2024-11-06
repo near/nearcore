@@ -57,15 +57,16 @@ impl Drop for GaugePoint {
 }
 
 pub struct Connection {
+    pub tier: tcp::Tier,
     pub type_: PeerType,
     pub encoding: Option<Encoding>,
 }
 
 impl Labels for Connection {
-    type Array = [&'static str; 2];
-    const NAMES: Self::Array = ["peer_type", "encoding"];
+    type Array = [&'static str; 3];
+    const NAMES: Self::Array = ["tier", "peer_type", "encoding"];
     fn values(&self) -> Self::Array {
-        [self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+        [self.tier.into(), self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
     }
 }
 

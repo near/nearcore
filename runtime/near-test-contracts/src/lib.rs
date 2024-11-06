@@ -2,7 +2,6 @@
 
 use arbitrary::Arbitrary;
 use rand::{Fill, SeedableRng};
-use std::path::Path;
 use std::sync::OnceLock;
 
 /// Parse a WASM contract from WAT representation.
@@ -47,7 +46,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
 /// not work for tests using an older version. In particular, if a test depends
 /// on a specific protocol version, it should use [`backwards_compatible_rs_contract`].
 pub fn rs_contract() -> &'static [u8] {
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/", "test_contract_rs.wasm"))
+    include_bytes!(env!("CONTRACT_test_contract_rs"))
 }
 
 /// Standard test contract which is compatible any protocol version, including
@@ -66,25 +65,21 @@ pub fn rs_contract() -> &'static [u8] {
 /// contracts content, we can build it manually with an older compiler and check
 /// in the new WASM.
 pub fn backwards_compatible_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("backwards_compatible_rs_contract.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_backwards_compatible_rs_contract"))
 }
 
 /// Standard test contract which additionally includes all host functions from
 /// the nightly protocol.
 pub fn nightly_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("nightly_test_contract_rs.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_nightly_test_contract_rs"))
 }
 
 pub fn ts_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("test_contract_ts.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_test_contract_ts"))
 }
 
 pub fn fuzzing_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_contract_for_fuzzing_rs"))
 }
 
 /// NEP-141 implementation (fungible token contract).
@@ -97,8 +92,7 @@ pub fn fuzzing_contract() -> &'static [u8] {
 /// defined by NEP-141 is sufficient. But for future reference, the WASM was
 /// compiled with SDK version 4.1.1.
 pub fn ft_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("fungible_token.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_fungible_token"))
 }
 
 /// Smallest (reasonable) contract possible to build.
@@ -128,23 +122,7 @@ pub fn smallest_rs_contract() -> &'static [u8] {
 
 /// Contract that has all methods required by the gas parameter estimator.
 pub fn estimator_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    let file_name = if cfg!(feature = "nightly") {
-        "nightly_estimator_contract.wasm"
-    } else {
-        "stable_estimator_contract.wasm"
-    };
-    CONTRACT.get_or_init(|| read_contract(file_name)).as_slice()
-}
-
-/// Read given wasm file or panic if unable to.
-fn read_contract(file_name: &str) -> Vec<u8> {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = base.join("res").join(file_name);
-    match std::fs::read(&path) {
-        Ok(data) => data,
-        Err(err) => panic!("{}: {}", path.display(), err),
-    }
+    include_bytes!(env!("CONTRACT_estimator_contract"))
 }
 
 #[test]

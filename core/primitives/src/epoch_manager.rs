@@ -8,6 +8,7 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
@@ -46,6 +47,7 @@ pub struct EpochConfig {
     /// Online maximum threshold above which validator gets full reward.
     pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -456,18 +458,6 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
-    // Epoch configs for mocknet (forknet) (genesis protool version is 29).
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // include_config!("mocknet", 29, "29.json"),
-    // include_config!("mocknet", 48, "48.json"),
-    // include_config!("mocknet", 64, "64.json"),
-    // include_config!("mocknet", 65, "65.json"),
-    // include_config!("mocknet", 69, "69.json"),
-    // include_config!("mocknet", 70, "70.json"),
-    // include_config!("mocknet", 71, "71.json"),
-    // include_config!("mocknet", 72, "72.json"),
-    // include_config!("mocknet", 100, "100.json"),
-    // include_config!("mocknet", 101, "101.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
@@ -566,6 +556,34 @@ impl EpochConfigStore {
             })
             .1
     }
+
+    fn dump_epoch_config(directory: &str, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
+        let content = serde_json::to_string_pretty(config.as_ref()).unwrap();
+        let path = PathBuf::from(directory).join(format!("{}.json", version));
+        fs::write(path, content).unwrap();
+    }
+
+    /// Dumps all the configs between the beginning and end protocol versions to the given directory.
+    /// If the beginning version doesn't exist, the closest config to it will be dumped.
+    pub fn dump_epoch_configs_between(
+        &self,
+        first_version: &ProtocolVersion,
+        last_version: &ProtocolVersion,
+        directory: &str,
+    ) {
+        // Dump all the configs between the beginning and end versions, inclusive.
+        self.store
+            .iter()
+            .filter(|(version, _)| *version >= first_version && *version <= last_version)
+            .for_each(|(version, config)| {
+                Self::dump_epoch_config(directory, version, config);
+            });
+        // Dump the closest config to the beginning version if it doesn't exist.
+        if !self.store.contains_key(&first_version) {
+            let config = self.get_config(*first_version);
+            Self::dump_epoch_config(directory, first_version, config);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -616,12 +634,6 @@ mod tests {
         test_epoch_config_store("testnet", 29);
     }
 
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // fn test_epoch_config_store_mocknet() {
-    //     test_epoch_config_store("mocknet", 29);
-    // }
-
     #[allow(unused)]
     fn generate_epoch_configs(chain_id: &str, genesis_protocol_version: ProtocolVersion) {
         let genesis_epoch_config = parse_config_file(chain_id, genesis_protocol_version).unwrap();
@@ -645,6 +657,31 @@ mod tests {
     }
 
     #[test]
+    fn test_dump_epoch_configs_mainnet() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        EpochConfigStore::for_chain_id("mainnet", None).unwrap().dump_epoch_configs_between(
+            &55,
+            &68,
+            tmp_dir.path().to_str().unwrap(),
+        );
+
+        // Check if tmp dir contains the dumped files. 55, 64, 65.
+        let dumped_files = fs::read_dir(tmp_dir.path()).unwrap();
+        let dumped_files: Vec<_> =
+            dumped_files.map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+
+        assert!(dumped_files.contains(&String::from("55.json")));
+        assert!(dumped_files.contains(&String::from("64.json")));
+        assert!(dumped_files.contains(&String::from("65.json")));
+
+        // Check if 55.json is equal to 48.json from res/epcoh_configs/mainnet.
+        let contents_55 = fs::read_to_string(tmp_dir.path().join("55.json")).unwrap();
+        let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
+        let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();
+        assert_eq!(epoch_config_55, epoch_config_48);
+    }
+
+    #[test]
     #[ignore]
     fn generate_epoch_configs_mainnet() {
         generate_epoch_configs("mainnet", 29);
@@ -655,13 +692,6 @@ mod tests {
     fn generate_epoch_configs_testnet() {
         generate_epoch_configs("testnet", 29);
     }
-
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // #[ignore]
-    // fn generate_epoch_configs_mocknet() {
-    //     generate_epoch_configs("mocknet", 29);
-    // }
 
     #[allow(unused)]
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {

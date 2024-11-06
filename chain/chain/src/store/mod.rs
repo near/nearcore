@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -25,7 +25,7 @@ use near_primitives::state_sync::{
 };
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV3,
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -354,7 +354,7 @@ pub trait ChainStoreAccess {
         let block_header = self.get_block_header(&candidate_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let mut shard_id = shard_id;
-        let mut shard_index = shard_layout.get_shard_index(shard_id);
+        let mut shard_index = shard_layout.get_shard_index(shard_id)?;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
             if *block_header
@@ -369,6 +369,8 @@ pub trait ChainStoreAccess {
                 epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
+
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error>;
 }
 
 /// Given a vector of receipts return only the receipts that should be assigned
@@ -1340,6 +1342,10 @@ impl ChainStoreAccess for ChainStore {
         .map(|r| r.is_some())
         .map_err(|e| e.into())
     }
+
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+        Ok(self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())?)
+    }
 }
 
 /// Cache update for ChainStore
@@ -1728,6 +1734,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.is_height_processed(height)
         }
     }
+
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+        self.chain_store.get_current_epoch_sync_hash(epoch_id)
+    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -2016,7 +2026,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let ContractUpdates { contract_accesses, contract_deploys } = contract_updates;
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     contract_accesses: contract_accesses.into_iter().collect(),
@@ -2184,7 +2194,7 @@ impl<'a> ChainStoreUpdate<'a> {
             );
         }
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             let chunk_hash = chunk_header.chunk_hash();
             chain_store_update
                 .chain_store_cache_update
@@ -2281,30 +2291,31 @@ impl<'a> ChainStoreUpdate<'a> {
                     .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
             }
-            let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> =
-                HashMap::new();
+            // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
+            let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();
             for (hash, header) in self.chain_store_cache_update.headers.iter() {
                 if self.chain_store.get_block_header(hash).is_ok() {
                     // No need to add same Header once again
                     continue;
                 }
-
-                header_hashes_by_height
-                    .entry(header.height())
-                    .or_insert_with(|| {
-                        self.chain_store
-                            .get_all_header_hashes_by_height(header.height())
-                            .unwrap_or_default()
-                    })
-                    .insert(*hash);
+                headers_by_height.entry(header.height()).or_default().push(header);
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
             }
-            for (height, hash_set) in header_hashes_by_height {
+            for (height, headers) in headers_by_height {
+                let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
+                    Ok(hashes) => hashes,
+                    Err(Error::DBNotFoundErr(_)) => HashSet::with_capacity(headers.len()),
+                    Err(e) => return Err(e),
+                };
+                hash_set.extend(headers.iter().map(|header| *header.hash()));
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,
                     &index_to_bytes(height),
                     &hash_set,
                 )?;
+                for header in headers {
+                    crate::state_sync::update_sync_hashes(self, &mut store_update, header)?;
+                }
             }
             for ((block_hash, shard_uid), chunk_extra) in
                 self.chain_store_cache_update.chunk_extras.iter()

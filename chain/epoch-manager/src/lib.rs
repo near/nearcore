@@ -13,6 +13,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
@@ -1095,7 +1096,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
 
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement
@@ -1114,7 +1115,7 @@ impl EpochManager {
     ) -> Result<AccountId, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = epoch_info
             .chunk_producers_settlement()
             .get(shard_index)
@@ -1147,7 +1148,7 @@ impl EpochManager {
                     (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
                 })
                 .collect();
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index)?;
             let cache_key = (*epoch_id, shard_id, height);
             self.chunk_validators_cache
                 .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
@@ -1228,14 +1229,16 @@ impl EpochManager {
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
+        key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let validator_id =
-            Self::chunk_producer_from_info(&epoch_info, &shard_layout, shard_id, height)?;
+        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let validator_id = Self::chunk_producer_from_info(
+            &epoch_info,
+            &shard_layout,
+            key.shard_id,
+            key.height_created,
+        )?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1296,7 +1299,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
 
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement
@@ -1526,7 +1529,7 @@ impl EpochManager {
         for (shard_index, validators) in
             cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
         {
-            let shard_id = cur_shard_layout.get_shard_id(shard_index);
+            let shard_id = cur_shard_layout.get_shard_id(shard_index)?;
             for validator_id in validators {
                 validator_to_shard[*validator_id as usize].insert(shard_id);
             }
@@ -1698,7 +1701,7 @@ impl EpochManager {
         for (shard_index, validators) in
             next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
-            let shard_id = next_shard_layout.get_shard_id(shard_index);
+            let shard_id = next_shard_layout.get_shard_id(shard_index)?;
             for validator_id in validators {
                 next_validator_to_shard[*validator_id as usize].insert(shard_id);
             }

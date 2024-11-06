@@ -151,9 +151,6 @@ pub struct Client {
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
-    /// A mapping from an epoch that we know needs to be state synced for some shards
-    /// to a tracker that will find an appropriate sync_hash for state sync to that epoch
-    catchup_tracker: HashMap<EpochId, NewChunkTracker>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs: HashMap<CryptoHash, CatchupState>,
@@ -237,102 +234,6 @@ pub struct ProduceChunkResult {
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
     pub transactions_storage_proof: Option<PartialState>,
-}
-
-/// This keeps track of the number of new chunks seen in each shard since the block that was passed to new()
-/// This whole thing could be replaced with a much simpler function that just computes the number of new chunks
-/// in each shard from scratch every time we call it, but in the unlikely and unfortunate case where a shard
-/// hasn't had any chunks for a very long time, it would end up being a nontrivial inefficiency to do that
-/// every time run_catchup() is called
-pub struct NewChunkTracker {
-    last_checked_hash: CryptoHash,
-    last_checked_height: BlockHeight,
-    num_new_chunks: HashMap<ShardId, usize>,
-    sync_hash: Option<CryptoHash>,
-}
-
-impl NewChunkTracker {
-    fn new(
-        first_block_hash: CryptoHash,
-        first_block_height: BlockHeight,
-        shard_ids: &[ShardId],
-    ) -> Self {
-        Self {
-            last_checked_hash: first_block_hash,
-            last_checked_height: first_block_height,
-            num_new_chunks: shard_ids.iter().map(|shard_id| (*shard_id, 0)).collect(),
-            sync_hash: None,
-        }
-    }
-
-    // TODO(current_epoch_sync_hash): refactor this and use the same logic in get_current_epoch_sync_hash(). Ideally
-    // that function should go away (at least as it is now) in favor of a more efficient approach that we can call on
-    // every new block application
-    fn record_new_chunks(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        header: &BlockHeader,
-    ) -> Result<bool, Error> {
-        let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
-
-        let mut done = true;
-        for (shard_id, num_new_chunks) in self.num_new_chunks.iter_mut() {
-            let shard_index = shard_layout.get_shard_index(*shard_id);
-            let Some(included) = header.chunk_mask().get(shard_index) else {
-                return Err(Error::Other(format!(
-                    "can't get shard {} in chunk mask for block {}",
-                    shard_id,
-                    header.hash()
-                )));
-            };
-            if *included {
-                *num_new_chunks += 1;
-            }
-            if *num_new_chunks < 2 {
-                done = false;
-            }
-        }
-        self.last_checked_hash = *header.hash();
-        self.last_checked_height = header.height();
-        Ok(done)
-    }
-
-    fn find_sync_hash(
-        &mut self,
-        chain: &Chain,
-        epoch_manager: &dyn EpochManagerAdapter,
-    ) -> Result<Option<CryptoHash>, Error> {
-        if let Some(sync_hash) = self.sync_hash {
-            return Ok(Some(sync_hash));
-        }
-
-        let final_head = chain.final_head()?;
-
-        while self.last_checked_height < final_head.height {
-            let next_hash = match chain.chain_store().get_next_block_hash(&self.last_checked_hash) {
-                Ok(h) => h,
-                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => {
-                    return Err(Error::Other(format!(
-                        "final head is #{} {} but get_next_block_hash(#{} {}) is not found",
-                        final_head.height,
-                        final_head.last_block_hash,
-                        self.last_checked_height,
-                        &self.last_checked_hash
-                    )));
-                }
-                Err(e) => return Err(e.into()),
-            };
-            let next_header = chain.get_block_header(&next_hash)?;
-            let done = self.record_new_chunks(epoch_manager, &next_header)?;
-            if done {
-                // TODO(current_epoch_state_sync): check to make sure the epoch IDs are the same. If there are no new chunks in some shard in the epoch,
-                // this will be for an epoch ahead of this one
-                self.sync_hash = Some(next_hash);
-                break;
-            }
-        }
-        Ok(self.sync_hash)
-    }
 }
 
 impl Client {
@@ -478,7 +379,6 @@ impl Client {
             pending_approvals: lru::LruCache::new(
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
-            catchup_tracker: HashMap::new(),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
             header_sync,
@@ -532,6 +432,7 @@ impl Client {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if cares_about_shard_this_or_next_epoch(
@@ -564,6 +465,7 @@ impl Client {
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
             if block.header().height() == chunk_header.height_included() {
@@ -840,7 +742,8 @@ impl Client {
         // Collect new chunk headers and endorsements.
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_id, chunk_hash) in new_chunks {
-            let shard_index = shard_layout.get_shard_index(shard_id);
+            let shard_index =
+                shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
@@ -1570,7 +1473,8 @@ impl Client {
             .expect("Could not obtain shard layout");
 
         let shard_id = partial_chunk.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index =
+            shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
@@ -1578,7 +1482,6 @@ impl Client {
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1965,17 +1868,6 @@ impl Client {
         }
     }
 
-    pub fn mark_chunk_header_ready_for_inclusion(
-        &mut self,
-        chunk_header: ShardChunkHeader,
-        chunk_producer: AccountId,
-    ) {
-        // If endorsement was received before chunk header, we can process it only now.
-        self.chunk_endorsement_tracker.tracker_v1.process_pending_endorsements(&chunk_header);
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
-    }
-
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
@@ -2009,7 +1901,8 @@ impl Client {
             }
         }
 
-        self.mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
@@ -2571,27 +2464,13 @@ impl Client {
     fn get_catchup_sync_hash_v1(
         &mut self,
         state_sync_info: &mut StateSyncInfoV1,
-        epoch_first_block: &BlockHeader,
+        epoch_first_block: &CryptoHash,
     ) -> Result<Option<CryptoHash>, Error> {
         if state_sync_info.sync_hash.is_some() {
             return Ok(state_sync_info.sync_hash);
         }
 
-        let new_chunk_tracker = match self.catchup_tracker.entry(*epoch_first_block.epoch_id()) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let shard_ids = self.epoch_manager.shard_ids(epoch_first_block.epoch_id())?;
-                e.insert(NewChunkTracker::new(
-                    *epoch_first_block.hash(),
-                    epoch_first_block.height(),
-                    &shard_ids,
-                ))
-            }
-        };
-
-        if let Some(sync_hash) =
-            new_chunk_tracker.find_sync_hash(&self.chain, self.epoch_manager.as_ref())?
-        {
+        if let Some(sync_hash) = self.chain.get_sync_hash(epoch_first_block)? {
             state_sync_info.sync_hash = Some(sync_hash);
             let mut update = self.chain.mut_chain_store().store_update();
             // note that iterate_state_sync_infos() collects everything into a Vec, so we're not
@@ -2609,7 +2488,7 @@ impl Client {
     fn get_catchup_sync_hash(
         &mut self,
         state_sync_info: &mut StateSyncInfo,
-        epoch_first_block: &BlockHeader,
+        epoch_first_block: &CryptoHash,
     ) -> Result<Option<CryptoHash>, Error> {
         match state_sync_info {
             StateSyncInfo::V0(info) => Ok(Some(info.sync_hash)),
@@ -2637,10 +2516,8 @@ impl Client {
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
-            let sync_hash = match self.get_catchup_sync_hash(&mut state_sync_info, &block_header)? {
-                Some(h) => h,
-                None => continue,
-            };
+            let sync_hash = self.get_catchup_sync_hash(&mut state_sync_info, &epoch_first_block)?;
+            let Some(sync_hash) = sync_hash else { continue };
 
             let CatchupState { state_sync, sync_status: status, catchup } = self
                 .catchup_state_syncs

@@ -5,6 +5,7 @@ mod freelist;
 pub mod iter;
 pub mod loading;
 mod lookup;
+pub mod mem_trie_update;
 pub mod mem_tries;
 pub mod metrics;
 #[cfg(test)]
@@ -12,7 +13,6 @@ pub(crate) mod nibbles_utils;
 pub mod node;
 mod parallel_loader;
 pub mod resharding;
-pub mod updating;
 
 /// Check this, because in the code we conveniently assume usize is 8 bytes.
 /// In-memory trie can't possibly work under 32-bit anyway.

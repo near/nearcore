@@ -15,6 +15,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use time::ext::InstantExt as _;
 
 const DEPLOY_PARTS_CACHE_SIZE: usize = 20;
+const PROCESSED_DEPLOYS_CACHE_SIZE: usize = 50;
 
 struct CacheEntry {
     parts: ReedSolomonPartsTracker<ChunkContractDeploys>,
@@ -72,11 +73,38 @@ impl CacheEntry {
 
 pub struct PartialEncodedContractDeploysTracker {
     parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    processed_deploys: LruCache<ChunkProductionKey, ()>,
 }
 
 impl PartialEncodedContractDeploysTracker {
     pub fn new() -> Self {
-        Self { parts_cache: LruCache::new(NonZeroUsize::new(DEPLOY_PARTS_CACHE_SIZE).unwrap()) }
+        Self {
+            parts_cache: LruCache::new(NonZeroUsize::new(DEPLOY_PARTS_CACHE_SIZE).unwrap()),
+            processed_deploys: LruCache::new(
+                NonZeroUsize::new(PROCESSED_DEPLOYS_CACHE_SIZE).unwrap(),
+            ),
+        }
+    }
+
+    pub fn already_processed(&self, partial_deploys: &PartialEncodedContractDeploys) -> bool {
+        let key = partial_deploys.chunk_production_key();
+        if self.processed_deploys.contains(key) {
+            return true;
+        }
+        if self
+            .parts_cache
+            .peek(key)
+            .is_some_and(|entry| entry.parts.has_part(partial_deploys.part().part_ord))
+        {
+            tracing::warn!(
+                target: "client",
+                ?key,
+                part = ?partial_deploys.part(),
+                "Received already processed partial deploys part"
+            );
+            return true;
+        }
+        false
     }
 
     pub fn store_partial_encoded_contract_deploys(
@@ -106,6 +134,7 @@ impl PartialEncodedContractDeploysTracker {
                 .with_label_values(&[key.shard_id.to_string().as_str()])
                 .observe(time_to_last_part.as_seconds_f64());
             self.parts_cache.pop(&key);
+            self.processed_deploys.push(key.clone(), ());
             let deploys = match decode_result {
                 Ok(deploys) => deploys,
                 Err(err) => {
