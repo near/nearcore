@@ -647,7 +647,6 @@ impl PartialWitnessActor {
     /// As response to this message, sends the contract code requested to
     /// the requesting chunk validator for the given hashes of the contract code.
     fn handle_contract_code_request(&mut self, request: ContractCodeRequest) -> Result<(), Error> {
-        let signer = self.my_validator_signer()?;
         if !validate_contract_code_request(
             self.epoch_manager.as_ref(),
             &request,
@@ -725,7 +724,7 @@ impl PartialWitnessActor {
                 Err(err) => return Err(err.into()),
             }
         }
-        let response = ContractCodeResponse::new(key.clone(), &contracts, &signer);
+        let response = ContractCodeResponse::encode(key.clone(), &contracts)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
         ));

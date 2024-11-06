@@ -240,23 +240,22 @@ pub enum ContractCodeResponse {
 }
 
 impl ContractCodeResponse {
-    pub fn new(
+    pub fn encode(
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
-        signer: &ValidatorSigner,
-    ) -> Self {
-        Self::V1(ContractCodeResponseV1::new(next_chunk, contracts, signer))
+    ) -> std::io::Result<Self> {
+        ContractCodeResponseV1::encode(next_chunk, contracts).map(|v1| Self::V1(v1))
     }
 
     pub fn chunk_production_key(&self) -> &ChunkProductionKey {
         match self {
-            Self::V1(v1) => &v1.inner.next_chunk,
+            Self::V1(v1) => &v1.next_chunk,
         }
     }
 
     pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
         let compressed_contracts = match self {
-            Self::V1(v1) => &v1.inner.compressed_contracts,
+            Self::V1(v1) => &v1.compressed_contracts,
         };
         compressed_contracts.decode().map(|(data, _size)| data)
     }
@@ -264,40 +263,19 @@ impl ContractCodeResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ContractCodeResponseV1 {
-    inner: ContractCodeResponseInner,
-    /// Signature of the inner.
-    signature: Signature,
-}
-
-impl ContractCodeResponseV1 {
-    fn new(
-        next_chunk: ChunkProductionKey,
-        contracts: &Vec<CodeBytes>,
-        signer: &ValidatorSigner,
-    ) -> Self {
-        let inner = ContractCodeResponseInner::new(next_chunk, contracts);
-        let signature = signer.sign_contract_code_response(&inner);
-        Self { inner, signature }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ContractCodeResponseInner {
     // The same as `next_chunk` in `ContractCodeRequest`
     next_chunk: ChunkProductionKey,
     /// Code for the contracts.
     compressed_contracts: CompressedContractCode,
-    signature_differentiator: SignatureDifferentiator,
 }
 
-impl ContractCodeResponseInner {
-    fn new(next_chunk: ChunkProductionKey, contracts: &Vec<CodeBytes>) -> Self {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts).unwrap();
-        Self {
-            next_chunk,
-            compressed_contracts,
-            signature_differentiator: "ContractCodeResponseInner".to_owned(),
-        }
+impl ContractCodeResponseV1 {
+    pub fn encode(
+        next_chunk: ChunkProductionKey,
+        contracts: &Vec<CodeBytes>,
+    ) -> std::io::Result<Self> {
+        let (compressed_contracts, _size) = CompressedContractCode::encode(&contracts)?;
+        Ok(Self { next_chunk, compressed_contracts })
     }
 }
 
