@@ -16,7 +16,6 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
-    StoredChunkStateTransitionDataV2, StoredChunkStateTransitionDataV3,
 };
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -276,26 +275,12 @@ impl Client {
                 }
                 Error::Other(message)
             })?;
-        let (base_state, receipts_hash, contract_accesses, contract_deploys) =
-            match stored_chunk_state_transition_data {
-                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
-                    base_state,
-                    receipts_hash,
-                    contract_accesses,
-                })
-                | StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
-                    base_state,
-                    receipts_hash,
-                    contract_accesses,
-                    ..
-                }) => (base_state, receipts_hash, contract_accesses, Default::default()),
-                StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
-                    base_state,
-                    receipts_hash,
-                    contract_accesses,
-                    contract_deploys,
-                }) => (base_state, receipts_hash, contract_accesses, contract_deploys),
-            };
+        let StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+            base_state,
+            receipts_hash,
+            contract_accesses,
+            contract_deploys,
+        }) = stored_chunk_state_transition_data;
         let contract_updates = ContractUpdates {
             contract_accesses: contract_accesses.into_iter().collect(),
             contract_deploys: contract_deploys.into_iter().map(|c| c.into()).collect(),

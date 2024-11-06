@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::code::ContractCode;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -319,6 +319,8 @@ impl
     PartialOrd,
     BorshSerialize,
     BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
     ProtocolSchema,
 )]
 pub struct CodeHash(pub CryptoHash);
@@ -336,8 +338,24 @@ impl Into<CryptoHash> for CodeHash {
 }
 
 /// Raw bytes of the (uncompiled) contract code.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
 pub struct CodeBytes(pub Arc<[u8]>);
+
+impl CodeBytes {
+    pub fn hash(&self) -> CodeHash {
+        hash(self.0.as_ref()).into()
+    }
+}
 
 impl From<ContractCode> for CodeBytes {
     fn from(code: ContractCode) -> Self {
