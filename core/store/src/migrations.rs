@@ -1,6 +1,6 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
@@ -467,13 +467,13 @@ pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
     for result in store.iter(DBCol::StateTransitionData) {
         let (key, old_value) = result?;
 
-        let old_data =DeprecatedStoredChunkStateTransitionDataEnum::try_from_slice(&old_value).unwrap_or_else(|err| {
+        let old_data = DeprecatedStoredChunkStateTransitionDataEnum::try_from_slice(&old_value).map_err(|err| {
             if let Ok((block_hash, shard_id)) = get_block_shard_id_rev(&key) {
-                panic!("Failed to parse StoredChunkStateTransitionData value in DB. Block: {:?}, Shard: {:?}, Error: {:?}", block_hash, shard_id, err);
+                anyhow!("Failed to parse StoredChunkStateTransitionData in DB. Block: {:?}, Shard: {:?}, Error: {:?}", block_hash, shard_id, err)
             } else {
-                panic!("Failed to parse StoredChunkStateTransitionData key in DB. Key: {:?}, Error: {:?}", key, err);
+                anyhow!("Failed to parse StoredChunkStateTransitionData in DB. Key: {:?}, Error: {:?}", key, err)
             }
-        });
+        })?;
         let (base_state, receipts_hash, contract_accesses, contract_deploys) = match old_data {
             DeprecatedStoredChunkStateTransitionDataEnum::V1(
                 DeprecatedStoredChunkStateTransitionDataV1 {
