@@ -60,7 +60,10 @@ impl std::fmt::Debug for CreateSnapshotRequest {
             .field("block_hash", self.block.hash())
             .field("prev_block_hash", &self.prev_block_hash)
             .field("epoch_height", &self.epoch_height)
-            .field("shard_uids", &self.shard_indexes_and_uids.iter().map(|(_index, uid)| uid).collect::<Vec<_>>())
+            .field(
+                "shard_uids",
+                &self.shard_indexes_and_uids.iter().map(|(_index, uid)| uid).collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
