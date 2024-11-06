@@ -31,6 +31,7 @@ use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest
 /// Keep this private to this file.
 struct StateTransitionData {
     main_transition: ChunkStateTransition,
+    main_transition_shard_id: ShardId,
     implicit_transitions: Vec<ChunkStateTransition>,
     applied_receipts_hash: CryptoHash,
     contract_updates: ContractUpdates,
@@ -45,6 +46,9 @@ pub(crate) struct CreateWitnessResult {
     pub(crate) state_witness: ChunkStateWitness,
     /// Contracts accessed and deployed while applying the chunk.
     pub(crate) contract_updates: ContractUpdates,
+    /// Shard id for the main trainsition. This can be different from the
+    /// witness chunk header shard id due to resharding.
+    pub(crate) main_transition_shard_id: ShardId,
 }
 
 impl Client {
@@ -69,13 +73,14 @@ impl Client {
 
         let my_signer =
             validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
-        let CreateWitnessResult { state_witness, contract_updates } = self.create_state_witness(
-            my_signer.validator_id().clone(),
-            prev_block_header,
-            prev_chunk_header,
-            chunk,
-            transactions_storage_proof,
-        )?;
+        let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
+            self.create_state_witness(
+                my_signer.validator_id().clone(),
+                prev_block_header,
+                prev_chunk_header,
+                chunk,
+                transactions_storage_proof,
+            )?;
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
@@ -103,8 +108,11 @@ impl Client {
             .then_some(contract_updates)
             .unwrap_or_default();
 
-        self.partial_witness_adapter
-            .send(DistributeStateWitnessRequest { state_witness, contract_updates });
+        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
+            state_witness,
+            contract_updates,
+            main_transition_shard_id,
+        });
         Ok(())
     }
 
@@ -122,6 +130,7 @@ impl Client {
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
+            main_transition_shard_id,
             implicit_transitions,
             applied_receipts_hash,
             contract_updates,
@@ -158,7 +167,7 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
-        Ok(CreateWitnessResult { state_witness, contract_updates })
+        Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
 
     /// Collect state transition data necessary to produce state witness for
@@ -223,18 +232,19 @@ impl Client {
 
         let main_block = current_block_hash;
         let epoch_id = next_epoch_id;
-        let shard_id = next_shard_id;
+        let main_transition_shard_id = next_shard_id;
         implicit_transitions.reverse();
 
         // Get the main state transition.
         let (main_transition, receipts_hash, contract_updates) = if prev_chunk_header.is_genesis() {
-            self.get_genesis_state_transition(&main_block, &epoch_id, shard_id)?
+            self.get_genesis_state_transition(&main_block, &epoch_id, main_transition_shard_id)?
         } else {
-            self.get_state_transition(&main_block, &epoch_id, shard_id)?
+            self.get_state_transition(&main_block, &epoch_id, main_transition_shard_id)?
         };
 
         Ok(StateTransitionData {
             main_transition,
+            main_transition_shard_id,
             implicit_transitions,
             applied_receipts_hash: receipts_hash,
             contract_updates,

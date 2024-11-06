@@ -5,7 +5,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitness, MAX_COMPRESSED_STATE_WITNESS_SIZE,
@@ -122,6 +122,23 @@ pub fn validate_chunk_contract_accesses(
     if !epoch_manager.verify_witness_contract_accesses_signature(accesses)? {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }
+    Ok(true)
+}
+
+pub fn validate_contract_code_request(
+    epoch_manager: &dyn EpochManagerAdapter,
+    request: &ContractCodeRequest,
+    store: &Store,
+) -> Result<bool, Error> {
+    let key = request.chunk_production_key();
+    validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
+    if !validate_chunk_relevant_as_validator(epoch_manager, key, request.requester(), store)? {
+        return Ok(false);
+    }
+    if !epoch_manager.verify_witness_contract_code_request_signature(request)? {
+        return Err(Error::Other("Invalid witness contract code request signature".to_owned()));
+    }
+
     Ok(true)
 }
 
