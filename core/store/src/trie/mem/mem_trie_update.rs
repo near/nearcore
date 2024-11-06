@@ -67,7 +67,7 @@ impl UpdatedMemTrieNodeWithSize {
     }
 }
 
-/// Keeps values and internal nodes accessed on updating memtrie.
+/// Keeps hashes and encoded trie nodes accessed on updating memtrie.
 pub struct TrieAccesses {
     /// Hashes and encoded trie nodes.
     pub nodes: HashMap<CryptoHash, Arc<[u8]>>,
@@ -83,11 +83,11 @@ struct TrieChangesTracker {
     /// Separated from `refcount_deleted_hashes` to postpone hash computation
     /// as far as possible.
     refcount_inserted_values: BTreeMap<Vec<u8>, u32>,
-    /// All observed values and internal nodes.
+    /// All observed internal nodes.
     /// Needed to prepare recorded storage.
-    /// Note that negative `refcount_changes` does not fully cover it, as node
-    /// or value of the same hash can be removed and inserted for the same
-    /// update in different parts of trie!
+    /// Note that negative `refcount_deleted_hashes` does not fully cover it,
+    /// as node or value of the same hash can be removed and inserted for the
+    /// same update in different parts of trie!
     accesses: TrieAccesses,
 }
 

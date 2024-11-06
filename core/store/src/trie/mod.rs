@@ -1660,15 +1660,6 @@ impl Trie {
                     for (node_hash, serialized_node) in trie_accesses.nodes {
                         recorder.borrow_mut().record(&node_hash, serialized_node);
                     }
-                    // for (value_hash, value) in trie_accesses.values {
-                    //     let value = match value {
-                    //         FlatStateValue::Ref(_) => {
-                    //             self.storage.retrieve_raw_bytes(&value_hash)?
-                    //         }
-                    //         FlatStateValue::Inlined(value) => value.into(),
-                    //     };
-                    //     recorder.borrow_mut().record(&value_hash, value);
-                    // }
                 }
                 Ok(trie_changes)
             }
@@ -1693,6 +1684,7 @@ impl Trie {
                         GenericNodeOrIndex::Updated(root_node.0),
                     );
                 }
+
                 trie_update.flatten_nodes(&self.root, root_node.0)
             }
         }
@@ -2236,8 +2228,8 @@ mod tests {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
-            // record extension, branch and both leaves (one with value)
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 5);
+            // record extension, branch and both leaves, but not the value.
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
