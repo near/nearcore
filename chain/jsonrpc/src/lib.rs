@@ -1356,20 +1356,19 @@ impl JsonRpcHandler {
 }
 
 async fn handle_unknown_block(
-    error_struct: &Value,
+    request: Message,
     handler: web::Data<JsonRpcHandler>,
 ) -> actix_web::HttpResponseBuilder {
-    let Ok(latest_block) =
-        handler.block(RpcBlockRequest { block_reference: BlockReference::latest() }).await
-    else {
+    let Message::Request(request) = request else {
         return HttpResponse::Ok();
     };
 
-    let Some(block_id) = error_struct
-        .get("cause")
-        .and_then(|cause| cause.get("info"))
-        .and_then(|info| info.get("block_reference"))
-        .and_then(|block_ref| block_ref.get("block_id"))
+    let Some(block_id) = request.params.get("block_id") else {
+        return HttpResponse::Ok();
+    };
+
+    let Ok(latest_block) =
+        handler.block(RpcBlockRequest { block_reference: BlockReference::latest() }).await
     else {
         return HttpResponse::Ok();
     };
@@ -1399,10 +1398,11 @@ async fn handle_unknown_block(
 }
 
 async fn rpc_handler(
-    message: web::Json<Message>,
+    request: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> HttpResponse {
-    let message = handler.process(message.0).await;
+    let message = handler.process(request.0.clone()).await;
+
     let mut response = if let Message::Response(response) = &message {
         match &response.result {
             Ok(_) => HttpResponse::Ok(),
@@ -1410,7 +1410,7 @@ async fn rpc_handler(
                 Some(RpcErrorKind::RequestValidationError(_)) => HttpResponse::BadRequest(),
                 Some(RpcErrorKind::HandlerError(error_struct)) => {
                     match error_struct.get("name").and_then(|name| name.as_str()) {
-                        Some("UNKNOWN_BLOCK") => handle_unknown_block(error_struct, handler).await,
+                        Some("UNKNOWN_BLOCK") => handle_unknown_block(request.0, handler).await,
                         Some("TIMEOUT_ERROR") => HttpResponse::RequestTimeout(),
                         _ => HttpResponse::Ok(),
                     }
@@ -1422,6 +1422,7 @@ async fn rpc_handler(
     } else {
         HttpResponse::InternalServerError()
     };
+
     response.json(message)
 }
 
