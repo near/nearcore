@@ -41,7 +41,7 @@ pub struct DeleteAndMaybeCreateSnapshotRequest {
     create_snapshot_request: Option<CreateSnapshotRequest>,
 }
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct CreateSnapshotRequest {
     /// prev_hash of the last processed block.
@@ -54,15 +54,23 @@ pub struct CreateSnapshotRequest {
     block: Block,
 }
 
+impl std::fmt::Debug for CreateSnapshotRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateSnapshotRequest")
+            .field("block_hash", self.block.hash())
+            .field("prev_block_hash", &self.prev_block_hash)
+            .field("epoch_height", &self.epoch_height)
+            .field("shard_uids", &self.shard_indexes_and_uids.iter().map(|(_index, uid)| uid).collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 impl StateSnapshotActor {
     pub fn handle_delete_and_maybe_create_snapshot_request(
         &mut self,
         msg: DeleteAndMaybeCreateSnapshotRequest,
     ) {
-        tracing::debug!(
-            target: "state_snapshot", has_creation= %msg.create_snapshot_request.is_some(),
-            "handle DeleteAndMaybeCreateSnapshotRequest"
-        );
+        tracing::debug!(target: "state_snapshot", ?msg);
 
         // We don't need to acquire any locks on flat storage or snapshot.
         let DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request } = msg;
@@ -75,12 +83,7 @@ impl StateSnapshotActor {
     }
 
     pub fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
-        tracing::debug!(
-            target: "state_snapshot",
-            block_hash=%msg.block.hash(), prev_block_hash=%&msg.prev_block_hash, epoch_height=%msg.epoch_height,
-            shard_uids=?msg.shard_indexes_and_uids.iter().map(|(_index, uid)| uid).collect::<Vec<_>>(),
-            "handle CreateSnapshotRequest"
-        );
+        tracing::debug!(target: "state_snapshot", ?msg);
 
         let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block } =
             msg;
