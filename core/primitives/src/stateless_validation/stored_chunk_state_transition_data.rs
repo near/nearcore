@@ -16,6 +16,16 @@ pub enum StoredChunkStateTransitionData {
     V3(StoredChunkStateTransitionDataV3),
 }
 
+impl StoredChunkStateTransitionData {
+    pub fn contract_accesses(&self) -> &[CodeHash] {
+        match &self {
+            Self::V1(_) => &[],
+            Self::V2(v2) => &v2.contract_accesses,
+            Self::V3(v3) => &v3.contract_accesses,
+        }
+    }
+}
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StoredChunkStateTransitionDataV1 {
     /// The partial state that is needed to apply the state transition,
