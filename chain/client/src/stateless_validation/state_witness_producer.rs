@@ -103,12 +103,8 @@ impl Client {
             .then_some(contract_updates)
             .unwrap_or_default();
 
-        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
-            epoch_id: *epoch_id,
-            chunk_header,
-            state_witness,
-            contract_updates,
-        });
+        self.partial_witness_adapter
+            .send(DistributeStateWitnessRequest { state_witness, contract_updates });
         Ok(())
     }
 

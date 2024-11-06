@@ -76,8 +76,6 @@ impl Actor for PartialWitnessActor {}
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct DistributeStateWitnessRequest {
-    pub epoch_id: EpochId,
-    pub chunk_header: ShardChunkHeader,
     pub state_witness: ChunkStateWitness,
     pub contract_updates: ContractUpdates,
 }
@@ -183,15 +181,13 @@ impl PartialWitnessActor {
         msg: DistributeStateWitnessRequest,
     ) -> Result<(), Error> {
         let DistributeStateWitnessRequest {
-            epoch_id,
-            chunk_header,
             state_witness,
             contract_updates: ContractUpdates { contract_accesses, contract_deploys },
         } = msg;
 
         tracing::debug!(
             target: "client",
-            chunk_hash=?chunk_header.chunk_hash(),
+            chunk_hash=?state_witness.chunk_header.chunk_hash(),
             "distribute_chunk_state_witness",
         );
 
@@ -221,8 +217,8 @@ impl PartialWitnessActor {
 
         let witness_bytes = compress_witness(&state_witness)?;
         self.send_state_witness_parts(
-            epoch_id,
-            chunk_header,
+            key.epoch_id,
+            &state_witness.chunk_header,
             witness_bytes,
             &chunk_validators,
             &signer,
@@ -239,7 +235,7 @@ impl PartialWitnessActor {
     fn generate_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
+        chunk_header: &ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
@@ -316,7 +312,7 @@ impl PartialWitnessActor {
     fn send_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
+        chunk_header: &ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
@@ -702,7 +698,7 @@ fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitn
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
-    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
+    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(witness)?;
     encode_timer.observe_duration();
 
     near_chain::stateless_validation::metrics::record_witness_size_metrics(
