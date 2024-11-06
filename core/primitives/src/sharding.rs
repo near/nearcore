@@ -153,7 +153,7 @@ impl StateSyncInfo {
         shard_layout: &ShardLayout,
         shards: &[ShardId],
     ) -> Result<Self, ShardLayoutError> {
-        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
             Self::new_current_epoch(epoch_first_block, prev_block, shard_layout, shards)
         } else {
             Self::new_previous_epoch(epoch_first_block, prev_block, shard_layout, shards)
