@@ -6,7 +6,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ShardInfo, StateSyncInfo, StateSyncInfoV0};
+use near_primitives::sharding::{ChunkHash, StateSyncInfo, StateSyncInfoV0, StateSyncInfoV1};
 use near_primitives::state::FlatStateValue;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -392,20 +392,36 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
+struct LegacyShardInfo(ShardId, ChunkHash);
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct LegacyStateSyncInfoV0 {
+    sync_hash: CryptoHash,
+    shards: Vec<LegacyShardInfo>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct LegacyStateSyncInfoV1 {
+    epoch_first_block: CryptoHash,
+    sync_hash: Option<CryptoHash>,
+    shards: Vec<LegacyShardInfo>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+enum LegacyStateSyncInfo {
+    V0(LegacyStateSyncInfoV0),
+    V1(LegacyStateSyncInfoV1),
+}
+
 /// Migrates the database from version 41 to 42.
 ///
 /// This rewrites the contents of the StateDlInfos column
 pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
-    #[derive(BorshSerialize, BorshDeserialize)]
-    struct LegacyStateSyncInfo {
-        sync_hash: CryptoHash,
-        shards: Vec<ShardInfo>,
-    }
-
     let mut update = store.store_update();
 
-    for row in store.iter_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos) {
-        let (key, LegacyStateSyncInfo { sync_hash, shards }) =
+    for row in store.iter_ser::<LegacyStateSyncInfoV0>(DBCol::StateDlInfos) {
+        let (key, LegacyStateSyncInfoV0 { sync_hash, shards }) =
             row.context("failed deserializing legacy StateSyncInfo in StateDlInfos")?;
 
         let epoch_first_block = CryptoHash::try_from_slice(&key)
@@ -414,7 +430,65 @@ pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
         if epoch_first_block != sync_hash {
             tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
         }
-        let new_info = StateSyncInfo::V0(StateSyncInfoV0 { sync_hash, shards });
+        let new_info = LegacyStateSyncInfo::V0(LegacyStateSyncInfoV0 { sync_hash, shards });
+        update
+            .set_ser(DBCol::StateDlInfos, &key, &new_info)
+            .context("failed writing to StateDlInfos")?;
+    }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 42 to 43.
+///
+/// This rewrites the contents of the StateDlInfos column
+pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
+    let mut update = store.store_update();
+
+    for row in store.iter_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos) {
+        let (key, info) =
+            row.context("failed deserializing legacy StateSyncInfo in StateDlInfos")?;
+
+        let epoch_first_block_key = CryptoHash::try_from_slice(&key)
+            .context("failed deserializing CryptoHash key in StateDlInfos")?;
+
+        let new_info = match info {
+            LegacyStateSyncInfo::V0(LegacyStateSyncInfoV0 { sync_hash, shards }) => {
+                if epoch_first_block_key != sync_hash {
+                    tracing::warn!(
+                        key = %epoch_first_block_key, %sync_hash,
+                        "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info"
+                    );
+                }
+                StateSyncInfo::V0(StateSyncInfoV0 {
+                    sync_hash,
+                    shards: shards
+                        .into_iter()
+                        .map(|LegacyShardInfo(shard_id, _chunk_hash)| shard_id)
+                        .collect(),
+                })
+            }
+            LegacyStateSyncInfo::V1(LegacyStateSyncInfoV1 {
+                epoch_first_block,
+                sync_hash,
+                shards,
+            }) => {
+                if epoch_first_block_key != epoch_first_block {
+                    tracing::warn!(
+                        key = %epoch_first_block_key, %epoch_first_block,
+                        "epoch_first_block field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info"
+                    );
+                }
+                StateSyncInfo::V1(StateSyncInfoV1 {
+                    epoch_first_block,
+                    sync_hash,
+                    shards: shards
+                        .into_iter()
+                        .map(|LegacyShardInfo(shard_id, _chunk_hash)| shard_id)
+                        .collect(),
+                })
+            }
+        };
         update
             .set_ser(DBCol::StateDlInfos, &key, &new_info)
             .context("failed writing to StateDlInfos")?;
