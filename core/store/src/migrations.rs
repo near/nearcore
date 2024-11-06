@@ -457,7 +457,7 @@ struct DeprecatedStoredChunkStateTransitionDataV3 {
     contract_deploys: Vec<CodeBytes>,
 }
 
-/// Migrates the database from version 41 to 42.
+/// Migrates the database from version 42 to 43.
 ///
 /// Merges versions V1-V3 of StoredChunkStateTransitionData into a single version.
 pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
