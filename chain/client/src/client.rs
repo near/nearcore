@@ -2556,7 +2556,7 @@ impl Client {
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
             // for other shards later.
-            match state_sync.run(sync_hash, status, highest_height_peers, tracking_shards)? {
+            match state_sync.run(sync_hash, status, highest_height_peers, &tracking_shards)? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
