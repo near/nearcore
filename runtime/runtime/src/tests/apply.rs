@@ -1234,9 +1234,6 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.
 #[test]
 fn test_exclude_contract_code_from_witness() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1340,9 +1337,6 @@ fn test_exclude_contract_code_from_witness() {
 // with one of the function calls fail due to exceeding the gas limit.
 #[test]
 fn test_exclude_contract_code_from_witness_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1448,9 +1442,6 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 // where different contracts are deployed to different accounts, to check if we record code-hashes of both contracts.
 #[test]
 fn test_deploy_and_call_different_contracts() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1555,9 +1546,6 @@ fn test_deploy_and_call_different_contracts() {
 // Similar to test_deploy_and_call_different_contracts, but one of the function calls fails.
 #[test]
 fn test_deploy_and_call_different_contracts_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1664,9 +1652,6 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
 #[test]
 fn test_deploy_and_call_in_apply() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1744,9 +1729,6 @@ fn test_deploy_and_call_in_apply() {
 // Similar to test_deploy_and_call_in_apply but one of the function calls fail due to exceeding gas limit.
 #[test]
 fn test_deploy_and_call_in_apply_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1827,9 +1809,6 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 // Tests that an existing contract is deployed and called from a different account.
 #[test]
 fn test_deploy_existing_contract_to_different_account() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1925,9 +1904,6 @@ fn test_deploy_existing_contract_to_different_account() {
 // Tests the case in which deploy and call are contained in the same receipt.
 #[test]
 fn test_deploy_and_call_in_same_receipt() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1975,9 +1951,6 @@ fn test_deploy_and_call_in_same_receipt() {
 // Tests the case in which deploy and call are contained in the same receipt and function call fails due to exceeding gas limit.
 #[test]
 fn test_deploy_and_call_in_same_receipt_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -2024,9 +1997,6 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 // Tests the case in which a function call is made to an account with no contract deployed.
 #[test]
 fn test_call_account_without_contract() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
 
@@ -2063,9 +2033,6 @@ fn test_call_account_without_contract() {
 /// Tests that we do not record the contract accesses when validating the chunk.
 #[test]
 fn test_contract_accesses_when_validating_chunk() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
 
