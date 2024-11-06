@@ -18,7 +18,7 @@ use near_primitives::types::{
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
-use near_primitives::utils::get_outcome_id_block_hash;
+use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
 use tracing::info;
@@ -465,33 +465,42 @@ pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
     for result in store.iter(DBCol::StateTransitionData) {
         let (key, old_value) = result?;
 
-        let (base_state, receipts_hash, contract_accesses, contract_deploys) =
-            if let Ok(DeprecatedStoredChunkStateTransitionDataV1 {
+        let (base_state, receipts_hash, contract_accesses, contract_deploys) = if let Ok(
+            DeprecatedStoredChunkStateTransitionDataV1 {
                 base_state,
                 receipts_hash,
                 contract_accesses,
-            }) = DeprecatedStoredChunkStateTransitionDataV1::try_from_slice(&old_value)
-            {
-                (base_state, receipts_hash, contract_accesses, vec![])
-            } else if let Ok(DeprecatedStoredChunkStateTransitionDataV2 {
-                base_state,
-                receipts_hash,
-                contract_accesses,
-                ..
-            }) = DeprecatedStoredChunkStateTransitionDataV2::try_from_slice(&old_value)
-            {
-                (base_state, receipts_hash, contract_accesses, vec![])
-            } else if let Ok(DeprecatedStoredChunkStateTransitionDataV3 {
-                base_state,
-                receipts_hash,
-                contract_accesses,
-                contract_deploys,
-            }) = DeprecatedStoredChunkStateTransitionDataV3::try_from_slice(&old_value)
-            {
-                (base_state, receipts_hash, contract_accesses, contract_deploys)
+            },
+        ) =
+            DeprecatedStoredChunkStateTransitionDataV1::try_from_slice(&old_value)
+        {
+            (base_state, receipts_hash, contract_accesses, vec![])
+        } else if let Ok(DeprecatedStoredChunkStateTransitionDataV2 {
+            base_state,
+            receipts_hash,
+            contract_accesses,
+            ..
+        }) = DeprecatedStoredChunkStateTransitionDataV2::try_from_slice(&old_value)
+        {
+            (base_state, receipts_hash, contract_accesses, vec![])
+        } else if let Ok(DeprecatedStoredChunkStateTransitionDataV3 {
+            base_state,
+            receipts_hash,
+            contract_accesses,
+            contract_deploys,
+        }) = DeprecatedStoredChunkStateTransitionDataV3::try_from_slice(&old_value)
+        {
+            (base_state, receipts_hash, contract_accesses, contract_deploys)
+        } else {
+            if let Ok((block_hash, shard_id)) = get_block_shard_id_rev(&key) {
+                panic!("Failed to parse StoredChunkStateTransitionData value in DB. Block: {:?}, Shard: {:?}, Value: {:?}", block_hash, shard_id, key);
             } else {
-                panic!("Failed to parse StoredChunkStateTransitionData in DB to expected formats");
-            };
+                panic!(
+                    "Failed to parse StoredChunkStateTransitionData key in DB. Invalid key: {:?}",
+                    key
+                );
+            }
+        };
 
         let new_value =
             borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
