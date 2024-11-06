@@ -4,6 +4,7 @@ pub mod congestion_control;
 pub mod congestion_control_genesis_bootstrap;
 pub mod contract_distribution_cross_shard;
 pub mod contract_distribution_simple;
+mod create_delete_account;
 pub mod epoch_sync;
 pub mod fix_min_stake_ratio;
 pub mod in_memory_tries;

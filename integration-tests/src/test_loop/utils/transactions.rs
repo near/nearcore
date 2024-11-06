@@ -6,6 +6,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
+use near_crypto::{PublicKey, Signer};
 use near_network::client::ProcessTxRequest;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -123,6 +124,79 @@ pub(crate) fn execute_money_transfers(
         }
     }
     Ok(())
+}
+
+/// Create account.
+pub fn create_account(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    originator: &AccountId,
+    new_account_id: &AccountId,
+    amount: u128,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    let signer = create_user_test_signer(&originator).into();
+    let new_signer: Signer = create_user_test_signer(&new_account_id).into();
+
+    let tx = SignedTransaction::create_account(
+        nonce,
+        originator.clone(),
+        new_account_id.clone(),
+        amount,
+        new_signer.public_key(),
+        &signer,
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
+
+    let future = rpc_node_data_sender.send_async(process_tx_request);
+    drop(future);
+
+    tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
+    tx_hash
+}
+
+/// Delete account.
+pub fn delete_account(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    account_id: &AccountId,
+    beneficiary_id: &AccountId,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    let signer = create_user_test_signer(&account_id).into();
+
+    let tx = SignedTransaction::delete_account(
+        nonce,
+        account_id.clone(),
+        account_id.clone(),
+        beneficiary_id.clone(),
+        &signer,
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
+
+    let future = rpc_node_data_sender.send_async(process_tx_request);
+    drop(future);
+
+    tracing::debug!(target: "test", ?account_id, ?beneficiary_id, ?tx_hash, "deleted account");
+    tx_hash
 }
 
 /// Deploy the test contract to the provided contract_id account. The contract

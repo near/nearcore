@@ -2534,7 +2534,7 @@ impl Chain {
         }
         let header = self.get_block_header(block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
             self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
         } else {
             // In the first epoch, it doesn't make sense to sync state to the previous epoch.
@@ -3954,7 +3954,7 @@ impl Chain {
         match snapshot_config.state_snapshot_type {
             // For every epoch, we snapshot if the next block is the state sync "sync_hash" block
             StateSnapshotType::EveryEpoch => {
-                if !ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+                if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
                     if is_epoch_boundary {
                         // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
                         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
