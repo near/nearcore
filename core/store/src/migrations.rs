@@ -366,20 +366,13 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
 
 /// Migrates the database from version 40 to 41.
 ///
-/// The migraton replaces non-enum StoredChunkStateTransitionData struct with its enum version.
+/// The migraton replaces non-enum StoredChunkStateTransitionData struct with its enum version V1.
 /// NOTE: The data written by this migration is overriden by migrate_42_to_43 to a different format.
 pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
     #[derive(BorshDeserialize)]
     pub struct DeprecatedStoredChunkStateTransitionData {
         pub base_state: PartialState,
         pub receipts_hash: CryptoHash,
-    }
-
-    #[derive(BorshSerialize, BorshDeserialize)]
-    struct DeprecatedStoredChunkStateTransitionDataV1 {
-        base_state: PartialState,
-        receipts_hash: CryptoHash,
-        contract_accesses: Vec<CodeHash>,
     }
 
     let _span =
@@ -389,11 +382,13 @@ pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
         let (key, old_value) = result?;
         let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
             DeprecatedStoredChunkStateTransitionData::try_from_slice(&old_value)?;
-        let new_value = borsh::to_vec(&DeprecatedStoredChunkStateTransitionDataV1 {
-            base_state,
-            receipts_hash,
-            contract_accesses: Default::default(),
-        })?;
+        let new_value = borsh::to_vec(&DeprecatedStoredChunkStateTransitionDataEnum::V1(
+            DeprecatedStoredChunkStateTransitionDataV1 {
+                base_state,
+                receipts_hash,
+                contract_accesses: Default::default(),
+            },
+        ))?;
         update.set(DBCol::StateTransitionData, &key, &new_value);
     }
     update.commit()?;
@@ -431,74 +426,79 @@ pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
+enum DeprecatedStoredChunkStateTransitionDataEnum {
+    V1(DeprecatedStoredChunkStateTransitionDataV1),
+    V2(DeprecatedStoredChunkStateTransitionDataV2),
+    V3(DeprecatedStoredChunkStateTransitionDataV3),
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct DeprecatedStoredChunkStateTransitionDataV1 {
+    base_state: PartialState,
+    receipts_hash: CryptoHash,
+    contract_accesses: Vec<CodeHash>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct DeprecatedStoredChunkStateTransitionDataV2 {
+    base_state: PartialState,
+    receipts_hash: CryptoHash,
+    contract_accesses: Vec<CodeHash>,
+    // This field is ignored since it only contains code hashes.
+    _contract_deploys: Vec<CodeHash>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct DeprecatedStoredChunkStateTransitionDataV3 {
+    base_state: PartialState,
+    receipts_hash: CryptoHash,
+    contract_accesses: Vec<CodeHash>,
+    contract_deploys: Vec<CodeBytes>,
+}
+
 /// Migrates the database from version 41 to 42.
 ///
 /// Merges versions V1-V3 of StoredChunkStateTransitionData into a single version.
 pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
-    #[derive(BorshDeserialize)]
-    struct DeprecatedStoredChunkStateTransitionDataV1 {
-        base_state: PartialState,
-        receipts_hash: CryptoHash,
-        contract_accesses: Vec<CodeHash>,
-    }
-
-    #[derive(BorshDeserialize)]
-    struct DeprecatedStoredChunkStateTransitionDataV2 {
-        base_state: PartialState,
-        receipts_hash: CryptoHash,
-        contract_accesses: Vec<CodeHash>,
-        // This field is ignored since it only contains code hashes.
-        _contract_deploys: Vec<CodeHash>,
-    }
-
-    #[derive(BorshDeserialize)]
-    struct DeprecatedStoredChunkStateTransitionDataV3 {
-        base_state: PartialState,
-        receipts_hash: CryptoHash,
-        contract_accesses: Vec<CodeHash>,
-        contract_deploys: Vec<CodeBytes>,
-    }
-
     let _span =
         tracing::info_span!(target: "migrations", "Merging versions V1-V3 of StoredChunkStateTransitionData into single version").entered();
     let mut update = store.store_update();
     for result in store.iter(DBCol::StateTransitionData) {
         let (key, old_value) = result?;
 
-        let (base_state, receipts_hash, contract_accesses, contract_deploys) = if let Ok(
-            DeprecatedStoredChunkStateTransitionDataV1 {
-                base_state,
-                receipts_hash,
-                contract_accesses,
-            },
-        ) =
-            DeprecatedStoredChunkStateTransitionDataV1::try_from_slice(&old_value)
-        {
-            (base_state, receipts_hash, contract_accesses, vec![])
-        } else if let Ok(DeprecatedStoredChunkStateTransitionDataV2 {
-            base_state,
-            receipts_hash,
-            contract_accesses,
-            ..
-        }) = DeprecatedStoredChunkStateTransitionDataV2::try_from_slice(&old_value)
-        {
-            (base_state, receipts_hash, contract_accesses, vec![])
-        } else if let Ok(DeprecatedStoredChunkStateTransitionDataV3 {
-            base_state,
-            receipts_hash,
-            contract_accesses,
-            contract_deploys,
-        }) = DeprecatedStoredChunkStateTransitionDataV3::try_from_slice(&old_value)
-        {
-            (base_state, receipts_hash, contract_accesses, contract_deploys)
-        } else {
+        let old_data =DeprecatedStoredChunkStateTransitionDataEnum::try_from_slice(&old_value).unwrap_or_else(|err| {
             if let Ok((block_hash, shard_id)) = get_block_shard_id_rev(&key) {
-                panic!("Failed to parse StoredChunkStateTransitionData value in DB. Block: {:?}, Shard: {:?}, Value: {:?}", block_hash, shard_id, old_value);
+                panic!("Failed to parse StoredChunkStateTransitionData value in DB. Block: {:?}, Shard: {:?}, Error: {:?}", block_hash, shard_id, err);
             } else {
-                panic!("Failed to parse StoredChunkStateTransitionData key in DB. Key: {:?}", key);
+                panic!("Failed to parse StoredChunkStateTransitionData key in DB. Key: {:?}, Error: {:?}", key, err);
             }
+        });
+        let (base_state, receipts_hash, contract_accesses, contract_deploys) = match old_data {
+            DeprecatedStoredChunkStateTransitionDataEnum::V1(
+                DeprecatedStoredChunkStateTransitionDataV1 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                },
+            )
+            | DeprecatedStoredChunkStateTransitionDataEnum::V2(
+                DeprecatedStoredChunkStateTransitionDataV2 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    ..
+                },
+            ) => (base_state, receipts_hash, contract_accesses, vec![]),
+            DeprecatedStoredChunkStateTransitionDataEnum::V3(
+                DeprecatedStoredChunkStateTransitionDataV3 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    contract_deploys,
+                },
+            ) => (base_state, receipts_hash, contract_accesses, contract_deploys),
         };
-
         let new_value =
             borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                 base_state,

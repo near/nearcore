@@ -335,6 +335,11 @@ impl EntityDebugHandlerImpl {
                         PartialStateParser::parse_and_serialize_partial_state(base_state),
                     );
                     serialized.add("receipts_hash", serialize_entity(&receipts_hash));
+                    serialized.add("contract_accesses", serialize_entity(&contract_accesses));
+                    // Add the hash of the deployed contract code instead of the actual code.
+                    let contract_deploy_hashes =
+                        contract_deploys.into_iter().map(|code| code.hash()).collect::<Vec<_>>();
+                    serialized.add("contract_deploys", serialize_entity(&contract_deploy_hashes));
                     state_transitions
                         .add(&shard_id.to_string(), EntityDataValue::Struct(serialized.into()));
                 }

@@ -15,9 +15,7 @@ pub enum StoredChunkStateTransitionData {
 impl StoredChunkStateTransitionData {
     pub fn contract_accesses(&self) -> &[CodeHash] {
         match &self {
-            Self::V1(_) => &[],
-            Self::V2(v2) => &v2.contract_accesses,
-            Self::V3(v3) => &v3.contract_accesses,
+            Self::V1(v1) => &v1.contract_accesses,
         }
     }
 }
