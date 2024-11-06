@@ -40,6 +40,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
@@ -1374,11 +1375,13 @@ async fn handle_unknown_block(
     };
 
     if let Some(block_hash) = block_id.as_str() {
+        let Ok(block_hash) = CryptoHash::from_str(block_hash) else {
+            return HttpResponse::Ok();
+        };
+
         if let Ok(block) = handler
             .block(RpcBlockRequest {
-                block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::hash_bytes(
-                    block_hash.as_bytes(),
-                ))),
+                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
             })
             .await
         {
