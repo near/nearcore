@@ -493,12 +493,9 @@ pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
             (base_state, receipts_hash, contract_accesses, contract_deploys)
         } else {
             if let Ok((block_hash, shard_id)) = get_block_shard_id_rev(&key) {
-                panic!("Failed to parse StoredChunkStateTransitionData value in DB. Block: {:?}, Shard: {:?}, Value: {:?}", block_hash, shard_id, key);
+                panic!("Failed to parse StoredChunkStateTransitionData value in DB. Block: {:?}, Shard: {:?}, Value: {:?}", block_hash, shard_id, old_value);
             } else {
-                panic!(
-                    "Failed to parse StoredChunkStateTransitionData key in DB. Invalid key: {:?}",
-                    key
-                );
+                panic!("Failed to parse StoredChunkStateTransitionData key in DB. Key: {:?}", key);
             }
         };
 
