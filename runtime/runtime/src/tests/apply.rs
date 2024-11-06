@@ -12,6 +12,7 @@ use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, Signe
 use near_primitives::action::Action;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::challenge::PartialState;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
@@ -1110,9 +1111,9 @@ fn test_compute_usage_limit_with_failed_receipt() {
     });
 }
 
-// TODO(#11099): Add separate test for storage proof limit without contract calls.
+#[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-fn test_main_storage_proof_size_soft_limit_for_contracts() {
+fn test_main_storage_proof_size_soft_limit() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1120,20 +1121,15 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         10u64.pow(15),
     );
 
-    // Change main_storage_proof_size_soft_limit to a smaller value
-    // The value of 500 is small enough to let the first receipt go through but not the second
-    // if the contract code is included in the storage proof. Otherwise, both receipts will go
-    // through since the contract code does not contribute to the storage proof.
-    let mut runtime_config = RuntimeConfig::test();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
-    apply_state.config = Arc::new(runtime_config);
+    apply_state.config = Arc::new(RuntimeConfig::free());
 
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
             signer,
             vec![Action::DeployContract(DeployContractAction {
-                code: near_test_contracts::sized_contract(5000).to_vec(),
+                code: contract_code.code().to_vec(),
             })],
         )
     };
@@ -1153,18 +1149,26 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         )
         .unwrap();
 
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
+
+    // Change main_storage_proof_size_soft_limit to the storage size in order to let
+    // the first receipt go through but not the second one.
+    let mut runtime_config = RuntimeConfig::free();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = 300;
+    apply_state.config = Arc::new(runtime_config);
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
             signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
                 gas: 1,
                 deposit: 0,
             }))],
@@ -1187,48 +1191,22 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         )
         .unwrap();
 
-    if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        // We expect that both receipts are included since the contract code is not included in the storage proof.
-        assert_eq!(apply_result.delayed_receipts_count, 0);
+    // We expect function_call_fn(bob_account()) to be in delayed receipts
+    assert_eq!(apply_result.delayed_receipts_count, 1);
 
-        // Check that both contracts are excluded from the storage proof.
-        let partial_storage = apply_result.proof.unwrap();
-        let storage = Trie::from_recorded_storage(partial_storage, root, false);
-        let code_key = TrieKey::ContractCode { account_id: alice_account() };
-        assert_matches!(
-            storage.get(&code_key.to_vec()),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
-        );
-        let code_key = TrieKey::ContractCode { account_id: bob_account() };
-        assert_matches!(
-            storage.get(&code_key.to_vec()),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
-        );
-    } else {
-        // We expect function_call_fn(bob_account()) to be in delayed receipts
-        assert_eq!(apply_result.delayed_receipts_count, 1);
-
-        // Check that alice contract is present in storage proof and bob
-        // contract is not.
-        let partial_storage = apply_result.proof.unwrap();
-        let storage = Trie::from_recorded_storage(partial_storage, root, false);
-        let code_key = TrieKey::ContractCode { account_id: alice_account() };
-        assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
-        let code_key = TrieKey::ContractCode { account_id: bob_account() };
-        assert_matches!(
-            storage.get(&code_key.to_vec()),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
-        );
-    }
+    // Since contracts are excluded from the partial state, we will get missing trie error below.
+    let partial_storage = apply_result.proof.unwrap();
+    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
+    let code_key = TrieKey::ContractCode { account_id: bob_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
 }
 
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.
@@ -1320,6 +1298,104 @@ fn test_exclude_contract_code_from_witness() {
 
     // Check that both contracts are excluded from the storage proof.
     let partial_storage = apply_result.proof.unwrap();
+    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
+    let code_key = TrieKey::ContractCode { account_id: bob_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
+}
+
+// Tests excluding contract code from state witness and recording of contract deployments and function calls
+// with storage proof size soft limit is set (but does not exceed since contracts are excluded from storage proof).
+#[test]
+fn test_exclude_contract_code_from_witness_with_storage_proof_size_soft_limit() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+
+    // Set the storage proof soft-limit to the size of the contract. Since contract code is not included in the storage proof,
+    // both function calls below pass the proof soft-limit.
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
+    apply_state.config = Arc::new(runtime_config);
+
+    let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
+        create_receipt_with_actions(
+            account_id,
+            signer,
+            vec![Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::sized_contract(5000).to_vec(),
+            })],
+        )
+    };
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[
+                create_acc_fn(alice_account(), signers[0].clone()),
+                create_acc_fn(bob_account(), signers[1].clone()),
+            ],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
+        create_receipt_with_actions(
+            account_id,
+            signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: Vec::new(),
+                gas: 1,
+                deposit: 0,
+            }))],
+        )
+    };
+
+    // The function call to bob_account should hit the main_storage_proof_size_soft_limit
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            &None,
+            &apply_state,
+            &[
+                function_call_fn(alice_account(), signers[0].clone()),
+                function_call_fn(bob_account(), signers[1].clone()),
+            ],
+            &[],
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // We expect that both receipts are included since the contract code is not included in the storage proof.
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+
+    // Check that both contracts are excluded from the storage proof.
+    let partial_storage = apply_result.proof.unwrap();
+    let PartialState::TrieValues(storage_proof) = partial_storage.nodes.clone();
+    let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
+    assert!(total_size < 5000);
+
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
