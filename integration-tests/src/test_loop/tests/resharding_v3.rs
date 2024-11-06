@@ -138,7 +138,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(base_shard_layout.clone())
+        .shard_layout(base_shard_layout)
         .protocol_version(base_protocol_version)
         .epoch_length(epoch_length)
         .validators_desired_roles(&block_and_chunk_producers, &[]);
