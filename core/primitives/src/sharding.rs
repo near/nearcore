@@ -1,10 +1,8 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
-use crate::block::Block;
 use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
-use crate::shard_layout::{ShardLayout, ShardLayoutError};
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -60,21 +58,6 @@ impl From<CryptoHash> for ChunkHash {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ShardInfo(pub ShardId, pub ChunkHash);
-
-impl ShardInfo {
-    fn new(
-        prev_block: &Block,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-    ) -> Result<Self, ShardLayoutError> {
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk = &prev_block.chunks()[shard_index];
-        Ok(Self(shard_id, chunk.chunk_hash()))
-    }
-}
-
 /// This version of the type is used in the old state sync, where we sync to the state right before the new epoch
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfoV0 {
@@ -83,7 +66,7 @@ pub struct StateSyncInfoV0 {
     /// by this hash in the database, but it's a small amount of data that makes the info in this type more complete.
     pub sync_hash: CryptoHash,
     /// Shards to fetch state
-    pub shards: Vec<ShardInfo>,
+    pub shards: Vec<ShardId>,
 }
 
 /// This version of the type is used when syncing to the current epoch's state, and `sync_hash` is an
@@ -101,7 +84,7 @@ pub struct StateSyncInfoV1 {
     /// is first set to None until we find the right "sync_hash".
     pub sync_hash: Option<CryptoHash>,
     /// Shards to fetch state
-    pub shards: Vec<ShardInfo>,
+    pub shards: Vec<ShardId>,
 }
 
 /// Contains the information that is used to sync state for shards as epochs switch
@@ -117,46 +100,24 @@ pub enum StateSyncInfo {
     V1(StateSyncInfoV1),
 }
 
-fn shard_infos(
-    prev_block: &Block,
-    shard_layout: &ShardLayout,
-    shards: &[ShardId],
-) -> Result<Vec<ShardInfo>, ShardLayoutError> {
-    shards.iter().map(|shard_id| ShardInfo::new(prev_block, shard_layout, *shard_id)).collect()
-}
-
 impl StateSyncInfo {
-    pub fn new_previous_epoch(
-        epoch_first_block: CryptoHash,
-        prev_block: &Block,
-        shard_layout: &ShardLayout,
-        shards: &[ShardId],
-    ) -> Result<Self, ShardLayoutError> {
-        let shards = shard_infos(prev_block, shard_layout, shards)?;
-        Ok(Self::V0(StateSyncInfoV0 { sync_hash: epoch_first_block, shards }))
+    fn new_previous_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
+        Self::V0(StateSyncInfoV0 { sync_hash: epoch_first_block, shards })
     }
 
-    fn new_current_epoch(
-        epoch_first_block: CryptoHash,
-        prev_block: &Block,
-        shard_layout: &ShardLayout,
-        shards: &[ShardId],
-    ) -> Result<Self, ShardLayoutError> {
-        let shards = shard_infos(prev_block, shard_layout, shards)?;
-        Ok(Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards }))
+    fn new_current_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
+        Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards })
     }
 
     pub fn new(
         protocol_version: ProtocolVersion,
         epoch_first_block: CryptoHash,
-        prev_block: &Block,
-        shard_layout: &ShardLayout,
-        shards: &[ShardId],
-    ) -> Result<Self, ShardLayoutError> {
+        shards: Vec<ShardId>,
+    ) -> Self {
         if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            Self::new_current_epoch(epoch_first_block, prev_block, shard_layout, shards)
+            Self::new_current_epoch(epoch_first_block, shards)
         } else {
-            Self::new_previous_epoch(epoch_first_block, prev_block, shard_layout, shards)
+            Self::new_previous_epoch(epoch_first_block, shards)
         }
     }
 
@@ -168,7 +129,7 @@ impl StateSyncInfo {
         }
     }
 
-    pub fn shards(&self) -> &[ShardInfo] {
+    pub fn shards(&self) -> &[ShardId] {
         match self {
             Self::V0(info) => &info.shards,
             Self::V1(info) => &info.shards,

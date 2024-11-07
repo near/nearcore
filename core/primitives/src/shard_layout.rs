@@ -612,11 +612,11 @@ impl ShardLayout {
 
     /// Derive new shard layout from an existing one
     pub fn derive_shard_layout(
-        base_layout: &ShardLayout,
+        base_shard_layout: &ShardLayout,
         new_boundary_account: AccountId,
     ) -> ShardLayout {
-        let mut boundary_accounts = base_layout.boundary_accounts().clone();
-        let mut shard_ids = base_layout.shard_ids().collect::<Vec<_>>();
+        let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
+        let mut shard_ids = base_shard_layout.shard_ids().collect::<Vec<_>>();
         let mut shards_split_map = shard_ids
             .iter()
             .map(|id| (*id, vec![*id]))

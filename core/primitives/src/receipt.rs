@@ -210,10 +210,6 @@ impl BorshDeserialize for Receipt {
     /// Deserialize based on the first and second bytes of the stream. For V0, we do backward compatible deserialization by deserializing
     /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let u1 = u8::deserialize_reader(reader)?;
-        let u2 = u8::deserialize_reader(reader)?;
-        let u3 = u8::deserialize_reader(reader)?;
-        let u4 = u8::deserialize_reader(reader)?;
         // This is a ridiculous hackery: because the first field in `ReceiptV0` is an `AccountId`
         // and an account id is at most 64 bytes, for all valid `ReceiptV0` the second byte must be 0
         // because of the little endian encoding of the length of the account id.
@@ -221,44 +217,19 @@ impl BorshDeserialize for Receipt {
         // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
         // by looking at the second byte.
 
-        let read_predecessor_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
-            let str_len = u32::from_le_bytes(buf);
-            let mut str_vec = Vec::with_capacity(str_len as usize);
-            for _ in 0..str_len {
-                str_vec.push(u8::deserialize_reader(reader)?);
-            }
-            AccountId::try_from(String::from_utf8(str_vec).map_err(|_| {
-                Error::new(ErrorKind::InvalidData, "Failed to parse AccountId from bytes")
-            })?)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))
-        };
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+        let is_v0 = u2 == 0;
 
-        if u2 == 0 {
-            let signer_id = read_predecessor_id([u1, u2, u3, u4], reader)?;
-            let receiver_id = AccountId::deserialize_reader(reader)?;
-            let receipt_id = CryptoHash::deserialize_reader(reader)?;
-            let receipt = ReceiptEnum::deserialize_reader(reader)?;
-            Ok(Receipt::V0(ReceiptV0 {
-                predecessor_id: signer_id,
-                receiver_id,
-                receipt_id,
-                receipt,
-            }))
+        let prefix = if is_v0 { vec![u1, u2] } else { vec![u2] };
+        let mut reader = prefix.chain(reader);
+
+        let receipt = if is_v0 {
+            Receipt::V0(ReceiptV0::deserialize_reader(&mut reader)?)
         } else {
-            let u5 = u8::deserialize_reader(reader)?;
-            let signer_id = read_predecessor_id([u2, u3, u4, u5], reader)?;
-            let receiver_id = AccountId::deserialize_reader(reader)?;
-            let receipt_id = CryptoHash::deserialize_reader(reader)?;
-            let receipt = ReceiptEnum::deserialize_reader(reader)?;
-            let priority = u64::deserialize_reader(reader)?;
-            Ok(Receipt::V1(ReceiptV1 {
-                predecessor_id: signer_id,
-                receiver_id,
-                receipt_id,
-                receipt,
-                priority,
-            }))
-        }
+            Receipt::V1(ReceiptV1::deserialize_reader(&mut reader)?)
+        };
+        Ok(receipt)
     }
 }
 

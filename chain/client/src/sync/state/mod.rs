@@ -210,7 +210,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
-        tracking_shards: Vec<ShardId>,
+        tracking_shards: &[ShardId],
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
@@ -221,7 +221,7 @@ impl StateSync {
         );
 
         let mut all_done = true;
-        for shard_id in &tracking_shards {
+        for shard_id in tracking_shards {
             let key = (sync_hash, *shard_id);
             let status = match self.shard_syncs.entry(key) {
                 Entry::Occupied(mut entry) => match entry.get_mut().result.try_recv() {
