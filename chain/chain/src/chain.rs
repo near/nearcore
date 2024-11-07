@@ -3312,6 +3312,13 @@ impl Chain {
                 shard_id,
                 true,
             ) {
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                self.resharding_manager.start_resharding(
+                    self.chain_store.store_update(),
+                    &block,
+                    shard_uid,
+                    self.runtime_adapter.get_tries(),
+                )?;
                 self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
