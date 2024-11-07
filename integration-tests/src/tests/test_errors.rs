@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::node::{Node, ThreadNode};
+use crate::user::CommitError;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
@@ -55,11 +56,13 @@ fn test_check_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
         tx_result,
-        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
-            account_id: bob_account(),
-            public_key: Box::new(signer.public_key()),
-        })
-        .rpc_into()
+        CommitError::Server(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: bob_account(),
+                public_key: Box::new(signer.public_key()),
+            })
+            .rpc_into()
+        )
     );
 }
 
@@ -96,11 +99,13 @@ fn test_deliver_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
         tx_result,
-        InvalidTxError::NotEnoughBalance {
-            signer_id: alice_account(),
-            balance: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-            cost: TESTING_INIT_BALANCE + 1 + cost
-        }
-        .rpc_into()
+        CommitError::Server(
+            InvalidTxError::NotEnoughBalance {
+                signer_id: alice_account(),
+                balance: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
+                cost: TESTING_INIT_BALANCE + 1 + cost
+            }
+            .rpc_into()
+        )
     );
 }

@@ -215,43 +215,48 @@ impl RuntimeUser {
     }
 
     // TODO(#10942) get rid of copy pasted code, it's outdated comparing to the original
-    fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+    fn get_final_transaction_result(&self, hash: &CryptoHash) -> Option<FinalExecutionOutcomeView> {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = *hash;
         let num_outcomes = outcomes.len();
-        let status = outcomes
-            .iter()
-            .find_map(|outcome_with_id| {
-                if outcome_with_id.id == looking_for_id {
-                    match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                            Some(FinalExecutionStatus::NotStarted)
-                        }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure(e) => {
-                            Some(FinalExecutionStatus::Failure(e.clone()))
-                        }
-                        ExecutionStatusView::SuccessValue(v) => {
-                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                        }
-                        ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = *id;
-                            None
-                        }
+        let status = outcomes.iter().find_map(|outcome_with_id| {
+            if outcome_with_id.id == looking_for_id {
+                match &outcome_with_id.outcome.status {
+                    ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                        Some(FinalExecutionStatus::NotStarted)
                     }
-                } else {
-                    None
+                    ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
+                    ExecutionStatusView::Failure(e) => {
+                        Some(FinalExecutionStatus::Failure(e.clone()))
+                    }
+                    ExecutionStatusView::SuccessValue(v) => {
+                        Some(FinalExecutionStatus::SuccessValue(v.clone()))
+                    }
+                    ExecutionStatusView::SuccessReceiptId(id) => {
+                        looking_for_id = *id;
+                        None
+                    }
                 }
-            })
-            .expect("results should resolve to a final outcome");
+            } else {
+                None
+            }
+        });
+        let status = if cfg!(feature = "protocol_feature_relaxed_chunk_validation") {
+            // If we don't find the transaction at all, it must have been ignored due to having
+            // been an invalid transaction (but due to relaxed validation we do not invalidate the
+            // entire chunk.)
+            status?
+        } else {
+            status.expect("results should resolve to a final outcome")
+        };
         let receipts = outcomes.split_off(1);
         let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
-        FinalExecutionOutcomeView {
+        Some(FinalExecutionOutcomeView {
             status,
             transaction,
             transaction_outcome: outcomes.pop().unwrap(),
             receipts_outcome: receipts,
-        }
+        })
     }
 }
 
@@ -307,7 +312,7 @@ impl User for RuntimeUser {
             block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
-            shard_id: shard_id,
+            shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,
@@ -337,9 +342,11 @@ impl User for RuntimeUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)?;
-        Ok(self.get_transaction_final_result(&transaction.get_hash()))
+    ) -> Result<FinalExecutionOutcomeView, super::CommitError> {
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)
+            .map_err(super::CommitError::Server)?;
+        self.get_transaction_final_result(&transaction.get_hash())
+            .ok_or(super::CommitError::OutcomeNotFound)
     }
 
     fn add_receipts(
@@ -376,7 +383,7 @@ impl User for RuntimeUser {
         self.transaction_results.borrow().get(hash).cloned()
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> Option<FinalExecutionOutcomeView> {
         self.get_final_transaction_result(hash)
     }
 
