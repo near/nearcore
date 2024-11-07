@@ -71,7 +71,6 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
         // We should fix it by setting the sync hash when it's finalized, which requires making changes to how we take state snapshots.
         store_update.set_ser(DBCol::StateSyncHashes, header.epoch_id().as_ref(), header.hash())?;
         store_update.delete_all(DBCol::StateSyncNewChunks);
-        // TODO: remove old ones
         return Ok(());
     }
 
