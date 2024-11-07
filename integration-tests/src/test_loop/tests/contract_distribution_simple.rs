@@ -10,7 +10,7 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
-    run_until_cache_contains_contract,
+    run_until_caches_contain_contract,
 };
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, deploy_contract, make_account, make_accounts,
@@ -40,11 +40,8 @@ fn test_contract_distribution_single_account(clear_cache: bool) {
 
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, &contract, 1);
 
-    // Wait for node 0 to contains the compiled contract in its cache before calling the contract.
-    // This will make sure the deploy action took effect in the network.
-    run_until_cache_contains_contract(&mut test_loop, &node_datas, contract.hash(), 0);
-
     if clear_cache {
+        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
@@ -89,11 +86,8 @@ fn test_contract_distribution_different_accounts(clear_cache: bool) {
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account0, &contract, 1);
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account1, &contract, 2);
 
-    // Wait for node 0 to contains the compiled contract in its cache before calling the contract.
-    // This will make sure the deploy action took effect in the network.
-    run_until_cache_contains_contract(&mut test_loop, &node_datas, contract.hash(), 0);
-
     if clear_cache {
+        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 

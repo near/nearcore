@@ -8,23 +8,28 @@ use near_chain::ChainStoreAccess;
 use near_primitives::{hash::CryptoHash, version::PROTOCOL_VERSION};
 use near_vm_runner::get_contract_cache_key;
 
-/// Runs the network until the compiled-contracts cache contains the given hash, by querying node `node_index`.
-pub(crate) fn run_until_cache_contains_contract(
+/// Runs the network until all the nodes contain the given code hash in their compiled-contracts cache.
+/// This is used, for example, to make sure that a deploy action took effect in the network and code was distributed to all nodes.
+pub(crate) fn run_until_caches_contain_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &Vec<TestData>,
     code_hash: &CryptoHash,
-    node_index: usize,
 ) {
-    let client_handle = node_datas[node_index].client_sender.actor_handle();
     test_loop.run_until(
         |test_loop_data: &mut TestLoopData| -> bool {
-            let client = &test_loop_data.get(&client_handle).client;
-            let runtime_config =
-                client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION).unwrap();
-            let cache_key = get_contract_cache_key(*code_hash, &runtime_config.wasm_config);
+            for i in 0..node_datas.len() {
+                let client_handle = node_datas[i].client_sender.actor_handle();
+                let client = &test_loop_data.get(&client_handle).client;
+                let runtime_config =
+                    client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION).unwrap();
+                let cache_key = get_contract_cache_key(*code_hash, &runtime_config.wasm_config);
 
-            let contract_cache = client.runtime_adapter.compiled_contract_cache();
-            contract_cache.has(&cache_key).unwrap()
+                let contract_cache = client.runtime_adapter.compiled_contract_cache();
+                if !contract_cache.has(&cache_key).unwrap() {
+                    return false;
+                }
+            }
+            true
         },
         Duration::seconds(10),
     );

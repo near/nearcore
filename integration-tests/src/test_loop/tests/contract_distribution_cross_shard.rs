@@ -10,7 +10,7 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
-    run_until_cache_contains_contract,
+    run_until_caches_contain_contract,
 };
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, deploy_contract, make_accounts,
@@ -57,10 +57,8 @@ fn test_contract_distribution_cross_shard() {
     let contracts =
         deploy_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &mut nonce);
 
-    // Wait for RPC node to contains the compiled contracts in its cache before calling the contracts.
-    // This will make sure the deploy actions took effect in the network.
     for contract in contracts.into_iter() {
-        run_until_cache_contains_contract(&mut test_loop, &node_datas, contract.hash(), rpc_index);
+        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
     }
 
     call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
