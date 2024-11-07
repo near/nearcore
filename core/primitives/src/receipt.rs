@@ -223,23 +223,12 @@ impl BorshDeserialize for Receipt {
         let prefix = if u2 == 0 { vec![u1, u2] } else { vec![u2] };
         let mut reader = prefix.chain(reader);
 
-        let predecessor_id = AccountId::deserialize_reader(&mut reader)?;
-        let receiver_id = AccountId::deserialize_reader(&mut reader)?;
-        let receipt_id = CryptoHash::deserialize_reader(&mut reader)?;
-        let receipt = ReceiptEnum::deserialize_reader(&mut reader)?;
-
-        if u2 == 0 {
-            Ok(Receipt::V0(ReceiptV0 { predecessor_id, receiver_id, receipt_id, receipt }))
+        let receipt = if u2 == 0 {
+            Receipt::V0(ReceiptV0::deserialize_reader(&mut reader)?)
         } else {
-            let priority = u64::deserialize_reader(&mut reader)?;
-            Ok(Receipt::V1(ReceiptV1 {
-                predecessor_id,
-                receiver_id,
-                receipt_id,
-                receipt,
-                priority,
-            }))
-        }
+            Receipt::V1(ReceiptV1::deserialize_reader(&mut reader)?)
+        };
+        Ok(receipt)
     }
 }
 
