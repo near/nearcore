@@ -59,7 +59,6 @@ use near_store::{
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use num_rational::Ratio;
-use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -1150,19 +1149,6 @@ impl EpochManagerAdapter for MockEpochManager {
         _epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
-    }
-
-    fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = self.get_chunk_producers(valset, shard_index);
-        let index = rand::thread_rng().gen_range(0..chunk_producers.len());
-        Ok(chunk_producers[index].account_id().clone())
     }
 }
 
