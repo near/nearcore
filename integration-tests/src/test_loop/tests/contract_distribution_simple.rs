@@ -26,7 +26,7 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 const NUM_ACCOUNTS: usize = NUM_VALIDATORS;
 
 /// Executes a test that deploys to a contract to an account and calls it.
-fn test_contract_distribution_single_account(clear_cache: bool) {
+fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
@@ -40,8 +40,11 @@ fn test_contract_distribution_single_account(clear_cache: bool) {
 
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, &contract, 1);
 
-    if clear_cache {
+    if wait_cache_populate {
         run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+    }
+
+    if clear_cache {
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
@@ -58,19 +61,26 @@ fn test_contract_distribution_single_account(clear_cache: bool) {
 /// Tests a simple scenario where we deploy and call a contract.
 #[test]
 fn test_contract_distribution_deploy_and_call_single_account() {
-    test_contract_distribution_single_account(false);
+    test_contract_distribution_single_account(false, false);
 }
 
-/// Tests a simple scenario where we deploy a contract, and then
-/// we clear the compiled contract cache and call the deployed contract call.
+/// Tests a simple scenario where we deploy and call a contract.
+/// Waits for deploy action to take effect in contract cache before issuing the call actions.
+#[test]
+fn test_contract_distribution_wait_cache_populate_single_account() {
+    test_contract_distribution_single_account(true, false);
+}
+
+/// Tests a simple scenario where we deploy a contract, and then we wait for cache to fill and
+/// then clear the compiled contract cache and finally call the deployed contract call.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
 fn test_contract_distribution_call_after_clear_single_account() {
-    test_contract_distribution_single_account(true);
+    test_contract_distribution_single_account(true, true);
 }
 
 /// Executes a test that deploys to a contract to two different accounts and calls them.
-fn test_contract_distribution_different_accounts(clear_cache: bool) {
+fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
@@ -86,8 +96,11 @@ fn test_contract_distribution_different_accounts(clear_cache: bool) {
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account0, &contract, 1);
     do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account1, &contract, 2);
 
-    if clear_cache {
+    if wait_cache_populate {
         run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+    }
+
+    if clear_cache {
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
@@ -104,15 +117,22 @@ fn test_contract_distribution_different_accounts(clear_cache: bool) {
 /// Tests a simple scenario where we deploy and call a contract on two different accounts.
 #[test]
 fn test_contract_distribution_deploy_and_call_different_accounts() {
-    test_contract_distribution_different_accounts(false);
+    test_contract_distribution_different_accounts(false, false);
 }
 
-/// Tests a simple scenario where we deploy a contract on two different accounts, and then
-/// we clear the compiled contract cache and call the contracts on the accounts.
+/// Tests a simple scenario where we deploy and call a contract on two different accounts.
+/// Waits for deploy action to take effect in contract cache before issuing the call actions.
+#[test]
+fn test_contract_distribution_wait_cache_populate_different_accounts() {
+    test_contract_distribution_different_accounts(false, false);
+}
+
+/// Tests a simple scenario where we deploy a contract on two different accounts, and then we wait for cache to fill and
+/// then clear the compiled contract cache and finally call the deployed contract on the two accounts.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
 fn test_contract_distribution_call_after_clear_different_accounts() {
-    test_contract_distribution_different_accounts(true);
+    test_contract_distribution_different_accounts(true, true);
 }
 
 fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
