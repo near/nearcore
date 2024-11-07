@@ -2,6 +2,7 @@ pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock, ValueAccessToken};
 use crate::contract::ContractStorage;
+use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
 use near_primitives::apply::ApplyChunkReason;
@@ -14,6 +15,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_vm_runner::logic::ProtocolVersion;
+use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -137,6 +139,19 @@ impl TrieUpdate {
         }
 
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
+    }
+
+    pub fn get_code(
+        &self,
+        account_id: &AccountId,
+        code_hash: Option<CryptoHash>,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let key = TrieKey::ContractCode { account_id: account_id.clone() };
+        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+    }
+
+    pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
+        self.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
@@ -330,7 +345,7 @@ impl Drop for TrieCacheModeGuard {
 mod tests {
     use super::*;
     use crate::test_utils::TestTriesBuilder;
-    use crate::{ShardUId, TrieAccess as _};
+    use crate::ShardUId;
     use near_primitives::hash::CryptoHash;
     const SHARD_VERSION: u32 = 1;
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };

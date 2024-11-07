@@ -36,7 +36,7 @@ use near_primitives::receipt::{
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
+use near_vm_runner::{CompiledContractInfo, ContractRuntimeCache};
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
@@ -1025,10 +1025,6 @@ pub fn get_access_key_raw(
     )
 }
 
-pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
@@ -1171,18 +1167,6 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
-}
-
-/// Get the contract WASM code from The State.
-///
-/// Executing all the usual storage access side-effects.
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 #[cfg(test)]

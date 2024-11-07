@@ -25,7 +25,7 @@ use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
+    get_account, get_genesis_state_roots, set_access_key, set_account, Store, TrieUpdate,
 };
 use near_time::Utc;
 use near_vm_runner::logic::ProtocolVersion;
@@ -354,7 +354,7 @@ impl GenesisBuilder {
         records.push(access_key_record);
         if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
             let code = ContractCode::new(wasm_binary.clone(), None);
-            set_code(&mut state_update, account_id.clone(), &code);
+            state_update.set_code(account_id.clone(), &code);
             let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
             records.push(contract_record);
         }
