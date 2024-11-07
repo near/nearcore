@@ -1111,7 +1111,6 @@ fn test_compute_usage_limit_with_failed_receipt() {
     });
 }
 
-#[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
 fn test_main_storage_proof_size_soft_limit() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -1219,9 +1218,16 @@ fn test_exclude_contract_code_from_witness() {
         10u64.pow(15),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    const CONTRACT_SIZE: usize = 5000;
 
-    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    // Set the storage proof soft-limit to the size of the contract.
+    // Since contract code is not included in the storage proof, both function calls below pass the proof soft-limit.
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE;
+    apply_state.config = Arc::new(runtime_config);
+
+    let contract_code =
+        ContractCode::new(near_test_contracts::sized_contract(CONTRACT_SIZE).to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
@@ -1265,104 +1271,6 @@ fn test_exclude_contract_code_from_witness() {
             account_id,
             signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
-                gas: 1,
-                deposit: 0,
-            }))],
-        )
-    };
-
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
-            &None,
-            &apply_state,
-            &[
-                function_call_fn(alice_account(), signers[0].clone()),
-                function_call_fn(bob_account(), signers[1].clone()),
-            ],
-            &[],
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .unwrap();
-
-    assert_eq!(apply_result.delayed_receipts_count, 0);
-    // Since both accounts call the same contract, we expect only one contract access.
-    assert_eq!(
-        apply_result.contract_updates.contract_accesses,
-        HashSet::from([CodeHash(*contract_code.hash())])
-    );
-    assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
-
-    // Check that both contracts are excluded from the storage proof.
-    let partial_storage = apply_result.proof.unwrap();
-    let storage = Trie::from_recorded_storage(partial_storage, root, false);
-    let code_key = TrieKey::ContractCode { account_id: alice_account() };
-    assert_matches!(
-        storage.get(&code_key.to_vec()),
-        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
-    );
-    let code_key = TrieKey::ContractCode { account_id: bob_account() };
-    assert_matches!(
-        storage.get(&code_key.to_vec()),
-        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
-    );
-}
-
-// Tests excluding contract code from state witness and recording of contract deployments and function calls
-// with storage proof size soft limit is set (but does not exceed since contracts are excluded from storage proof).
-#[test]
-fn test_exclude_contract_code_from_witness_with_storage_proof_size_soft_limit() {
-    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
-    );
-
-    // Set the storage proof soft-limit to the size of the contract. Since contract code is not included in the storage proof,
-    // both function calls below pass the proof soft-limit.
-    let mut runtime_config = RuntimeConfig::test();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
-    apply_state.config = Arc::new(runtime_config);
-
-    let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
-        create_receipt_with_actions(
-            account_id,
-            signer,
-            vec![Action::DeployContract(DeployContractAction {
-                code: near_test_contracts::sized_contract(5000).to_vec(),
-            })],
-        )
-    };
-
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
-            &None,
-            &apply_state,
-            &[
-                create_acc_fn(alice_account(), signers[0].clone()),
-                create_acc_fn(bob_account(), signers[1].clone()),
-            ],
-            &[],
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .unwrap();
-
-    let mut store_update = tries.store_update();
-    let root =
-        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
-
-    let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
-        create_receipt_with_actions(
-            account_id,
-            signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
                 gas: 1,
@@ -1390,12 +1298,21 @@ fn test_exclude_contract_code_from_witness_with_storage_proof_size_soft_limit() 
     // We expect that both receipts are included since the contract code is not included in the storage proof.
     assert_eq!(apply_result.delayed_receipts_count, 0);
 
-    // Check that both contracts are excluded from the storage proof.
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    // Since both accounts call the same contract, we expect only one contract access.
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
+
+    // Check that the proof size is less than the contract size (since it is not included in the storage proof).
     let partial_storage = apply_result.proof.unwrap();
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes.clone();
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
-    assert!(total_size < 5000);
+    assert!(total_size < CONTRACT_SIZE);
 
+    // Check that both contracts are excluded from the storage proof.
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
