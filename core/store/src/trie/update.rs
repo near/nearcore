@@ -33,7 +33,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Trie,
-    pub contract_storage: ContractStorage,
+    contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -81,6 +81,10 @@ impl TrieUpdate {
 
     pub fn trie(&self) -> &Trie {
         &self.trie
+    }
+
+    pub fn contract_storage(&self) -> ContractStorage {
+        self.contract_storage.clone()
     }
 
     pub fn get_ref(
@@ -258,6 +262,10 @@ impl TrieUpdate {
             }
         }
         fallback(&key)
+    }
+
+    pub fn record_contract_deploy(&self, code: ContractCode) {
+        self.contract_storage.record_deploy(code);
     }
 
     /// Records an access to the contract code due to a function call.
