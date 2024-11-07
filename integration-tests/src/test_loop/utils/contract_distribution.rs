@@ -31,7 +31,7 @@ pub(crate) fn run_until_caches_contain_contract(
             }
             true
         },
-        Duration::seconds(10),
+        Duration::seconds(5),
     );
 }
 
