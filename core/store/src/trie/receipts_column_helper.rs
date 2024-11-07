@@ -1,4 +1,5 @@
 use crate::{get, get_pure, set, TrieAccess, TrieUpdate};
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
     BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
@@ -10,9 +11,9 @@ use near_primitives::types::ShardId;
 ///
 /// This iterator currently supports delayed receipts and buffered outgoing
 /// receipts.
-pub struct ReceiptIterator<'a> {
+pub struct TrieQueueIterator<'a, Queue: TrieQueue> {
     indices: std::ops::Range<u64>,
-    trie_queue: &'a dyn TrieQueue,
+    trie_queue: &'a Queue,
     trie: &'a dyn TrieAccess,
     side_effects: bool,
 }
@@ -60,6 +61,8 @@ pub struct OutgoingReceiptBuffer<'parent> {
 /// queue items. Based on that, a common push(), pop(), len(), and iter()
 /// implementation is provided as trait default implementation.
 pub trait TrieQueue {
+    type Item<'a>: BorshDeserialize + BorshSerialize;
+
     /// Read queue indices of the queue from the trie, depending on impl.
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError>;
 
@@ -79,13 +82,13 @@ pub trait TrieQueue {
     fn push(
         &mut self,
         state_update: &mut TrieUpdate,
-        receipt: &ReceiptOrStateStoredReceipt,
+        item: &Self::Item<'_>,
     ) -> Result<(), IntegerOverflowError> {
         self.debug_check_unchanged(state_update);
 
         let index = self.indices().next_available_index;
         let key = self.trie_key(index);
-        set(state_update, key, receipt);
+        set(state_update, key, item);
 
         self.indices_mut().next_available_index =
             index.checked_add(1).ok_or(IntegerOverflowError)?;
@@ -96,7 +99,7 @@ pub trait TrieQueue {
     fn pop(
         &mut self,
         state_update: &mut TrieUpdate,
-    ) -> Result<Option<ReceiptOrStateStoredReceipt>, StorageError> {
+    ) -> Result<Option<Self::Item<'static>>, StorageError> {
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();
@@ -104,7 +107,7 @@ pub trait TrieQueue {
             return Ok(None);
         }
         let key = self.trie_key(indices.first_index);
-        let receipt: ReceiptOrStateStoredReceipt = get(state_update, &key)?.ok_or_else(|| {
+        let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Receipt #{} should be in the state",
                 indices.first_index
@@ -114,7 +117,7 @@ pub trait TrieQueue {
         // Math checked above, first_index < next_available_index
         self.indices_mut().first_index += 1;
         self.write_indices(state_update);
-        Ok(Some(receipt))
+        Ok(Some(item))
     }
 
     /// Remove up to `n` values from the end of the queue and return how many
@@ -150,14 +153,18 @@ pub trait TrieQueue {
         self.indices().len()
     }
 
-    fn iter<'a>(&'a self, trie: &'a dyn TrieAccess, side_effects: bool) -> ReceiptIterator<'a>
+    fn iter<'a>(
+        &'a self,
+        trie: &'a dyn TrieAccess,
+        side_effects: bool,
+    ) -> TrieQueueIterator<'a, Self>
     where
         Self: Sized,
     {
         if side_effects {
             self.debug_check_unchanged(trie);
         }
-        ReceiptIterator {
+        TrieQueueIterator {
             indices: self.indices().first_index..self.indices().next_available_index,
             trie_queue: self,
             trie,
@@ -189,6 +196,8 @@ impl DelayedReceiptQueue {
 }
 
 impl TrieQueue for DelayedReceiptQueue {
+    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
         crate::get_delayed_receipt_indices(trie).map(TrieQueueIndices::from)
     }
@@ -264,6 +273,8 @@ impl ShardsOutgoingReceiptBuffer {
 }
 
 impl TrieQueue for OutgoingReceiptBuffer<'_> {
+    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
         let all_indices: BufferedReceiptIndices =
             get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default();
@@ -288,8 +299,8 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 }
 
-impl<'a> Iterator for ReceiptIterator<'a> {
-    type Item = Result<ReceiptOrStateStoredReceipt<'a>, StorageError>;
+impl<'a, Queue: TrieQueue> Iterator for TrieQueueIterator<'a, Queue> {
+    type Item = Result<<Queue as TrieQueue>::Item<'static>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
@@ -307,7 +318,7 @@ impl<'a> Iterator for ReceiptIterator<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
+impl<'a, Queue: TrieQueue> DoubleEndedIterator for TrieQueueIterator<'a, Queue> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
@@ -444,7 +455,7 @@ mod tests {
     fn check_push_to_receipt_queue(
         input_receipts: &[Receipt],
         trie: &mut TrieUpdate,
-        queue: &mut impl TrieQueue,
+        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
     ) {
         for receipt in input_receipts {
             let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
@@ -465,7 +476,7 @@ mod tests {
     fn check_receipt_queue_contains_receipts(
         input_receipts: &[Receipt],
         trie: &mut TrieUpdate,
-        queue: &mut impl TrieQueue,
+        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
     ) {
         // check 2: assert newly loaded queue still contains the receipts
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =

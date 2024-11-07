@@ -17,7 +17,7 @@ use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::OutgoingMetadatas;
 use near_store::trie::receipts_column_helper::{
-    DelayedReceiptQueue, ReceiptIterator, ShardsOutgoingReceiptBuffer, TrieQueue,
+    DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue, TrieQueueIterator,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -685,7 +685,10 @@ impl DelayedReceiptQueueWrapper {
         Ok(receipt)
     }
 
-    pub(crate) fn peek_iter<'a>(&'a self, trie_update: &'a TrieUpdate) -> ReceiptIterator<'a> {
+    pub(crate) fn peek_iter<'a>(
+        &'a self,
+        trie_update: &'a TrieUpdate,
+    ) -> TrieQueueIterator<'a, DelayedReceiptQueue> {
         self.queue.iter(trie_update, false)
     }
 
