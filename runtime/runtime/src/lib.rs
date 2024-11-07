@@ -1508,8 +1508,6 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        receipt_sink.save_outgoing_buffer_metadatas(&mut processing_state.state_update);
-
         // Step 5: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,

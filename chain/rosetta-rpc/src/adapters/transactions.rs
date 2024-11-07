@@ -167,11 +167,6 @@ fn convert_cause_to_transaction_id(
                 "State Change 'BandwidthSchedulerStateUpdate' should never be observed".to_string(),
             ))
         }
-        StateChangeCauseView::SaveOutgoingBufferMetadata => {
-            Err(crate::errors::ErrorKind::InternalInvariantError(
-                "State Change 'SaveOutgoingBufferMetadata' should never be observed".to_string(),
-            ))
-        }
     }
 }
 

@@ -57,7 +57,9 @@ pub mod col {
     /// (`primitives::receipt::Receipt`).
     pub const BUFFERED_RECEIPT: u8 = 14;
     pub const BANDWIDTH_SCHEDULER_STATE: u8 = 15;
-    pub const OUTGOING_BUFFER_RECEIPT_SIZES: u8 = 16;
+    pub const OUTGOING_RECEIPTS_GROUPS_INDICES: u8 = 16;
+    pub const OUTGOING_RECEIPTS_GROUP: u8 = 17;
+
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
 
@@ -75,7 +77,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 16] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 17] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -91,7 +93,8 @@ pub mod col {
         (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
         (BUFFERED_RECEIPT, "BufferedReceipt"),
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
-        (OUTGOING_BUFFER_RECEIPT_SIZES, "OutgoingBufferReceiptSizes"),
+        (OUTGOING_RECEIPTS_GROUPS_INDICES, "OutgoingReceiptsGroupsIndices"),
+        (OUTGOING_RECEIPTS_GROUP, "OutgoingReceiptsGroup"),
     ];
 }
 
@@ -180,8 +183,12 @@ pub enum TrieKey {
         index: u64,
     },
     BandwidthSchedulerState,
-    OutgoingBufferReceiptSizes {
-        to_shard: ShardId,
+    OutgoingReceiptsGroupsIndices {
+        receiving_shard: ShardId,
+    },
+    OutgoingReceiptsGroup {
+        receiving_shard: ShardId,
+        index: u64,
     },
 }
 
@@ -259,8 +266,13 @@ impl TrieKey {
                     + std::mem::size_of_val(index)
             }
             TrieKey::BandwidthSchedulerState => col::BANDWIDTH_SCHEDULER_STATE.len(),
-            TrieKey::OutgoingBufferReceiptSizes { to_shard } => {
-                col::OUTGOING_BUFFER_RECEIPT_SIZES.len() + std::mem::size_of_val(to_shard)
+            TrieKey::OutgoingReceiptsGroupsIndices { receiving_shard: _ } => {
+                col::OUTGOING_RECEIPTS_GROUPS_INDICES.len() + std::mem::size_of::<u64>()
+            }
+            TrieKey::OutgoingReceiptsGroup { receiving_shard: _, index } => {
+                col::OUTGOING_RECEIPTS_GROUP.len()
+                    + std::mem::size_of::<u64>()
+                    + std::mem::size_of_val(index)
             }
         }
     }
@@ -345,9 +357,14 @@ impl TrieKey {
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::BandwidthSchedulerState => buf.push(col::BANDWIDTH_SCHEDULER_STATE),
-            TrieKey::OutgoingBufferReceiptSizes { to_shard } => {
-                buf.push(col::OUTGOING_BUFFER_RECEIPT_SIZES);
-                buf.extend(&to_shard.to_le_bytes());
+            TrieKey::OutgoingReceiptsGroupsIndices { receiving_shard } => {
+                buf.push(col::OUTGOING_RECEIPTS_GROUPS_INDICES);
+                buf.extend(&receiving_shard.to_le_bytes());
+            }
+            TrieKey::OutgoingReceiptsGroup { receiving_shard, index } => {
+                buf.push(col::OUTGOING_RECEIPTS_GROUP);
+                buf.extend(&receiving_shard.to_le_bytes());
+                buf.extend(&index.to_le_bytes());
             }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
@@ -378,7 +395,8 @@ impl TrieKey {
             TrieKey::BufferedReceiptIndices => None,
             TrieKey::BufferedReceipt { .. } => None,
             TrieKey::BandwidthSchedulerState => None,
-            TrieKey::OutgoingBufferReceiptSizes { .. } => None,
+            TrieKey::OutgoingReceiptsGroupsIndices { .. } => None,
+            TrieKey::OutgoingReceiptsGroup { .. } => None,
         }
     }
 }

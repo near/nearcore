@@ -193,8 +193,6 @@ pub enum StateChangeCause {
     ReshardingV2,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
     BandwidthSchedulerStateUpdate,
-    /// Save modified outgoing buffer metadata to the state.
-    SaveOutgoingBufferMetadata,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -359,7 +357,8 @@ impl StateChanges {
                 TrieKey::BufferedReceiptIndices => {}
                 TrieKey::BufferedReceipt { .. } => {}
                 TrieKey::BandwidthSchedulerState => {}
-                TrieKey::OutgoingBufferReceiptSizes { .. } => {}
+                TrieKey::OutgoingReceiptsGroupsIndices { .. } => {}
+                TrieKey::OutgoingReceiptsGroup { .. } => {}
             }
         }
 

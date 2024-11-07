@@ -31,7 +31,7 @@ pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceivedData,
+    Receipt, ReceiptEnum, ReceivedData, TrieQueueIndices,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -44,7 +44,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
-use trie::outgoing_metadata::ReceiptGroupSizes;
 
 pub mod adapter;
 pub mod cold_storage;
@@ -987,19 +986,12 @@ pub fn set_bandwidth_scheduler_state(
     set(state_update, TrieKey::BandwidthSchedulerState, scheduler_state);
 }
 
-pub fn get_outgoing_buffer_receipt_sizes(
+pub fn get_outgoing_receipts_groups_inidices(
     trie: &dyn TrieAccess,
-    to_shard: ShardId,
-) -> Result<Option<ReceiptGroupSizes>, StorageError> {
-    get(trie, &TrieKey::OutgoingBufferReceiptSizes { to_shard })
-}
-
-pub fn set_outgoing_buffer_receipt_sizes(
-    state_update: &mut TrieUpdate,
-    to_shard: ShardId,
-    receipt_sizes: &ReceiptGroupSizes,
-) {
-    set(state_update, TrieKey::OutgoingBufferReceiptSizes { to_shard }, receipt_sizes);
+    shard_id: ShardId,
+) -> Result<TrieQueueIndices, StorageError> {
+    Ok(get(trie, &TrieKey::OutgoingReceiptsGroupsIndices { receiving_shard: shard_id })?
+        .unwrap_or_default())
 }
 
 pub fn set_access_key(

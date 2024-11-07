@@ -186,13 +186,6 @@ impl<'a> ReceiptSink {
         }
     }
 
-    pub(crate) fn save_outgoing_buffer_metadatas(&self, state_update: &mut TrieUpdate) {
-        match self {
-            ReceiptSink::V1(_) => (),
-            ReceiptSink::V2(inner) => inner.save_outgoing_buffer_metadatas(state_update),
-        }
-    }
-
     pub(crate) fn outgoing_receipts(&self) -> &[Receipt] {
         match self {
             ReceiptSink::V1(inner) => &inner.outgoing_receipts,
@@ -264,6 +257,7 @@ impl ReceiptSinkV2 {
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
         let mut num_forwarded = 0;
+        let mut removed_receipt_sizes = Vec::new();
         for receipt_result in
             self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie, true)
         {
@@ -289,7 +283,8 @@ impl ReceiptSinkV2 {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
                     if should_update_metadata {
-                        self.outgoing_buffer_metadatas.on_receipt_removed(shard_id, size);
+                        // Can't update metadata immediately because state_update is already borrowed.
+                        removed_receipt_sizes.push(size);
                     }
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
@@ -300,6 +295,9 @@ impl ReceiptSinkV2 {
                     break;
                 }
             }
+        }
+        for size in removed_receipt_sizes {
+            self.outgoing_buffer_metadatas.on_receipt_removed(shard_id, size, state_update)?;
         }
         self.outgoing_buffers.to_shard(shard_id).pop_n(state_update, num_forwarded)?;
         Ok(())
@@ -410,15 +408,11 @@ impl ReceiptSinkV2 {
 
         if receipt.queue_metadata_version() == Some(QueueMetadataVersion::OutgoingBufferMetadataV0)
         {
-            self.outgoing_buffer_metadatas.on_receipt_buffered(shard, size);
+            self.outgoing_buffer_metadatas.on_receipt_buffered(shard, size, state_update)?;
         }
 
         self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
         Ok(())
-    }
-
-    fn save_outgoing_buffer_metadatas(&self, state_update: &mut TrieUpdate) {
-        self.outgoing_buffer_metadatas.save(state_update, self.protocol_version);
     }
 
     fn generate_bandwidth_requests(
@@ -485,12 +479,12 @@ impl ReceiptSinkV2 {
             // we would never be able to grant the bandwidth required to send the first group.
             // It's an unlikely scenario, but to protect against it we always request bandwidth for the first receipt,
             // it's always possible to grant enough bandwidth for one receipt.
-            let mut receipt_group_sizes = metadata.iter_receipt_group_sizes();
-            let first_group_size = receipt_group_sizes.next().unwrap();
-            let receipt_sizes = [first_receipt_size, first_group_size - first_receipt_size]
+            let mut receipt_group_sizes = metadata.iter_receipt_group_sizes(trie, true);
+            let first_group_size = receipt_group_sizes.next().unwrap()?;
+            let receipt_sizes = [Ok(first_receipt_size), Ok(first_group_size - first_receipt_size)]
                 .into_iter()
                 .chain(receipt_group_sizes);
-            BandwidthRequest::make_from_receipt_sizes(shard_u8, receipt_sizes, params)
+            BandwidthRequest::make_from_receipt_sizes(shard_u8, receipt_sizes, params)?
         } else {
             // Metadata is not ready yet, generate a basic request while we're waiting for
             // the metadata to be become fully initialized.
