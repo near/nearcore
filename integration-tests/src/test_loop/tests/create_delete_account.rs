@@ -102,7 +102,7 @@ fn test_create_delete_account() {
     let contract_code = near_test_contracts::rs_contract().to_vec();
 
     // Create account.
-    do_create_account(&mut env, &rpc_id, &accounts[0], &new_account, ONE_NEAR);
+    do_create_account(&mut env, &rpc_id, &accounts[0], &new_account, 100 * ONE_NEAR);
     // Deploy contract.
     do_deploy_contract(&mut env, &rpc_id, &new_account, contract_code);
     // Write a key-value pair to the contract storage.
