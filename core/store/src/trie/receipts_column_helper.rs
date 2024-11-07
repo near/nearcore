@@ -79,7 +79,7 @@ pub trait TrieQueue {
     /// Construct the trie key for a queue item depending on impl.
     fn trie_key(&self, queue_index: u64) -> TrieKey;
 
-    fn push(
+    fn push_back(
         &mut self,
         state_update: &mut TrieUpdate,
         item: &Self::Item<'_>,
@@ -96,7 +96,7 @@ pub trait TrieQueue {
         Ok(())
     }
 
-    fn pop(
+    fn pop_front(
         &mut self,
         state_update: &mut TrieUpdate,
     ) -> Result<Option<Self::Item<'static>>, StorageError> {
@@ -459,7 +459,7 @@ mod tests {
     ) {
         for receipt in input_receipts {
             let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
-            queue.push(trie, &receipt).expect("pushing must not fail");
+            queue.push_back(trie, &receipt).expect("pushing must not fail");
         }
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
             queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
@@ -487,7 +487,7 @@ mod tests {
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
-        while let Some(receipt) = queue.pop(trie).expect("pop must not fail") {
+        while let Some(receipt) = queue.pop_front(trie).expect("pop must not fail") {
             let receipt = receipt.into_receipt();
             popped.push(receipt);
         }

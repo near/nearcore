@@ -413,7 +413,7 @@ impl ReceiptSinkV2 {
             self.outgoing_buffer_metadatas.on_receipt_buffered(shard, size);
         }
 
-        self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
+        self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
         Ok(())
     }
 
@@ -666,7 +666,7 @@ impl DelayedReceiptQueueWrapper {
 
         self.new_delayed_gas = safe_add_gas(self.new_delayed_gas, gas)?;
         self.new_delayed_bytes = safe_add_gas(self.new_delayed_bytes, size)?;
-        self.queue.push(trie_update, &receipt)?;
+        self.queue.push_back(trie_update, &receipt)?;
         Ok(())
     }
 
@@ -675,7 +675,7 @@ impl DelayedReceiptQueueWrapper {
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
-        let receipt = self.queue.pop(trie_update)?;
+        let receipt = self.queue.pop_front(trie_update)?;
         if let Some(receipt) = &receipt {
             let delayed_gas = receipt_congestion_gas(receipt, &config)?;
             let delayed_bytes = receipt_size(receipt)? as u64;
