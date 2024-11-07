@@ -144,10 +144,10 @@ impl TrieUpdate {
     pub fn get_code(
         &self,
         account_id: &AccountId,
-        code_hash: Option<CryptoHash>,
+        code_hash: CryptoHash,
     ) -> Result<Option<ContractCode>, StorageError> {
         let key = TrieKey::ContractCode { account_id: account_id.clone() };
-        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
     }
 
     pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
@@ -268,7 +268,7 @@ impl TrieUpdate {
     /// In the latter case, the Trie read does not happen and the code-size does not contribute to
     /// the storage-proof limit. Instead we just record that the code with the given hash was called,
     /// so that we can identify which contract-code to distribute to the validators.
-    pub fn record_contract_call(
+    pub fn record_contract_access(
         &self,
         account_id: AccountId,
         code_hash: CryptoHash,
