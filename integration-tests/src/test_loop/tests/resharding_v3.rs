@@ -10,7 +10,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::AccountId;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
@@ -21,20 +21,6 @@ use std::sync::Arc;
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
-
-fn create_new_shard_layout(base_shard_layout: &ShardLayout, boundary_account: &str) -> ShardLayout {
-    let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
-    let mut shard_ids: Vec<_> = base_shard_layout.shard_ids().collect();
-    let max_shard_id = *shard_ids.iter().max().unwrap();
-    let last_shard_id = shard_ids.pop().unwrap();
-    let mut shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
-        shard_ids.iter().map(|shard_id| (*shard_id, vec![*shard_id])).collect();
-    let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
-    shard_ids.extend(new_shards.clone());
-    shards_split_map.insert(last_shard_id, new_shards);
-    boundary_accounts.push(boundary_account.parse().unwrap());
-    ShardLayout::v2(boundary_accounts, shard_ids.clone(), Some(shards_split_map))
-}
 
 fn print_and_assert_shard_accounts(client: &Client) {
     let tip = client.chain.head().unwrap();
@@ -135,9 +121,14 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     }
     base_epoch_config.shard_layout = ShardLayout::v1(vec!["account3".parse().unwrap()], None, 3);
     let base_shard_layout = base_epoch_config.shard_layout.clone();
+    let new_boundary_account = "account6".parse().unwrap();
     let mut epoch_config = base_epoch_config.clone();
-    let boundary_account = "account6";
-    epoch_config.shard_layout = create_new_shard_layout(&base_shard_layout, boundary_account);
+    let parent_shard_uid = account_id_to_shard_uid(&new_boundary_account, &base_shard_layout);
+
+    epoch_config.shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account);
+    tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
+
     let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),
@@ -147,7 +138,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(base_shard_layout.clone())
+        .shard_layout(base_shard_layout)
         .protocol_version(base_protocol_version)
         .epoch_length(epoch_length)
         .validators_desired_roles(&block_and_chunk_producers, &[]);
@@ -164,8 +155,6 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         .track_all_shards()
         .build();
 
-    let boundary_account_id: AccountId = boundary_account.parse().unwrap();
-    let parent_shard_uid = account_id_to_shard_uid(&boundary_account_id, &base_shard_layout);
     let client_handle = node_datas[0].client_sender.actor_handle();
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
