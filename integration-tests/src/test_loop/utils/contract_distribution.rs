@@ -79,14 +79,14 @@ pub(crate) fn assert_all_chunk_endorsements_received(
 
 /// Clears the compiled contract caches for all the clients.
 pub(crate) fn clear_compiled_contract_caches(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    _test_loop: &mut TestLoopV2,
+    _node_datas: &Vec<TestData>,
 ) {
     #[cfg(feature = "test_features")]
-    for i in 0..node_datas.len() {
-        let client_handle = node_datas[i].client_sender.actor_handle();
+    for i in 0.._node_datas.len() {
+        let client_handle = _node_datas[i].client_sender.actor_handle();
         let contract_cache_handle =
-            test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
+            _test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
         contract_cache_handle.test_only_clear().unwrap();
     }
 }
