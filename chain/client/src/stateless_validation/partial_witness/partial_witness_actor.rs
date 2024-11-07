@@ -38,6 +38,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
+use rand::Rng;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -575,8 +576,12 @@ impl PartialWitnessActor {
         }
         self.partial_witness_tracker
             .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
-        let random_chunk_producer =
-            self.epoch_manager.get_random_chunk_producer_for_shard(&key.epoch_id, key.shard_id)?;
+        let random_chunk_producer = {
+            let mut chunk_producers = self
+                .epoch_manager
+                .get_epoch_chunk_producers_for_shard(&key.epoch_id, key.shard_id)?;
+            chunk_producers.swap_remove(rand::thread_rng().gen_range(0..chunk_producers.len()))
+        };
         let request = ContractCodeRequest::new(
             key.clone(),
             missing_contract_hashes,
