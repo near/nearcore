@@ -29,7 +29,6 @@ use near_primitives::views::{
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
-use rand::Rng;
 use reward_calculator::ValidatorOnlineThresholds;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1106,22 +1105,6 @@ impl EpochManager {
             .iter()
             .map(|index| epoch_info.validator_account_id(*index).clone())
             .collect())
-    }
-
-    pub fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = epoch_info
-            .chunk_producers_settlement()
-            .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        let random_index = rand::thread_rng().gen_range(0..chunk_producers.len());
-        Ok(epoch_info.validator_account_id(chunk_producers[random_index]).clone())
     }
 
     /// Returns the list of chunk_validators for the given shard_id and height and set of account ids.
