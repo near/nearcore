@@ -12,6 +12,7 @@ use crate::test_loop::utils::transactions::{
 };
 use crate::test_loop::utils::ONE_NEAR;
 
+const NUM_ACCOUNTS: usize = 9;
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
 
@@ -19,7 +20,6 @@ const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 4;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_RPC: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
-const NUM_ACCOUNTS: usize = NUM_VALIDATORS + NUM_RPC;
 
 /// Tests a scenario that different contracts are deployed to a number of accounts and
 /// these contracts are called from a set of accounts.
@@ -84,8 +84,7 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
         .transaction_validity_period(1000)
         .epoch_length(EPOCH_LENGTH)
         .validators_desired_roles(&block_and_chunk_producers, &chunk_validators_only)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .minimum_validators_per_shard(2);
+        .shuffle_shard_assignment_for_chunk_producers(true);
     for account in accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }

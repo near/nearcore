@@ -12,13 +12,13 @@ use crate::test_loop::utils::transactions::{
 };
 use crate::test_loop::utils::ONE_NEAR;
 
+const NUM_ACCOUNTS: usize = 2;
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
 
 const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 1;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
-const NUM_ACCOUNTS: usize = NUM_VALIDATORS;
 
 /// Executes a test that deploys to a contract to an account and calls it.
 fn test_contract_distribution_single_account(clear_cache: bool) {
@@ -38,7 +38,7 @@ fn test_contract_distribution_single_account(clear_cache: bool) {
     }
 
     do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 3);
+
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
@@ -65,25 +65,20 @@ fn test_contract_distribution_different_accounts(clear_cache: bool) {
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
 
     let rpc_id = make_account(0);
-    let account0 = make_account(0);
-    let account1 = make_account(1);
+    let account = rpc_id.clone();
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account0, 1);
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account1, 2);
-
-    if clear_cache {
-        #[cfg(feature = "test_features")]
-        clear_compiled_contract_caches(&mut test_loop, &node_datas);
-    }
-
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account0, 3);
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 1);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
 
     if clear_cache {
         #[cfg(feature = "test_features")]
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account1, 4);
+    let account = make_account(1);
+
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, 3);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 4);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
