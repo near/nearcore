@@ -144,6 +144,21 @@ pub trait TrieQueue {
         Ok(Some(item))
     }
 
+    fn modify_first(
+        &mut self,
+        state_update: &mut TrieUpdate,
+        modify_fn: impl Fn(&mut Self::Item<'_>),
+    ) {
+        let indices = self.indices();
+        if indices.first_index >= indices.next_available_index {
+            return;
+        }
+        let key = self.trie_key(indices.first_index);
+        let mut item: Self::Item<'_> = get(state_update, &key).unwrap().unwrap();
+        modify_fn(&mut item);
+        set(state_update, key, &item);
+    }
+
     /// Remove up to `n` values from the end of the queue and return how many
     /// were actually remove.
     ///
