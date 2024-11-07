@@ -142,6 +142,40 @@ pub trait TrieQueue {
         Ok(Some(item))
     }
 
+    /// Modify the first item in a non-empty queue.
+    /// `modify_fn` consumes the first item, modifies it, and returns `Option<Item>`.
+    /// If `modify_fn` returns `Some`, the item is updated in the queue.
+    /// If `modify_fn` returns `None`, the item is removed from the queue.
+    /// Panics if the queue is empty.
+    /// TODO(bandwidth_scheduler) - consider adding a push_front method.
+    /// Indices could be converted to i64, serialization is the same as u64 for non-negative values.
+    fn modify_first<'a>(
+        &mut self,
+        state_update: &mut TrieUpdate,
+        modify_fn: impl Fn(Self::Item<'a>) -> Option<Self::Item<'a>>,
+    ) -> Result<(), StorageError> {
+        let indices = self.indices();
+        if indices.first_index >= indices.next_available_index {
+            panic!("TrieQueue::modify_first called on an empty queue! indices: {:?}", indices);
+        }
+        let key = self.trie_key(indices.first_index);
+        let first_item: Self::Item<'_> = get(state_update, &key)?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "TrieQueue::Item #{} should be in the state",
+                indices.first_index
+            ))
+        })?;
+        let modified_item = modify_fn(first_item);
+        match modified_item {
+            Some(item) => set(state_update, key, &item),
+            None => {
+                // Modify function returned None, remove the first item.
+                let _removed = self.pop_front(state_update)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Remove up to `n` values from the end of the queue and return how many
     /// were actually remove.
     ///
