@@ -37,8 +37,8 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
+use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, PreparedContract};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -609,16 +609,26 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
 pub(crate) fn action_deploy_contract(
     state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
-    config: Arc<near_parameters::vm::Config>,
-    cache: Option<&dyn ContractRuntimeCache>,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = state_update.get_code(account_id, account.code_hash())?;
-    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
+    let prev_code = state_update.get_code(account.code_hash())?;
+    let prev_code_length = if let Some(prev_code) = prev_code {
+        state_update.record_contract_access(
+            account_id.clone(),
+            *prev_code.hash(),
+            apply_state.apply_reason.clone(),
+            apply_state.current_protocol_version,
+        )?;
+        prev_code.code().len() as u64
+    } else {
+        0
+    };
+
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
@@ -638,6 +648,8 @@ pub(crate) fn action_deploy_contract(
     // cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
     // logic in estimator (see get_runtime_config() function).
+    let config = Arc::clone(&apply_state.config.wasm_config);
+    let cache = apply_state.cache.as_deref();
     precompile_contract(&code, config, cache).ok();
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
@@ -648,23 +660,32 @@ pub(crate) fn action_deploy_contract(
 
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
+    if apply_state.current_protocol_version
+        >= ProtocolFeature::DeleteActionRestriction.protocol_version()
+    {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = state_update.get_code(account_id, account.code_hash())?;
+        let contract_code = state_update.get_code(account.code_hash())?;
         if let Some(code) = contract_code {
             // account storage usage should be larger than code size
             let code_len = code.code().len() as u64;
             debug_assert!(account_storage_usage > code_len);
             account_storage_usage = account_storage_usage.saturating_sub(code_len);
+
+            state_update.record_contract_access(
+                account_id.clone(),
+                *code.hash(),
+                apply_state.apply_reason.clone(),
+                apply_state.current_protocol_version,
+            )?;
         }
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
@@ -1286,15 +1307,18 @@ mod tests {
             0,
             ReceiptPriority::NoPriority,
         );
+        let mut apply_state = create_apply_state(0);
+        apply_state.current_protocol_version =
+            ProtocolFeature::DeleteActionRestriction.protocol_version();
         let res = action_delete_account(
             state_update,
+            &apply_state,
             &mut account,
             &mut actor_id,
             &receipt,
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
-            ProtocolFeature::DeleteActionRestriction.protocol_version(),
         );
         assert!(res.is_ok());
         action_result
@@ -1333,11 +1357,10 @@ mod tests {
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
+            &apply_state,
             &mut account,
             &account_id,
             &deploy_action,
-            Arc::clone(&apply_state.config.wasm_config),
-            None,
         );
         assert!(res.is_ok());
         test_delete_large_account(

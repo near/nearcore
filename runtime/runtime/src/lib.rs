@@ -448,11 +448,10 @@ impl Runtime {
             Action::DeployContract(deploy_contract) => {
                 action_deploy_contract(
                     state_update,
+                    apply_state,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     account_id,
                     deploy_contract,
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.cache.as_deref(),
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -547,13 +546,13 @@ impl Runtime {
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(
                     state_update,
+                    apply_state,
                     account,
                     actor_id,
                     receipt,
                     &mut result,
                     account_id,
                     delete_account,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {

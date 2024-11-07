@@ -141,13 +141,9 @@ impl TrieUpdate {
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
-    pub fn get_code(
-        &self,
-        account_id: &AccountId,
-        code_hash: CryptoHash,
-    ) -> Result<Option<ContractCode>, StorageError> {
-        let key = TrieKey::ContractCode { account_id: account_id.clone() };
-        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
+    pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
+        // TODO(#11099): Change the interface of get to return a Result<Option<ContractCode>, StorageError.
+        Ok(self.contract_storage.get(code_hash))
     }
 
     pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
@@ -320,7 +316,7 @@ impl TrieUpdate {
     }
 }
 
-impl crate::TrieAccess for TrieUpdate {
+impl TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         self.get_from_updates(key, |k| self.trie.get(k))
     }
