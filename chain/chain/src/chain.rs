@@ -816,18 +816,14 @@ impl Chain {
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
             let epoch_id = epoch_first_block.header().epoch_id();
-            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
             let state_sync_info = StateSyncInfo::new(
                 protocol_version,
                 *epoch_first_block.header().hash(),
-                &prev_block,
-                &shard_layout,
-                &shards_to_state_sync,
-            )?;
+                shards_to_state_sync,
+            );
             Ok(Some(state_sync_info))
         }
     }
