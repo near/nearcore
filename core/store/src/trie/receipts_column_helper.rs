@@ -117,6 +117,31 @@ pub trait TrieQueue {
         Ok(Some(item))
     }
 
+    fn pop_back(
+        &mut self,
+        state_update: &mut TrieUpdate,
+    ) -> Result<Option<Self::Item<'static>>, StorageError> {
+        self.debug_check_unchanged(state_update);
+
+        let indices = self.indices();
+        if indices.first_index >= indices.next_available_index {
+            return Ok(None);
+        }
+        // Math checked above: first_index < next_available_index => next_available_index > 0
+        let last_item_index = indices.next_available_index - 1;
+        let key = self.trie_key(last_item_index);
+        let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "Receipt #{} should be in the state",
+                last_item_index
+            ))
+        })?;
+        state_update.remove(key);
+        self.indices_mut().next_available_index = last_item_index;
+        self.write_indices(state_update);
+        Ok(Some(item))
+    }
+
     /// Remove up to `n` values from the end of the queue and return how many
     /// were actually remove.
     ///
