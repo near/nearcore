@@ -122,6 +122,15 @@ impl TrieUpdate {
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
+        // TODO(#11099): Update code to always call `set_code` instead of this method for `TrieKey::ContractCode`.
+        // Then all set operations for ContractCode should use `set_code` and this code should move to `set_code`.
+        if let TrieKey::ContractCode { .. } = trie_key {
+            // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
+            // return the contract before the contract is written out to the underlying storage as part of
+            // the `TrieUpdate` commit.)
+            self.record_contract_deploy(ContractCode::new(value.clone(), None));
+        }
+
         // NOTE: Converting `TrieKey` to a `Vec<u8>` is useful here for 2 reasons:
         // - Using `Vec<u8>` for sorting `BTreeMap` in the same order as a `Trie` and
         //   avoid recomputing `Vec<u8>` every time. It helps for merging iterators.
@@ -146,10 +155,11 @@ impl TrieUpdate {
     }
 
     pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
-        // TODO(#11099): Change the interface of get to return a Result<Option<ContractCode>, StorageError.
+        // TODO(#11099): Change the interface of `ContractStorage::get` to return a Result.
         Ok(self.contract_storage.get(code_hash))
     }
 
+    // TODO(#11099): Make this take a non-reference.
     pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
         self.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
     }
@@ -260,7 +270,7 @@ impl TrieUpdate {
         fallback(&key)
     }
 
-    pub fn record_contract_deploy(&self, code: ContractCode) {
+    fn record_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_deploy(code);
     }
 

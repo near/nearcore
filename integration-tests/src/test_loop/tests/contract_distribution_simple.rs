@@ -23,7 +23,8 @@ const GENESIS_HEIGHT: u64 = 1000;
 const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 1;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
-const NUM_ACCOUNTS: usize = NUM_VALIDATORS;
+// We need 2 additional accounts to create, deploy-contract, and delete.
+const NUM_ACCOUNTS: usize = NUM_VALIDATORS + 2;
 
 /// Executes a test that deploys to a contract to an account and calls it.
 fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_cache: bool) {
@@ -33,12 +34,13 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
 
     let rpc_id = make_account(0);
-    let account = rpc_id.clone();
+    // Choose an account that is not a validator.
+    let contract_id = accounts[NUM_VALIDATORS].clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
 
     let start_height = get_head_height(&mut test_loop, &node_datas);
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, &contract, 1);
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, &contract, 1);
 
     if wait_cache_populate {
         run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
@@ -48,8 +50,8 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 3);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, 2);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, 3);
 
     let end_height = get_head_height(&mut test_loop, &node_datas);
     assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
@@ -87,14 +89,15 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
 
     let rpc_id = make_account(0);
-    let account0 = make_account(0);
-    let account1 = make_account(1);
+    // Choose accounts that are not validators.
+    let contract_id1 = accounts[NUM_VALIDATORS].clone();
+    let contract_id2 = accounts[NUM_VALIDATORS + 1].clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
 
     let start_height = get_head_height(&mut test_loop, &node_datas);
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account0, &contract, 1);
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account1, &contract, 2);
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id1, &contract, 1);
+    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id2, &contract, 2);
 
     if wait_cache_populate {
         run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
@@ -104,8 +107,8 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
         clear_compiled_contract_caches(&mut test_loop, &node_datas);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account0, 3);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account1, 4);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id1, 3);
+    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id2, 4);
 
     let end_height = get_head_height(&mut test_loop, &node_datas);
     assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);

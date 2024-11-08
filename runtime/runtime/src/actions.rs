@@ -651,10 +651,6 @@ pub(crate) fn action_deploy_contract(
     let config = Arc::clone(&apply_state.config.wasm_config);
     let cache = apply_state.cache.as_deref();
     precompile_contract(&code, config, cache).ok();
-    // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
-    // return the contract before the contract is written out to the underlying storage as part of
-    // the `TrieUpdate` commit.)
-    state_update.record_contract_deploy(code);
     Ok(())
 }
 
