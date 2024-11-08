@@ -36,7 +36,6 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
@@ -1017,13 +1016,6 @@ impl EpochManagerAdapter for MockEpochManager {
     fn verify_chunk_endorsement_signature(
         &self,
         _endorsement: &ChunkEndorsement,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_partial_witness_signature(
-        &self,
-        _partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error> {
         Ok(true)
     }
