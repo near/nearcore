@@ -485,11 +485,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error>;
 
-    fn verify_partial_witness_signature(
-        &self,
-        partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<bool, Error>;
-
     fn verify_witness_contract_accesses_signature(
         &self,
         accesses: &ChunkContractAccesses,
@@ -1160,15 +1155,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let validator =
             epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id())?;
         Ok(endorsement.verify(validator.public_key()))
-    }
-
-    fn verify_partial_witness_signature(
-        &self,
-        partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<bool, Error> {
-        let chunk_producer =
-            self.read().get_chunk_producer_info(&partial_witness.chunk_production_key())?;
-        Ok(partial_witness.verify(chunk_producer.public_key()))
     }
 
     fn verify_witness_contract_accesses_signature(

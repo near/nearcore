@@ -1021,13 +1021,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_partial_witness_signature(
-        &self,
-        _partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
     fn verify_witness_contract_accesses_signature(
         &self,
         _accesses: &ChunkContractAccesses,

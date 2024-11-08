@@ -3360,11 +3360,13 @@ fn test_verify_partial_witness_signature() {
         7,
         signer.as_ref(),
     );
-    assert!(epoch_manager.verify_partial_witness_signature(&partial_witness).unwrap());
+    let chunk_producer =
+        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key()).unwrap();
+    assert!(partial_witness.verify(chunk_producer.public_key()));
 
     // Check invalid chunk state witness signature.
     partial_witness.signature = Signature::default();
-    assert!(!epoch_manager.verify_partial_witness_signature(&partial_witness).unwrap());
+    assert!(!partial_witness.verify(chunk_producer.public_key()));
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
@@ -3376,7 +3378,7 @@ fn test_verify_partial_witness_signature() {
         7,
         bad_signer.as_ref(),
     );
-    assert!(!epoch_manager.verify_partial_witness_signature(&bad_partial_witness).unwrap());
+    assert!(!bad_partial_witness.verify(chunk_producer.public_key()));
 }
 
 /// Simulate the blockchain over a few epochs and verify that possible_epochs_of_height_around_tip()
