@@ -146,4 +146,8 @@ skip = [
     { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.8.6" },
     { name = "spin", version = "=0.9.8" },
+
+    # ecosystem migration to 2.0 is in early phases at the time of writing.
+    { name = "thiserror", version = "<2.0" },
+    { name = "thiserror-impl", version = "<2.0" },
 ]

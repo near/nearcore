@@ -12,7 +12,7 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
@@ -222,12 +222,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<Vec<AccountId>, EpochError>;
 
-    fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError>;
-
     /// Returns all validators for a given epoch.
     fn get_epoch_all_validators(
         &self,
@@ -241,13 +235,22 @@ pub trait EpochManagerAdapter: Send + Sync {
         height: BlockHeight,
     ) -> Result<AccountId, EpochError>;
 
-    /// Chunk producer for given height for given shard. Return EpochError if outside of known boundaries.
+    /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
+    fn get_chunk_producer_info(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<ValidatorStake, EpochError>;
+
+    /// TODO(pugachag): deprecate this by inlining usage
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<AccountId, EpochError>;
+    ) -> Result<AccountId, EpochError> {
+        let key = ChunkProductionKey { epoch_id: *epoch_id, height_created: height, shard_id };
+        self.get_chunk_producer_info(&key).map(|info| info.take_account_id())
+    }
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -495,11 +498,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_witness_contract_code_request_signature(
         &self,
         request: &ContractCodeRequest,
-    ) -> Result<bool, Error>;
-
-    fn verify_partial_deploys_signature(
-        &self,
-        partial_deploys: &PartialEncodedContractDeploys,
     ) -> Result<bool, Error>;
 
     fn cares_about_shard_in_epoch(
@@ -814,15 +812,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
     }
 
-    fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_random_chunk_producer_for_shard(epoch_id, shard_id)
-    }
-
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
@@ -832,15 +821,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
     }
 
-    fn get_chunk_producer(
+    fn get_chunk_producer_info(
         &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let epoch_manager = self.read();
-        let key = ChunkProductionKey { epoch_id: *epoch_id, height_created: height, shard_id };
-        Ok(epoch_manager.get_chunk_producer_info(&key)?.take_account_id())
+        key: &ChunkProductionKey,
+    ) -> Result<ValidatorStake, EpochError> {
+        self.read().get_chunk_producer_info(key)
     }
 
     fn get_chunk_validator_assignments(
@@ -1204,15 +1189,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             request.requester(),
         )?;
         Ok(request.verify_signature(validator.public_key()))
-    }
-
-    fn verify_partial_deploys_signature(
-        &self,
-        partial_deploys: &PartialEncodedContractDeploys,
-    ) -> Result<bool, Error> {
-        let chunk_producer =
-            self.read().get_chunk_producer_info(partial_deploys.chunk_production_key())?;
-        Ok(partial_deploys.verify_signature(chunk_producer.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(
