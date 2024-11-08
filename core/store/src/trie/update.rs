@@ -349,7 +349,7 @@ impl TrieUpdate {
                 }
             })?;
         let contract_exists =
-            contract_ref.map(|value_ref| value_ref.value_hash() == code_hash).unwrap_or(false);
+            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
         if contract_exists {
             self.contract_storage.record_call(code_hash);
         }
