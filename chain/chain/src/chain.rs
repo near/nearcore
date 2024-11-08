@@ -1,3 +1,4 @@
+use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing,
@@ -49,7 +50,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
-use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
@@ -79,8 +80,8 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, StateRoot,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -219,36 +220,6 @@ pub fn check_known(
         return Ok(Err(BlockKnownError::KnownAsInvalid));
     }
     check_known_store(chain, block_hash)
-}
-
-fn verify_approval_with_approvers_info(
-    prev_block_hash: &CryptoHash,
-    prev_block_height: BlockHeight,
-    block_height: BlockHeight,
-    approvals: &[Option<Box<near_crypto::Signature>>],
-    info: Vec<(ApprovalStake, bool)>,
-) -> Result<bool, Error> {
-    if approvals.len() > info.len() {
-        return Ok(false);
-    }
-
-    let message_to_sign = Approval::get_data_for_sig(
-        &if prev_block_height + 1 == block_height {
-            ApprovalInner::Endorsement(*prev_block_hash)
-        } else {
-            ApprovalInner::Skip(prev_block_height)
-        },
-        block_height,
-    );
-
-    for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
-        if let Some(signature) = may_be_signature {
-            if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                return Ok(false);
-            }
-        }
-    }
-    Ok(true)
 }
 
 type BlockApplyChunksResult = (CryptoHash, Vec<(ShardId, Result<ShardUpdateResult, Error>)>);
