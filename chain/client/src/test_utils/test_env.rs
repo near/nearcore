@@ -1,4 +1,5 @@
 use crate::{Client, DistributeStateWitnessRequest};
+use core::panic;
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
@@ -137,6 +138,26 @@ impl TestEnv {
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+    }
+
+    // Produces block by the client that is the block producer for the given height.
+    pub fn produce_block_simple(&mut self, height: BlockHeight) {
+        let client = &self.clients[0];
+        let tip = client.chain.head().unwrap();
+        let epoch_id = tip.epoch_id;
+        let block_producer = client.epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+
+        for id in 0..self.clients.len() {
+            let validator_signer = self.clients[id].validator_signer.get().unwrap();
+            let validator_id = validator_signer.validator_id().clone();
+            if validator_id != block_producer {
+                continue;
+            }
+            let block = self.clients[id].produce_block(height).unwrap().unwrap();
+            self.process_block(id, block, Provenance::PRODUCED);
+            return;
+        }
+        panic!("No client found for block producer {}", block_producer);
     }
 
     /// Pause processing of the given block, which means that the background
@@ -776,8 +797,7 @@ impl TestEnv {
         let max_iters = 100;
         let tip = self.clients[0].chain.head().unwrap();
         for i in 0..max_iters {
-            let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-            self.process_block(0, block.clone(), Provenance::PRODUCED);
+            self.produce_block_simple(tip.height + i + 1);
             if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
                 return Ok(outcome);
             }

@@ -647,7 +647,7 @@ impl TestEnvBuilder {
         }
     }
 
-    fn make_accounts(count: usize) -> Vec<AccountId> {
+    pub fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 

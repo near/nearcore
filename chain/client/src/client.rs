@@ -614,7 +614,7 @@ impl Client {
             validator_signer.validator_id(),
             &next_block_proposer,
         )? {
-            debug!(target: "client", "Should reschedule block");
+            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
             return Ok(None);
         }
         let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(

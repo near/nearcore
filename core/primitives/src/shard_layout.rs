@@ -346,7 +346,7 @@ impl ShardLayout {
         assert!(num_shards > 0, "at least 1 shard is required");
 
         let boundary_accounts = (1..num_shards)
-            .map(|i| format!("shard{}.test.near", i).parse().unwrap())
+            .map(|i| format!("test{}", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
 
         // In order to test the non-contiguous shard ids randomize the order and
