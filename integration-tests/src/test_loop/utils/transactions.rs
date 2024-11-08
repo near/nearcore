@@ -202,6 +202,40 @@ pub fn call_contract(
     tx_hash
 }
 
+pub fn delete_account(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    account: &AccountId,
+    beneficiary: &AccountId,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    let signer = create_user_test_signer(&account).into();
+
+    let tx = SignedTransaction::delete_account(
+        nonce,
+        account.clone(),
+        account.clone(),
+        beneficiary.clone(),
+        &signer,
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    let rpc_node_data_sender = &rpc_node_data.client_sender;
+
+    let future = rpc_node_data_sender.send_async(process_tx_request);
+    drop(future);
+
+    tracing::debug!(target: "test", ?account, ?tx_hash, "deleted account");
+    tx_hash
+}
+
 /// Check the status of the transactions and assert that they are successful.
 ///
 /// Please note that it's important to use an rpc node that tracks all shards.
