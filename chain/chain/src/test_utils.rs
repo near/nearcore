@@ -19,6 +19,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
@@ -231,12 +232,13 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter_deprecated() {
                     let chunk_producer = epoch_manager
-                        .get_chunk_producer(
-                            &epoch_id,
-                            chunk_header.height_created(),
-                            chunk_header.shard_id(),
-                        )
-                        .unwrap();
+                        .get_chunk_producer_info(&ChunkProductionKey {
+                            epoch_id,
+                            height_created: chunk_header.height_created(),
+                            shard_id: chunk_header.shard_id(),
+                        })
+                        .unwrap()
+                        .take_account_id();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
