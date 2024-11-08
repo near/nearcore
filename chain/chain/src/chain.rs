@@ -4479,7 +4479,6 @@ impl Chain {
         for shard_info in shard_layout.shard_infos() {
             result_map.insert(shard_info.shard_index(), (shard_info.shard_id(), vec![]));
         }
-
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
