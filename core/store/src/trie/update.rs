@@ -125,10 +125,12 @@ impl TrieUpdate {
         self.set_impl(trie_key, value, None);
     }
 
-    /// The `value_hash` is optional for ContractCode.
+    /// The `value_hash` is optional for ContractCode, in order to avoid re-computing the hash.
     fn set_impl(&mut self, trie_key: TrieKey, value: Vec<u8>, value_hash: Option<CryptoHash>) {
-        // TODO(#11099): This code is here because not all code use `set_code` to set the ContractCode, but some use `set`.
-        // Update code to always call `set_code` instead of `set` for `TrieKey::ContractCode`. Then move this code to `set_code`.
+        // NOTE: This code is here because it is shared between `set` and `set_code` methods,
+        // both calling this method, as either of these methods can be called for storing a contract in a trie.
+        // While the contract should be set by calling `set_code`, there are generic implementations
+        // that are agnostic to the specific type of key, such as applying a pre-recorded changes to a trie.
         if let TrieKey::ContractCode { .. } = trie_key {
             // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
             // return the contract before the contract is written out to the underlying storage as part of
@@ -276,8 +278,11 @@ impl TrieUpdate {
         fallback(&key)
     }
 
-    fn record_contract_deploy(&self, code: ContractCode) {
-        self.contract_storage.record_deploy(code);
+    /// Records an new deployment of a contract to an account.
+    /// This stores the contract in the `ContractStorage` so that it can be retrieved later from there
+    /// before the current set of changes are committed.
+    fn record_contract_deploy(&self, contract: ContractCode) {
+        self.contract_storage.record_deploy(contract);
     }
 
     /// Records an access to the contract code due to a function call.

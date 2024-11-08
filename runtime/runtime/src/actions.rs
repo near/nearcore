@@ -575,11 +575,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + contract.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
+                let contract_hash = *contract.hash();
                 *account = Some(Account::new(
                     amount,
                     0,
                     permanent_storage_bytes,
-                    *contract.hash(),
+                    contract_hash,
                     storage_usage,
                     current_protocol_version,
                 ));
