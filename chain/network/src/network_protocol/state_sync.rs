@@ -103,7 +103,7 @@ pub enum SnapshotHostInfoVerificationError {
     InvalidSignature,
     #[error(
         "SnapshotHostInfo contains more shards than allowed: \
-         {0} > {MAX_SHARDS_PER_SNAPSHOT_HOST_INFO} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)",
+         {0} > {MAX_SHARDS_PER_SNAPSHOT_HOST_INFO} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)"
     )]
     TooManyShards(usize),
 }
