@@ -241,6 +241,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementV2
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -261,7 +262,6 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::CurrentEpochStateSync => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
             ProtocolFeature::BandwidthScheduler => 147,
             // Place features that are not yet in Nightly below this line.
         }
