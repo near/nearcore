@@ -4,6 +4,8 @@ import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / "lib"))
 
 from cluster import start_cluster
+from configured_logger import logger
+import utils
 from geventhttpclient import useragent
 
 
@@ -31,18 +33,38 @@ nodes = start_cluster(
     },
 )
 
-time.sleep(20)
+nodes[1].kill()
 
-response = nodes[0].get_block_by_height(9999)
+
+def check_bad_block(node, height):
+    try:
+        node.get_block_by_height(height)
+        assert False, "Expected an exception for block height 1 but none was raised"
+    except useragent.BadStatusCode as e:
+        assert "code=422" in str(e), f"Expected status code 422 in exception, got: {e}"
+    except Exception as e:
+        assert False, f"Unexpected exception type raised: {type(e)}. Exception: {e}"
+
+
+last_height = -1
+
+for height, hash in utils.poll_blocks(nodes[0]):
+    if height >= 20:
+        break
+
+    response = nodes[0].get_block_by_height(height)
+    assert not "error" in response
+    logger.info(f"good RPC response for: {height}")
+
+    if last_height != -1:
+        for bad_height in range(last_height + 1, height):
+            response = check_bad_block(nodes[0], bad_height)
+            logger.info(f"422 response for: {height}")
+
+    last_height = height
+
+response = nodes[0].get_block_by_height(last_height + 9999)
 assert "error" in response, f"Expected an error for block height 9999, got: {response}"
 assert (
     response["error"]["cause"]["name"] == "UNKNOWN_BLOCK"
 ), f"Expected UNKNOWN_BLOCK error, got: {response['error']['cause']['name']}"
-
-try:
-    nodes[0].get_block_by_height(1)
-    assert False, "Expected an exception for block height 1 but none was raised"
-except useragent.BadStatusCode as e:
-    assert "code=422" in str(e), f"Expected status code 422 in exception, got: {e}"
-except Exception as e:
-    assert False, f"Unexpected exception type raised: {type(e)}. Exception: {e}"
