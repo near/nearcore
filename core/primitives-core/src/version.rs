@@ -261,7 +261,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::CurrentEpochStateSync => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 146,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness => 74, //146,
             ProtocolFeature::BandwidthScheduler => 147,
             // Place features that are not yet in Nightly below this line.
         }
@@ -273,7 +273,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 147;
