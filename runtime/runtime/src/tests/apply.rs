@@ -12,6 +12,7 @@ use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, Signe
 use near_primitives::action::Action;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::challenge::PartialState;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
@@ -1110,9 +1111,8 @@ fn test_compute_usage_limit_with_failed_receipt() {
     });
 }
 
-// TODO(#11099): Add separate test for storage proof limit without contract calls.
 #[test]
-fn test_main_storage_proof_size_soft_limit_for_contracts() {
+fn test_main_storage_proof_size_soft_limit() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1120,20 +1120,15 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         10u64.pow(15),
     );
 
-    // Change main_storage_proof_size_soft_limit to a smaller value
-    // The value of 500 is small enough to let the first receipt go through but not the second
-    // if the contract code is included in the storage proof. Otherwise, both receipts will go
-    // through since the contract code does not contribute to the storage proof.
-    let mut runtime_config = RuntimeConfig::test();
-    runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
-    apply_state.config = Arc::new(runtime_config);
+    apply_state.config = Arc::new(RuntimeConfig::free());
 
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
             signer,
             vec![Action::DeployContract(DeployContractAction {
-                code: near_test_contracts::sized_contract(5000).to_vec(),
+                code: contract_code.code().to_vec(),
             })],
         )
     };
@@ -1153,18 +1148,26 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         )
         .unwrap();
 
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
+
+    // Change main_storage_proof_size_soft_limit to the storage size in order to let
+    // the first receipt go through but not the second one.
+    let mut runtime_config = RuntimeConfig::free();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = 300;
+    apply_state.config = Arc::new(runtime_config);
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
             signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
                 gas: 1,
                 deposit: 0,
             }))],
@@ -1187,56 +1190,27 @@ fn test_main_storage_proof_size_soft_limit_for_contracts() {
         )
         .unwrap();
 
-    if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        // We expect that both receipts are included since the contract code is not included in the storage proof.
-        assert_eq!(apply_result.delayed_receipts_count, 0);
+    // We expect function_call_fn(bob_account()) to be in delayed receipts
+    assert_eq!(apply_result.delayed_receipts_count, 1);
 
-        // Check that both contracts are excluded from the storage proof.
-        let partial_storage = apply_result.proof.unwrap();
-        let storage = Trie::from_recorded_storage(partial_storage, root, false);
-        let code_key = TrieKey::ContractCode { account_id: alice_account() };
-        assert_matches!(
-            storage.get(&code_key.to_vec()),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
-        );
-        let code_key = TrieKey::ContractCode { account_id: bob_account() };
-        assert_matches!(
-            storage.get(&code_key.to_vec()),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
-        );
-    } else {
-        // We expect function_call_fn(bob_account()) to be in delayed receipts
-        assert_eq!(apply_result.delayed_receipts_count, 1);
-
-        // Check that alice contract is present in storage proof and bob
-        // contract is not.
-        let partial_storage = apply_result.proof.unwrap();
-        let storage = Trie::from_recorded_storage(partial_storage, root, false);
-        let code_key = TrieKey::ContractCode { account_id: alice_account() };
-        assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
-        let code_key = TrieKey::ContractCode { account_id: bob_account() };
-        assert_matches!(
-            storage.get(&code_key.to_vec()),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
-        );
-    }
+    // Since contracts are excluded from the partial state, we will get missing trie error below.
+    let partial_storage = apply_result.proof.unwrap();
+    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
+    let code_key = TrieKey::ContractCode { account_id: bob_account() };
+    assert_matches!(
+        storage.get(&code_key.to_vec()),
+        Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
+    );
 }
 
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.
 #[test]
 fn test_exclude_contract_code_from_witness() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1244,9 +1218,16 @@ fn test_exclude_contract_code_from_witness() {
         10u64.pow(15),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    const CONTRACT_SIZE: usize = 5000;
 
-    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    // Set the storage proof soft-limit to the size of the contract.
+    // Since contract code is not included in the storage proof, both function calls below pass the proof soft-limit.
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE;
+    apply_state.config = Arc::new(runtime_config);
+
+    let contract_code =
+        ContractCode::new(near_test_contracts::sized_contract(CONTRACT_SIZE).to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
             account_id,
@@ -1290,14 +1271,15 @@ fn test_exclude_contract_code_from_witness() {
             account_id,
             signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "ext_sha256".to_string(),
-                args: b"first".to_vec(),
+                method_name: "main".to_string(),
+                args: Vec::new(),
                 gas: 1,
                 deposit: 0,
             }))],
         )
     };
 
+    // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
@@ -1313,6 +1295,9 @@ fn test_exclude_contract_code_from_witness() {
         )
         .unwrap();
 
+    // We expect that both receipts are included since the contract code is not included in the storage proof.
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+
     assert_eq!(apply_result.delayed_receipts_count, 0);
     // Since both accounts call the same contract, we expect only one contract access.
     assert_eq!(
@@ -1321,8 +1306,13 @@ fn test_exclude_contract_code_from_witness() {
     );
     assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 
-    // Check that both contracts are excluded from the storage proof.
+    // Check that the proof size is less than the contract size (since it is not included in the storage proof).
     let partial_storage = apply_result.proof.unwrap();
+    let PartialState::TrieValues(storage_proof) = partial_storage.nodes.clone();
+    let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
+    assert!(total_size < CONTRACT_SIZE);
+
+    // Check that both contracts are excluded from the storage proof.
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
@@ -1340,9 +1330,6 @@ fn test_exclude_contract_code_from_witness() {
 // with one of the function calls fail due to exceeding the gas limit.
 #[test]
 fn test_exclude_contract_code_from_witness_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1448,9 +1435,6 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 // where different contracts are deployed to different accounts, to check if we record code-hashes of both contracts.
 #[test]
 fn test_deploy_and_call_different_contracts() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1555,9 +1539,6 @@ fn test_deploy_and_call_different_contracts() {
 // Similar to test_deploy_and_call_different_contracts, but one of the function calls fails.
 #[test]
 fn test_deploy_and_call_different_contracts_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1664,9 +1645,6 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
 #[test]
 fn test_deploy_and_call_in_apply() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1744,9 +1722,6 @@ fn test_deploy_and_call_in_apply() {
 // Similar to test_deploy_and_call_in_apply but one of the function calls fail due to exceeding gas limit.
 #[test]
 fn test_deploy_and_call_in_apply_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1827,9 +1802,6 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 // Tests that an existing contract is deployed and called from a different account.
 #[test]
 fn test_deploy_existing_contract_to_different_account() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1925,9 +1897,6 @@ fn test_deploy_existing_contract_to_different_account() {
 // Tests the case in which deploy and call are contained in the same receipt.
 #[test]
 fn test_deploy_and_call_in_same_receipt() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -1975,9 +1944,6 @@ fn test_deploy_and_call_in_same_receipt() {
 // Tests the case in which deploy and call are contained in the same receipt and function call fails due to exceeding gas limit.
 #[test]
 fn test_deploy_and_call_in_same_receipt_with_failed_call() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         to_yocto(1_000_000),
@@ -2024,9 +1990,6 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 // Tests the case in which a function call is made to an account with no contract deployed.
 #[test]
 fn test_call_account_without_contract() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
 
@@ -2063,9 +2026,6 @@ fn test_call_account_without_contract() {
 /// Tests that we do not record the contract accesses when validating the chunk.
 #[test]
 fn test_contract_accesses_when_validating_chunk() {
-    if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
 
