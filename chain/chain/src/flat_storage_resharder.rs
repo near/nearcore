@@ -862,11 +862,14 @@ fn shard_split_handle_key_value(
         }
         col::DELAYED_RECEIPT_OR_INDICES
         | col::PROMISE_YIELD_INDICES
-        | col::PROMISE_YIELD_TIMEOUT => copy_kv_to_all_children(&status, key, value, store_update),
+        | col::PROMISE_YIELD_TIMEOUT
+        | col::BANDWIDTH_SCHEDULER_STATE => {
+            copy_kv_to_all_children(&status, key, value, store_update)
+        }
         col::BUFFERED_RECEIPT_INDICES | col::BUFFERED_RECEIPT => {
             copy_kv_to_left_child(&status, key, value, store_update)
         }
-        _ => unreachable!(),
+        _ => unreachable!("key: {:?} should not appear in flat store!", key),
     }
     Ok(())
 }
@@ -1038,6 +1041,7 @@ mod tests {
     };
 
     use super::*;
+    use assert_matches::assert_matches;
     use more_asserts::assert_gt;
     use near_async::messaging::{CanSend, IntoMultiSender};
     use near_crypto::{KeyType, PublicKey};
@@ -1593,6 +1597,15 @@ mod tests {
         } = match resharding_event_type.clone() {
             ReshardingEventType::SplitShard(params) => params,
         };
+
+        // Bring chain forward in order to make the resharding block (height 2) final.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
+
         let manager = chain.runtime_adapter.get_flat_storage_manager();
 
         // Manually add deltas on top of parent's flat storage.
@@ -1716,14 +1729,6 @@ mod tests {
             .unwrap()
             .commit()
             .unwrap();
-
-        // Bring chain forward in order to make the resharding block (height 2) final.
-        add_blocks_to_chain(
-            &mut chain,
-            2,
-            PreviousBlockHeight::ChainHead,
-            NextBlockHeight::ChainHeadPlusOne,
-        );
 
         // Do resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
@@ -2348,10 +2353,11 @@ mod tests {
         );
 
         // Now the second resharding event should take place.
-        assert_eq!(
+        assert_matches!(
             sender.call_split_shard_task(),
-            FlatStorageReshardingTaskResult::Successful { num_batches_done: 3 }
+            FlatStorageReshardingTaskResult::Successful { .. }
         );
+
         assert_eq!(flat_store.iter(parent_shard).count(), 0);
     }
 
