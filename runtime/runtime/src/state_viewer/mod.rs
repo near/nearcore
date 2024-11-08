@@ -150,9 +150,8 @@ impl TrieViewer {
         match get_account(state_update, account_id)? {
             Some(account) => {
                 let code_len = state_update
-                    .get_code(account_id.clone(), account.code_hash())?
-                    .map(|c| c.code().len() as u64)
-                    .unwrap_or_default();
+                    .get_code_len(account_id.clone(), account.code_hash())?
+                    .unwrap_or_default() as u64;
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {
                         return Err(errors::ViewStateError::AccountStateTooLarge {

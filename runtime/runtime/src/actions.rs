@@ -617,9 +617,10 @@ pub(crate) fn action_deploy_contract(
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = state_update.get_code(account_id.clone(), account.code_hash())?;
-    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
+    let prev_code_len = state_update
+        .get_code_len(account_id.clone(), account.code_hash())?
+        .unwrap_or_default() as u64;
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -659,10 +660,10 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = state_update.get_code(account_id.clone(), account.code_hash())?;
-        if let Some(code) = contract_code {
+        let code_len = state_update.get_code_len(account_id.clone(), account.code_hash())?;
+        if let Some(code_len) = code_len {
             // account storage usage should be larger than code size
-            let code_len = code.code().len() as u64;
+            let code_len = code_len as u64;
             debug_assert!(account_storage_usage > code_len);
             account_storage_usage = account_storage_usage.saturating_sub(code_len);
         }

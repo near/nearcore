@@ -648,6 +648,13 @@ impl OptimizedValueRef {
         }
     }
 
+    pub fn value_hash(&self) -> CryptoHash {
+        match self {
+            OptimizedValueRef::Ref(value_ref) => value_ref.hash,
+            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => hash(value.as_slice()),
+        }
+    }
+
     pub fn into_value_ref(self) -> ValueRef {
         match self {
             Self::Ref(value_ref) => value_ref,

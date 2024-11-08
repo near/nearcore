@@ -1,6 +1,6 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
-use super::{OptimizedValueRef, Trie, TrieWithReadLock, ValueAccessToken};
+use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
@@ -48,6 +48,13 @@ impl<'a> TrieUpdateValuePtr<'a> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => value.len() as u32,
             TrieUpdateValuePtr::Ref(_, value_ref) => value_ref.len() as u32,
+        }
+    }
+
+    pub fn value_hash(&self) -> CryptoHash {
+        match self {
+            TrieUpdateValuePtr::MemoryRef(value) => hash(*value),
+            TrieUpdateValuePtr::Ref(_, value_ref) => value_ref.value_hash(),
         }
     }
 
@@ -152,6 +159,25 @@ impl TrieUpdate {
     ) -> Result<Option<ContractCode>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
         self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
+    }
+
+    /// Returns the size of the contract code for the given account.
+    ///
+    /// This is different from `get_code` in that it does not read the code from storage.
+    /// However, the trie nodes traversed to get the code size are recorded.
+    pub fn get_code_len(
+        &self,
+        account_id: AccountId,
+        code_hash: CryptoHash,
+    ) -> Result<Option<usize>, StorageError> {
+        let key = TrieKey::ContractCode { account_id };
+        let value_ptr = self.get_ref(&key, KeyLookupMode::FlatStorage)?;
+        if let Some(value_ptr) = value_ptr {
+            debug_assert_eq!(value_ptr.value_hash(), code_hash);
+            Ok(Some(value_ptr.len() as usize))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
@@ -315,13 +341,8 @@ impl TrieUpdate {
                     Err(err)
                 }
             })?;
-        let contract_exists: bool = match contract_ref {
-            Some(OptimizedValueRef::Ref(value_ref)) => value_ref.hash == code_hash,
-            Some(OptimizedValueRef::AvailableValue(ValueAccessToken { value })) => {
-                hash(value.as_slice()) == code_hash
-            }
-            None => false,
-        };
+        let contract_exists =
+            contract_ref.map(|value_ref| value_ref.value_hash() == code_hash).unwrap_or(false);
         if contract_exists {
             self.contract_storage.record_call(code_hash);
         }
