@@ -90,6 +90,7 @@ impl TrieUpdate {
         &self.trie
     }
 
+    /// Gets a clone of the `ContractStorage`` (which internally points to the same storage).
     pub fn contract_storage(&self) -> ContractStorage {
         self.contract_storage.clone()
     }
@@ -161,7 +162,7 @@ impl TrieUpdate {
         self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
     }
 
-    /// Returns the size of the contract code for the given account.
+    /// Returns the size (in num bytes) of the contract code for the given account.
     ///
     /// This is different from `get_code` in that it does not read the code from storage.
     /// However, the trie nodes traversed to get the code size are recorded.
@@ -173,7 +174,12 @@ impl TrieUpdate {
         let key = TrieKey::ContractCode { account_id };
         let value_ptr = self.get_ref(&key, KeyLookupMode::FlatStorage)?;
         if let Some(value_ptr) = value_ptr {
-            debug_assert_eq!(value_ptr.value_hash(), code_hash);
+            let value_hash = value_ptr.value_hash();
+            debug_assert_eq!(
+                code_hash, value_hash,
+                "Hash for code does not match hash in account: Expected: {:?} Found: {:?}",
+                code_hash, value_hash
+            );
             Ok(Some(value_ptr.len() as usize))
         } else {
             Ok(None)
