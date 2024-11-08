@@ -34,10 +34,10 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -59,7 +59,6 @@ use near_store::{
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use num_rational::Ratio;
-use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -779,18 +778,16 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(validators[(height as usize) % validators.len()].account_id().clone())
     }
 
-    fn get_chunk_producer(
+    fn get_chunk_producer_info(
         &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        key: &ChunkProductionKey,
+    ) -> Result<ValidatorStake, EpochError> {
+        let valset = self.get_valset_for_epoch(&key.epoch_id)?;
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(key.shard_id)?;
         let chunk_producers = self.get_chunk_producers(valset, shard_index);
-        let index = (shard_index + height as usize + 1) % chunk_producers.len();
-        Ok(chunk_producers[index].account_id().clone())
+        let index = (shard_index + key.height_created as usize + 1) % chunk_producers.len();
+        Ok(chunk_producers[index].clone())
     }
 
     fn get_chunk_validator_assignments(
@@ -1023,13 +1020,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_partial_witness_signature(
-        &self,
-        _partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
     fn verify_witness_contract_accesses_signature(
         &self,
         _accesses: &ChunkContractAccesses,
@@ -1037,9 +1027,9 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_partial_deploys_signature(
+    fn verify_witness_contract_code_request_signature(
         &self,
-        _partial_deploys: &PartialEncodedContractDeploys,
+        _request: &ContractCodeRequest,
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -1143,19 +1133,6 @@ impl EpochManagerAdapter for MockEpochManager {
         _epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
-    }
-
-    fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = self.get_chunk_producers(valset, shard_index);
-        let index = rand::thread_rng().gen_range(0..chunk_producers.len());
-        Ok(chunk_producers[index].account_id().clone())
     }
 }
 

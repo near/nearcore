@@ -364,7 +364,7 @@ target-lexicon = { version = "0.12.2", default-features = false }
 tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
-thiserror = "1.0.30"
+thiserror = "2.0"
 tikv-jemallocator = "0.5.0"
 time = { version = "0.3.9", default-features = false }
 tokio = { version = "1.28", default-features = false }

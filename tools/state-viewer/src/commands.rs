@@ -35,6 +35,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -630,8 +631,12 @@ pub(crate) fn print_chain(
                     let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
                     for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
                         let chunk_producer = epoch_manager
-                            .get_chunk_producer(&epoch_id, header.height(), shard_id)
-                            .map(|account_id| account_id.to_string())
+                            .get_chunk_producer_info(&ChunkProductionKey {
+                                epoch_id,
+                                height_created: header.height(),
+                                shard_id,
+                            })
+                            .map(|info| info.account_id().to_string())
                             .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_index] {
                             let chunk_hash = &block.chunks()[shard_index].chunk_hash();

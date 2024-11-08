@@ -13,11 +13,15 @@ Runtime.
 ### Trie
 
 Trie stores the state - accounts, contract codes, access keys, etc. Each state
-item corresponds to the unique trie key. All types of trie keys are described in
-the [TrieKey](#triekey) section. You can read more about this structure on
+item corresponds to the unique trie key. You can read more about this structure on
 [Wikipedia](https://en.wikipedia.org/wiki/Trie).
 
-Trie is stored in the RocksDB, which is persistent across node restarts. Trie
+There are two ways to access trie - from memory and from disk. The first one is 
+currently the main one, where only the loading stage requires disk, and the
+operations are fully done in memory. The latter one relies only on disk with
+several layers of caching. Here we describe the disk trie.
+
+Disk trie is stored in the RocksDB, which is persistent across node restarts. Trie
 communicates with database using `TrieStorage`. On the database level, data is
 stored in key-value format in `DBCol::State` column. There are two kinds of
 records:
@@ -50,6 +54,15 @@ Update is prepared as follows:
 * call `finalize` method which prepares `TrieChanges` and state changes based on
   `committed` field.
 
+Prospective changes correspond to intermediate state updates, which can be
+discarded if the transaction is considered invalid (because of insufficient
+balance, invalidity, etc.). While they can't be applied yet, they must be cached
+this way if the updated keys are accessed again in the same transaction.
+
+Committed changes are stored in memory across transactions and receipts.
+Similarly, they must be cached if the updated keys are accessed across
+transactions. They can be discarded only if the chunk is discarded.
+
 Note that `finalize`, `Trie::insert` and `Trie::update` do not update the
 database storage. These functions only modify trie nodes in memory. Instead,
 these functions prepare the `TrieChanges` object, and `Trie` is actually updated
@@ -77,28 +90,6 @@ Each shard within `ShardTries` has their own `cache` and `view_cache`. The `cach
 
 ## Primitives
 
-### TrieKey
-
-Describes all keys which may be inserted to `Trie`:
-
-* `Account`
-* `ContractCode`
-* `AccessKey`
-* `ReceivedData`
-* `PostponedReceiptId`
-* `PendingDataCount`
-* `PostponedReceipt`
-* `DelayedReceiptIndices`
-* `DelayedReceipt`
-* `ContractData`
-* `YieldedPromiseQueueIndices`
-* `YieldedPromiseQueueEntries`
-* `PromiseYieldReceipt`
-
-Each key is uniquely converted to `Vec<u8>`. Internally, each such vector is
-converted to `NibbleSlice` (nibble is a half of a byte), and each its item
-corresponds to one step down in `Trie`.
-
 ### TrieChanges
 
 Stores result of updating `Trie`.
@@ -108,6 +99,10 @@ Stores result of updating `Trie`.
 * `new_root`: root after updating `Trie`,
 * `insertions`, `deletions`: vectors of `TrieRefcountChange`, describing all
   inserted and deleted nodes.
+
+This way to update trie allows to add new nodes to storage and remove old ones
+separately. The former corresponds to saving new block, the latter - to garbage
+collection of old block data which is no longer needed.
 
 ### TrieRefcountChange
 
@@ -125,4 +120,4 @@ This structure is used to update `rc` in the database:
 
 Note that for all reference-counted records, the actual value stored in DB is
 the concatenation of `trie_node_or_value` and `rc`. The reference count is
-updated using a custom merge operation `merge_refcounted_records`.
+updated using a custom merge operation `refcount_merge`.

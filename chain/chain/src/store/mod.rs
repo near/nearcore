@@ -25,7 +25,7 @@ use near_primitives::state_sync::{
 };
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV3,
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -2026,7 +2026,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let ContractUpdates { contract_accesses, contract_deploys } = contract_updates;
             self.state_transition_data.insert(
                 (block_hash, shard_id),
-                StoredChunkStateTransitionData::V3(StoredChunkStateTransitionDataV3 {
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state: partial_storage.nodes,
                     receipts_hash: applied_receipts_hash,
                     contract_accesses: contract_accesses.into_iter().collect(),

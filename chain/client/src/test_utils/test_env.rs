@@ -28,6 +28,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -359,16 +360,15 @@ impl TestEnv {
         let partial_witness_adapters = self.partial_witness_adapters.clone();
         for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness, .. } =
-                    request;
-
+                let DistributeStateWitnessRequest { state_witness, .. } = request;
                 let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
+                let key = state_witness.chunk_production_key();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(
-                        &epoch_id,
-                        chunk_header.shard_id(),
-                        chunk_header.height_created(),
+                        &key.epoch_id,
+                        key.shard_id,
+                        key.height_created,
                     )
                     .unwrap()
                     .ordered_chunk_validators();
@@ -686,7 +686,14 @@ impl TestEnv {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         let height = head.height + height_offset;
 
-        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
+        epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: height,
+                shard_id,
+            })
+            .unwrap()
+            .take_account_id()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {

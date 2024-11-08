@@ -15,6 +15,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
     ShardChunkHeader,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -96,8 +97,14 @@ impl ChunkTestFixture {
         let mock_shard_id: ShardId = ShardId::new(0);
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
-        let mock_chunk_producer =
-            epoch_manager.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
+        let mock_chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: mock_epoch_id,
+                height_created: mock_height,
+                shard_id: mock_shard_id,
+            })
+            .unwrap()
+            .take_account_id();
         let signer = create_test_signer(mock_chunk_producer.as_str());
         let validators: Vec<_> = epoch_manager
             .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())

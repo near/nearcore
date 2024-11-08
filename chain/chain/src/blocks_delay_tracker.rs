@@ -4,6 +4,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
@@ -104,7 +105,13 @@ impl ChunkTrackingStats {
         let created_by = epoch_manager
             .get_epoch_id_from_prev_block(&self.prev_block_hash)
             .and_then(|epoch_id| {
-                epoch_manager.get_chunk_producer(&epoch_id, self.height_created, self.shard_id)
+                epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: self.height_created,
+                        shard_id: self.shard_id,
+                    })
+                    .map(|info| info.take_account_id())
             })
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {

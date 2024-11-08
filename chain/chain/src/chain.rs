@@ -816,18 +816,14 @@ impl Chain {
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
             let epoch_id = epoch_first_block.header().epoch_id();
-            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
             let state_sync_info = StateSyncInfo::new(
                 protocol_version,
                 *epoch_first_block.header().hash(),
-                &prev_block,
-                &shard_layout,
-                &shards_to_state_sync,
-            )?;
+                shards_to_state_sync,
+            );
             Ok(Some(state_sync_info))
         }
     }
@@ -2534,7 +2530,7 @@ impl Chain {
         }
         let header = self.get_block_header(block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
             self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
         } else {
             // In the first epoch, it doesn't make sense to sync state to the previous epoch.
@@ -3316,6 +3312,13 @@ impl Chain {
                 shard_id,
                 true,
             ) {
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                self.resharding_manager.start_resharding(
+                    self.chain_store.store_update(),
+                    &block,
+                    shard_uid,
+                    self.runtime_adapter.get_tries(),
+                )?;
                 self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
@@ -3954,7 +3957,7 @@ impl Chain {
         match snapshot_config.state_snapshot_type {
             // For every epoch, we snapshot if the next block is the state sync "sync_hash" block
             StateSnapshotType::EveryEpoch => {
-                if !ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
+                if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
                     if is_epoch_boundary {
                         // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
                         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))

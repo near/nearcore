@@ -41,7 +41,7 @@ pub struct DeleteAndMaybeCreateSnapshotRequest {
     create_snapshot_request: Option<CreateSnapshotRequest>,
 }
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct CreateSnapshotRequest {
     /// prev_hash of the last processed block.
@@ -52,6 +52,20 @@ pub struct CreateSnapshotRequest {
     shard_indexes_and_uids: Vec<(ShardIndex, ShardUId)>,
     /// Last block of the prev epoch.
     block: Block,
+}
+
+impl std::fmt::Debug for CreateSnapshotRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateSnapshotRequest")
+            .field("block_hash", self.block.hash())
+            .field("prev_block_hash", &self.prev_block_hash)
+            .field("epoch_height", &self.epoch_height)
+            .field(
+                "shard_uids",
+                &self.shard_indexes_and_uids.iter().map(|(_index, uid)| uid).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl StateSnapshotActor {
