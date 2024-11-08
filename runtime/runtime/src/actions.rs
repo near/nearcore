@@ -569,21 +569,21 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
                 let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
+                let contract = ContractCode::new(magic_bytes.code().to_vec(), None);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + magic_bytes.code().len() as u64
+                    + contract.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                let contract_hash = *magic_bytes.hash();
                 *account = Some(Account::new(
                     amount,
                     0,
                     permanent_storage_bytes,
-                    contract_hash,
+                    *contract.hash(),
                     storage_usage,
                     current_protocol_version,
                 ));
-                state_update.set_code(account_id.clone(), &magic_bytes);
+                state_update.set_code(account_id.clone(), contract);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
@@ -615,7 +615,7 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
-    let code = ContractCode::new(deploy_contract.code.clone(), None);
+    let contract = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = state_update.get_code(account.code_hash())?;
     let prev_code_length = if let Some(prev_code) = prev_code {
         state_update.record_contract_access(
@@ -631,26 +631,28 @@ pub(crate) fn action_deploy_contract(
 
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
-        account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
+        account.storage_usage().checked_add(contract.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Storage usage integer overflow for account {}",
                 account_id
             ))
         })?,
     );
-    account.set_code_hash(*code.hash());
-    // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
-    // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
-    // contracts into the storage as part of the commit routine, however no code should be relying
-    // that the contracts are written to The State.
-    state_update.set_code(account_id.clone(), &code);
-    // Precompile the contract and store result (compiled code or error) in the contract runtime
-    // cache.
+    account.set_code_hash(*contract.hash());
+
+    // Precompile the contract and store result (compiled code or error) in the contract runtime cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
     // logic in estimator (see get_runtime_config() function).
     let config = Arc::clone(&apply_state.config.wasm_config);
     let cache = apply_state.cache.as_deref();
-    precompile_contract(&code, config, cache).ok();
+    precompile_contract(&contract, config, cache).ok();
+
+    // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
+    // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
+    // contracts into the storage as part of the commit routine, however no code should be relying
+    // that the contracts are written to The State.
+    state_update.set_code(account_id.clone(), contract);
+
     Ok(())
 }
 

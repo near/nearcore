@@ -32,8 +32,8 @@ impl ContractCode {
     }
 
     /// Destructs this instance and returns the code.
-    pub fn take_code(self) -> Vec<u8> {
-        self.code
+    pub fn take_code(self) -> (Vec<u8>, CryptoHash) {
+        (self.code, self.hash)
     }
 }
 

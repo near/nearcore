@@ -1538,9 +1538,9 @@ impl Runtime {
                 StateRecord::Contract { account_id, code } => {
                     let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
-                    let code = ContractCode::new(code, None);
-                    state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.code_hash());
+                    let contract = ContractCode::new(code, None);
+                    assert_eq!(*contract.hash(), acc.code_hash());
+                    state_update.set_code(account_id, contract);
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);

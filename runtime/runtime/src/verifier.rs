@@ -679,14 +679,12 @@ mod tests {
             if has_contract {
                 let code = vec![0; 100];
                 let code_hash = hash(&code);
-                initial_state.set_code(
-                    account_id.clone(),
-                    &ContractCode::new(code.clone(), Some(code_hash)),
-                );
                 initial_account.set_code_hash(code_hash);
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
+                let contract = ContractCode::new(code, Some(code_hash));
+                initial_state.set_code(account_id.clone(), contract);
             }
             if has_data {
                 let key = b"test".to_vec();

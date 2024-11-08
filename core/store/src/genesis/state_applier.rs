@@ -201,17 +201,18 @@ impl GenesisStateApplier {
                 StateRecord::Contract { account_id, code } => {
                     storage.modify(|state_update| {
                         // Recompute contract code hash.
-                        let code = ContractCode::new(code.clone(), None);
+                        let contract = ContractCode::new(code.clone(), None);
+                        let code_hash = *contract.hash();
                         if let Some(acc) =
                             get_account(state_update, account_id).expect("Failed to read state")
                         {
-                            state_update.set_code(account_id.clone(), &code);
-                            assert_eq!(*code.hash(), acc.code_hash());
+                            assert_eq!(*contract.hash(), acc.code_hash());
+                            state_update.set_code(account_id.clone(), contract);
                         } else {
                             tracing::error!(
                                 target: "runtime",
                                 %account_id,
-                                code_hash = %code.hash(),
+                                %code_hash,
                                 message = "code for non-existent account",
                             );
                         }

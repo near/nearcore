@@ -359,7 +359,7 @@ impl CodeBytes {
 
 impl From<ContractCode> for CodeBytes {
     fn from(code: ContractCode) -> Self {
-        Self(code.take_code().into())
+        Self(code.take_code().0.into())
     }
 }
 

@@ -122,13 +122,18 @@ impl TrieUpdate {
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
-        // TODO(#11099): Update code to always call `set_code` instead of this method for `TrieKey::ContractCode`.
-        // Then all set operations for ContractCode should use `set_code` and this code should move to `set_code`.
+        self.set_impl(trie_key, value, None);
+    }
+
+    /// The `value_hash` is optional for ContractCode.
+    fn set_impl(&mut self, trie_key: TrieKey, value: Vec<u8>, value_hash: Option<CryptoHash>) {
+        // TODO(#11099): This code is here because not all code use `set_code` to set the ContractCode, but some use `set`.
+        // Update code to always call `set_code` instead of `set` for `TrieKey::ContractCode`. Then move this code to `set_code`.
         if let TrieKey::ContractCode { .. } = trie_key {
             // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
             // return the contract before the contract is written out to the underlying storage as part of
             // the `TrieUpdate` commit.)
-            self.record_contract_deploy(ContractCode::new(value.clone(), None));
+            self.record_contract_deploy(ContractCode::new(value.clone(), value_hash));
         }
 
         // NOTE: Converting `TrieKey` to a `Vec<u8>` is useful here for 2 reasons:
@@ -160,8 +165,9 @@ impl TrieUpdate {
     }
 
     // TODO(#11099): Make this take a non-reference.
-    pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
-        self.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
+    pub fn set_code(&mut self, account_id: AccountId, contract: ContractCode) {
+        let (code, hash) = contract.take_code();
+        self.set_impl(TrieKey::ContractCode { account_id }, code, Some(hash));
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
