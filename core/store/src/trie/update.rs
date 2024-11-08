@@ -311,7 +311,7 @@ impl TrieUpdate {
     /// In the latter case, the Trie read does not happen and the code-size does not contribute to
     /// the storage-proof limit. Instead we just record that the code with the given hash was called,
     /// so that we can identify which contract-code to distribute to the validators.
-    pub fn record_contract_access(
+    pub fn record_contract_call(
         &self,
         account_id: AccountId,
         code_hash: CryptoHash,

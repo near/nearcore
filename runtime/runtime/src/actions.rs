@@ -181,7 +181,7 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    state_update.record_contract_access(
+    state_update.record_contract_call(
         account_id.clone(),
         code_hash,
         apply_state.apply_reason.clone(),
