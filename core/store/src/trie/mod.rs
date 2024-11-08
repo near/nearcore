@@ -1,7 +1,6 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
@@ -19,7 +18,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
-use mem::mem_trie_update::{UpdatedMemTrieNodeId, UpdatedMemTrieNodeWithSize};
+use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeId, UpdatedMemTrieNodeWithSize};
 use mem::mem_tries::MemTries;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
@@ -40,9 +39,10 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
+use std::ops::DerefMut;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
-pub use trie_recording::{SubtreeSize, TrieRecorderStats};
+pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
 #[cfg(test)]
 use trie_storage_update::UpdatedTrieStorageNode;
 use trie_storage_update::{TrieStorageUpdate, UpdatedTrieStorageNodeWithSize};
@@ -1638,30 +1638,22 @@ impl Trie {
 
         match &self.memtries {
             Some(memtries) => {
-                // If we have in-memory tries, use it to construct the changes entirely (for
-                // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
-                let mut trie_update = guard.update(self.root, true)?;
+                let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
+                let tracking_mode = match &mut recorder {
+                    Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+                    None => TrackingMode::Refcounts,
+                };
+
+                let mut trie_update = guard.update(self.root, tracking_mode)?;
                 for (key, value) in changes {
                     match value {
                         Some(arr) => trie_update.insert(&key, arr)?,
                         None => trie_update.generic_delete(0, &key)?,
                     }
                 }
-                let (trie_changes, trie_accesses) = trie_update.to_trie_changes();
 
-                // Retroactively record all accessed trie items which are
-                // required to process trie update but were not recorded at
-                // processing lookups.
-                // The main case is a branch with two children, one of which
-                // got removed, so we need to read another one and squash it
-                // together with parent.
-                if let Some(recorder) = &self.recorder {
-                    for (node_hash, serialized_node) in trie_accesses.nodes {
-                        recorder.borrow_mut().record(&node_hash, serialized_node);
-                    }
-                }
-                Ok(trie_changes)
+                Ok(trie_update.to_trie_changes())
             }
             None => {
                 let mut trie_update = TrieStorageUpdate::new(&self);

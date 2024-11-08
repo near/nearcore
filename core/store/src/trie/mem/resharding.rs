@@ -7,7 +7,7 @@ use crate::trie::trie_storage_update::TrieStorageUpdate;
 use crate::{Trie, TrieChanges};
 
 use super::arena::ArenaMemory;
-use super::mem_trie_update::{MemTrieUpdate, TrieAccesses};
+use super::mem_trie_update::MemTrieUpdate;
 use near_primitives::errors::StorageError;
 use near_primitives::types::{AccountId, StateRoot};
 use std::ops::Range;
@@ -23,7 +23,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-    ) -> (TrieChanges, TrieAccesses) {
+    ) -> TrieChanges {
         let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
         self.retain_multi_range(&intervals)
     }
@@ -33,12 +33,11 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     ///
     /// Returns changes to be applied to in-memory trie and proof of the
     /// retain operation.
-    fn retain_multi_range(mut self, intervals: &[Range<Vec<u8>>]) -> (TrieChanges, TrieAccesses) {
+    fn retain_multi_range(mut self, intervals: &[Range<Vec<u8>>]) -> TrieChanges {
         debug_assert!(intervals.iter().all(|range| range.start < range.end));
         let intervals_nibbles = intervals_to_nibbles(intervals);
 
-        // TODO(#12074): consider handling the case when no changes are made.
-        // TODO(#12074): restore proof as well.
+        // TODO(resharding): consider handling the case when no changes are made.
         self.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
         self.to_trie_changes()
     }
@@ -72,10 +71,7 @@ impl Trie {
     }
 }
 
-// TODO(#12074): tests for
-// - `retain_split_shard` API
-// - checking not accessing not-inlined values
-// - proof correctness
+// TODO(resharding): consider adding tests for `retain_split_shard` API.
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
@@ -89,10 +85,12 @@ mod tests {
 
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::mem::iter::MemTrieIterator;
+    use crate::trie::mem::mem_trie_update::TrackingMode;
     use crate::trie::mem::mem_tries::MemTries;
     use crate::trie::mem::nibbles_utils::{
         all_two_nibble_nibbles, hex_to_nibbles, multi_hex_to_nibbles,
     };
+    use crate::trie::trie_recording::TrieRecorder;
     use crate::trie::trie_storage::TrieMemoryPartialStorage;
     use crate::trie::Trie;
 
@@ -135,17 +133,24 @@ mod tests {
         let expected_disk_state_root = trie.retain_multi_range(&retain_multi_ranges).unwrap();
 
         let mut memtries = MemTries::new(ShardUId::single_shard());
-        let mut update = memtries.update(Trie::EMPTY_ROOT, false).unwrap();
+        let mut update = memtries.update(Trie::EMPTY_ROOT, TrackingMode::None).unwrap();
         for (key, value) in initial_entries {
             update.insert(&key, value).unwrap();
         }
         let memtrie_changes = update.to_mem_trie_changes_only();
         let state_root = memtries.apply_memtrie_changes(0, &memtrie_changes);
 
-        let update = memtries.update(state_root, true).unwrap();
-        let (mut trie_changes, _) = update.retain_multi_range(&retain_multi_ranges);
+        let mut trie_recorder = TrieRecorder::new();
+        let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
+        let update = memtries.update(state_root, mode).unwrap();
+        let mut trie_changes = update.retain_multi_range(&retain_multi_ranges);
         let memtrie_changes = trie_changes.mem_trie_changes.take().unwrap();
         let mem_state_root = memtries.apply_memtrie_changes(1, &memtrie_changes);
+        let proof = trie_recorder.recorded_storage();
+
+        let partial_trie = Trie::from_recorded_storage(proof, state_root, false);
+        let expected_proof_based_state_root =
+            partial_trie.retain_multi_range(&retain_multi_ranges).unwrap();
 
         let entries = if mem_state_root != StateRoot::default() {
             let state_root_ptr = memtries.get_root(&mem_state_root).unwrap();
@@ -164,6 +169,9 @@ mod tests {
 
         // Check state root with disk-trie state root.
         assert_eq!(mem_state_root, expected_disk_state_root);
+
+        // Check state root resulting by retain based on partial storage.
+        assert_eq!(mem_state_root, expected_proof_based_state_root);
     }
 
     #[test]
