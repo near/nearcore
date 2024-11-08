@@ -350,7 +350,7 @@ impl ShardLayout {
             .collect::<Vec<AccountId>>();
 
         // In order to test the non-contiguous shard ids randomize the order and
-        // (TODO) the range of shard ids.
+        // TODO(wacban) randomize the range of shard ids.
         let mut rng = StdRng::seed_from_u64(42);
         let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
         shard_ids.shuffle(&mut rng);
@@ -1490,5 +1490,16 @@ mod tests {
                 ])),
             )
         );
+    }
+
+    // Check that the ShardLayout::multi_shard method returns interesting shard
+    // layouts. A shard layout is interesting if it has non-contiguous shard
+    // ids.
+    #[test]
+    fn test_multi_shard_non_contiguous() {
+        for n in 2..10 {
+            let shard_layout = ShardLayout::multi_shard(n, 0);
+            assert!(!shard_layout.shard_ids().is_sorted());
+        }
     }
 }
