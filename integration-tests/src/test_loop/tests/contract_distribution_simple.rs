@@ -22,20 +22,18 @@ const GENESIS_HEIGHT: u64 = 1000;
 const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 1;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
-// We need 2 additional accounts to create, deploy-contract, and delete.
-const NUM_ACCOUNTS: usize = NUM_VALIDATORS + 2;
 
 /// Executes a test that deploys to a contract to an account and calls it.
 fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
-    let accounts = make_accounts(NUM_ACCOUNTS);
+   // We need 1 more non-validator account to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 1);
 
     let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
-    // Choose an account that is not a validator.
+    // Choose an account that is not a validator, so we can delete it.
     let contract_id = accounts[NUM_VALIDATORS].clone();
-    let sender_id = contract_id.clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
     let method_name = "main".to_owned();
     let args = vec![];
@@ -55,12 +53,12 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     do_call_contract(
         &mut env,
         &rpc_id,
-        &sender_id,
+        &contract_id,
         &contract_id,
         method_name.clone(),
         args.clone(),
     );
-    do_call_contract(&mut env, &rpc_id, &sender_id, &contract_id, method_name, args);
+    do_call_contract(&mut env, &rpc_id, &contract_id, &contract_id, method_name, args);
 
     do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
 
@@ -94,15 +92,15 @@ fn test_contract_distribution_call_after_clear_single_account() {
 /// Executes a test that deploys to a contract to two different accounts and calls them.
 fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
-    let accounts = make_accounts(NUM_ACCOUNTS);
+    // We need 2 more non-validator accounts to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 2);
 
     let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
-    // Choose accounts that are not validators.
+    // Choose accounts that are not validators, so we can delete them.
     let contract_id1 = accounts[NUM_VALIDATORS].clone();
     let contract_id2 = accounts[NUM_VALIDATORS + 1].clone();
-    let sender_id = rpc_id.clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
     let method_name = "main".to_owned();
     let args = vec![];
@@ -123,12 +121,12 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     do_call_contract(
         &mut env,
         &rpc_id,
-        &sender_id,
+        &contract_id1,
         &contract_id1,
         method_name.clone(),
         args.clone(),
     );
-    do_call_contract(&mut env, &rpc_id, &sender_id, &contract_id2, method_name, args);
+    do_call_contract(&mut env, &rpc_id, &contract_id2, &contract_id2, method_name, args);
 
     do_delete_account(&mut env, &rpc_id, &contract_id1, &rpc_id);
     do_delete_account(&mut env, &rpc_id, &contract_id2, &rpc_id);
@@ -164,14 +162,14 @@ fn test_contract_distribution_call_after_clear_different_accounts() {
 #[test]
 fn test_contract_distribution_deply_and_call_multiple_contracts() {
     init_test_logger();
-    let accounts = make_accounts(NUM_ACCOUNTS);
+    // We need 1 more non-validator account to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 1);
 
     let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
     // Choose accounts that are not validators.
     let contract_id = accounts[NUM_VALIDATORS].clone();
-    let sender_id = rpc_id.clone();
     let contracts = (0..3)
         .map(|i| ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100), None))
         .collect_vec();
@@ -188,7 +186,7 @@ fn test_contract_distribution_deply_and_call_multiple_contracts() {
         do_call_contract(
             &mut env,
             &rpc_id,
-            &sender_id,
+            &contract_id,
             &contract_id,
             method_name.clone(),
             args.clone(),
@@ -196,7 +194,7 @@ fn test_contract_distribution_deply_and_call_multiple_contracts() {
         do_call_contract(
             &mut env,
             &rpc_id,
-            &sender_id,
+            &contract_id,
             &contract_id,
             method_name.clone(),
             args.clone(),
