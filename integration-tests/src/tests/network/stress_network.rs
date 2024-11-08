@@ -30,6 +30,7 @@ fn make_peer_manager(
         near_store::db::TestDB::new(),
         config,
         noop().into_multi_sender(),
+        noop().into_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
         GenesisId::default(),

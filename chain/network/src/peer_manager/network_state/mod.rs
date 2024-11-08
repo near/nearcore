@@ -31,7 +31,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerType, ReasonForBan, StatePartRequestBody, Tier3Request, Tier3RequestBody,
+    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StatePartRequestBody,
+    Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -42,7 +43,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
-use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
@@ -68,9 +68,6 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
-
-/// Limit number of pending tier3 requests to avoid OOM.
-pub(crate) const LIMIT_TIER3_REQUESTS: usize = 60;
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -110,6 +107,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
+    pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
 
@@ -153,9 +151,6 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
-    /// Queue of received requests to which a response should be made over TIER3.
-    pub tier3_requests: Mutex<VecDeque<Tier3Request>>,
-
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
@@ -185,6 +180,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
@@ -202,6 +198,7 @@ impl NetworkState {
             })),
             genesis_id,
             client,
+            peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
@@ -218,7 +215,6 @@ impl NetworkState {
             account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            tier3_requests: Mutex::new(VecDeque::<Tier3Request>::new()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
@@ -696,7 +692,7 @@ impl NetworkState {
     }
 
     pub async fn receive_routed_message(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         peer_id: PeerId,
         msg_hash: CryptoHash,
@@ -775,21 +771,14 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {
-                let mut queue = self.tier3_requests.lock();
-                if queue.len() < LIMIT_TIER3_REQUESTS {
-                    queue.push_back(Tier3Request {
-                        peer_info: PeerInfo {
-                            id: peer_id,
-                            addr: Some(request.addr),
-                            account_id: None,
-                        },
-                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                            shard_id: request.shard_id,
-                            sync_hash: request.sync_hash,
-                            part_id: request.part_id,
-                        }),
-                    });
-                }
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo { id: peer_id, addr: Some(request.addr), account_id: None },
+                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                        shard_id: request.shard_id,
+                        sync_hash: request.sync_hash,
+                        part_id: request.part_id,
+                    }),
+                });
                 None
             }
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
