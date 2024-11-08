@@ -4461,12 +4461,13 @@ impl Chain {
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         // Using a BTreeMap instead of HashMap to enable in order iteration
-        // below.
+        // below. It's important here to use the ShardIndexes, rather than
+        // ShardIds since the latter are not guaranteed to be in order.
         //
         // Pre-populating because even if there are no receipts for a shard, we
         // need an empty vector for it.
         let mut result: BTreeMap<_, _> =
-            shard_layout.shard_ids().map(|shard_id| (shard_id, vec![])).collect();
+            shard_layout.shard_ids().enumerate().map(|shard_info| (shard_info, vec![])).collect();
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
@@ -4474,11 +4475,13 @@ impl Chain {
                 .or_insert_with(|| account_id_to_shard_id(receipt.receiver_id(), shard_layout));
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
-            result.get_mut(&shard_id).unwrap().push(receipt);
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+            let shard_info = (shard_index, shard_id);
+            result.get_mut(&shard_info).unwrap().push(receipt);
         }
         result
             .into_iter()
-            .map(|(shard_id, receipts)| {
+            .map(|((_, shard_id), receipts)| {
                 let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
                 hash(&bytes)
             })

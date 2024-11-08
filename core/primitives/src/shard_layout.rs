@@ -4,6 +4,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use std::collections::BTreeMap;
 use std::{fmt, str};
 
@@ -345,7 +348,13 @@ impl ShardLayout {
         let boundary_accounts = (1..num_shards)
             .map(|i| format!("shard{}.test.near", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
-        let shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+
+        // In order to test the non-contiguous shard ids randomize the order and
+        // (TODO) the range of shard ids.
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        shard_ids.shuffle(&mut rng);
+
         let (id_to_index_map, index_to_id_map) = shard_ids
             .iter()
             .enumerate()
