@@ -342,7 +342,7 @@ impl ShardLayout {
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
-        let boundary_accounts = (0..num_shards - 1)
+        let boundary_accounts = (1..num_shards)
             .map(|i| format!("shard{}.test.near", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
         let shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
