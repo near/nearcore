@@ -44,6 +44,7 @@ pub enum TrieUpdateValuePtr<'a> {
 }
 
 impl<'a> TrieUpdateValuePtr<'a> {
+    /// Returns the length (in num bytes) of the value pointed by this pointer.
     pub fn len(&self) -> u32 {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => value.len() as u32,
@@ -51,6 +52,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
         }
     }
 
+    /// Returns the hash of the value pointed by this pointer.
     pub fn value_hash(&self) -> CryptoHash {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => hash(*value),

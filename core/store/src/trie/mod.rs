@@ -641,6 +641,7 @@ impl OptimizedValueRef {
         }
     }
 
+    /// Returns the length (in num bytes) of the value pointed by this reference.
     pub fn len(&self) -> usize {
         match self {
             Self::Ref(value_ref) => value_ref.len(),
@@ -648,6 +649,7 @@ impl OptimizedValueRef {
         }
     }
 
+    /// Returns the hash of the value pointed by this reference.
     pub fn value_hash(&self) -> CryptoHash {
         match self {
             OptimizedValueRef::Ref(value_ref) => value_ref.hash,
