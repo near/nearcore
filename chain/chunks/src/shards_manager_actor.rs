@@ -120,6 +120,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
     TransactionReceipt,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -440,11 +441,14 @@ impl ShardsManagerActor {
                 &self.shard_tracker,
             );
 
-        let chunk_producer_account_id = self.epoch_manager.as_ref().get_chunk_producer(
-            &self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
-            height,
-            shard_id,
-        )?;
+        let chunk_producer_account_id = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
+                height_created: height,
+                shard_id,
+            })?
+            .take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -645,8 +649,14 @@ impl ShardsManagerActor {
                 return Ok(true);
             }
         }
-        let chunk_producer =
-            self.epoch_manager.get_chunk_producer(&epoch_id, next_chunk_height, shard_id)?;
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: next_chunk_height,
+                shard_id,
+            })?
+            .take_account_id();
         if &chunk_producer == me {
             return Ok(true);
         }
@@ -1699,11 +1709,14 @@ impl ShardsManagerActor {
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry, me)?;
 
         let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
-        let chunk_producer = self.epoch_manager.get_chunk_producer(
-            &epoch_id,
-            header.height_created(),
-            header.shard_id(),
-        )?;
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: header.height_created(),
+                shard_id: header.shard_id(),
+            })?
+            .take_account_id();
 
         if have_all_parts {
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
@@ -1863,11 +1876,14 @@ impl ShardsManagerActor {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());
-            let next_chunk_producer = self.epoch_manager.get_chunk_producer(
-                &epoch_id,
-                current_chunk_height + 1,
-                shard_id,
-            )?;
+            let next_chunk_producer = self
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id: *epoch_id,
+                    height_created: current_chunk_height + 1,
+                    shard_id,
+                })?
+                .take_account_id();
             for (bp, _) in block_producers {
                 let bp_account_id = bp.take_account_id();
 
@@ -1907,11 +1923,13 @@ impl ShardsManagerActor {
                 .shard_ids(&epoch_id)?
                 .into_iter()
                 .map(|shard_id| {
-                    self.epoch_manager.get_chunk_producer(
-                        &epoch_id,
-                        current_chunk_height + 1,
-                        shard_id,
-                    )
+                    self.epoch_manager
+                        .get_chunk_producer_info(&ChunkProductionKey {
+                            epoch_id: *epoch_id,
+                            height_created: current_chunk_height + 1,
+                            shard_id,
+                        })
+                        .map(|info| info.take_account_id())
                 })
                 .collect::<Result<HashSet<_>, _>>()?;
             next_chunk_producers.remove(me);

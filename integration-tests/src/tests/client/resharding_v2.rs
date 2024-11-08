@@ -13,6 +13,7 @@ use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::account_id_to_shard_uid;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -506,7 +507,10 @@ fn get_chunk_producer(env: &TestEnv, block: &Block, shard_id: ShardId) -> Accoun
     let parent_hash = block.header().prev_hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
     let height = block.header().height() + 1;
-    let chunk_producer = epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap();
+    let chunk_producer = epoch_manager
+        .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created: height, shard_id })
+        .unwrap()
+        .take_account_id();
     chunk_producer
 }
 

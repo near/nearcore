@@ -241,17 +241,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError>;
 
-    /// TODO(pugachag): deprecate this by inlining usage
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let key = ChunkProductionKey { epoch_id: *epoch_id, height_created: height, shard_id };
-        self.get_chunk_producer_info(&key).map(|info| info.take_account_id())
-    }
-
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
         &self,

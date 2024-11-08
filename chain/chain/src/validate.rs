@@ -13,6 +13,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
@@ -299,11 +300,13 @@ fn validate_chunk_authorship(
         &epoch_id,
         &chunk_header.prev_block_hash(),
     )? {
-        let chunk_producer = epoch_manager.get_chunk_producer(
-            &epoch_id,
-            chunk_header.height_created(),
-            chunk_header.shard_id(),
-        )?;
+        let chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_header.height_created(),
+                shard_id: chunk_header.shard_id(),
+            })?
+            .take_account_id();
         Ok(chunk_producer)
     } else {
         Err(Error::InvalidChallenge)
