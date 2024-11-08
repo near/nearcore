@@ -308,6 +308,7 @@ impl FlatStorageResharder {
                 // It's important to cancel the scheduled event in case of failure.
                 self.cancel_scheduled_event();
                 error!(target: "resharding", "flat storage shard split task failed during scheduling!");
+                // TODO(resharding): return failed only if scheduling of all resharding blocks have failed.
                 return FlatStorageReshardingTaskResult::Failed;
             }
             FlatStorageReshardingTaskSchedulingStatus::Postponed => {
@@ -734,7 +735,7 @@ impl FlatStorageResharder {
         let chain_final_head = chain_store.final_head().unwrap();
         let resharding_height_result = chain_store.get_block_height(resharding_hash);
         let Ok(resharding_height) = resharding_height_result else {
-            error!(target: "resharding", ?resharding_hash, err = ?resharding_height_result.unwrap_err(), "can't resharding block height!");
+            error!(target: "resharding", ?resharding_hash, err = ?resharding_height_result.unwrap_err(), "can't get resharding block height!");
             return FlatStorageReshardingTaskSchedulingStatus::Failed;
         };
         // If the resharding block is beyond the chain final block, try again later.
@@ -1241,6 +1242,44 @@ mod tests {
         .unwrap()
     }
 
+    enum PreviousBlockHeight {
+        ChainHead,
+        Fixed(u64),
+    }
+
+    enum NextBlockHeight {
+        ChainHeadPlusOne,
+        Fixed(u64),
+    }
+
+    /// Utility to add blocks on top of a chain.
+    fn add_blocks_to_chain(
+        chain: &mut Chain,
+        num_blocks: u64,
+        on_top_of_height: PreviousBlockHeight,
+        next_height: NextBlockHeight,
+    ) {
+        assert_gt!(num_blocks, 0);
+        let signer = Arc::new(create_test_signer("aa"));
+        let mut prev_block_height = match on_top_of_height {
+            PreviousBlockHeight::ChainHead => chain.head().unwrap().height,
+            PreviousBlockHeight::Fixed(height) => height,
+        };
+        let next_block_height = match next_height {
+            NextBlockHeight::ChainHeadPlusOne => chain.head().unwrap().height + 1,
+            NextBlockHeight::Fixed(height) => height,
+        };
+        for height in next_block_height..next_block_height + num_blocks {
+            let prev_block = chain.get_block_by_height(prev_block_height).unwrap();
+            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
+                .height(height)
+                .build();
+            chain.process_block_test(&None, block).unwrap();
+            prev_block_height = height;
+        }
+        assert_eq!(chain.head().unwrap().height, next_block_height + num_blocks - 1);
+    }
+
     /// Verify that a new resharding event can't be triggered if another one has already started.
     #[test]
     fn concurrent_reshardings_are_disallowed() {
@@ -1375,8 +1414,13 @@ mod tests {
         let right_child = ShardUId { version: 3, shard_id: 3 };
         let flat_store = resharder.runtime.store().flat_store();
 
-        // Bring the chain forward to make the resharding block final.
-        add_blocks_to_chain(&mut chain, 2);
+        // Add two blocks on top of genesis. This will make the resharding block (height 0) final.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         // Perform resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
@@ -1534,8 +1578,12 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
 
         // In order to have flat state deltas we must bring the chain forward by adding blocks.
-        add_blocks_to_chain(&mut chain, 2);
-        assert_eq!(chain.head().unwrap().height, 2);
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
@@ -1667,8 +1715,13 @@ mod tests {
             .commit()
             .unwrap();
 
-        // Bring chain forward in order to make the resharding block final.
-        add_blocks_to_chain(&mut chain, 2);
+        // Bring chain forward in order to make the resharding block (height 2) final.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         // Do resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
@@ -2187,10 +2240,13 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.runtime.store().flat_store();
 
-        // Add two blocks to the chain.
-        add_blocks_to_chain(&mut chain, 2);
-        assert_eq!(chain.head().unwrap().height, 2);
-        assert_eq!(chain.final_head().unwrap().height, 0);
+        // Add two blocks on top of genesis.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         // Trigger resharding at block 2 and it shouldn't split the parent shard.
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
@@ -2201,9 +2257,13 @@ mod tests {
         assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
         assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
-        // Move final head to the resharding block (2) by adding more blocks.
-        add_blocks_to_chain(&mut chain, 2);
-        assert_eq!(chain.final_head().unwrap().height, 2);
+        // Move the chain final head to the resharding block height (2).
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         // Trigger resharding again and now it should split the parent shard.
         assert_eq!(
@@ -2211,19 +2271,6 @@ mod tests {
             FlatStorageReshardingTaskResult::Successful { num_batches_done: 3 }
         );
         assert_eq!(flat_store.iter(parent_shard).count(), 0);
-    }
-
-    /// Utility to add blocks on top of a chain.
-    fn add_blocks_to_chain(chain: &mut Chain, num_blocks: u64) {
-        let signer = Arc::new(create_test_signer("aa"));
-        let next_block_height = chain.head().unwrap().height + 1;
-        for height in next_block_height..next_block_height + num_blocks {
-            let prev_block = chain.get_block_by_height(height - 1).unwrap();
-            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
-                .height(height)
-                .build();
-            chain.process_block_test(&None, block).unwrap();
-        }
     }
 
     /// Test to verify that a resharding event not yet started can be replaced by a newer resharding
@@ -2239,10 +2286,13 @@ mod tests {
         let new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.runtime.store().flat_store();
 
-        // Add two blocks to the chain.
-        add_blocks_to_chain(&mut chain, 2);
-        assert_eq!(chain.head().unwrap().height, 2);
-        assert_eq!(chain.final_head().unwrap().height, 0);
+        // Add two blocks on top of genesis.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         // Trigger resharding at block 2. Parent shard shouldn't get split yet.
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
@@ -2254,17 +2304,12 @@ mod tests {
         assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
         // Add two blocks on top of the first block (simulate a fork).
-        let signer = Arc::new(create_test_signer("aa"));
-        let next_block_height = 2;
-        for height in next_block_height..next_block_height + 2 {
-            let prev_block = chain.get_block_by_height(height - 1).unwrap();
-            let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
-                .height(height)
-                .build();
-            chain.process_block_test(&None, block).unwrap();
-        }
-        assert_eq!(chain.head().unwrap().height, 3);
-        assert_eq!(chain.final_head().unwrap().height, 1);
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::Fixed(1),
+            NextBlockHeight::Fixed(3),
+        );
 
         // Get the new resharding event and re-trigger the shard split.
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
@@ -2275,10 +2320,13 @@ mod tests {
         assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
         assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
-        // Add two additional blocks to make the resharding block final.
-        add_blocks_to_chain(&mut chain, 2);
-        assert_eq!(chain.head().unwrap().height, 5);
-        assert_eq!(chain.final_head().unwrap().height, 3);
+        // Add two additional blocks on the fork to make the resharding block (height 1) final.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::Fixed(4),
+            NextBlockHeight::ChainHeadPlusOne,
+        );
 
         // Now the second resharding event should take place.
         assert_eq!(
@@ -2286,5 +2334,48 @@ mod tests {
             FlatStorageReshardingTaskResult::Successful { num_batches_done: 3 }
         );
         assert_eq!(flat_store.iter(parent_shard).count(), 0);
+    }
+
+    /// In this test we make sure that after a task whose scheduling has failed the cleanup logic is
+    /// executed correctly.
+    #[test]
+    fn scheduled_task_failure_is_handled_correctly() {
+        init_test_logger();
+        let (mut chain, resharder, sender) =
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+
+        // Add two blocks on top of genesis.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
+
+        // Trigger resharding at block 2.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        let (parent_shard, status) = resharder.get_parent_shard_and_status().unwrap();
+        let SplittingParentStatus { flat_head, .. } = status;
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
+
+        // Fork the chain before the resharding block and make it final, but don't update the
+        // resharding block hash.
+        add_blocks_to_chain(
+            &mut chain,
+            3,
+            PreviousBlockHeight::Fixed(1),
+            NextBlockHeight::Fixed(3),
+        );
+
+        // Scheduling of the shard split should fail.
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Failed);
+        assert!(resharder.resharding_event().is_none());
+        let flat_store = resharder.runtime.store().flat_store();
+        assert_eq!(
+            flat_store.get_flat_storage_status(parent_shard),
+            Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }))
+        );
     }
 }
