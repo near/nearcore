@@ -79,7 +79,8 @@ pub fn validate_partial_encoded_contract_deploys(
     if !validate_chunk_relevant(epoch_manager, key, store)? {
         return Ok(false);
     }
-    if !epoch_manager.verify_partial_deploys_signature(partial_deploys)? {
+    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
     Ok(true)
