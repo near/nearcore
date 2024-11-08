@@ -92,7 +92,7 @@ for height, hash in utils.poll_blocks(nodes[0]):
     if last_height != -1:
         for bad_height in range(last_height + 1, height):
             response = check_bad_block(nodes[0], bad_height)
-            logger.info(f"422 response for: {height}")
+            logger.info(f"422 response for: {bad_height}")
 
     last_height = height
 
