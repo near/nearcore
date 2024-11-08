@@ -1145,27 +1145,6 @@ impl EpochManager {
         })
     }
 
-    /// get_heuristic_block_approvers_ordered: block producers for epoch
-    /// get_all_block_producers_ordered: block producers for epoch, slashing info
-    /// get_all_block_approvers_ordered: block producers for epoch, slashing info, sometimes block producers for next epoch
-    pub fn get_heuristic_block_approvers_ordered(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ApprovalStake>, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let mut result = vec![];
-        let mut validators: HashSet<AccountId> = HashSet::new();
-        for validator_id in epoch_info.block_producers_settlement().into_iter() {
-            let validator_stake = epoch_info.get_validator(*validator_id);
-            let account_id = validator_stake.account_id();
-            if validators.insert(account_id.clone()) {
-                result.push(validator_stake.get_approval_stake(false));
-            }
-        }
-
-        Ok(result)
-    }
-
     pub fn get_all_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
