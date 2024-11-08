@@ -176,11 +176,10 @@ impl TrieUpdate {
         let key = TrieKey::ContractCode { account_id };
         let value_ptr = self.get_ref(&key, KeyLookupMode::FlatStorage)?;
         if let Some(value_ptr) = value_ptr {
-            let value_hash = value_ptr.value_hash();
             debug_assert_eq!(
-                code_hash, value_hash,
-                "Hash for code does not match hash in account: Expected: {:?} Found: {:?}",
-                code_hash, value_hash
+                code_hash,
+                value_ptr.value_hash(),
+                "Code-hash in trie does not match code-hash in account"
             );
             Ok(Some(value_ptr.len() as usize))
         } else {
