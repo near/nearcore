@@ -147,15 +147,16 @@ impl TrieUpdate {
 
     pub fn get_code(
         &self,
-        account_id: &AccountId,
+        account_id: AccountId,
         code_hash: CryptoHash,
     ) -> Result<Option<ContractCode>, StorageError> {
-        let key = TrieKey::ContractCode { account_id: account_id.clone() };
+        let key = TrieKey::ContractCode { account_id };
         self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
     }
 
     pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
-        self.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
+        let key = TrieKey::ContractCode { account_id };
+        self.set(key, code.code().to_vec());
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
@@ -328,7 +329,7 @@ impl TrieUpdate {
     }
 }
 
-impl crate::TrieAccess for TrieUpdate {
+impl TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         self.get_from_updates(key, |k| self.trie.get(k))
     }
