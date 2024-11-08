@@ -8,7 +8,6 @@ from configured_logger import logger
 import utils
 from geventhttpclient import useragent
 
-
 nodes = start_cluster(
     num_nodes=4,
     num_observers=1,
@@ -22,12 +21,45 @@ nodes = start_cluster(
         ["block_producer_kickout_threshold", 70],
     ],
     client_config_changes={
-        0: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-        1: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-        2: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-        3: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
+        0: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        1: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        2: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        3: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
         4: {
-            "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}},
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            },
             "tracked_shards": [0, 1, 2, 3],
         },
     },
@@ -41,7 +73,8 @@ def check_bad_block(node, height):
         node.get_block_by_height(height)
         assert False, "Expected an exception for block height 1 but none was raised"
     except useragent.BadStatusCode as e:
-        assert "code=422" in str(e), f"Expected status code 422 in exception, got: {e}"
+        assert "code=422" in str(
+            e), f"Expected status code 422 in exception, got: {e}"
     except Exception as e:
         assert False, f"Unexpected exception type raised: {type(e)}. Exception: {e}"
 
