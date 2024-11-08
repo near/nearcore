@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
@@ -7,13 +6,13 @@ use near_primitives::types::AccountId;
 use near_vm_runner::ContractCode;
 
 use crate::test_loop::builder::TestLoopBuilder;
-use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
 use crate::test_loop::utils::transactions::{
-    call_contract, check_txs, delete_account, deploy_contract, make_account, make_accounts,
+    do_call_contract, do_delete_account, do_deploy_contract, make_account, make_accounts,
 };
 use crate::test_loop::utils::{get_head_height, ONE_NEAR};
 
@@ -31,35 +30,44 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
+    let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
     // Choose an account that is not a validator.
     let contract_id = accounts[NUM_VALIDATORS].clone();
+    let sender_id = contract_id.clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
+    let method_name = "main".to_owned();
+    let args = vec![];
 
-    let start_height = get_head_height(&mut test_loop, &node_datas);
+    let start_height = get_head_height(&mut env);
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, &contract, 1);
+    do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
     if wait_cache_populate {
-        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+        run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
     if clear_cache {
-        clear_compiled_contract_caches(&mut test_loop, &node_datas);
+        clear_compiled_contract_caches(&mut env);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, 2);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, 3);
+    do_call_contract(
+        &mut env,
+        &rpc_id,
+        &sender_id,
+        &contract_id,
+        method_name.clone(),
+        args.clone(),
+    );
+    do_call_contract(&mut env, &rpc_id, &sender_id, &contract_id, method_name, args);
 
-    do_delete_account(&mut test_loop, &node_datas, &rpc_id, &contract_id, &rpc_id, 4);
+    do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
 
-    let end_height = get_head_height(&mut test_loop, &node_datas);
-    assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests a simple scenario where we deploy and call a contract.
@@ -88,38 +96,47 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
+    let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
     // Choose accounts that are not validators.
     let contract_id1 = accounts[NUM_VALIDATORS].clone();
     let contract_id2 = accounts[NUM_VALIDATORS + 1].clone();
+    let sender_id = rpc_id.clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
+    let method_name = "main".to_owned();
+    let args = vec![];
 
-    let start_height = get_head_height(&mut test_loop, &node_datas);
+    let start_height = get_head_height(&mut env);
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id1, &contract, 1);
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id2, &contract, 2);
+    do_deploy_contract(&mut env, &rpc_id, &contract_id1, contract.code().to_vec());
+    do_deploy_contract(&mut env, &rpc_id, &contract_id2, contract.code().to_vec());
 
     if wait_cache_populate {
-        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+        run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
     if clear_cache {
-        clear_compiled_contract_caches(&mut test_loop, &node_datas);
+        clear_compiled_contract_caches(&mut env);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id1, 3);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id2, 4);
+    do_call_contract(
+        &mut env,
+        &rpc_id,
+        &sender_id,
+        &contract_id1,
+        method_name.clone(),
+        args.clone(),
+    );
+    do_call_contract(&mut env, &rpc_id, &sender_id, &contract_id2, method_name, args);
 
-    do_delete_account(&mut test_loop, &node_datas, &rpc_id, &contract_id1, &rpc_id, 5);
-    do_delete_account(&mut test_loop, &node_datas, &rpc_id, &contract_id2, &rpc_id, 6);
+    do_delete_account(&mut env, &rpc_id, &contract_id1, &rpc_id);
+    do_delete_account(&mut env, &rpc_id, &contract_id2, &rpc_id);
 
-    let end_height = get_head_height(&mut test_loop, &node_datas);
-    assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests a simple scenario where we deploy and call a contract on two different accounts.
@@ -149,34 +166,49 @@ fn test_contract_distribution_deply_and_call_multiple_contracts() {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
+    let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
     // Choose accounts that are not validators.
     let contract_id = accounts[NUM_VALIDATORS].clone();
+    let sender_id = rpc_id.clone();
     let contracts = (0..3)
         .map(|i| ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100), None))
         .collect_vec();
+    let method_name = "main".to_owned();
+    let args = vec![];
 
-    let start_height = get_head_height(&mut test_loop, &node_datas);
+    let start_height = get_head_height(&mut env);
 
-    for (i, contract) in contracts.iter().enumerate() {
-        let nonce = (3 * i) as u64;
-        do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, contract, nonce + 1);
+    for contract in contracts.iter() {
+        do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
-        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+        run_until_caches_contain_contract(&mut env, contract.hash());
 
-        do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, nonce + 2);
-        do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, nonce + 3);
+        do_call_contract(
+            &mut env,
+            &rpc_id,
+            &sender_id,
+            &contract_id,
+            method_name.clone(),
+            args.clone(),
+        );
+        do_call_contract(
+            &mut env,
+            &rpc_id,
+            &sender_id,
+            &contract_id,
+            method_name.clone(),
+            args.clone(),
+        );
     }
 
-    do_delete_account(&mut test_loop, &node_datas, &rpc_id, &contract_id, &rpc_id, 100);
+    do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
 
-    let end_height = get_head_height(&mut test_loop, &node_datas);
-    assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
@@ -213,55 +245,4 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
     let env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
     env
-}
-
-fn do_deploy_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    rpc_id: &AccountId,
-    account: &AccountId,
-    contract: &ContractCode,
-    nonce: u64,
-) {
-    tracing::info!(target: "test", "Deploying contract.");
-    let tx =
-        deploy_contract(test_loop, &node_datas, rpc_id, account, contract.code().to_vec(), nonce);
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, rpc_id, &[tx]);
-}
-
-fn do_call_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    rpc_id: &AccountId,
-    account: &AccountId,
-    nonce: u64,
-) {
-    tracing::info!(target: "test", "Calling contract.");
-    let tx = call_contract(
-        test_loop,
-        node_datas,
-        rpc_id,
-        account,
-        account,
-        "main".to_owned(),
-        vec![],
-        nonce,
-    );
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, rpc_id, &[tx]);
-}
-
-fn do_delete_account(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    rpc_id: &AccountId,
-    account: &AccountId,
-    beneficiary: &AccountId,
-    nonce: u64,
-) {
-    tracing::info!(target: "test", "Deleting account.");
-    let tx = delete_account(test_loop, &node_datas, rpc_id, account, beneficiary, nonce);
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, rpc_id, &[tx]);
 }
