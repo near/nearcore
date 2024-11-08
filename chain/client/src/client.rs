@@ -65,6 +65,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, StateSyncInfo,
     StateSyncInfoV1,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
@@ -833,8 +834,15 @@ impl Client {
             Error::ChunkProducer("Called without block producer info.".to_string())
         })?;
 
-        let chunk_proposer =
-            self.epoch_manager.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
+        let chunk_proposer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: *epoch_id,
+                height_created: next_height,
+                shard_id,
+            })
+            .unwrap()
+            .take_account_id();
         if signer.validator_id() != &chunk_proposer {
             debug!(target: "client",
                 me = ?signer.as_ref().validator_id(),
@@ -1429,11 +1437,14 @@ impl Client {
     ) -> Result<(), Error> {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let chunk_producer = self.epoch_manager.get_chunk_producer(
-            &epoch_id,
-            chunk_header.height_created(),
-            chunk_header.shard_id(),
-        )?;
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_header.height_created(),
+                shard_id: chunk_header.shard_id(),
+            })?
+            .take_account_id();
         error!(
             target: "client",
             ?chunk_producer,
@@ -1816,8 +1827,14 @@ impl Client {
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
-            let chunk_proposer =
-                epoch_manager.get_chunk_producer(&epoch_id, next_height, shard_id).unwrap();
+            let chunk_proposer = epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created: next_height,
+                    shard_id,
+                })
+                .unwrap()
+                .take_account_id();
             if &chunk_proposer != &validator_id {
                 continue;
             }
@@ -2201,18 +2218,27 @@ impl Client {
             .chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
         {
             let target_height = head.height + horizon - 1;
-            let validator =
-                self.epoch_manager.get_chunk_producer(epoch_id, target_height, shard_id)?;
+            let validator = self
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id: *epoch_id,
+                    height_created: target_height,
+                    shard_id,
+                })?
+                .take_account_id();
             validators.insert(validator);
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
                 let next_shard_id = self
                     .epoch_manager
                     .account_id_to_shard_id(tx.transaction.signer_id(), next_epoch_id)?;
-                let validator = self.epoch_manager.get_chunk_producer(
-                    next_epoch_id,
-                    target_height,
-                    next_shard_id,
-                )?;
+                let validator = self
+                    .epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: *next_epoch_id,
+                        height_created: target_height,
+                        shard_id: next_shard_id,
+                    })?
+                    .take_account_id();
                 validators.insert(validator);
             }
         }
@@ -2450,8 +2476,14 @@ impl Client {
         };
 
         for i in 1..=self.config.tx_routing_height_horizon {
-            let chunk_producer =
-                self.epoch_manager.get_chunk_producer(&epoch_id, head.height + i, shard_id)?;
+            let chunk_producer = self
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created: head.height + i,
+                    shard_id,
+                })?
+                .take_account_id();
             if &chunk_producer == account_id {
                 return Ok(true);
             }

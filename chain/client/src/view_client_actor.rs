@@ -48,6 +48,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
@@ -626,11 +627,12 @@ impl ViewClientActorInner {
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .epoch_manager
-                    .get_chunk_producer(
-                        &head.epoch_id,
-                        head.height + self.config.tx_routing_height_horizon - 1,
-                        target_shard_id,
-                    )
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: head.epoch_id,
+                        height_created: head.height + self.config.tx_routing_height_horizon - 1,
+                        shard_id: target_shard_id,
+                    })
+                    .map(|info| info.take_account_id())
                     .map_err(|err| TxStatusError::ChainError(err.into()))?;
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -830,7 +832,12 @@ impl Handler<GetChunk> for ViewClientActorInner {
             .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer(&epoch_id, chunk_inner.height_created(), chunk_inner.shard_id())
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_inner.height_created(),
+                shard_id: chunk_inner.shard_id(),
+            })
+            .map(|info| info.take_account_id())
             .into_chain_error()?;
 
         Ok(ChunkView::from_author_chunk(author, chunk))

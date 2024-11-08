@@ -16,11 +16,11 @@ use near_network::{
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
 use near_o11y::testonly::init_test_logger;
-use near_primitives::utils::from_timestamp;
 use near_primitives::{
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
 };
+use near_primitives::{stateless_validation::ChunkProductionKey, utils::from_timestamp};
 use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
@@ -251,12 +251,13 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             }
             for shard_id in shard_layout.shard_ids() {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer(
-                        &epoch_id,
-                        block.header().prev_height().unwrap() + 1,
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: block.header().prev_height().unwrap() + 1,
                         shard_id,
-                    )
-                    .unwrap();
+                    })
+                    .unwrap()
+                    .take_account_id();
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {

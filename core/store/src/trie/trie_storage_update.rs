@@ -141,7 +141,7 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for TrieStorageU
     fn delete_value(&mut self, value: ValueHandle) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
-                self.trie.internal_retrieve_trie_node(&value.hash, true, true)?;
+                // Note that we don't need to read the actual value to remove it.
                 self.refcount_changes.subtract(value.hash, 1);
             }
             ValueHandle::InMemory(_) => {
