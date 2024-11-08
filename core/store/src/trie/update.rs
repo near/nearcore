@@ -166,7 +166,8 @@ impl TrieUpdate {
         Ok(self.contract_storage.get(code_hash))
     }
 
-    // TODO(#11099): Make this take a non-reference.
+    /// Sets the contract code for the given account.
+    /// This updates both the `prospective` values and the contract storage.
     pub fn set_code(&mut self, account_id: AccountId, contract: ContractCode) {
         let (code, hash) = contract.take_code();
         self.set_impl(TrieKey::ContractCode { account_id }, code, Some(hash));
