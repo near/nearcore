@@ -105,6 +105,10 @@ def doit(seq=[]):
                                           "secs": 2,
                                           "nanos": 0
                                       }
+                                      "state_sync_p2p_timeout": {
+                                          "secs": 2,
+                                          "nanos": 0
+                                      }
                                   }
                               },
                               1: {
@@ -118,6 +122,10 @@ def doit(seq=[]):
                                           "secs": 2,
                                           "nanos": 0
                                       }
+                                      "state_sync_p2p_timeout": {
+                                          "secs": 2,
+                                          "nanos": 0
+                                      }
                                   }
                               },
                               2: {
@@ -128,6 +136,10 @@ def doit(seq=[]):
                                   },
                                   "consensus": {
                                       "state_sync_timeout": {
+                                          "secs": 2,
+                                          "nanos": 0
+                                      }
+                                      "state_sync_p2p_timeout": {
                                           "secs": 2,
                                           "nanos": 0
                                       }

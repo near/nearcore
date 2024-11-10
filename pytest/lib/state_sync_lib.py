@@ -36,6 +36,10 @@ def get_state_sync_configs_pair(tracked_shards=[0]):
             "secs": 0,
             "nanos": 500000000
         },
+        "consensus.state_sync_p2p_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
         "state_sync": {
             "sync": {
                 "ExternalStorage": {
@@ -59,6 +63,10 @@ def get_state_sync_config_combined():
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
     config = {
         "consensus.state_sync_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "consensus.state_sync_p2p_timeout": {
             "secs": 0,
             "nanos": 500000000
         },
