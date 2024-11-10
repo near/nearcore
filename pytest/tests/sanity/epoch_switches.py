@@ -28,7 +28,7 @@ config_overrides = {
         "state_sync_timeout": {
             "secs": 0,
             "nanos": 500000000
-        }
+        },
         "state_sync_p2p_timeout": {
             "secs": 0,
             "nanos": 500000000
