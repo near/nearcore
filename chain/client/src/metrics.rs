@@ -412,9 +412,9 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_REQUESTS_DROPPED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
-        "near_state_sync_requests_dropped_total",
+        "near_state_sync_requests_throttled_total",
         "Total number of state sync requests which were received and ignored",
     )
     .unwrap()
