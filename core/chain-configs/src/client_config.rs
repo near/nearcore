@@ -316,6 +316,10 @@ pub fn default_state_sync_p2p_timeout() -> Duration {
     Duration::seconds(10)
 }
 
+pub fn default_state_sync_retry_timeout() -> Duration {
+    Duration::seconds(1)
+}
+
 pub fn default_header_sync_expected_height_per_second() -> u64 {
     10
 }
@@ -445,10 +449,12 @@ pub struct ClientConfig {
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
-    /// How long to wait for a response during centralized state sync
+    /// How long to wait for a response from centralized state sync
     pub state_sync_timeout: Duration,
-    /// How long to wait for a response during p2p state sync
+    /// How long to wait for a response from p2p state sync
     pub state_sync_p2p_timeout: Duration,
+    /// How long to wait between attempts to obtain a state part
+    pub state_sync_retry_timeout: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -592,6 +598,7 @@ impl ClientConfig {
             header_sync_stall_ban_timeout: Duration::seconds(30),
             state_sync_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_retry_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::seconds(10),

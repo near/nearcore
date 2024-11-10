@@ -91,6 +91,7 @@ impl StateSync {
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
         external_timeout: Duration,
         p2p_timeout: Duration,
+        retry_timeout: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
@@ -165,7 +166,7 @@ impl StateSync {
             num_attempts_before_fallback,
             header_validation_sender: chain_requests_sender.clone().into_sender(),
             runtime: runtime.clone(),
-            retry_timeout: p2p_timeout, // TODO: This is not what timeout meant. Introduce a new parameter.
+            retry_timeout,
             task_tracker: downloading_task_tracker.clone(),
         });
 
