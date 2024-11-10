@@ -695,6 +695,12 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
+    pub fn shard_infos(&self) -> impl Iterator<Item = ShardInfo> + '_ {
+        self.shard_uids()
+            .enumerate()
+            .map(|(shard_index, shard_uid)| ShardInfo { shard_index, shard_uid })
+    }
+
     /// Returns the shard index for a given shard id. The shard index should be
     /// used when indexing into an array of chunk data.
     pub fn get_shard_index(&self, shard_id: ShardId) -> Result<ShardIndex, ShardLayoutError> {
@@ -956,6 +962,25 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
             (_, None) => Err(serde::de::Error::missing_field("shard_id")),
             (Some(version), Some(shard_id)) => Ok(ShardUId { version, shard_id }),
         }
+    }
+}
+
+pub struct ShardInfo {
+    shard_index: ShardIndex,
+    shard_uid: ShardUId,
+}
+
+impl ShardInfo {
+    pub fn shard_index(&self) -> ShardIndex {
+        self.shard_index
+    }
+
+    pub fn shard_id(&self) -> ShardId {
+        self.shard_uid.shard_id()
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        self.shard_uid
     }
 }
 
