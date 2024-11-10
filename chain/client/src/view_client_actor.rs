@@ -1354,7 +1354,7 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
             .start_timer();
         let StateRequestHeader { shard_id, sync_hash } = msg;
         if self.throttle_state_sync_request() {
-            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
+            metrics::STATE_SYNC_REQUESTS_DROPPED_TOTAL.inc();
             return None;
         }
         let header = match self.chain.check_sync_hash_validity(&sync_hash) {
