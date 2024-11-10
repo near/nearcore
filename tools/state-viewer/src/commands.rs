@@ -629,7 +629,9 @@ pub(crate) fn print_chain(
                     let mut chunk_debug_str: Vec<String> = Vec::new();
 
                     let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-                    for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
+                    for shard_info in shard_layout.shard_infos() {
+                        let shard_index = shard_info.shard_index();
+                        let shard_id = shard_info.shard_id();
                         let chunk_producer = epoch_manager
                             .get_chunk_producer_info(&ChunkProductionKey {
                                 epoch_id,

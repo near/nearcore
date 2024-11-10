@@ -302,7 +302,9 @@ fn run_loop_all_shards(
             continue;
         }
         let dump_check_iter_info = dump_check_iter_info_res?;
-        for (shard_index, shard_id) in dump_check_iter_info.shard_layout.shard_ids().enumerate() {
+        for shard_info in dump_check_iter_info.shard_layout.shard_infos() {
+            let shard_index = shard_info.shard_index();
+            let shard_id = shard_info.shard_id();
             tracing::info!(?shard_id, "started check");
             let dump_check_iter_info = dump_check_iter_info.clone();
             let status = last_check_status.get(&shard_id).unwrap_or(&Ok(
