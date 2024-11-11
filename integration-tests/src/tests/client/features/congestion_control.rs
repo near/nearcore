@@ -49,7 +49,7 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
     let cc_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
     let cc_config = get_runtime_config(&config_store, cc_protocol_version);
-    config.congestion_control_config = cc_config.congestion_control_config.clone();
+    config.congestion_control_config = cc_config.congestion_control_config;
 }
 
 /// Set up the test runtime with the given protocol version and runtime configs.
