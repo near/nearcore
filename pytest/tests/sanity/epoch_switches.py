@@ -25,7 +25,11 @@ config_overrides = {
         "nanos": 0
     },
     "consensus": {
-        "state_sync_timeout": {
+        "state_sync_external_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "state_sync_p2p_timeout": {
             "secs": 0,
             "nanos": 500000000
         }

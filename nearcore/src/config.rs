@@ -14,7 +14,8 @@ use near_chain_configs::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
+    default_state_sync_enabled, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_timeout, default_sync_check_period,
     default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
     default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
     default_tx_routing_height_horizon, default_view_client_threads,
@@ -155,9 +156,15 @@ pub struct Consensus {
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_stall_ban_timeout: Duration,
     /// How much to wait for a state sync response before re-requesting
-    #[serde(default = "default_state_sync_timeout")]
+    #[serde(default = "default_state_sync_external_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub state_sync_timeout: Duration,
+    pub state_sync_external_timeout: Duration,
+    #[serde(default = "default_state_sync_p2p_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub state_sync_p2p_timeout: Duration,
+    #[serde(default = "default_state_sync_retry_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub state_sync_retry_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -198,7 +205,9 @@ impl Default for Consensus {
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
-            state_sync_timeout: default_state_sync_timeout(),
+            state_sync_external_timeout: default_state_sync_external_timeout(),
+            state_sync_p2p_timeout: default_state_sync_p2p_timeout(),
+            state_sync_retry_timeout: default_state_sync_retry_timeout(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -551,7 +560,9 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
-                state_sync_timeout: config.consensus.state_sync_timeout,
+                state_sync_external_timeout: config.consensus.state_sync_external_timeout,
+                state_sync_p2p_timeout: config.consensus.state_sync_p2p_timeout,
+                state_sync_retry_timeout: config.consensus.state_sync_retry_timeout,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: config.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
