@@ -4,6 +4,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use std::collections::BTreeMap;
 use std::{fmt, str};
 
@@ -342,10 +345,16 @@ impl ShardLayout {
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
-        let boundary_accounts = (0..num_shards - 1)
+        let boundary_accounts = (1..num_shards)
             .map(|i| format!("shard{}.test.near", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
-        let shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+
+        // In order to test the non-contiguous shard ids randomize the order and
+        // TODO(wacban) randomize the range of shard ids.
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        shard_ids.shuffle(&mut rng);
+
         let (id_to_index_map, index_to_id_map) = shard_ids
             .iter()
             .enumerate()
@@ -1481,5 +1490,16 @@ mod tests {
                 ])),
             )
         );
+    }
+
+    // Check that the ShardLayout::multi_shard method returns interesting shard
+    // layouts. A shard layout is interesting if it has non-contiguous shard
+    // ids.
+    #[test]
+    fn test_multi_shard_non_contiguous() {
+        for n in 2..10 {
+            let shard_layout = ShardLayout::multi_shard(n, 0);
+            assert!(!shard_layout.shard_ids().is_sorted());
+        }
     }
 }

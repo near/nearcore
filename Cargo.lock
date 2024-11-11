@@ -5284,6 +5284,7 @@ dependencies = [
  "hyper",
  "hyper-tls",
  "indicatif",
+ "itertools",
  "near-actix-test-utils",
  "near-async",
  "near-chain",
