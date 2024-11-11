@@ -194,7 +194,7 @@ impl VersionedAccountData {
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        let signature = signer.sign_account_key_payload(&payload);
+        let signature = signer.sign_bytes(&payload);
         Ok(SignedAccountData {
             account_data: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -273,7 +273,7 @@ impl OwnedAccount {
             "OwnedAccount.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        let signature = signer.sign_account_key_payload(&payload);
+        let signature = signer.sign_bytes(&payload);
         SignedOwnedAccount {
             owned_account: self,
             payload: AccountKeySignedPayload { payload, signature },
