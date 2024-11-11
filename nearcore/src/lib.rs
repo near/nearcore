@@ -446,6 +446,7 @@ pub fn start_with_config_and_synchronization(
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,

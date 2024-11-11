@@ -1,5 +1,6 @@
 use near_network::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
+    Tier3Request,
 };
 
 pub struct PeerManagerMock {
@@ -42,4 +43,9 @@ impl actix::Handler<SetChainInfo> for PeerManagerMock {
 impl actix::Handler<StateSyncEvent> for PeerManagerMock {
     type Result = ();
     fn handle(&mut self, _msg: StateSyncEvent, _ctx: &mut Self::Context) {}
+}
+
+impl actix::Handler<Tier3Request> for PeerManagerMock {
+    type Result = ();
+    fn handle(&mut self, _msg: Tier3Request, _ctx: &mut Self::Context) {}
 }

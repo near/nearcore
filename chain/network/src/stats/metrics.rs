@@ -297,6 +297,15 @@ pub(crate) static PEER_MANAGER_MESSAGES_TIME: LazyLock<HistogramVec> = LazyLock:
     )
     .unwrap()
 });
+pub(crate) static PEER_MANAGER_TIER3_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_tier3_request_time",
+        "Time that PeerManagerActor spends on handling tier3 requests",
+        &["request"],
+        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
+    )
+    .unwrap()
+});
 pub(crate) static ROUTED_MESSAGE_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_routed_message_dropped",
