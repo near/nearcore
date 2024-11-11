@@ -1,11 +1,13 @@
 use super::NetworkState;
+#[cfg(feature = "distance_vector_routing")]
+use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
-    DistanceVector, Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2,
-    RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
 use crate::routing::routing_table_view::FindRouteError;
+#[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::stats::metrics;
 use crate::tcp;
@@ -32,6 +34,7 @@ impl NetworkState {
 
     // TODO(saketh-are): eventually, this should be blocking, as it should be up to the caller
     // whether to wait for the broadcast to finish, or run it in parallel with sth else.
+    #[cfg(feature = "distance_vector_routing")]
     fn broadcast_distance_vector(&self, distance_vector: DistanceVector) {
         let msg = Arc::new(PeerMessage::DistanceVector(distance_vector));
         for conn in self.tier2.load().ready.values() {
@@ -94,6 +97,7 @@ impl NetworkState {
             edge_info.signature,
         );
         self.add_edges(&clock, vec![edge.clone()]).await?;
+        #[cfg(feature = "distance_vector_routing")]
         self.update_routes(
             &clock,
             NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()),
@@ -149,7 +153,10 @@ impl NetworkState {
 
     fn record_routing_protocol_metrics(&self, target: &PeerId) {
         let v1_dist = self.graph.routing_table.get_distance(target);
+        #[cfg(feature = "distance_vector_routing")]
         let v2_dist = self.graph_v2.routing_table.get_distance(target);
+        #[cfg(not(feature = "distance_vector_routing"))]
+        let v2_dist = None;
 
         match (v1_dist, v2_dist) {
             (None, None) => {
@@ -182,10 +189,14 @@ impl NetworkState {
             PeerIdOrHash::PeerId(peer_id) => {
                 self.record_routing_protocol_metrics(peer_id);
 
-                match self.graph.routing_table.find_next_hop_for_target(peer_id) {
+                #[cfg(feature = "distance_vector_routing")]
+                return match self.graph.routing_table.find_next_hop_for_target(peer_id) {
                     Ok(peer_id) => Ok(peer_id),
                     Err(_) => self.graph_v2.routing_table.find_next_hop_for_target(peer_id),
-                }
+                };
+
+                #[cfg(not(feature = "distance_vector_routing"))]
+                return self.graph.routing_table.find_next_hop_for_target(peer_id);
             }
             PeerIdOrHash::Hash(hash) => self
                 .tier2_route_back
@@ -229,6 +240,7 @@ impl NetworkState {
     /// Changes are batched via the `update_routes_demux`, then passed to the V2 routing table.
     /// If an updated DistanceVector is returned by the routing table, broadcasts it to peers.
     /// If an error occurs while processing a DistanceVector advertised by a peer, bans the peer.
+    #[cfg(feature = "distance_vector_routing")]
     pub async fn update_routes(
         self: &Arc<Self>,
         clock: &time::Clock,
@@ -258,7 +270,8 @@ impl NetworkState {
 
     /// Update the routing protocols with a set of peers to avoid routing through.
     pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
-        self.graph.set_unreliable_peers(unreliable_peers.clone());
-        self.graph_v2.set_unreliable_peers(unreliable_peers);
+        #[cfg(feature = "distance_vector_routing")]
+        self.graph_v2.set_unreliable_peers(unreliable_peers.clone());
+        self.graph.set_unreliable_peers(unreliable_peers);
     }
 }
