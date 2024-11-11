@@ -449,7 +449,8 @@ async fn too_many_shards_truncate() {
     assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
     for &shard_id in &info.shards {
         // Shard ids are taken from the original vector
-        assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
+        let shard_id: usize = shard_id.into();
+        assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
     assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));

@@ -331,8 +331,9 @@ impl TrieKey {
                 let receiving_shard = *receiving_shard;
                 buf.push(col::BUFFERED_RECEIPT);
                 // Use  u16 for shard id to reduce depth in trie.
+                let receiving_shard: u64 = receiving_shard.into();
                 assert!(receiving_shard <= u16::MAX as u64, "Shard ID too big.");
-                let receiving_shard: u16 = receiving_shard.into();
+                let receiving_shard: u16 = receiving_shard as u16;
                 buf.extend(&receiving_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
@@ -891,6 +892,7 @@ mod tests {
     fn test_shard_id_u16_optimization() {
         let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
         let max_id = shard_layout.shard_ids().max().unwrap();
+        let max_id: u64 = max_id.into();
         assert!(
             max_id <= u16::MAX as u64,
             "buffered receipt trie key optimization broken, must fit in a u16"

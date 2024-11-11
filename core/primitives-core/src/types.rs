@@ -200,12 +200,6 @@ impl PartialEq<u64> for ShardId {
     }
 }
 
-impl PartialOrd<u64> for ShardId {
-    fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
-    }
-}
-
 impl FromStr for ShardId {
     type Err = ParseIntError;
 
