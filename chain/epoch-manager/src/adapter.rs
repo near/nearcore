@@ -277,9 +277,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError>;
 
-    /// Amount of tokens minted in given epoch.
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
-
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId)
         -> Result<ProtocolVersion, EpochError>;
@@ -862,11 +859,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<StoreUpdate, EpochError> {
         let mut epoch_manager = self.write();
         epoch_manager.add_validator_proposals(block_info, random_value)
-    }
-
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
     }
 
     fn get_epoch_protocol_version(
