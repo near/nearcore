@@ -26,7 +26,7 @@ const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATO
 /// Executes a test that deploys to a contract to an account and calls it.
 fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
-   // We need 1 more non-validator account to create, deploy-contract, and delete.
+    // We need 1 more non-validator account to create, deploy-contract, and delete.
     let accounts = make_accounts(NUM_VALIDATORS + 1);
 
     let mut env = setup(&accounts);
