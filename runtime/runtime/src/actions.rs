@@ -617,16 +617,12 @@ pub(crate) fn action_deploy_contract(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
-    let prev_code_hash = account.code_hash();
-    let prev_code_len =
-        if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(current_protocol_version) {
-            state_update.get_code_len(account_id.clone(), prev_code_hash)?
-        } else {
-            state_update
-                .get_code(account_id.clone(), prev_code_hash)?
-                .map(|contract| contract.code().len())
-        };
-    let prev_code_len = prev_code_len.unwrap_or_default() as u64;
+    let prev_code_len = get_code_len_or_default(
+        state_update,
+        account_id.clone(),
+        account.code_hash(),
+        current_protocol_version,
+    )?;
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
 
     let code = ContractCode::new(deploy_contract.code.clone(), None);
@@ -669,21 +665,16 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let code_len = if ProtocolFeature::ExcludeContractCodeFromStateWitness
-            .enabled(current_protocol_version)
-        {
-            state_update.get_code_len(account_id.clone(), account.code_hash())?
-        } else {
-            state_update
-                .get_code(account_id.clone(), account.code_hash())?
-                .map(|contract| contract.code().len())
-        };
-        if let Some(code_len) = code_len {
-            // account storage usage should be larger than code size
-            let code_len = code_len as u64;
-            debug_assert!(account_storage_usage > code_len);
-            account_storage_usage = account_storage_usage.saturating_sub(code_len);
-        }
+        let code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            account.code_hash(),
+            current_protocol_version,
+        )?;
+        debug_assert!(code_len == 0 || account_storage_usage > code_len,
+            "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
+            account_storage_usage, code_len);
+        account_storage_usage = account_storage_usage.saturating_sub(code_len);
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
                 account_id: account_id.clone(),
@@ -705,6 +696,32 @@ pub(crate) fn action_delete_account(
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
+}
+
+/// Returns the storage usage for the contract code with the given `code_hash` and deployed to the given `account_id`.
+/// If no contract was deployed to the account, returns `0`.
+///
+/// This implements different behaviors based on the protocol version:
+/// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
+/// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
+fn get_code_len_or_default(
+    state_update: &TrieUpdate,
+    account_id: AccountId,
+    code_hash: CryptoHash,
+    protocol_version: ProtocolVersion,
+) -> Result<StorageUsage, StorageError> {
+    let code_len =
+        if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
+            state_update.get_code_len(account_id, code_hash)?
+        } else {
+            state_update.get_code(account_id, code_hash)?.map(|contract| contract.code().len())
+        };
+    debug_assert!(
+        code_len.is_some() || code_hash == CryptoHash::default(),
+        "Non-default code hash for account with no contract deployed: {:?}",
+        code_hash
+    );
+    Ok(code_len.unwrap_or_default() as StorageUsage)
 }
 
 pub(crate) fn action_delete_key(
