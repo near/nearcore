@@ -869,25 +869,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(PROTOCOL_VERSION)
     }
 
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    > {
-        Ok(Default::default())
-    }
-
     fn init_after_epoch_sync(
         &self,
         _store_update: &mut StoreUpdate,
