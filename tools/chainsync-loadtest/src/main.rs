@@ -44,6 +44,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         near_store::db::TestDB::new(),
         config.network_config,
         network.as_client_adapter(),
+        network_adapter.as_multi_sender(),
         noop().into_sender(),
         noop().into_multi_sender(),
         GenesisId {

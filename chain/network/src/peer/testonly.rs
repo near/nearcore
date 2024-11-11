@@ -18,6 +18,7 @@ use crate::state_witness::{
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
+use crate::types::{PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage};
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time;
 use near_o11y::WithSpanContextExt;
@@ -47,6 +48,7 @@ pub(crate) enum Event {
     Client(ClientSenderForNetworkInput),
     Network(peer_manager_actor::Event),
     PartialWitness(PartialWitnessSenderForNetworkInput),
+    PeerManager(PeerManagerSenderForNetworkInput),
 }
 
 pub(crate) struct PeerHandle {
@@ -117,6 +119,12 @@ impl PeerHandle {
                 send.send(Event::Client(event.into_input()));
             }
         });
+        let peer_manager_sender = Sender::from_fn({
+            let send = send.clone();
+            move |event: PeerManagerSenderForNetworkMessage| {
+                send.send(Event::PeerManager(event.into_input()));
+            }
+        });
         let shards_manager_sender = Sender::from_fn({
             let send = send.clone();
             move |event| {
@@ -136,6 +144,7 @@ impl PeerHandle {
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
             client_sender.break_apart().into_multi_sender(),
+            peer_manager_sender.break_apart().into_multi_sender(),
             shards_manager_sender,
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],

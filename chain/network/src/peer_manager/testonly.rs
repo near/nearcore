@@ -26,7 +26,7 @@ use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
-    ReasonForBan,
+    PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
 use crate::PeerManagerActor;
 use futures::FutureExt;
@@ -74,6 +74,7 @@ pub enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
     PeerManager(PME),
+    PeerManagerSender(PeerManagerSenderForNetworkInput),
     PartialWitness(PartialWitnessSenderForNetworkInput),
 }
 
@@ -628,6 +629,12 @@ pub(crate) async fn start(
                     }
                 }
             });
+            let peer_manager_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event: PeerManagerSenderForNetworkMessage| {
+                    send.send(Event::PeerManagerSender(event.into_input()));
+                }
+            });
             let shards_manager_sender = Sender::from_fn({
                 let send = send.clone();
                 move |event| {
@@ -645,6 +652,7 @@ pub(crate) async fn start(
                 store,
                 cfg,
                 client_sender.break_apart().into_multi_sender(),
+                peer_manager_sender.break_apart().into_multi_sender(),
                 shards_manager_sender,
                 state_witness_sender.break_apart().into_multi_sender(),
                 genesis_id,
