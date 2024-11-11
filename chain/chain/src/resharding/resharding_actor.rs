@@ -1,7 +1,10 @@
 use super::types::{
     FlatStorageShardCatchupRequest, FlatStorageSplitShardRequest, MemtrieReloadRequest,
 };
-use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageReshardingTaskResult};
+use crate::flat_storage_resharder::{
+    FlatStorageResharder, FlatStorageReshardingSchedulableTaskResult,
+    FlatStorageReshardingTaskResult,
+};
 use crate::ChainStore;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext};
@@ -39,12 +42,6 @@ impl Handler<FlatStorageShardCatchupRequest> for ReshardingActor {
             FlatStorageReshardingTaskResult::Failed => {
                 panic!("impossible to recover from a flat storage shard catchup failure!")
             }
-            FlatStorageReshardingTaskResult::Cancelled => {
-                panic!("shard catchup task should never be cancelled!")
-            }
-            FlatStorageReshardingTaskResult::Postponed => {
-                panic!("shard catchup task should never be postponed!")
-            }
         }
     }
 }
@@ -69,16 +66,16 @@ impl ReshardingActor {
         // becomes final. If the resharding block is not yet final, the task will exit early with
         // `Postponed` status and it must be rescheduled.
         match resharder.split_shard_task(&self.chain_store) {
-            FlatStorageReshardingTaskResult::Successful { .. } => {
+            FlatStorageReshardingSchedulableTaskResult::Successful { .. } => {
                 // All good.
             }
-            FlatStorageReshardingTaskResult::Failed => {
+            FlatStorageReshardingSchedulableTaskResult::Failed => {
                 panic!("impossible to recover from a flat storage split shard failure!")
             }
-            FlatStorageReshardingTaskResult::Cancelled => {
+            FlatStorageReshardingSchedulableTaskResult::Cancelled => {
                 // The task has been cancelled. Nothing else to do.
             }
-            FlatStorageReshardingTaskResult::Postponed => {
+            FlatStorageReshardingSchedulableTaskResult::Postponed => {
                 // The task must be retried later.
                 ctx.run_later(
                     "ReshardingActor FlatStorageSplitShard",
