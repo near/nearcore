@@ -142,7 +142,7 @@ pub enum FlatStorageCreationStatus {
 pub enum FlatStorageReshardingStatus {
     /// Resharding phase entered when a shard is being split.
     /// Copy key-value pairs from this shard (the parent) to children shards.
-    SplittingParent(SplittingParentStatus),
+    SplittingParent(ParentSplitParameters),
     /// Resharding phase entered when a shard is being split.
     /// This shard (child) is being built from state taken from its parent.
     CreatingChild,
@@ -179,7 +179,7 @@ pub struct FetchingStateStatus {
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]
-pub struct SplittingParentStatus {
+pub struct ParentSplitParameters {
     /// UId of the left child shard. Will contain everything lesser than boundary account.
     pub left_child_shard: ShardUId,
     /// UId of the right child shard. Will contain everything greater or equal than boundary account.
