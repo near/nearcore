@@ -33,8 +33,8 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::views::{
-    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
-    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
+    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
+    PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use rand::seq::{IteratorRandom, SliceRandom};
@@ -1387,7 +1387,12 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         .collect::<Vec<_>>(),
                 })
             }
-            GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
+            GetDebugStatus::Routes => {
+                #[cfg(feature = "distance_vector_routing")]
+                return DebugStatus::Routes(self.state.graph_v2.get_debug_view());
+                #[cfg(not(feature = "distance_vector_routing"))]
+                return DebugStatus::Routes(NetworkRoutesView::default());
+            }
             GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
                 hosts: self
                     .state

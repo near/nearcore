@@ -185,6 +185,30 @@ pub fn do_deploy_contract(
     check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
 }
 
+pub fn do_call_contract(
+    env: &mut TestLoopEnv,
+    rpc_id: &AccountId,
+    sender_id: &AccountId,
+    contract_id: &AccountId,
+    method_name: String,
+    args: Vec<u8>,
+) {
+    tracing::info!(target: "test", "Calling contract.");
+    let nonce = get_next_nonce(env, contract_id);
+    let tx = call_contract(
+        &mut env.test_loop,
+        &env.datas,
+        rpc_id,
+        sender_id,
+        contract_id,
+        method_name,
+        args,
+        nonce,
+    );
+    env.test_loop.run_for(Duration::seconds(2));
+    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+}
+
 pub fn create_account(
     env: &mut TestLoopEnv,
     rpc_id: &AccountId,

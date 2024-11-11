@@ -1307,6 +1307,7 @@ async fn connect_to_unbanned_peer() {
 }
 
 /// Awaits a DistanceVector message from a given `peer_id`
+#[cfg(feature = "distance_vector_routing")]
 async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_id: PeerId) {
     events
         .recv_until(|ev| match ev {
@@ -1321,6 +1322,7 @@ async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_
 
 /// Check that connecting to a peer triggers exchange of DistanceVectors
 #[tokio::test]
+#[cfg(feature = "distance_vector_routing")]
 async fn peer_connect_send_distance_vector() {
     abort_on_panic();
     let mut rng = make_rng(921853233);
