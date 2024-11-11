@@ -20,7 +20,7 @@ nodes = start_cluster(
                         0: {
                             "tracked_shards": [],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
                                 },
@@ -33,7 +33,7 @@ nodes = start_cluster(
                         1: {
                             "tracked_shards": [],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
                                 },
@@ -46,7 +46,7 @@ nodes = start_cluster(
                         2: {
                             "tracked_shards": [],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
                                 },
@@ -59,7 +59,7 @@ nodes = start_cluster(
                         3: {
                             "tracked_shards": [0, 1, 2, 3],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
                                 },

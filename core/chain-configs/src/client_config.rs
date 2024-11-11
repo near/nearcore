@@ -308,7 +308,7 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_timeout() -> Duration {
+pub fn default_state_sync_external_timeout() -> Duration {
     Duration::seconds(60)
 }
 
@@ -450,7 +450,7 @@ pub struct ClientConfig {
     /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a response from centralized state sync
-    pub state_sync_timeout: Duration,
+    pub state_sync_external_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     pub state_sync_p2p_timeout: Duration,
     /// How long to wait between attempts to obtain a state part
@@ -596,7 +596,7 @@ impl ClientConfig {
             header_sync_initial_timeout: Duration::seconds(10),
             header_sync_progress_timeout: Duration::seconds(2),
             header_sync_stall_ban_timeout: Duration::seconds(30),
-            state_sync_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_retry_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
