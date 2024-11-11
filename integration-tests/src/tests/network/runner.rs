@@ -155,6 +155,7 @@ fn setup_network_node(
         db.clone(),
         config,
         client_sender_for_network(client_actor, view_client_addr),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,

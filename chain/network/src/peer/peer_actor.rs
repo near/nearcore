@@ -974,7 +974,7 @@ impl PeerActor {
     )]
     async fn receive_routed_message(
         clock: &time::Clock,
-        network_state: &NetworkState,
+        network_state: &Arc<NetworkState>,
         peer_id: PeerId,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,

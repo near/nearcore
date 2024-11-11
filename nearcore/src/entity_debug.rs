@@ -26,6 +26,7 @@ use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
@@ -119,11 +120,14 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
-                let author = self.epoch_manager.get_chunk_producer(
-                    &epoch_id,
-                    chunk.height_created(),
-                    chunk.shard_id(),
-                )?;
+                let author = self
+                    .epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: chunk.height_created(),
+                        shard_id: chunk.shard_id(),
+                    })?
+                    .take_account_id();
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }
             EntityQuery::ChunkExtraByBlockHashShardUId { block_hash, shard_uid } => {
@@ -419,7 +423,12 @@ impl EntityDebugHandlerImpl {
                     .shard_ids()
                     .map(|shard_id| {
                         self.epoch_manager
-                            .get_chunk_producer(&epoch_id, block_height, shard_id)
+                            .get_chunk_producer_info(&ChunkProductionKey {
+                                epoch_id,
+                                height_created: block_height,
+                                shard_id,
+                            })
+                            .map(|info| info.take_account_id())
                             .context("Getting chunk producer")
                     })
                     .collect::<Result<Vec<_>, _>>()?;

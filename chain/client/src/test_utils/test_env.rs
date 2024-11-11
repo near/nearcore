@@ -28,6 +28,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -685,7 +686,14 @@ impl TestEnv {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         let height = head.height + height_offset;
 
-        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
+        epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: height,
+                shard_id,
+            })
+            .unwrap()
+            .take_account_id()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {

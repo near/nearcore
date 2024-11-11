@@ -14,7 +14,6 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -240,17 +239,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError>;
-
-    /// TODO(pugachag): deprecate this by inlining usage
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let key = ChunkProductionKey { epoch_id: *epoch_id, height_created: height, shard_id };
-        self.get_chunk_producer_info(&key).map(|info| info.take_account_id())
-    }
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -483,11 +471,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_chunk_endorsement_signature(
         &self,
         endorsement: &ChunkEndorsement,
-    ) -> Result<bool, Error>;
-
-    fn verify_partial_witness_signature(
-        &self,
-        partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error>;
 
     fn verify_witness_contract_accesses_signature(
@@ -1160,15 +1143,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let validator =
             epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id())?;
         Ok(endorsement.verify(validator.public_key()))
-    }
-
-    fn verify_partial_witness_signature(
-        &self,
-        partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<bool, Error> {
-        let chunk_producer =
-            self.read().get_chunk_producer_info(&partial_witness.chunk_production_key())?;
-        Ok(partial_witness.verify(chunk_producer.public_key()))
     }
 
     fn verify_witness_contract_accesses_signature(

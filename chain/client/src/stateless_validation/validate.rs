@@ -62,7 +62,9 @@ pub fn validate_partial_encoded_state_witness(
         return Ok(false);
     }
 
-    if !epoch_manager.verify_partial_witness_signature(&partial_witness)? {
+    let chunk_producer =
+        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+    if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
 

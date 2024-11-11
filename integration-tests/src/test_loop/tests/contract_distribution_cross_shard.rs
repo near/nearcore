@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
@@ -7,7 +6,7 @@ use near_primitives::types::AccountId;
 use near_vm_runner::ContractCode;
 
 use crate::test_loop::builder::TestLoopBuilder;
-use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
@@ -37,10 +36,9 @@ fn test_contract_distribution_cross_shard() {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
-    let (env, rpc_id) = setup(&accounts);
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = env;
+    let (mut env, rpc_id) = setup(&accounts);
 
-    let mut nonce = 2;
+    let mut nonce = 1;
     let rpc_index = 8;
     assert_eq!(accounts[rpc_index], rpc_id);
 
@@ -50,28 +48,26 @@ fn test_contract_distribution_cross_shard() {
     let contract_ids = [&accounts[0], &accounts[4]];
     let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
 
-    let start_height = get_head_height(&mut test_loop, &node_datas);
+    let start_height = get_head_height(&mut env);
 
     // First deploy and call the contracts as described above.
     // Next, clear the compiled contract cache and repeat the same contract calls.
-    let contracts =
-        deploy_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &mut nonce);
+    let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
 
     for contract in contracts.into_iter() {
-        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+        run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
-    call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
-    clear_compiled_contract_caches(&mut test_loop, &node_datas);
+    clear_compiled_contract_caches(&mut env);
 
-    call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
-    let end_height = get_head_height(&mut test_loop, &node_datas);
-    assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
@@ -116,8 +112,7 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
 /// Each account in `contract_ids` gets a fake contract with a different size (thus code-hashes are different)
 /// Returns the list of contracts deployed.
 fn deploy_contracts(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
     nonce: &mut u64,
@@ -129,8 +124,8 @@ fn deploy_contracts(
         let contract =
             ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
         let tx = deploy_contract(
-            test_loop,
-            node_datas,
+            &mut env.test_loop,
+            &env.datas,
             rpc_id,
             contract_id,
             contract.code().to_vec(),
@@ -140,15 +135,14 @@ fn deploy_contracts(
         *nonce += 1;
         contracts.push(contract);
     }
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(&*test_loop, node_datas, rpc_id, &txs);
+    env.test_loop.run_for(Duration::seconds(2));
+    check_txs(&env.test_loop, &env.datas, rpc_id, &txs);
     contracts
 }
 
 /// Makes calls to the contracts from sender_ids to the contract_ids (at which contracts are deployed).
 fn call_contracts(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
     sender_ids: &[&AccountId],
@@ -160,8 +154,8 @@ fn call_contracts(
         for contract_id in contract_ids.into_iter() {
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
             let tx = call_contract(
-                test_loop,
-                node_datas,
+                &mut env.test_loop,
+                &env.datas,
                 rpc_id,
                 sender_id,
                 contract_id,
@@ -173,6 +167,6 @@ fn call_contracts(
             *nonce += 1;
         }
     }
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(&*test_loop, node_datas, &rpc_id, &txs);
+    env.test_loop.run_for(Duration::seconds(2));
+    check_txs(&env.test_loop, &env.datas, &rpc_id, &txs);
 }

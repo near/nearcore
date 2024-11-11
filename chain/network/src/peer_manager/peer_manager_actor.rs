@@ -18,8 +18,9 @@ use crate::store;
 use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, StatePartRequestBody, StateSyncEvent, Tier3RequestBody,
+    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StatePartRequestBody,
+    StateSyncEvent, Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -87,8 +88,6 @@ pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Durati
 /// How often to poll the NetworkState for closed connections we'd like to re-establish.
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 
-/// How often we check for and process pending Tier3 requests
-const PROCESS_TIER3_REQUESTS_INTERVAL: time::Duration = time::Duration::seconds(1);
 /// The length of time that a Tier3 connection is allowed to idle before it is stopped
 const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 
@@ -215,6 +214,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
@@ -246,6 +246,7 @@ impl PeerManagerActor {
             config,
             genesis_id,
             client,
+            peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
             whitelist_nodes,
@@ -340,62 +341,6 @@ impl PeerManagerActor {
 
                                 #[cfg(test)]
                                 state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
-                            }
-                        }
-                    }
-                });
-                // Periodically process pending Tier3 requests.
-                arbiter.spawn({
-                    let clock = clock.clone();
-                    let state = state.clone();
-                    let arbiter = arbiter.clone();
-                    let mut interval = time::Interval::new(clock.now(), PROCESS_TIER3_REQUESTS_INTERVAL);
-                    async move {
-                        loop {
-                            interval.tick(&clock).await;
-
-                            if let Some(request) = state.tier3_requests.lock().pop_front() {
-                                arbiter.spawn({
-                                    let clock = clock.clone();
-                                    let state = state.clone();
-                                    async move {
-                                        let tier3_response = match request.body {
-                                            Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                                                match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
-                                                    Ok(Some(client_response)) => {
-                                                        PeerMessage::VersionedStateResponse(*client_response.0)
-                                                    }
-                                                    Ok(None) => {
-                                                        tracing::debug!(target: "network", "client declined to respond to {:?}", request);
-                                                        return;
-                                                    }
-                                                    Err(err) => {
-                                                        tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        };
-
-                                        if !state.tier3.load().ready.contains_key(&request.peer_info.id) {
-                                            let result = async {
-                                                let stream = tcp::Stream::connect(
-                                                    &request.peer_info,
-                                                    tcp::Tier::T3,
-                                                    &state.config.socket_options
-                                                ).await.context("tcp::Stream::connect()")?;
-                                                PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
-                                                anyhow::Ok(())
-                                            }.await;
-
-                                            if let Err(ref err) = result {
-                                                tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", request.peer_info);
-                                            }
-                                        }
-
-                                        state.tier3.send_message(request.peer_info.id, Arc::new(tier3_response));
-                                    }
-                                });
                             }
                         }
                     }
@@ -1314,6 +1259,64 @@ impl actix::Handler<WithSpanContext<StateSyncEvent>> for PeerManagerActor {
                 self.state.snapshot_hosts.part_received(shard_id, part_id);
             }
         }
+    }
+}
+
+impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
+    type Result = ();
+    #[perf]
+    fn handle(
+        &mut self,
+        request: WithSpanContext<Tier3Request>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, request) = handler_debug_span!(target: "network", request);
+        let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
+            .with_label_values(&[(&request.body).into()])
+            .start_timer();
+
+        let state = self.state.clone();
+        let clock = self.clock.clone();
+        ctx.spawn(wrap_future(
+            async move {
+                let tier3_response = match request.body {
+                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
+                        match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                            Ok(Some(client_response)) => {
+                                PeerMessage::VersionedStateResponse(*client_response.0)
+                            }
+                            Ok(None) => {
+                                tracing::debug!(target: "network", "client declined to respond to {:?}", request);
+                                return;
+                            }
+                            Err(err) => {
+                                tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
+                                return;
+                            }
+                        }
+                    }
+                };
+
+                // Establish a tier3 connection if we don't have one already
+                if !state.tier3.load().ready.contains_key(&request.peer_info.id) {
+                    let result = async {
+                        let stream = tcp::Stream::connect(
+                            &request.peer_info,
+                            tcp::Tier::T3,
+                            &state.config.socket_options
+                        ).await.context("tcp::Stream::connect()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                        anyhow::Ok(())
+                    }.await;
+
+                    if let Err(ref err) = result {
+                        tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", request.peer_info);
+                    }
+                }
+
+                state.tier3.send_message(request.peer_info.id, Arc::new(tier3_response));
+            }
+        ));
     }
 }
 
