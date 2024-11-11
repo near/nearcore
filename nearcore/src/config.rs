@@ -1523,6 +1523,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
+    use itertools::Itertools;
     use near_async::time::Duration;
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
@@ -1562,34 +1563,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(genesis.config.chain_id, "localnet");
-        assert_eq!(genesis.config.shard_layout.shard_ids().count(), 3);
+        let shard_layout = &genesis.config.shard_layout;
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        let [s0, s1, s2] = shard_ids[..] else {
+            panic!("Expected 3 shards, got {:?}", shard_ids);
+        };
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("foobar.near").unwrap(),
-                &genesis.config.shard_layout,
-            ),
-            ShardId::new(0)
+            account_id_to_shard_id(&AccountId::from_str("foobar.near").unwrap(), &shard_layout),
+            s0
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard0.test.near").unwrap(),
-                &genesis.config.shard_layout,
+                &shard_layout,
             ),
-            ShardId::new(1)
+            s0
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard1.test.near").unwrap(),
-                &genesis.config.shard_layout,
+                &shard_layout,
             ),
-            ShardId::new(2)
+            s1
         );
         assert_eq!(
             account_id_to_shard_id(
                 &AccountId::from_str("shard2.test.near").unwrap(),
-                &genesis.config.shard_layout,
+                &shard_layout,
             ),
-            ShardId::new(2)
+            s2
         );
     }
 

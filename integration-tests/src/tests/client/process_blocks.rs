@@ -42,7 +42,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
@@ -1221,7 +1221,9 @@ fn test_bad_chunk_mask() {
     init_test_logger();
 
     // Create a TestEnv with two shards and two validators who track both shards
-    let accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
+    let account0: AccountId = "shard0.test.near".parse().unwrap();
+    let account1: AccountId = "shard1.test.near".parse().unwrap();
+    let accounts = vec![account0.clone(), account1.clone()];
     let num_validators: u64 = accounts.len().try_into().unwrap();
     let genesis = Genesis::test_sharded(
         Clock::real(),
@@ -1238,8 +1240,21 @@ fn test_bad_chunk_mask() {
     // The test never goes past the first epoch, so EpochId(11111...) can be used for all calculations
     let first_epoch_id = &EpochId::default();
 
-    let shard_id = ShardId::new(0);
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&first_epoch_id).unwrap();
+    tracing::info!(target: "test", ?shard_layout, "shard layout");
+
+    let [s0, s1] = shard_layout.shard_ids().collect_vec()[..] else { panic!("Expected 2 shards") };
+    assert_eq!(s0, account_id_to_shard_id(&account0, &shard_layout));
+    assert_eq!(s1, account_id_to_shard_id(&account1, &shard_layout));
+
     // Generate 4 blocks
+    let shard_id = s0;
+
+    let tip = env.clients[0].chain.get_block_by_height(0).unwrap();
+    for chunk_header in tip.chunks().iter_raw() {
+        tracing::info!(target: "test", ?chunk_header, "chunk header");
+    }
+
     for height in 1..5 {
         let chunk_producer = env.clients[0]
             .epoch_manager
@@ -1253,7 +1268,7 @@ fn test_bad_chunk_mask() {
         let block_producer =
             env.clients[0].epoch_manager.get_block_producer(&first_epoch_id, height).unwrap();
 
-        // Manually produce a single chunk on shard 0, chunk for 1 is always missing.
+        // Manually produce a single chunk on shard s0, chunk for s1 is always missing.
         let shard_chunk = env.client(&chunk_producer).produce_one_chunk(height, shard_id);
         env.process_partial_encoded_chunks();
         for i in 0..env.clients.len() {
@@ -1261,12 +1276,12 @@ fn test_bad_chunk_mask() {
         }
         env.propagate_chunk_state_witnesses_and_endorsements(false);
 
-        // Produce a block with a chunk on shard 0. On shard 1 the chunk is missing. chunk_mask should be [true, false]
+        // Produce a block with a chunk on shard s0. On shard s1 the chunk is missing. chunk_mask should be [true, false]
         let mut block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
         {
             let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
-            let mut chunk_headers: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
+            let mut chunk_headers: Vec<_> = block.chunks().iter_raw().cloned().collect();
             chunk_headers[0] = chunk_header;
             block.set_chunks(chunk_headers.clone());
             block
