@@ -346,7 +346,7 @@ impl<'a> ChainUpdate<'a> {
         let height = header.height();
         let epoch_id = header.epoch_id();
         let approvals = header.approvals();
-        let info = self.epoch_manager.get_heuristic_block_approvers_ordered(epoch_id)?;
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
         verify_approvals_and_threshold_orphan(
             &|approvals, stakes| {
                 Doomslug::can_approved_block_be_produced(
@@ -359,7 +359,7 @@ impl<'a> ChainUpdate<'a> {
             prev_height,
             height,
             approvals,
-            info,
+            epoch_info,
         )
     }
 

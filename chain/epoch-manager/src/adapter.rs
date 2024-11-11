@@ -25,7 +25,6 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 // TODO(wacban) rename to ShardInfo
@@ -204,25 +203,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError>;
-
-    /// Gets block producers for epoch
-    fn get_heuristic_block_approvers_ordered(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ApprovalStake>, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let mut result = vec![];
-        let mut validators: HashSet<AccountId> = HashSet::new();
-        for validator_id in epoch_info.block_producers_settlement().into_iter() {
-            let validator_stake = epoch_info.get_validator(*validator_id);
-            let account_id = validator_stake.account_id();
-            if validators.insert(account_id.clone()) {
-                result.push(validator_stake.get_approval_stake(false));
-            }
-        }
-
-        Ok(result)
-    }
 
     /// Get block producers for epoch, slashing info, sometimes block producers for next epoch
     fn get_epoch_block_approvers_ordered(
