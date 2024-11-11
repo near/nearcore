@@ -82,7 +82,7 @@ impl ChunkContractAccessesV1 {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ChunkContractAccessesInner::new(next_chunk, contracts, main_transition);
-        let signature = signer.sign_chunk_contract_accesses(&inner);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
 
@@ -190,7 +190,7 @@ impl ContractCodeRequestV1 {
             contracts,
             main_transition,
         );
-        let signature = signer.sign_contract_code_request(&inner);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
 
@@ -466,7 +466,7 @@ impl PartialEncodedContractDeploysV1 {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = PartialEncodedContractDeploysInner::new(key, part);
-        let signature = signer.sign_partial_encoded_contract_deploys(&inner);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
 
