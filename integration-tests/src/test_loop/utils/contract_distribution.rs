@@ -1,24 +1,17 @@
-use crate::test_loop::env::TestData;
+use crate::test_loop::env::TestLoopEnv;
 use itertools::Itertools;
-use near_async::{
-    test_loop::{data::TestLoopData, TestLoopV2},
-    time::Duration,
-};
+use near_async::{test_loop::data::TestLoopData, time::Duration};
 use near_chain::ChainStoreAccess;
 use near_primitives::{hash::CryptoHash, version::PROTOCOL_VERSION};
 use near_vm_runner::get_contract_cache_key;
 
 /// Runs the network until all the nodes contain the given code hash in their compiled-contracts cache.
 /// This is used, for example, to make sure that a deploy action took effect in the network and code was distributed to all nodes.
-pub(crate) fn run_until_caches_contain_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    code_hash: &CryptoHash,
-) {
-    test_loop.run_until(
+pub(crate) fn run_until_caches_contain_contract(env: &mut TestLoopEnv, code_hash: &CryptoHash) {
+    env.test_loop.run_until(
         |test_loop_data: &mut TestLoopData| -> bool {
-            for i in 0..node_datas.len() {
-                let client_handle = node_datas[i].client_sender.actor_handle();
+            for i in 0..env.datas.len() {
+                let client_handle = env.datas[i].client_sender.actor_handle();
                 let client = &test_loop_data.get(&client_handle).client;
                 let runtime_config =
                     client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION).unwrap();
@@ -38,13 +31,12 @@ pub(crate) fn run_until_caches_contain_contract(
 /// Asserts that no chunk validation error happened between `start_height` and `end_height` (inclusive), by querying node 0.
 /// In other words, asserts that all chunks are included and endorsements are received from all the chunk validators assigned.
 pub(crate) fn assert_all_chunk_endorsements_received(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    env: &mut TestLoopEnv,
     start_height: u64,
     end_height: u64,
 ) {
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let client = &test_loop.data.get(&client_handle).client;
+    let client_handle = env.datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
     let chain_store = client.chain.chain_store();
     let epoch_manager = &client.epoch_manager;
 
@@ -78,15 +70,17 @@ pub(crate) fn assert_all_chunk_endorsements_received(
 }
 
 /// Clears the compiled contract caches for all the clients.
-pub(crate) fn clear_compiled_contract_caches(
-    _test_loop: &mut TestLoopV2,
-    _node_datas: &Vec<TestData>,
-) {
+pub(crate) fn clear_compiled_contract_caches(_env: &mut TestLoopEnv) {
     #[cfg(feature = "test_features")]
-    for i in 0.._node_datas.len() {
-        let client_handle = _node_datas[i].client_sender.actor_handle();
-        let contract_cache_handle =
-            _test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
+    for i in 0.._env.datas.len() {
+        let client_handle = _env.datas[i].client_sender.actor_handle();
+        let contract_cache_handle = _env
+            .test_loop
+            .data
+            .get(&client_handle)
+            .client
+            .runtime_adapter
+            .compiled_contract_cache();
         contract_cache_handle.test_only_clear().unwrap();
     }
 }
