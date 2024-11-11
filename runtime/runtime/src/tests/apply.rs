@@ -2190,15 +2190,22 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
         HashSet::from([CodeHash(*contract_code2.hash())])
     );
 
-    // Check that the proof size is less than the first contract size (since it is not included in the storage proof).
     let partial_storage = apply_result.proof.unwrap();
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     // Contract size is much larger than the rest of the storage proof, so we compare them to check if the contract is excluded.
     if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(PROTOCOL_VERSION) {
-        assert!(total_size < PREV_CONTRACT_SIZE, "Storage proof size: {}", total_size);
+        assert!(
+            total_size < PREV_CONTRACT_SIZE,
+            "Contract code should not be in storage proof. Storage proof size: {}",
+            total_size
+        );
     } else {
-        assert!(total_size > PREV_CONTRACT_SIZE, "Storage proof size: {}", total_size);
+        assert!(
+            total_size > PREV_CONTRACT_SIZE,
+            "Contract code should be in storage proof. Storage proof size: {}",
+            total_size
+        );
     }
 }
 
@@ -2288,15 +2295,22 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
     assert_eq!(apply_result.contract_updates.contract_deploy_hashes(), HashSet::new());
 
-    // Check that the proof size is less than the existing contract size (since it is not included in the storage proof).
     let partial_storage = apply_result.proof.unwrap();
     let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     // Contract size is much larger than the rest of the storage proof, so we compare them to check if the contract is excluded.
     if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(PROTOCOL_VERSION) {
-        assert!(total_size < CONTRACT_SIZE, "Storage proof size: {}", total_size);
+        assert!(
+            total_size < CONTRACT_SIZE,
+            "Contract code should not be in storage proof. Storage proof size: {}",
+            total_size
+        );
     } else {
-        assert!(total_size > CONTRACT_SIZE, "Storage proof size: {}", total_size);
+        assert!(
+            total_size > CONTRACT_SIZE,
+            "Contract code should be in storage proof. Storage proof size: {}",
+            total_size
+        );
     }
 }
 
