@@ -31,4 +31,8 @@ ignore = [
     # proc-macro-error is unmaintained, but hard to replace right now.
     # Follow https://github.com/Kyuuhachi/syn_derive/issues/4
     "RUSTSEC-2024-0370",
+
+    # instant is unmaintained, but hard to replace because parking_lot depends
+    # on it.
+    "RUSTSEC-2024-0384",
 ]
