@@ -721,7 +721,7 @@ fn get_code_len_or_default(
         "Non-default code hash for account with no contract deployed: {:?}",
         code_hash
     );
-    Ok(code_len.unwrap_or_default() as StorageUsage)
+    Ok(code_len.unwrap_or_default().try_into().unwrap())
 }
 
 pub(crate) fn action_delete_key(
