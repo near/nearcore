@@ -157,7 +157,9 @@ pub(crate) fn test_protocol_upgrade(
             assert_shard_layout(&shard_layout);
 
             // Record observed missing chunks
-            for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
+            for shard_info in shard_layout.shard_infos() {
+                let shard_index = shard_info.shard_index();
+                let shard_id = shard_info.shard_id();
                 if !block_header.chunk_mask()[shard_index] {
                     observed_missing_chunks
                         .borrow_mut()

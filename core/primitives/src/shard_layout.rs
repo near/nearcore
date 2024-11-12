@@ -681,7 +681,10 @@ impl ShardLayout {
         }
     }
 
-    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> + '_ {
+    /// Returns an iterator that iterates over all the shard ids in the shard layout.
+    /// Please also see the `shard_infos` method that returns the ShardInfo for each
+    /// shard and should be used when ShardIndex is needed.
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
         match self {
             Self::V0(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
@@ -693,6 +696,16 @@ impl ShardLayout {
     /// shards in the shard layout
     pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
+    }
+
+    /// Returns an iterator that returns the ShardInfos for every shard in
+    /// this shard layout. This method should be preferred over calling
+    /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
+    /// it may be changed in the future.
+    pub fn shard_infos(&self) -> impl Iterator<Item = ShardInfo> + '_ {
+        self.shard_uids()
+            .enumerate()
+            .map(|(shard_index, shard_uid)| ShardInfo { shard_index, shard_uid })
     }
 
     /// Returns the shard index for a given shard id. The shard index should be
@@ -956,6 +969,25 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
             (_, None) => Err(serde::de::Error::missing_field("shard_id")),
             (Some(version), Some(shard_id)) => Ok(ShardUId { version, shard_id }),
         }
+    }
+}
+
+pub struct ShardInfo {
+    shard_index: ShardIndex,
+    shard_uid: ShardUId,
+}
+
+impl ShardInfo {
+    pub fn shard_index(&self) -> ShardIndex {
+        self.shard_index
+    }
+
+    pub fn shard_id(&self) -> ShardId {
+        self.shard_uid.shard_id()
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        self.shard_uid
     }
 }
 

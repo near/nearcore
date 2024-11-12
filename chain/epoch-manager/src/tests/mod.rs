@@ -1655,7 +1655,9 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
         let chunk_mask = vec![true; num_shards as usize];
         // Prepare the chunk endorsements so that "test2" misses some of the endorsements.
         let mut bitmap = ChunkEndorsementsBitmap::new(num_shards as usize);
-        for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
+        for shard_info in shard_layout.shard_infos() {
+            let shard_index = shard_info.shard_index();
+            let shard_id = shard_info.shard_id();
             let chunk_validators = em
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)
                 .unwrap()

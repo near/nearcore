@@ -80,7 +80,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot,
+    NumBlocks, ShardId, ShardIndex, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -4475,8 +4475,11 @@ impl Chain {
         //
         // Pre-populating because even if there are no receipts for a shard, we
         // need an empty vector for it.
-        let mut result: BTreeMap<_, _> =
-            shard_layout.shard_ids().enumerate().map(|shard_info| (shard_info, vec![])).collect();
+        let mut result_map: BTreeMap<ShardIndex, (ShardId, Vec<&Receipt>)> = BTreeMap::new();
+        for shard_info in shard_layout.shard_infos() {
+            result_map.insert(shard_info.shard_index(), (shard_info.shard_id(), vec![]));
+        }
+
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
@@ -4485,16 +4488,15 @@ impl Chain {
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            let shard_info = (shard_index, shard_id);
-            result.get_mut(&shard_info).unwrap().push(receipt);
+            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
         }
-        result
-            .into_iter()
-            .map(|((_, shard_id), receipts)| {
-                let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
-                hash(&bytes)
-            })
-            .collect()
+
+        let mut result_vec = vec![];
+        for (_, (shard_id, receipts)) in result_map {
+            let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
+            result_vec.push(hash(&bytes));
+        }
+        result_vec
     }
 }
 
