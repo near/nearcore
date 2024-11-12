@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.4.0
+## 2.3.1
 
 * Introduced a new status code for a missing block - 422 Unprocessable Content
 > Block is considered as missing if rpc returned `UNKNOWN_BLOCK` error while requested block height is less than the latest block height
