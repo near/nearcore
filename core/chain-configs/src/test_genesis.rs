@@ -125,11 +125,9 @@ impl TestGenesisBuilder {
     }
 
     pub fn shard_layout_simple_v1(&mut self, boundary_accounts: &[&str]) -> &mut Self {
-        self.epoch_config_mut().shard_layout = ShardLayout::v1(
-            boundary_accounts.iter().map(|a| a.parse().unwrap()).collect(),
-            None,
-            1,
-        );
+        let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
+        self.epoch_config_mut().shard_layout =
+            ShardLayout::multi_shard_custom(boundary_accounts, 1);
         self
     }
 
