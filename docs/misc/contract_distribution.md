@@ -1,6 +1,10 @@
 # Distributing contracts separately from state witness
 
-This document describes the implementation of the two new features `ExcludeContractCodeFromStateWitness`, where we distribute the contract code separately from the state witness.
+The current chunk state witness structure is inefficient due to a significant portion being consumed by contract code. This document describes an implementation for optimizing the state witness size. The changes described are guarded by the protocol feature `ExcludeContractCodeFromStateWitness`. 
+
+In feature `ExcludeContractCodeFromStateWitness`, we optimize the state witness size by distributing the contract code separately from the witness, under the following observations:
+1. New contracts are deployed infrequently, so the function calls are often made to the same contract and we distribute the same contract code in the witness many times at different heights.
+2. Once deployed, a contract is compiled and stored in the compiled-contract cache. This cache is stored in the disk and persistent across epochs, until the VM configuration changes. The chunk application uses this cache to bypass the trie traversal and storage reads to fetch the uncompiled contract code from storage.
 
 ## Deploying a contract to an account
 
@@ -22,11 +26,6 @@ Note that, not all chunk validators may contain the contract in their compiled-c
 Thus, the contract code (which is also part of the State) should be available when validating the state witness. 
 To address this, independent of whether the compiled contract cache was hit or not, all the accesses to the uncompiled code are recorded by [explicitly reading](https://github.com/near/nearcore/blob/82707e8edfd1af7b1d2e5bb1c82ccf768c313e7c/core/store/src/trie/mod.rs#L1628-L1637) from the key `TrieKey::ContractCode{account_id}`, which records all the internal trie nodes from the state root upto the leaf node and the value (code) itself.
 Thus, each function call will contribute to the state witness size at least the contract code, which may go up to `4 MB`.
-
-In feature `ExcludeContractCodeFromStateWitness`, we optimize this by not including contract code in the state witness under the following observations:
-
-1. New contract deployments to the same account are rare, so the function calls are often made to the same contract.
-2. Once deployed, a contract is compiled and stored in the compiled-contract cache. This cache is stored in the disk and persistent across epochs, until the VM configuration changes.
 
 ## Excluding contract code from state witness
 
