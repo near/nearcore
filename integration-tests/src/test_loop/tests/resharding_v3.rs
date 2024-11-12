@@ -119,8 +119,9 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         base_epoch_config.chunk_producer_kickout_threshold = 0;
         base_epoch_config.chunk_validator_only_kickout_threshold = 0;
     }
-    base_epoch_config.shard_layout = ShardLayout::v1(vec!["account3".parse().unwrap()], None, 3);
-    let base_shard_layout = base_epoch_config.shard_layout.clone();
+    #[allow(deprecated)]
+    let base_shard_layout = ShardLayout::v1(vec!["account3".parse().unwrap()], None, 3);
+    base_epoch_config.shard_layout = base_shard_layout.clone();
     let new_boundary_account = "account6".parse().unwrap();
     let mut epoch_config = base_epoch_config.clone();
     let parent_shard_uid = account_id_to_shard_uid(&new_boundary_account, &base_shard_layout);

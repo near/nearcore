@@ -386,12 +386,13 @@ impl ShardLayout {
     }
 
     /// Return a V0 Shardlayout
-    #[deprecated(note = "Use multi_shard() or v1()/v2() instead")]
+    #[deprecated(note = "Use multi_shard() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
     /// Return a V1 Shardlayout
+    #[deprecated(note = "Use multi_shard() instead")]
     pub fn v1(
         boundary_accounts: Vec<AccountId>,
         shards_split_map: Option<ShardsSplitMap>,
@@ -480,6 +481,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout that we use in production
     pub fn get_simple_nightshade_layout() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
                 .into_iter()
@@ -492,6 +494,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 2, that will be used in production.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
                 .into_iter()
@@ -504,6 +507,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 3, that will be used in production.
     pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec![
                 "aurora",
@@ -538,6 +542,7 @@ impl ShardLayout {
     /// introduced after the last layout upgrade in production. Currently it is built on top of V3.
     #[cfg(feature = "nightly")]
     pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec![
                 "aurora",
@@ -1103,6 +1108,7 @@ mod tests {
         let aid = |s: &str| s.parse().unwrap();
         let sid = |s: u64| ShardId::new(s);
 
+        #[allow(deprecated)]
         let shard_layout = ShardLayout::v1(
             parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
             Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),
