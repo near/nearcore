@@ -94,9 +94,6 @@ pub struct ChunkStateWitness {
     /// EpochId corresponds to the next block after chunk's previous block.
     /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
     /// with chunk_header.prev_block_hash().
-    /// This is needed to validate signature when the previous block is not yet
-    /// available on the validator side (aka orphan state witness).
-    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
