@@ -1623,17 +1623,15 @@ impl EpochManager {
                         // Collect the shards for which the validator was *expected* to produce at least one chunk.
                         let mut shards_produced = chunks_stats_by_shard
                             .iter()
-                            .filter_map(|(shard, stats)| (stats.expected() > 0).then_some(shard))
-                            .cloned()
+                            .filter_map(|(shard, stats)| (stats.expected() > 0).then_some(*shard))
                             .collect_vec();
                         shards_produced.sort();
                         // Collect the shards for which the validator was *expected* to validate at least one chunk chunk.
                         let mut shards_endorsed = chunks_stats_by_shard
                             .iter()
                             .filter_map(|(shard, stats)| {
-                                (stats.endorsement_stats().expected > 0).then_some(shard)
+                                (stats.endorsement_stats().expected > 0).then_some(*shard)
                             })
-                            .cloned()
                             .collect_vec();
                         shards_endorsed.sort();
                         let (account_id, public_key, stake) = info.destructure();
