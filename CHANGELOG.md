@@ -3,12 +3,21 @@
 ## [unreleased]
 
 ### Protocol Changes
-
-* Fixing invalid cost used for wasm_yield_resume_byte. #12192
-* Relaxing Congestion Control to allow accepting and buffering more transactions. #12241
+**No Changes**
 
 ### Non-protocol Changes
 **No Changes**
+
+## [2.4.0]
+
+### Protocol Changes
+
+* Fixing invalid cost used for `wasm_yield_resume_byte`. [#12192](https://github.com/near/nearcore/pull/12192)
+* Relaxing Congestion Control to allow accepting and buffering more transactions. [#12241](https://github.com/near/nearcore/pull/12241)
+* Exclude contract code out of state witness and distribute it separately. [#11099](https://github.com/near/nearcore/issues/11099)
+
+### Non-protocol Changes
+* Epoch Sync V4 – the capability to bootstrap a node from another active node. [#73](https://github.com/near/near-one-project-tracking/issues/73)
 
 ## [2.3.0]
 
