@@ -2066,8 +2066,8 @@ impl ClientActorInner {
         true
     }
 
-    /// Produces `num_blocks` number of blocks. 
-    /// 
+    /// Produces `num_blocks` number of blocks.
+    ///
     /// New blocks are placed on top of `prev_block_height`,
     /// if present, otherwise on top of current chain's head.
     /// The parameter `block_height` controls the new blocks' own height.
@@ -2076,7 +2076,7 @@ impl ClientActorInner {
         &mut self,
         num_blocks: BlockHeight,
         only_valid: bool,
-        block_height: Option<BlockHeight>, 
+        block_height: Option<BlockHeight>,
         prev_block_height: Option<BlockHeight>,
     ) {
         info!(target: "adversary", num_blocks, "Starting adversary blocks production");
@@ -2085,9 +2085,11 @@ impl ClientActorInner {
         } else {
             self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
         }
-        let start_height = block_height.unwrap_or_else(|| prev_block_height.unwrap_or_else(|| {
-            self.client.chain.mut_chain_store().get_latest_known().unwrap().height
-        }) + 1);
+        let start_height = block_height.unwrap_or_else(|| {
+            prev_block_height.unwrap_or_else(|| {
+                self.client.chain.mut_chain_store().get_latest_known().unwrap().height
+            }) + 1
+        });
         let signer = self.client.validator_signer.get();
         let mut blocks_produced = 0;
         for height in start_height.. {

@@ -148,7 +148,9 @@ impl TestReshardingParameters {
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
-fn create_chain_fork(double_signing: bool) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+fn create_chain_fork(
+    double_signing: bool,
+) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     Box::new(
         move |test_loop_data: &mut TestLoopData,
