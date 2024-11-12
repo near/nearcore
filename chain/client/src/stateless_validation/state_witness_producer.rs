@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
+use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
+use crate::Client;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
@@ -20,11 +20,8 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
-
-use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::Client;
-
-use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Result of collecting state transition data from the database to generate a state witness.
 /// Keep this private to this file.
@@ -126,6 +123,7 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -135,17 +133,26 @@ impl Client {
             contract_updates,
         } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
 
-        let new_transactions = chunk.transactions().to_vec();
-        let new_transactions_validation_state = if new_transactions.is_empty() {
-            PartialState::default()
+        let (new_transactions, new_transactions_validation_state) = if checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            (Vec::new(), PartialState::default())
         } else {
-            // With stateless validation chunk producer uses recording reads when validating transactions.
-            // The storage proof must be available here.
-            transactions_storage_proof.ok_or_else(|| {
-                let message = "Missing storage proof for transactions validation";
-                log_assert_fail!("{message}");
-                Error::Other(message.to_owned())
-            })?
+            let new_transactions = chunk.transactions().to_vec();
+            let new_transactions_validation_state = if new_transactions.is_empty() {
+                PartialState::default()
+            } else {
+                // With stateless validation chunk producer uses recording reads when validating
+                // transactions. The storage proof must be available here.
+                transactions_storage_proof.ok_or_else(|| {
+                    let message = "Missing storage proof for transactions validation";
+                    log_assert_fail!("{message}");
+                    Error::Other(message.to_owned())
+                })?
+            };
+            (new_transactions, new_transactions_validation_state)
         };
 
         let source_receipt_proofs =
