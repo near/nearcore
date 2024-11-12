@@ -14,6 +14,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_vm_runner::logic::ProtocolVersion;
+use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -31,7 +32,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Trie,
-    pub contract_storage: ContractStorage,
+    contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -79,6 +80,11 @@ impl TrieUpdate {
 
     pub fn trie(&self) -> &Trie {
         &self.trie
+    }
+
+    /// Gets a clone of the `ContractStorage`` (which internally points to the same storage).
+    pub fn contract_storage(&self) -> ContractStorage {
+        self.contract_storage.clone()
     }
 
     pub fn get_ref(
@@ -243,6 +249,11 @@ impl TrieUpdate {
             }
         }
         fallback(&key)
+    }
+
+    /// Records deployment of a contract due to a deploy-contract action.
+    pub fn record_contract_deploy(&self, code: ContractCode) {
+        self.contract_storage.record_deploy(code);
     }
 
     /// Records an access to the contract code due to a function call.

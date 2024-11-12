@@ -2460,7 +2460,7 @@ impl<'a> ApplyProcessingState<'a> {
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.apply_state.current_protocol_version,
-            self.state_update.contract_storage.clone(),
+            self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -2649,7 +2649,7 @@ pub mod estimator {
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
             apply_state.current_protocol_version,
-            state_update.contract_storage.clone(),
+            state_update.contract_storage(),
         );
         Runtime {}.apply_action_receipt(
             state_update,
