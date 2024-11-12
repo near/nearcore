@@ -246,12 +246,12 @@ pub fn pre_validate_chunk_state_witness(
         )));
     }
 
-    let epoch_id = last_chunk_block.header().epoch_id();
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+    let current_protocol_version =
+        epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
     if !checked_feature!(
         "protocol_feature_relaxed_chunk_validation",
         RelaxedChunkValidation,
-        protocol_version
+        current_protocol_version
     ) {
         // Verify that all proposed transactions are valid.
         let new_transactions = &state_witness.new_transactions;
@@ -294,6 +294,7 @@ pub fn pre_validate_chunk_state_witness(
     }
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
+        let epoch_id = last_chunk_block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let congestion_info = last_chunk_block
             .block_congestion_info()
