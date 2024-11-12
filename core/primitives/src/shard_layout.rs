@@ -682,7 +682,7 @@ impl ShardLayout {
     }
 
     /// Returns an iterator that iterates over all the shard ids in the shard layout.
-    /// Please also see the `shard_infos` method that returns the ShardInfo for each 
+    /// Please also see the `shard_infos` method that returns the ShardInfo for each
     /// shard and should be used when ShardIndex is needed.
     pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
         match self {
@@ -698,10 +698,10 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
-    /// Returns an iterator that returns the ShardInfos for every shard in 
+    /// Returns an iterator that returns the ShardInfos for every shard in
     /// this shard layout. This method should be preferred over calling
     /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
-    /// it may be changed in the future. 
+    /// it may be changed in the future.
     pub fn shard_infos(&self) -> impl Iterator<Item = ShardInfo> + '_ {
         self.shard_uids()
             .enumerate()
