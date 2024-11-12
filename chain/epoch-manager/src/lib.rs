@@ -1,6 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
+use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::{BlockHeader, Tip};
@@ -1538,11 +1539,13 @@ impl EpochManager {
                                     endorsement: ValidatorStats { produced: 0, expected: 0 },
                                 },
                             });
-                        let mut shards = validator_to_shard[validator_id]
+                        let mut shards_produced = validator_to_shard[validator_id]
                             .iter()
                             .cloned()
                             .collect::<Vec<ShardId>>();
-                        shards.sort();
+                        shards_produced.sort();
+                        // TODO: Compute the set of shards validated.
+                        let shards_endorsed = vec![];
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
@@ -1550,9 +1553,8 @@ impl EpochManager {
                             public_key,
                             stake,
                             // TODO: Maybe fill in the per shard info about the chunk produced for requests coming from RPC.
-                            num_produced_chunks_per_shard: vec![0; shards.len()],
-                            num_expected_chunks_per_shard: vec![0; shards.len()],
-                            shards,
+                            num_produced_chunks_per_shard: vec![0; shards_produced.len()],
+                            num_expected_chunks_per_shard: vec![0; shards_produced.len()],
                             num_produced_blocks: validator_stats.block_stats.produced,
                             num_expected_blocks: validator_stats.block_stats.expected,
                             num_produced_chunks: validator_stats.chunk_stats.produced(),
@@ -1566,8 +1568,10 @@ impl EpochManager {
                                 .endorsement_stats()
                                 .expected,
                             // Same TODO as above for `num_produced_chunks_per_shard`
-                            num_produced_endorsements_per_shard: Vec::new(),
-                            num_expected_endorsements_per_shard: Vec::new(),
+                            num_produced_endorsements_per_shard: vec![0; shards_endorsed.len()],
+                            num_expected_endorsements_per_shard: vec![0; shards_endorsed.len()],
+                            shards_produced,
+                            shards_endorsed,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1616,23 +1620,33 @@ impl EpochManager {
                                     endorsement_stats.expected;
                             }
                         }
-                        let mut shards = validator_to_shard[validator_id]
-                            .clone()
-                            .into_iter()
-                            .collect::<Vec<ShardId>>();
-                        shards.sort();
+                        // Collect the shards for which the validator was *expected* to produce at least one chunk.
+                        let mut shards_produced = chunks_stats_by_shard
+                            .iter()
+                            .filter_map(|(shard, stats)| (stats.expected() > 0).then_some(shard))
+                            .cloned()
+                            .collect_vec();
+                        shards_produced.sort();
+                        // Collect the shards for which the validator was *expected* to validate at least one chunk chunk.
+                        let mut shards_endorsed = chunks_stats_by_shard
+                            .iter()
+                            .filter_map(|(shard, stats)| {
+                                (stats.endorsement_stats().expected > 0).then_some(shard)
+                            })
+                            .cloned()
+                            .collect_vec();
+                        shards_endorsed.sort();
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
                             account_id,
                             public_key,
                             stake,
-                            shards: shards.clone(),
                             num_produced_blocks: block_stats.produced,
                             num_expected_blocks: block_stats.expected,
                             num_produced_chunks: chunk_stats.produced(),
                             num_expected_chunks: chunk_stats.expected(),
-                            num_produced_chunks_per_shard: shards
+                            num_produced_chunks_per_shard: shards_produced
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1640,7 +1654,7 @@ impl EpochManager {
                                         .map_or(0, |stats| stats.produced())
                                 })
                                 .collect(),
-                            num_expected_chunks_per_shard: shards
+                            num_expected_chunks_per_shard: shards_produced
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1650,7 +1664,7 @@ impl EpochManager {
                                 .collect(),
                             num_produced_endorsements: chunk_stats.endorsement_stats().produced,
                             num_expected_endorsements: chunk_stats.endorsement_stats().expected,
-                            num_produced_endorsements_per_shard: shards
+                            num_produced_endorsements_per_shard: shards_endorsed
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1658,7 +1672,7 @@ impl EpochManager {
                                         .map_or(0, |stats| stats.endorsement_stats().produced)
                                 })
                                 .collect(),
-                            num_expected_endorsements_per_shard: shards
+                            num_expected_endorsements_per_shard: shards_endorsed
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1666,6 +1680,8 @@ impl EpochManager {
                                         .map_or(0, |stats| stats.endorsement_stats().expected)
                                 })
                                 .collect(),
+                            shards_produced,
+                            shards_endorsed,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
