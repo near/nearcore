@@ -1400,11 +1400,18 @@ fn chunk_tx_gas_limit(
 fn calculate_transactions_size_limit(
     protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
-    last_chunk_transactions_size: usize,
+    mut last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+        if near_primitives::checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            last_chunk_transactions_size = 0;
+        }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config

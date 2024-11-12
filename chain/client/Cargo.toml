@@ -73,6 +73,11 @@ near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 near-actix-test-utils.workspace = true
 
 [features]
+protocol_feature_relaxed_chunk_validation = [
+  "near-chain/protocol_feature_relaxed_chunk_validation",
+  "near-primitives/protocol_feature_relaxed_chunk_validation",
+]
+
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 shadow_chunk_validation = ["near-chain/shadow_chunk_validation"]
@@ -120,6 +125,7 @@ nightly = [
   "near-telemetry/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
+  "protocol_feature_relaxed_chunk_validation",
 ]
 sandbox = [
   "near-client-primitives/sandbox",

@@ -3198,6 +3198,17 @@ impl Chain {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+
+        if checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            return Ok(());
+        }
+
         if !validate_transactions_order(chunk.transactions()) {
             let merkle_paths =
                 Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
@@ -3214,8 +3225,6 @@ impl Chain {
             return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
         }
 
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
             for transaction in chunk.transactions() {
