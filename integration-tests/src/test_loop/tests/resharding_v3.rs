@@ -148,7 +148,7 @@ impl TestReshardingParameters {
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
-fn create_chain_fork(
+fn fork_before_resharding_block(
     double_signing: bool,
 ) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -360,25 +360,25 @@ fn test_resharding_v3_drop_chunks_all() {
 #[test]
 #[ignore]
 #[cfg(feature = "test_features")]
-fn test_resharding_v3_fork_before_resharding_block() {
+fn test_resharding_v3_resharding_block_in_fork() {
     let mut params = TestReshardingParameters::default();
     let client = params.clients[0].clone();
     params = params
         .clients(vec![client.clone()])
         .block_and_chunk_producers(vec![client])
-        .loop_action(Some(create_chain_fork(false)));
+        .loop_action(Some(fork_before_resharding_block(false)));
     test_resharding_v3_base(params);
 }
 
 #[test]
 #[ignore]
 #[cfg(feature = "test_features")]
-fn test_resharding_v3_double_sign_reshading_block() {
+fn test_resharding_v3_double_sign_resharding_block() {
     let mut params = TestReshardingParameters::default();
     let client = params.clients[0].clone();
     params = params
         .clients(vec![client.clone()])
         .block_and_chunk_producers(vec![client])
-        .loop_action(Some(create_chain_fork(true)));
+        .loop_action(Some(fork_before_resharding_block(true)));
     test_resharding_v3_base(params);
 }
