@@ -933,7 +933,7 @@ impl ValidatorProductionStatus {
             "Number of shards must match number of shards expected to produce a chunk for"
         );
         debug_assert_eq!(
-            info.shards_produced.len(),
+            info.shards_endorsed.len(),
             info.num_expected_endorsements_per_shard.len(),
             "Number of shards must match number of shards expected to produce a chunk for"
         );
