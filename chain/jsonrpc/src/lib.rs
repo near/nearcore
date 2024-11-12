@@ -21,6 +21,7 @@ pub use near_jsonrpc_client as client;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
+use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
@@ -1354,21 +1355,51 @@ impl JsonRpcHandler {
     }
 }
 
+async fn handle_unknown_block(
+    request: Message,
+    handler: web::Data<JsonRpcHandler>,
+) -> actix_web::HttpResponseBuilder {
+    let Message::Request(request) = request else {
+        return HttpResponse::Ok();
+    };
+
+    let Some(block_id) = request.params.get("block_id") else {
+        return HttpResponse::Ok();
+    };
+
+    let Some(block_height) = block_id.as_u64() else {
+        return HttpResponse::Ok();
+    };
+
+    let Ok(latest_block) =
+        handler.block(RpcBlockRequest { block_reference: BlockReference::latest() }).await
+    else {
+        return HttpResponse::Ok();
+    };
+
+    if block_height < latest_block.block_view.header.height {
+        return HttpResponse::UnprocessableEntity();
+    }
+
+    HttpResponse::Ok()
+}
+
 async fn rpc_handler(
-    message: web::Json<Message>,
+    request: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> HttpResponse {
-    let message = handler.process(message.0).await;
+    let message = handler.process(request.0.clone()).await;
+
     let mut response = if let Message::Response(response) = &message {
         match &response.result {
             Ok(_) => HttpResponse::Ok(),
             Err(err) => match &err.error_struct {
                 Some(RpcErrorKind::RequestValidationError(_)) => HttpResponse::BadRequest(),
                 Some(RpcErrorKind::HandlerError(error_struct)) => {
-                    if error_struct["name"] == "TIMEOUT_ERROR" {
-                        HttpResponse::RequestTimeout()
-                    } else {
-                        HttpResponse::Ok()
+                    match error_struct.get("name").and_then(|name| name.as_str()) {
+                        Some("UNKNOWN_BLOCK") => handle_unknown_block(request.0, handler).await,
+                        Some("TIMEOUT_ERROR") => HttpResponse::RequestTimeout(),
+                        _ => HttpResponse::Ok(),
                     }
                 }
                 Some(RpcErrorKind::InternalError(_)) => HttpResponse::InternalServerError(),
@@ -1378,6 +1409,7 @@ async fn rpc_handler(
     } else {
         HttpResponse::InternalServerError()
     };
+
     response.json(message)
 }
 
