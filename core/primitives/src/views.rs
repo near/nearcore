@@ -2061,6 +2061,7 @@ pub struct CurrentEpochValidatorInfo {
     #[serde(with = "dec_format")]
     pub stake: Balance,
     /// Shards this validator is assigned to as chunk producer in the current epoch.
+    #[serde(rename = "shards")]
     pub shards_produced: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,

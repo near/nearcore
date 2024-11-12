@@ -1504,26 +1504,26 @@ impl EpochManager {
             ValidatorInfoIdentifier::BlockHash(ref b) => self.get_epoch_id(b)?,
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?;
-        let cur_shard_layout = self.get_shard_layout(&epoch_id)?;
         let epoch_height = cur_epoch_info.epoch_height();
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
-        let mut validator_to_shard = (0..cur_epoch_info.validators_len())
-            .map(|_| HashSet::default())
-            .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_index, validators) in
-            cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
-        {
-            let shard_id = cur_shard_layout.get_shard_id(shard_index)?;
-            for validator_id in validators {
-                validator_to_shard[*validator_id as usize].insert(shard_id);
-            }
-        }
 
         // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
         // in std.
         let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
             ValidatorInfoIdentifier::EpochId(id) => {
+                let cur_shard_layout = self.get_shard_layout(&epoch_id)?;
+                let mut validator_to_shard = (0..cur_epoch_info.validators_len())
+                    .map(|_| HashSet::default())
+                    .collect::<Vec<HashSet<ShardId>>>();
+                for (shard_index, validators) in
+                    cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
+                {
+                    let shard_id = cur_shard_layout.get_shard_id(shard_index)?;
+                    for validator_id in validators {
+                        validator_to_shard[*validator_id as usize].insert(shard_id);
+                    }
+                }
                 let epoch_summary = self.get_epoch_validator_info(id)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
