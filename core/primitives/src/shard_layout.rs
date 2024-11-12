@@ -341,13 +341,26 @@ impl ShardLayout {
         Self::multi_shard(1, 0)
     }
 
-    /// Can be used to construct a multi-shard layout, mostly for test purposes
+    /// Creates a multi-shard ShardLayout using the most recent ShardLayout
+    /// version and default boundary accounts. It should be used for tests only.
+    /// The shard ids are deterministic but arbitrary in order to test the
+    /// non-contiguous ShardIds.
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
         let boundary_accounts = (1..num_shards)
             .map(|i| format!("test{}", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
+
+        Self::multi_shard_custom(boundary_accounts, version)
+    }
+
+    /// Creates a multi-shard ShardLayout using the most recent ShardLayout
+    /// version and provided boundary accounts. It should be used for tests
+    /// only. The shard ids are deterministic but arbitrary in order to test the
+    /// non-contiguous ShardIds.
+    pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
+        let num_shards = (boundary_accounts.len() + 1) as u64;
 
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
