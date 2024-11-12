@@ -1366,16 +1366,18 @@ async fn handle_unknown_block(
         return HttpResponse::Ok();
     };
 
+    let Some(block_height) = block_id.as_u64() else {
+        return HttpResponse::Ok();
+    };
+
     let Ok(latest_block) =
         handler.block(RpcBlockRequest { block_reference: BlockReference::latest() }).await
     else {
         return HttpResponse::Ok();
     };
 
-    if let Some(block_height) = block_id.as_u64() {
-        if block_height < latest_block.block_view.header.height {
-            return HttpResponse::UnprocessableEntity();
-        }
+    if block_height < latest_block.block_view.header.height {
+        return HttpResponse::UnprocessableEntity();
     }
 
     HttpResponse::Ok()
