@@ -970,7 +970,7 @@ pub(crate) fn print_epoch_analysis(
     let mut next_epoch_info =
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
     let mut next_next_epoch_config =
-        epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION).unwrap();
+        epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION);
     let mut has_same_shard_layout;
     let mut epoch_protocol_version;
     let mut next_next_protocol_version;
