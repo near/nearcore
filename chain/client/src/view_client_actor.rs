@@ -1354,7 +1354,7 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
             .start_timer();
         let StateRequestHeader { shard_id, sync_hash } = msg;
         if self.throttle_state_sync_request() {
-            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
+            metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
         let header = match self.chain.check_sync_hash_validity(&sync_hash) {
@@ -1424,7 +1424,7 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
             .start_timer();
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         if self.throttle_state_sync_request() {
-            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
+            metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
         if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {

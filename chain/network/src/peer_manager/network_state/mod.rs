@@ -18,6 +18,7 @@ use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
+#[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
@@ -137,6 +138,7 @@ pub(crate) struct NetworkState {
     pub graph: Arc<crate::routing::Graph>,
     /// A sparsified graph of the whole NEAR network.
     /// TODO(saketh): deprecate graph above, rename this to RoutingTable
+    #[cfg(feature = "distance_vector_routing")]
     pub graph_v2: Arc<crate::routing::GraphV2>,
 
     /// Hashes of the body of recently received routed messages.
@@ -164,6 +166,7 @@ pub(crate) struct NetworkState {
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
     add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
     /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
+    #[cfg(feature = "distance_vector_routing")]
     update_routes_demux:
         demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
 
@@ -192,6 +195,7 @@ impl NetworkState {
                 prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),
             })),
+            #[cfg(feature = "distance_vector_routing")]
             graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
                 node_id: config.node_id(),
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),
@@ -221,6 +225,7 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
@@ -356,6 +361,7 @@ impl NetworkState {
                     // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Update the V2 routing table
+                    #[cfg(feature = "distance_vector_routing")]
                     this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
@@ -418,6 +424,7 @@ impl NetworkState {
             }
 
             // Update the V2 routing table
+            #[cfg(feature = "distance_vector_routing")]
             this.update_routes(&clock, NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
                 .await
                 .unwrap();
@@ -932,23 +939,26 @@ impl NetworkState {
 
             // Now that `graph` has been synchronized with the state of the local connections,
             // use it as the source of truth to fix the local state in `graph_v2`
-            let mut tasks = vec![];
-            let node_id = this.config.node_id();
-            for edge in graph.local_edges.values() {
-                let other_peer = edge.other(&node_id).unwrap();
-                tasks.push(match edge.edge_type() {
-                    EdgeState::Active => this.update_routes(
-                        &clock,
-                        NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
-                    ),
-                    EdgeState::Removed => this.update_routes(
-                        &clock,
-                        NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
-                    ),
-                });
-            }
-            for t in tasks {
-                let _ = t.await;
+            #[cfg(feature = "distance_vector_routing")]
+            {
+                let mut tasks = vec![];
+                let node_id = this.config.node_id();
+                for edge in graph.local_edges.values() {
+                    let other_peer = edge.other(&node_id).unwrap();
+                    tasks.push(match edge.edge_type() {
+                        EdgeState::Active => this.update_routes(
+                            &clock,
+                            NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
+                        ),
+                        EdgeState::Removed => this.update_routes(
+                            &clock,
+                            NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
+                        ),
+                    });
+                }
+                for t in tasks {
+                    let _ = t.await;
+                }
             }
         })
         .await

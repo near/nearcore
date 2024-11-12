@@ -511,7 +511,9 @@ fn sync_state_dump() {
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                 near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
                                 near2.client_config.state_sync_enabled = true;
-                                near2.client_config.state_sync_timeout = Duration::seconds(2);
+                                near2.client_config.state_sync_external_timeout =
+                                    Duration::seconds(2);
+                                near2.client_config.state_sync_p2p_timeout = Duration::seconds(2);
                                 near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
                                         location: Filesystem {

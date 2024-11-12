@@ -322,7 +322,9 @@ impl Client {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             network_adapter.clone().into_sender(),
-            config.state_sync_timeout,
+            config.state_sync_external_timeout,
+            config.state_sync_p2p_timeout,
+            config.state_sync_retry_timeout,
             &config.chain_id,
             &config.state_sync.sync,
             chain_sender_for_state_sync.clone(),
@@ -2544,7 +2546,6 @@ impl Client {
         {
             assert_eq!(&epoch_first_block, state_sync_info.epoch_first_block());
 
-            let state_sync_timeout = self.config.state_sync_timeout;
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
@@ -2563,7 +2564,9 @@ impl Client {
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
                             self.network_adapter.clone().into_sender(),
-                            state_sync_timeout,
+                            self.config.state_sync_external_timeout,
+                            self.config.state_sync_p2p_timeout,
+                            self.config.state_sync_retry_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
                             self.chain_sender_for_state_sync.clone(),

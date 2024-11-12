@@ -48,7 +48,7 @@ impl AdversarialBehaviorTestData {
             let config = &mut genesis.config;
             config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
             config.epoch_length = epoch_length;
-            config.shard_layout = ShardLayout::v1_test();
+            config.shard_layout = ShardLayout::multi_shard(4, 3);
             config.num_block_producer_seats_per_shard = vec![
                 num_block_producers as u64,
                 num_block_producers as u64,

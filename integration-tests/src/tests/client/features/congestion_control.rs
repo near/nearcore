@@ -32,15 +32,24 @@ fn get_runtime_config(
     let mut config = config_store.get_config(protocol_version).clone();
     let mut_config = Arc::make_mut(&mut config);
 
-    adjust_runtime_config(mut_config);
+    set_wasm_cost(mut_config);
 
     config
 }
 
 // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-fn adjust_runtime_config(config: &mut RuntimeConfig) {
+fn set_wasm_cost(config: &mut RuntimeConfig) {
     let wasm_config = Arc::make_mut(&mut config.wasm_config);
     wasm_config.regular_op_cost = u32::MAX;
+}
+
+// Set the default congestion control parameters for the given runtime config.
+// This is important to prevent needing to fix the congestion control tests
+// every time the parameters are updated.
+fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
+    let cc_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    let cc_config = get_runtime_config(&config_store, cc_protocol_version);
+    config.congestion_control_config = cc_config.congestion_control_config;
 }
 
 /// Set up the test runtime with the given protocol version and runtime configs.
@@ -53,10 +62,12 @@ fn setup_test_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
 
+    let config_store = RuntimeConfigStore::new(None);
     let mut config = RuntimeConfig::test_protocol_version(protocol_version);
-    adjust_runtime_config(&mut config);
-    let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
+    set_wasm_cost(&mut config);
+    set_default_congestion_control(&config_store, &mut config);
 
+    let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
     TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
         .build()
@@ -73,9 +84,14 @@ fn setup_real_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
 
+    // Get the runtime configs for before and after the protocol upgrade.
     let config_store = RuntimeConfigStore::new(None);
     let pre_config = get_runtime_config(&config_store, protocol_version);
-    let post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+    let mut post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+
+    // Use the original congestion control parameters for the post config.
+    let post_runtime_config = Arc::get_mut(&mut post_config).unwrap();
+    set_default_congestion_control(&config_store, post_runtime_config);
 
     // Checking the migration from Receipt to StateStoredReceipt requires the
     // relevant config to be disabled before the protocol upgrade and enabled
@@ -520,13 +536,10 @@ fn test_transaction_limit_for_local_congestion() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
-
     // Fix the initial configuration of congestion control for the tests.
     let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
-    let config = runtime_config_store.get_config(protocol_version);
     // We don't want to go into the TX rejection limit in this test.
-    let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
+    let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
     // For this test, the contract and the sender are on the same shard, even
     // the same account.
@@ -572,13 +585,12 @@ fn test_transaction_limit_for_local_congestion() {
 /// rejection.
 #[test]
 fn test_transaction_limit_for_remote_congestion() {
+    init_test_logger();
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // We don't want to go into the TX rejection limit in this test.
-    let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
+    let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
     let (
         remote_tx_included_without_congestion,
@@ -612,11 +624,8 @@ fn test_transaction_filtering() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // This test should go beyond into the TX rejection limit in this test.
-    let upper_limit_congestion =
-        3.0 * config.congestion_control_config.reject_tx_congestion_threshold;
+    let upper_limit_congestion = UpperLimitCongestion::AboveRejectThreshold;
 
     let (
         remote_tx_included_without_congestion,
@@ -638,8 +647,15 @@ fn test_transaction_filtering() {
     assert_eq!(remote_tx_included_with_congestion, 0);
 }
 
+enum UpperLimitCongestion {
+    BelowRejectThreshold,
+    AboveRejectThreshold,
+}
+
 /// Calls [`measure_tx_limit`] with accounts on three different shards.
-fn measure_remote_tx_limit(upper_limit_congestion: f64) -> (usize, usize, usize, usize) {
+fn measure_remote_tx_limit(
+    upper_limit_congestion: UpperLimitCongestion,
+) -> (usize, usize, usize, usize) {
     let remote_id: AccountId = "test0".parse().unwrap();
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let dummy_id: AccountId = "a_dummy_receiver".parse().unwrap();
@@ -677,7 +693,7 @@ fn measure_tx_limit(
     remote_id: AccountId,
     contract_id: AccountId,
     dummy_receiver: AccountId,
-    upper_limit_congestion: f64,
+    upper_limit_congestion: UpperLimitCongestion,
 ) -> (usize, usize, usize, usize) {
     let remote_signer =
         InMemorySigner::from_seed(remote_id.clone(), KeyType::ED25519, remote_id.as_str());
@@ -694,6 +710,11 @@ fn measure_tx_limit(
     // put in enough transactions to create up to
     // `reject_tx_congestion_threshold` incoming congestion
     let config = head_congestion_control_config(&env);
+    let upper_limit_congestion = match upper_limit_congestion {
+        UpperLimitCongestion::BelowRejectThreshold => config.reject_tx_congestion_threshold,
+        UpperLimitCongestion::AboveRejectThreshold => config.reject_tx_congestion_threshold * 2.0,
+    };
+
     let num_full_congestion = config.max_congestion_incoming_gas / (100 * 10u64.pow(12));
     let n = num_full_congestion as f64 * upper_limit_congestion;
     // Key of new account starts at block_height * 1_000_000
@@ -714,10 +735,11 @@ fn measure_tx_limit(
         let height = tip.height + i;
         env.produce_block(0, height);
 
-        let sender_chunk = head_chunk(&env, remote_shard_id);
+        let remote_chunk = head_chunk(&env, remote_shard_id);
         let contract_chunk = head_chunk(&env, contract_shard_id);
-        let remote_num_tx = sender_chunk.transactions().len();
+        let remote_num_tx = remote_chunk.transactions().len();
         let local_num_tx = contract_chunk.transactions().len();
+
         if i == 2 {
             remote_tx_included_without_congestion = remote_num_tx;
             local_tx_included_without_congestion = local_num_tx;

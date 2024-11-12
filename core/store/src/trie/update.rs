@@ -298,6 +298,7 @@ impl TrieUpdate {
         fallback(&key)
     }
 
+    /// Records deployment of a contract due to a deploy-contract action.
     pub fn record_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_deploy(code);
     }
