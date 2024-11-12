@@ -71,7 +71,7 @@ nodes[1].kill()
 def check_bad_block(node, height):
     try:
         node.get_block_by_height(height)
-        assert False, "Expected an exception for block height 1 but none was raised"
+        assert False, f"Expected an exception for block height {height} but none was raised"
     except useragent.BadStatusCode as e:
         assert "code=422" in str(
             e), f"Expected status code 422 in exception, got: {e}"
