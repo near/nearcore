@@ -684,7 +684,7 @@ impl ShardLayout {
     /// Returns an iterator that iterates over all the shard ids in the shard layout.
     /// Please also see the `shard_infos` method that returns the ShardInfo for each 
     /// shard and should be used when ShardIndex is needed.
-    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> + '_ {
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
         match self {
             Self::V0(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
