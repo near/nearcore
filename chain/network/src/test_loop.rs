@@ -288,7 +288,7 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::StateRequestPart { .. } => None,
-
+        NetworkRequests::Challenge(_) => None,
         _ => Some(request),
     })
 }

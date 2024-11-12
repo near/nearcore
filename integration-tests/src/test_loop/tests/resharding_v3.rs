@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use itertools::Itertools;
-use near_async::test_loop::data::TestLoopData;
+use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
@@ -10,7 +10,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
@@ -21,6 +21,7 @@ use std::sync::Arc;
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
+use near_client::client_actor::ClientActorInner;
 
 fn print_and_assert_shard_accounts(client: &Client) {
     let tip = client.chain.head().unwrap();
@@ -81,6 +82,113 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
     }
 }
 
+struct TestReshardingParameters {
+    chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
+    accounts: Vec<AccountId>,
+    clients: Vec<AccountId>,
+    block_and_chunk_producers: Vec<AccountId>,
+    initial_balance: u128,
+    epoch_length: BlockHeightDelta,
+    /// Custom behavior executed at every iteration of test loop.
+    loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
+}
+
+impl Default for TestReshardingParameters {
+    fn default() -> Self {
+        let initial_balance = 1_000_000 * ONE_NEAR;
+        let epoch_length = 6;
+        let accounts =
+            (0..8).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+        // #12195 prevents number of BPs bigger than `epoch_length`.
+        let clients = vec![accounts[0].clone(), accounts[3].clone(), accounts[6].clone()];
+        let block_and_chunk_producers = clients.clone();
+        let loop_action = None;
+        Self {
+            chunk_ranges_to_drop: HashMap::new(),
+            accounts,
+            clients,
+            block_and_chunk_producers,
+            initial_balance,
+            epoch_length,
+            loop_action,
+        }
+    }
+}
+
+impl TestReshardingParameters {
+    fn chunk_ranges_to_drop(
+        mut self,
+        chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
+    ) -> Self {
+        self.chunk_ranges_to_drop = chunk_ranges_to_drop;
+        self
+    }
+
+    #[allow(unused)]
+    fn clients(mut self, clients: Vec<AccountId>) -> Self {
+        self.clients = clients;
+        self
+    }
+
+    #[allow(unused)]
+    fn block_and_chunk_producers(mut self, block_and_chunk_producers: Vec<AccountId>) -> Self {
+        self.block_and_chunk_producers = block_and_chunk_producers;
+        self
+    }
+
+    #[allow(unused)]
+    fn loop_action(
+        mut self,
+        loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
+    ) -> Self {
+        self.loop_action = loop_action;
+        self
+    }
+}
+
+// Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
+#[cfg(feature = "test_features")]
+fn create_chain_fork(double_signing: bool) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    Box::new(
+        move |test_loop_data: &mut TestLoopData,
+              client_handle: TestLoopDataHandle<ClientActorInner>| {
+            // It must happen only for the first resharding block encountered.
+            if done.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+
+            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // We want to understand if the most recent block is a resharding block.
+            // To do this check if the latest block is an epoch start and compare the two epochs' shard layouts.
+            let epoch_manager = client_actor.client.epoch_manager.clone();
+            let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+            let next_epoch_id =
+                epoch_manager.get_next_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
+            let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+            let next_block_has_new_shard_layout =
+                epoch_manager.is_next_block_epoch_start(&tip.last_block_hash).unwrap()
+                    && shard_layout != next_shard_layout;
+
+            // If there's a new shard layout force a chain fork.
+            if next_block_has_new_shard_layout {
+                println!("creating chain fork at height {}", tip.height);
+                let block_height = if double_signing {
+                    // For double signing blocks height will be computed as prev_block + 1.
+                    None
+                } else {
+                    // Set block height = tip + 1 to avoid double signing.
+                    Some(tip.height + 1)
+                };
+                client_actor.adv_produce_blocks_on(3, true, block_height, Some(tip.height - 1));
+                done.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        },
+    )
+}
+
 /// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Nodes must not track all shards. State sync must succeed.
@@ -90,22 +198,13 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
 /// - Cross-shard receipts of all kinds, crossing resharding boundary.
 /// - Shard layout v2 -> v2 transition.
 /// - Shard layout can be taken from mainnet.
-fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>) {
+fn test_resharding_v3_base(params: TestReshardingParameters) {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
         return;
     }
 
     init_test_logger();
     let builder = TestLoopBuilder::new();
-
-    let initial_balance = 1_000_000 * ONE_NEAR;
-    let epoch_length = 6;
-    let accounts =
-        (0..8).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    // #12195 prevents number of BPs bigger than `epoch_length`.
-    let clients = vec![accounts[0].clone(), accounts[3].clone(), accounts[6].clone()];
-    let block_and_chunk_producers =
-        clients.iter().map(|account: &AccountId| account.as_str()).collect_vec();
 
     // Prepare shard split configuration.
     let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
@@ -114,7 +213,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
     base_epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
         false;
-    if !chunk_ranges_to_drop.is_empty() {
+    if !params.chunk_ranges_to_drop.is_empty() {
         base_epoch_config.block_producer_kickout_threshold = 0;
         base_epoch_config.chunk_producer_kickout_threshold = 0;
         base_epoch_config.chunk_validator_only_kickout_threshold = 0;
@@ -140,24 +239,36 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
         .genesis_time_from_clock(&builder.clock())
         .shard_layout(base_shard_layout)
         .protocol_version(base_protocol_version)
-        .epoch_length(epoch_length)
-        .validators_desired_roles(&block_and_chunk_producers, &[]);
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
+        .epoch_length(params.epoch_length)
+        .validators_desired_roles(
+            &params
+                .block_and_chunk_producers
+                .iter()
+                .map(|account_id| account_id.as_str())
+                .collect_vec(),
+            &[],
+        );
+    for account in &params.accounts {
+        genesis_builder.add_user_account_simple(account.clone(), params.initial_balance);
     }
     let (genesis, _) = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .drop_protocol_upgrade_chunks(base_protocol_version + 1, chunk_ranges_to_drop.clone())
+        .clients(params.clients)
+        .drop_protocol_upgrade_chunks(
+            base_protocol_version + 1,
+            params.chunk_ranges_to_drop.clone(),
+        )
         .track_all_shards()
         .build();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
+        params.loop_action.as_ref().map(|action| action(test_loop_data, client_handle.clone()));
+
         let client = &test_loop_data.get(&client_handle).client;
         let tip = client.chain.head().unwrap();
 
@@ -170,7 +281,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
             }
             latest_block_height.set(tip.height);
             println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
-            if chunk_ranges_to_drop.is_empty() {
+            if params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
         }
@@ -195,7 +306,7 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
     test_loop.run_until(
         success_condition,
         // Give enough time to produce ~7 epochs.
-        Duration::seconds((7 * epoch_length) as i64),
+        Duration::seconds((7 * params.epoch_length) as i64),
     );
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
@@ -204,25 +315,31 @@ fn test_resharding_v3_base(chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Ran
 
 #[test]
 fn test_resharding_v3() {
-    test_resharding_v3_base(HashMap::new());
+    test_resharding_v3_base(TestReshardingParameters::default());
 }
 
 #[test]
 fn test_resharding_v3_drop_chunks_before() {
     let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 1, version: 3 }, -2..0)]);
-    test_resharding_v3_base(chunk_ranges_to_drop);
+    test_resharding_v3_base(
+        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+    );
 }
 
 #[test]
 fn test_resharding_v3_drop_chunks_after() {
     let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 2, version: 3 }, 0..2)]);
-    test_resharding_v3_base(chunk_ranges_to_drop);
+    test_resharding_v3_base(
+        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+    );
 }
 
 #[test]
 fn test_resharding_v3_drop_chunks_before_and_after() {
     let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 0, version: 3 }, -2..2)]);
-    test_resharding_v3_base(chunk_ranges_to_drop);
+    test_resharding_v3_base(
+        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+    );
 }
 
 #[test]
@@ -233,5 +350,33 @@ fn test_resharding_v3_drop_chunks_all() {
         (ShardUId { shard_id: 2, version: 3 }, 0..3),
         (ShardUId { shard_id: 3, version: 3 }, 0..1),
     ]);
-    test_resharding_v3_base(chunk_ranges_to_drop);
+    test_resharding_v3_base(
+        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+    );
+}
+
+#[test]
+#[ignore]
+#[cfg(feature = "test_features")]
+fn test_resharding_v3_fork_before_resharding_block() {
+    let mut params = TestReshardingParameters::default();
+    let client = params.clients[0].clone();
+    params = params
+        .clients(vec![client.clone()])
+        .block_and_chunk_producers(vec![client])
+        .loop_action(Some(create_chain_fork(false)));
+    test_resharding_v3_base(params);
+}
+
+#[test]
+#[ignore]
+#[cfg(feature = "test_features")]
+fn test_resharding_v3_double_sign_reshading_block() {
+    let mut params = TestReshardingParameters::default();
+    let client = params.clients[0].clone();
+    params = params
+        .clients(vec![client.clone()])
+        .block_and_chunk_producers(vec![client])
+        .loop_action(Some(create_chain_fork(true)));
+    test_resharding_v3_base(params);
 }
