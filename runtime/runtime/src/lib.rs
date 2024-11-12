@@ -1399,9 +1399,10 @@ impl Runtime {
     /// new outgoing receipts, execution outcomes for all transactions, local action receipts
     /// (generated from transactions with signer == receivers) and incoming action receipts.
     ///
-    /// Invalid transactions should have been filtered out by the chunk producer, but if such a
-    /// chunk containing invalid transactions makes it to here, these transactions are ignored.
-    // TODO(new-tx): verify the statement above.
+    /// Invalid transactions should have been filtered out by the chunk producer, but if a chunk
+    /// containing invalid transactions does make it to here, these transactions are skipped. This
+    /// does pollute the chain with junk data, but it also allows the protocol to make progress, as
+    /// the only alternative way to handle these transactions is to make the entire chunk invalid.
     #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
         protocol_version = apply_state.current_protocol_version,
         num_transactions = transactions.len(),
@@ -1559,11 +1560,13 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    // TODO(new-tx): describe how invalid transactions are handled here.
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
     /// transactions.
+    ///
+    /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
+    /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
     fn process_transactions<'a>(
         &self,
         processing_state: &mut ApplyProcessingReceiptState<'a>,
@@ -1587,12 +1590,12 @@ impl Runtime {
                         RelaxedChunkValidation,
                         processing_state.protocol_version
                     ) {
-                        // TODO(new-tx): do we need to somehow report the invalid transactions
-                        //               to the callers? Currently the caller bails processing the
-                        //               entire chunk if we return an error here.
-                        // TODO(new-tx): if the transaction is invalid, do we still want to charge
-                        //               processing fees from somebody somewhere? Currently the
-                        //               state is simply rolled back.
+                        // NB: number of invalid transactions are noted in metrics.
+                        tracing::debug!(
+                            target: "runtime",
+                            message="invalid transaction ignored",
+                            tx_hash=%signed_transaction.get_hash()
+                        );
                         continue;
                     } else {
                         return Err(e.into());
