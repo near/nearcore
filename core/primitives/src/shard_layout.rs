@@ -465,15 +465,6 @@ impl ShardLayout {
         })
     }
 
-    /// Returns a V1 ShardLayout. It is only used in tests
-    pub fn v1_test() -> Self {
-        ShardLayout::v1(
-            vec!["abc", "foo", "test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            Some(new_shards_split_map(vec![vec![0, 1, 2, 3]])),
-            1,
-        )
-    }
-
     /// Returns the simple nightshade layout that we use in production
     pub fn get_simple_nightshade_layout() -> ShardLayout {
         ShardLayout::v1(
