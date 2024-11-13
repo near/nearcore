@@ -142,8 +142,10 @@ impl TestEnv {
     // Produces block by the client that is the block producer for the given height.
     pub fn produce_block_simple(&mut self, height: BlockHeight) {
         let client = &self.clients[0];
+
         let tip = client.chain.head().unwrap();
-        let epoch_id = tip.epoch_id;
+        let parent_hash = tip.last_block_hash;
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
         let block_producer = client.epoch_manager.get_block_producer(&epoch_id, height).unwrap();
 
         for id in 0..self.clients.len() {
