@@ -95,11 +95,8 @@ skip = [
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
-    # wasmer-runtime-core-near and parity-secp256k1 use an older version
+    # blake3 (through wasmer0) uses an older version
     { name = "arrayvec", version = "=0.5.2" },
-
-    # borsh uses a very old version of proc-macro-crate
-    { name = "proc-macro-crate", version = "=0.1.5" },
 
     # criterion and wasmer-runtime-core-near depend on this older
     # version of the crate.
@@ -107,7 +104,6 @@ skip = [
     { name = "errno", version = "=0.2.8" },
 
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
-    { name = "hashbrown", version = "0.11.0" },
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
     { name = "bitflags", version = "=1.3.2" },
@@ -118,12 +114,6 @@ skip = [
 
     # rust-s3 is using an old version of smartstring
     { name = "smartstring", version = "=0.2.10" },
-
-    # zeropool-bn uses borsh 0.9
-    { name = "borsh", version = "=0.9.3" },
-    { name = "borsh-derive", version = "=0.9.3" },
-    { name = "borsh-derive-internal", version = "=0.9.3" },
-    { name = "borsh-schema-derive-internal", version = "=0.9.3" },
 
     # near-test-contracts
     { name = "wasm-encoder", version = "=0.11.0" },
