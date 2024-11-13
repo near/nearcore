@@ -82,6 +82,7 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
     }
 }
 
+#[derive(Default)]
 struct TestReshardingParameters {
     chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
     accounts: Vec<AccountId>,
@@ -93,29 +94,53 @@ struct TestReshardingParameters {
     loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
 }
 
-impl Default for TestReshardingParameters {
-    fn default() -> Self {
+impl TestReshardingParameters {
+    fn new() -> Self {
+        Self::with_clients(3)
+    }
+
+    fn with_clients(num_clients: u64) -> Self {
+        let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
         let epoch_length = 6;
-        let accounts =
-            (0..8).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+
         // #12195 prevents number of BPs bigger than `epoch_length`.
-        let clients = vec![accounts[0].clone(), accounts[3].clone(), accounts[6].clone()];
+        assert!(num_clients > 0 && num_clients <= epoch_length);
+
+        let accounts = (0..num_accounts)
+            .map(|i| format!("account{}", i).parse().unwrap())
+            .collect::<Vec<AccountId>>();
+
+        // This piece of code creates `num_clients` from `accounts`. First client is at index 0 and
+        // other clients are spaced in the accounts' space as evenly as possible.
+        let clients_per_account = num_clients as f64 / accounts.len() as f64;
+        let mut client_parts = 1.0 - clients_per_account;
+        let clients: Vec<_> = accounts
+            .iter()
+            .filter(|_| {
+                client_parts += clients_per_account;
+                if client_parts >= 1.0 {
+                    client_parts -= 1.0;
+                    true
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .collect();
+
         let block_and_chunk_producers = clients.clone();
-        let loop_action = None;
+
         Self {
-            chunk_ranges_to_drop: HashMap::new(),
             accounts,
             clients,
             block_and_chunk_producers,
             initial_balance,
             epoch_length,
-            loop_action,
+            ..Default::default()
         }
     }
-}
 
-impl TestReshardingParameters {
     fn chunk_ranges_to_drop(
         mut self,
         chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
@@ -324,14 +349,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
 #[test]
 fn test_resharding_v3() {
-    test_resharding_v3_base(TestReshardingParameters::default());
+    test_resharding_v3_base(TestReshardingParameters::new());
 }
 
 #[test]
 fn test_resharding_v3_drop_chunks_before() {
     let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 1, version: 3 }, -2..0)]);
     test_resharding_v3_base(
-        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+        TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
 }
 
@@ -339,7 +364,7 @@ fn test_resharding_v3_drop_chunks_before() {
 fn test_resharding_v3_drop_chunks_after() {
     let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 2, version: 3 }, 0..2)]);
     test_resharding_v3_base(
-        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+        TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
 }
 
@@ -347,7 +372,7 @@ fn test_resharding_v3_drop_chunks_after() {
 fn test_resharding_v3_drop_chunks_before_and_after() {
     let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 0, version: 3 }, -2..2)]);
     test_resharding_v3_base(
-        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+        TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
 }
 
@@ -360,7 +385,7 @@ fn test_resharding_v3_drop_chunks_all() {
         (ShardUId { shard_id: 3, version: 3 }, 0..1),
     ]);
     test_resharding_v3_base(
-        TestReshardingParameters::default().chunk_ranges_to_drop(chunk_ranges_to_drop),
+        TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
 }
 
@@ -368,24 +393,18 @@ fn test_resharding_v3_drop_chunks_all() {
 #[ignore]
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_resharding_block_in_fork() {
-    let mut params = TestReshardingParameters::default();
-    let client = params.clients[0].clone();
-    params = params
-        .clients(vec![client.clone()])
-        .block_and_chunk_producers(vec![client])
-        .loop_action(Some(fork_before_resharding_block(false)));
-    test_resharding_v3_base(params);
+    test_resharding_v3_base(
+        TestReshardingParameters::with_clients(1)
+            .loop_action(Some(fork_before_resharding_block(false))),
+    );
 }
 
 #[test]
 #[ignore]
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_double_sign_resharding_block() {
-    let mut params = TestReshardingParameters::default();
-    let client = params.clients[0].clone();
-    params = params
-        .clients(vec![client.clone()])
-        .block_and_chunk_producers(vec![client])
-        .loop_action(Some(fork_before_resharding_block(true)));
-    test_resharding_v3_base(params);
+    test_resharding_v3_base(
+        TestReshardingParameters::with_clients(1)
+            .loop_action(Some(fork_before_resharding_block(true))),
+    );
 }
