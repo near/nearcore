@@ -1,8 +1,8 @@
+use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
-
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
     RuntimeStorageConfig,
@@ -346,8 +346,8 @@ impl<'a> ChainUpdate<'a> {
         let height = header.height();
         let epoch_id = header.epoch_id();
         let approvals = header.approvals();
-        self.epoch_manager.verify_approvals_and_threshold_orphan(
-            epoch_id,
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        verify_approvals_and_threshold_orphan(
             &|approvals, stakes| {
                 Doomslug::can_approved_block_be_produced(
                     self.doomslug_threshold_mode,
@@ -359,6 +359,7 @@ impl<'a> ChainUpdate<'a> {
             prev_height,
             height,
             approvals,
+            epoch_info,
         )
     }
 
