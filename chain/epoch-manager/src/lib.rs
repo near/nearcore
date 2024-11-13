@@ -8,7 +8,7 @@ use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, ShardConfig, AGGREGATOR_KEY,
+    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -837,7 +837,7 @@ impl EpochManager {
                     validator_block_chunk_stats.remove(account_id);
                 }
             }
-            let epoch_config = self.get_epoch_config(block_info.epoch_id())?;
+            let epoch_config = self.get_epoch_config(epoch_protocol_version);
             // If ChunkEndorsementsInBlockHeader feature is enabled, we use the chunk validator kickout threshold
             // as the cutoff threshold for the endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
@@ -1862,22 +1862,8 @@ impl EpochManager {
         Ok(EpochId(*first_block_info.prev_hash()))
     }
 
-    pub fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let epoch_config = self.config.for_protocol_version(protocol_version);
-        Ok(ShardConfig::new(epoch_config))
-    }
-
-    pub fn get_config_for_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> Result<EpochConfig, EpochError> {
-        Ok(self.config.for_protocol_version(protocol_version))
-    }
-
-    pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        self.get_config_for_protocol_version(protocol_version)
+    pub fn get_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
+        self.config.for_protocol_version(protocol_version)
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
@@ -2215,7 +2201,9 @@ impl EpochManager {
             self.get_block_info(&current_epoch_first_block_hash)?;
 
         let current_epoch_start = current_epoch_first_block_info.height();
-        let current_epoch_length = self.get_epoch_config(&tip.epoch_id)?.epoch_length;
+        let current_epoch_length = self
+            .get_epoch_config(self.get_epoch_info(&tip.epoch_id)?.protocol_version())
+            .epoch_length;
         let current_epoch_estimated_end = current_epoch_start.saturating_add(current_epoch_length);
 
         // All blocks with height lower than the estimated end are guaranteed to reside in the current epoch.

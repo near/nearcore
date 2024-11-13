@@ -498,7 +498,7 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(Default::default())
     }
 
-    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         Ok(EpochConfig {
             epoch_length: self.epoch_length,
             num_block_producer_seats: 2,
@@ -514,7 +514,7 @@ impl EpochManagerAdapter for MockEpochManager {
             fishermen_threshold: 1,
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            shard_layout: ShardLayout::v1_test(),
+            shard_layout: self.get_shard_layout(epoch_id).unwrap(),
             validator_selection_config: ValidatorSelectionConfig::default(),
         })
     }
@@ -867,25 +867,6 @@ impl EpochManagerAdapter for MockEpochManager {
         _epoch_id: &EpochId,
     ) -> Result<ProtocolVersion, EpochError> {
         Ok(PROTOCOL_VERSION)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    > {
-        Ok(Default::default())
     }
 
     fn init_after_epoch_sync(

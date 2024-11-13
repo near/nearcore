@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
@@ -7,13 +6,13 @@ use near_primitives::types::AccountId;
 use near_vm_runner::ContractCode;
 
 use crate::test_loop::builder::TestLoopBuilder;
-use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
 use crate::test_loop::utils::transactions::{
-    call_contract, check_txs, deploy_contract, make_account, make_accounts,
+    do_call_contract, do_delete_account, do_deploy_contract, make_account, make_accounts,
 };
 use crate::test_loop::utils::{get_head_height, ONE_NEAR};
 
@@ -23,39 +22,50 @@ const GENESIS_HEIGHT: u64 = 1000;
 const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 1;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
-const NUM_ACCOUNTS: usize = NUM_VALIDATORS;
 
 /// Executes a test that deploys to a contract to an account and calls it.
 fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
-    let accounts = make_accounts(NUM_ACCOUNTS);
+    // We need 1 more non-validator account to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 1);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
+    let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
-    let account = rpc_id.clone();
+    // Choose an account that is not a validator, so we can delete it.
+    let contract_id = accounts[NUM_VALIDATORS].clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
+    let method_name = "main".to_owned();
+    let args = vec![];
 
-    let start_height = get_head_height(&mut test_loop, &node_datas);
+    let start_height = get_head_height(&mut env);
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account, &contract, 1);
+    do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
     if wait_cache_populate {
-        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+        run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
     if clear_cache {
-        clear_compiled_contract_caches(&mut test_loop, &node_datas);
+        clear_compiled_contract_caches(&mut env);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 2);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account, 3);
+    do_call_contract(
+        &mut env,
+        &rpc_id,
+        &contract_id,
+        &contract_id,
+        method_name.clone(),
+        args.clone(),
+    );
+    do_call_contract(&mut env, &rpc_id, &contract_id, &contract_id, method_name, args);
 
-    let end_height = get_head_height(&mut test_loop, &node_datas);
-    assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
+    do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests a simple scenario where we deploy and call a contract.
@@ -82,36 +92,49 @@ fn test_contract_distribution_call_after_clear_single_account() {
 /// Executes a test that deploys to a contract to two different accounts and calls them.
 fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clear_cache: bool) {
     init_test_logger();
-    let accounts = make_accounts(NUM_ACCOUNTS);
+    // We need 2 more non-validator accounts to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 2);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = setup(&accounts);
+    let mut env = setup(&accounts);
 
     let rpc_id = make_account(0);
-    let account0 = make_account(0);
-    let account1 = make_account(1);
+    // Choose accounts that are not validators, so we can delete them.
+    let contract_id1 = accounts[NUM_VALIDATORS].clone();
+    let contract_id2 = accounts[NUM_VALIDATORS + 1].clone();
     let contract = ContractCode::new(near_test_contracts::sized_contract(100), None);
+    let method_name = "main".to_owned();
+    let args = vec![];
 
-    let start_height = get_head_height(&mut test_loop, &node_datas);
+    let start_height = get_head_height(&mut env);
 
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account0, &contract, 1);
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &account1, &contract, 2);
+    do_deploy_contract(&mut env, &rpc_id, &contract_id1, contract.code().to_vec());
+    do_deploy_contract(&mut env, &rpc_id, &contract_id2, contract.code().to_vec());
 
     if wait_cache_populate {
-        run_until_caches_contain_contract(&mut test_loop, &node_datas, contract.hash());
+        run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
     if clear_cache {
-        clear_compiled_contract_caches(&mut test_loop, &node_datas);
+        clear_compiled_contract_caches(&mut env);
     }
 
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account0, 3);
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &account1, 4);
+    do_call_contract(
+        &mut env,
+        &rpc_id,
+        &contract_id1,
+        &contract_id1,
+        method_name.clone(),
+        args.clone(),
+    );
+    do_call_contract(&mut env, &rpc_id, &contract_id2, &contract_id2, method_name, args);
 
-    let end_height = get_head_height(&mut test_loop, &node_datas);
-    assert_all_chunk_endorsements_received(&mut test_loop, &node_datas, start_height, end_height);
+    do_delete_account(&mut env, &rpc_id, &contract_id1, &rpc_id);
+    do_delete_account(&mut env, &rpc_id, &contract_id2, &rpc_id);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests a simple scenario where we deploy and call a contract on two different accounts.
@@ -133,6 +156,57 @@ fn test_contract_distribution_wait_cache_populate_different_accounts() {
 #[test]
 fn test_contract_distribution_call_after_clear_different_accounts() {
     test_contract_distribution_different_accounts(true, true);
+}
+
+/// Executes a test that deploys and calls different contracts to the same account.
+#[test]
+fn test_contract_distribution_deply_and_call_multiple_contracts() {
+    init_test_logger();
+    // We need 1 more non-validator account to create, deploy-contract, and delete.
+    let accounts = make_accounts(NUM_VALIDATORS + 1);
+
+    let mut env = setup(&accounts);
+
+    let rpc_id = make_account(0);
+    // Choose accounts that are not validators.
+    let contract_id = accounts[NUM_VALIDATORS].clone();
+    let contracts = (0..3)
+        .map(|i| ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100), None))
+        .collect_vec();
+    let method_name = "main".to_owned();
+    let args = vec![];
+
+    let start_height = get_head_height(&mut env);
+
+    for contract in contracts.iter() {
+        do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
+
+        run_until_caches_contain_contract(&mut env, contract.hash());
+
+        do_call_contract(
+            &mut env,
+            &rpc_id,
+            &contract_id,
+            &contract_id,
+            method_name.clone(),
+            args.clone(),
+        );
+        do_call_contract(
+            &mut env,
+            &rpc_id,
+            &contract_id,
+            &contract_id,
+            method_name.clone(),
+            args.clone(),
+        );
+    }
+
+    do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
+
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
@@ -169,41 +243,4 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
     let env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
     env
-}
-
-fn do_deploy_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    rpc_id: &AccountId,
-    account: &AccountId,
-    contract: &ContractCode,
-    nonce: u64,
-) {
-    tracing::info!(target: "test", "Deploying contract.");
-    let tx =
-        deploy_contract(test_loop, &node_datas, rpc_id, account, contract.code().to_vec(), nonce);
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, rpc_id, &[tx]);
-}
-
-fn do_call_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
-    rpc_id: &AccountId,
-    account: &AccountId,
-    nonce: u64,
-) {
-    tracing::info!(target: "test", "Calling contract.");
-    let tx = call_contract(
-        test_loop,
-        node_datas,
-        rpc_id,
-        account,
-        account,
-        "main".to_owned(),
-        vec![],
-        nonce,
-    );
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(test_loop, node_datas, rpc_id, &[tx]);
 }

@@ -473,7 +473,9 @@ impl TestLoopBuilder {
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
-        client_config.state_sync_timeout = Duration::milliseconds(100);
+        client_config.state_sync_external_timeout = Duration::milliseconds(100);
+        client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
+        client_config.state_sync_retry_timeout = Duration::milliseconds(100);
         if let Some(num_epochs) = self.gc_num_epochs_to_keep {
             client_config.gc.gc_num_epochs_to_keep = num_epochs;
         }

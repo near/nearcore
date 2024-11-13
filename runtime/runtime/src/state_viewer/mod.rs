@@ -252,7 +252,7 @@ impl TrieViewer {
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
             apply_state.current_protocol_version,
-            state_update.contract_storage.clone(),
+            state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
         let contract = pipeline.get_contract(&receipt, account.code_hash(), 0, view_config.clone());

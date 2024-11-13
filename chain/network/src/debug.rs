@@ -1,7 +1,7 @@
 use ::actix::Message;
+use near_primitives::views::NetworkRoutesView;
 use near_primitives::views::{
-    NetworkGraphView, NetworkRoutesView, PeerStoreView, RecentOutboundConnectionsView,
-    SnapshotHostsView,
+    NetworkGraphView, PeerStoreView, RecentOutboundConnectionsView, SnapshotHostsView,
 };
 
 // Different debug requests that can be sent by HTML pages, via GET.

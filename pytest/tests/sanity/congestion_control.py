@@ -105,7 +105,7 @@ class CongestionControlTest(unittest.TestCase):
     def __run_under_congestion(self, node):
         logger.info("Checking the chain under congestion")
         (start_height, _) = node.get_latest_block()
-        target = start_height + 20
+        target = start_height + 10
         for height, hash in poll_blocks(node, __target=target):
             # Wait for a few blocks to congest the chain.
             if height < start_height + 5:
@@ -265,6 +265,11 @@ class CongestionControlTest(unittest.TestCase):
         genesis_config_changes = [
             ("epoch_length", epoch_length),
             ("shard_layout", SHARD_LAYOUT),
+            # This is a custom chain id that will set the congestion control
+            # runtime parameters to their original values. This is needed so
+            # that the test doesn't need to be updated every time the parameters
+            # are changed.
+            ("chain_id", "congestion_control_test"),
         ]
         client_config_changes = {
             0: {

@@ -2,7 +2,7 @@ use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -155,6 +155,20 @@ impl RuntimeConfigStore {
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
                 config.wasm_config = Arc::new(wasm_config);
+                config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
+                config_store
+            }
+            near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
+                let mut config_store = Self::new(None);
+
+                // Get the original congestion control config. The nayduck tests
+                // are tuned to this config.
+                let source_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+                let source_runtime_config = config_store.get_config(source_protocol_version);
+
+                let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
+                config.congestion_control_config = source_runtime_config.congestion_control_config;
+
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
             }

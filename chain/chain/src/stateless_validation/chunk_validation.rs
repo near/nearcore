@@ -18,6 +18,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
+use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -245,42 +246,59 @@ pub fn pre_validate_chunk_state_witness(
         )));
     }
 
-    // Verify that all proposed transactions are valid.
-    let new_transactions = &state_witness.new_transactions;
-    if !new_transactions.is_empty() {
-        let transactions_validation_storage_config = RuntimeStorageConfig {
-            state_root: state_witness.chunk_header.prev_state_root(),
-            use_flat_storage: true,
-            source: StorageDataSource::Recorded(PartialStorage {
-                nodes: state_witness.new_transactions_validation_state.clone(),
-            }),
-            state_patch: Default::default(),
-        };
+    let current_protocol_version =
+        epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
+    if !checked_feature!(
+        "protocol_feature_relaxed_chunk_validation",
+        RelaxedChunkValidation,
+        current_protocol_version
+    ) {
+        let new_transactions = &state_witness.new_transactions;
+        let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
+        let chunk_tx_root = state_witness.chunk_header.tx_root();
+        if new_tx_root_from_state_witness != chunk_tx_root {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Witness new transactions root {:?} does not match chunk {:?}",
+                new_tx_root_from_state_witness, chunk_tx_root
+            )));
+        }
+        // Verify that all proposed transactions are valid.
+        if !new_transactions.is_empty() {
+            let transactions_validation_storage_config = RuntimeStorageConfig {
+                state_root: state_witness.chunk_header.prev_state_root(),
+                use_flat_storage: true,
+                source: StorageDataSource::Recorded(PartialStorage {
+                    nodes: state_witness.new_transactions_validation_state.clone(),
+                }),
+                state_patch: Default::default(),
+            };
 
-        match validate_prepared_transactions(
-            chain,
-            runtime_adapter,
-            &state_witness.chunk_header,
-            transactions_validation_storage_config,
-            &new_transactions,
-            &state_witness.transactions,
-        ) {
-            Ok(result) => {
-                if result.transactions.len() != new_transactions.len() {
+            match validate_prepared_transactions(
+                chain,
+                runtime_adapter,
+                &state_witness.chunk_header,
+                transactions_validation_storage_config,
+                &new_transactions,
+                &state_witness.transactions,
+            ) {
+                Ok(result) => {
+                    if result.transactions.len() != new_transactions.len() {
+                        return Err(Error::InvalidChunkStateWitness(format!(
+                            "New transactions validation failed. \
+                         {} transactions out of {} proposed transactions were valid.",
+                            result.transactions.len(),
+                            new_transactions.len(),
+                        )));
+                    }
+                }
+                Err(error) => {
                     return Err(Error::InvalidChunkStateWitness(format!(
-                        "New transactions validation failed. {} transactions out of {} proposed transactions were valid.",
-                        result.transactions.len(),
-                        new_transactions.len(),
+                        "New transactions validation failed: {}",
+                        error,
                     )));
                 }
-            }
-            Err(error) => {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "New transactions validation failed: {}",
-                    error,
-                )));
-            }
-        };
+            };
+        }
     }
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
