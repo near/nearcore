@@ -14,7 +14,7 @@ use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -31,7 +31,7 @@ use near_store::test_utils::create_test_store;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -46,19 +46,11 @@ fn run_chunk_validation_test(
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
     let blocks_to_produce = if prob_missing_block > 0.0 { 200 } else { 50 };
+
     let num_accounts = 9;
-    let accounts = (0..num_accounts)
-        .map(|i| format!("account{}", i).parse().unwrap())
-        .collect::<Vec<AccountId>>();
     let num_validators = 8;
-    // Split accounts into 4 shards, so that each shard will store two
-    // validator accounts.
-    #[allow(deprecated)]
-    let shard_layout = ShardLayout::v1(
-        vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
-        None,
-        1,
-    );
+    let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
+
     let num_shards = shard_layout.shard_ids().count();
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
@@ -315,18 +307,10 @@ fn test_protocol_upgrade_81() {
 
     let validator_stake = 1000000 * ONE_NEAR;
     let num_accounts = 9;
-    let accounts = (0..num_accounts)
-        .map(|i| format!("account{}", i).parse().unwrap())
-        .collect::<Vec<AccountId>>();
     let num_validators = 8;
-    // Split accounts into 4 shards, so that each shard will store two
-    // validator accounts.
-    #[allow(deprecated)]
-    let shard_layout = ShardLayout::v1(
-        vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
-        None,
-        1,
-    );
+
+    let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
+
     let num_shards = shard_layout.shard_ids().count();
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
@@ -354,6 +338,33 @@ fn test_protocol_upgrade_81() {
     let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
     assert_eq!(config.block_producer_kickout_threshold, 90);
     assert_eq!(config.chunk_producer_kickout_threshold, 90);
+}
+
+fn get_accounts_and_shard_layout(
+    num_accounts: usize,
+    num_validators: usize,
+) -> (Vec<AccountId>, ShardLayout) {
+    // Split accounts into 4 shards, so that each shard will store two validator
+    // accounts.
+    let accounts = (0..num_accounts)
+        .map(|i| format!("account{}", i).parse().unwrap())
+        .collect::<Vec<AccountId>>();
+    let boundary_accounts = vec!["account2", "account4", "account6"];
+    let boundary_accounts = boundary_accounts.into_iter().map(|s| s.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+
+    // The number of accounts in each shard.
+    let mut shard_account_count: HashMap<ShardId, u32> = HashMap::new();
+    for account in &accounts[..num_validators] {
+        let shard_id = account_id_to_shard_id(account, &shard_layout);
+        *shard_account_count.entry(shard_id).or_default() += 1;
+    }
+    for shard_id in shard_layout.shard_ids() {
+        let account_count = shard_account_count.get(&shard_id).unwrap_or(&0);
+        assert_eq!(account_count, &2, "Each shard should have 2 validator accounts");
+    }
+
+    (accounts, shard_layout)
 }
 
 /// Test that Client rejects ChunkStateWitnesses with invalid shard_id
