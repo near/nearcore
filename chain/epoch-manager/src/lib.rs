@@ -7,7 +7,7 @@ use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, ShardConfig, AGGREGATOR_KEY,
+    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -1846,12 +1846,6 @@ impl EpochManager {
     fn get_next_epoch_id_from_info(&self, block_info: &BlockInfo) -> Result<EpochId, EpochError> {
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
         Ok(EpochId(*first_block_info.prev_hash()))
-    }
-
-    pub fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let epoch_config = self.config.for_protocol_version(protocol_version);
-        Ok(ShardConfig::new(epoch_config))
     }
 
     pub fn get_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
