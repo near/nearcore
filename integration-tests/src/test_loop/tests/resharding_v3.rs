@@ -151,12 +151,12 @@ impl TestReshardingParameters {
 fn fork_before_resharding_block(
     double_signing: bool,
 ) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
-    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = std::cell::Cell::new(false);
     Box::new(
         move |test_loop_data: &mut TestLoopData,
               client_handle: TestLoopDataHandle<ClientActorInner>| {
             // It must happen only for the first resharding block encountered.
-            if done.load(std::sync::atomic::Ordering::SeqCst) {
+            if done.get() {
                 return;
             }
 
@@ -185,7 +185,7 @@ fn fork_before_resharding_block(
                     Some(tip.height + 1)
                 };
                 client_actor.adv_produce_blocks_on(3, true, block_height, Some(tip.height - 1));
-                done.store(true, std::sync::atomic::Ordering::SeqCst);
+                done.set(true);
             }
         },
     )
