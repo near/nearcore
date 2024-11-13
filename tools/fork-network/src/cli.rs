@@ -14,6 +14,7 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::borsh;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::ShardUId;
@@ -414,7 +415,7 @@ impl ForkNetworkCommand {
             new_validator_accounts.clone(),
             epoch_manager,
             home_dir,
-            &near_config,
+            near_config,
         )?;
 
         tracing::info!("All Done! Run the node normally to start the forked network.");
@@ -800,22 +801,40 @@ impl ForkNetworkCommand {
         new_validator_accounts: Vec<AccountInfo>,
         epoch_manager: Arc<EpochManagerHandle>,
         home_dir: &Path,
-        near_config: &NearConfig,
+        near_config: &mut NearConfig,
     ) -> anyhow::Result<()> {
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id)?;
-        let protocol_version = match protocol_version {
+        // At this point, the genesis will contain the chain id of the original chain.
+        // We need to load the epoch config for the new chain id and new genesis protocol version.
+        let new_chain_id = chain_id
+            .clone()
+            .unwrap_or_else(|| near_config.genesis.config.chain_id.clone() + chain_id_suffix);
+        near_config.genesis.config.chain_id = new_chain_id.clone();
+
+        let genesis_protocol_version = match protocol_version {
             Some(v) => v,
-            None => {
-                let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-                epoch_info.protocol_version()
-            }
+            None => near_config.genesis.config.protocol_version,
+        };
+        near_config.genesis.config.protocol_version = genesis_protocol_version;
+
+        // This is based on the assumption that epoch length is part of genesis config and not epoch config.
+        near_config.genesis.config.epoch_length = epoch_length;
+
+        let epoch_config_dir = home_dir.join("epoch_configs");
+        let epoch_config = if epoch_config_dir.exists() {
+            tracing::info!(target: "fork-network", "Loading epoch config from {:?}", epoch_config_dir);
+            EpochConfigStore::for_chain_id(&new_chain_id, Some(epoch_config_dir))
+                .unwrap()
+                .get_config(genesis_protocol_version)
+                .as_ref()
+                .clone()
+        } else {
+            tracing::info!(target: "fork-network", "Loading epoch config from epoch manager");
+            epoch_manager.get_epoch_config(epoch_id)?
         };
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
-            chain_id: chain_id
-                .clone()
-                .unwrap_or_else(|| original_config.chain_id.clone() + chain_id_suffix),
+            chain_id: new_chain_id,
             genesis_height: height,
             genesis_time,
             epoch_length,
@@ -844,7 +863,7 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
-            protocol_version,
+            protocol_version: genesis_protocol_version,
             validators: new_validator_accounts,
             gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
             gas_limit: original_config.gas_limit,
@@ -857,9 +876,14 @@ impl ForkNetworkCommand {
             total_supply: original_config.total_supply,
             transaction_validity_period: original_config.transaction_validity_period,
             use_production_config: original_config.use_production_config,
-            num_chunk_producer_seats: original_config.num_chunk_producer_seats,
-            num_chunk_validator_seats: original_config.num_chunk_validator_seats,
-            chunk_producer_assignment_changes_limit: original_config
+            num_chunk_producer_seats: epoch_config
+                .validator_selection_config
+                .num_chunk_producer_seats,
+            num_chunk_validator_seats: epoch_config
+                .validator_selection_config
+                .num_chunk_validator_seats,
+            chunk_producer_assignment_changes_limit: epoch_config
+                .validator_selection_config
                 .chunk_producer_assignment_changes_limit,
         };
 
