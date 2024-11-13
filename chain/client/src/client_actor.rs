@@ -401,6 +401,29 @@ pub enum AdvProduceChunksMode {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum AdvProduceBlockHeightSelection {
+    /// Place the new block on top of the latest known block. Block's height will be the next
+    /// integer.
+    NextHeightOnLatestKnown,
+    /// Place the new block on top of the latest known block. Block height is arbitrary.
+    SelectedHeightOnLatestKnown { produced_block_height: BlockHeight },
+    /// Place the new block on top of the current head. Block's height will be the next integer.
+    NextHeightOnCurrentHead,
+    /// Place the new block on top of current head. Block height is arbitrary.
+    SelectedHeightOnCurrentHead { produced_block_height: BlockHeight },
+    /// Place the new block on top of an existing block at height `base_block_height`. Block's
+    /// height will be the next integer.
+    NextHeightOnSelectedBlock { base_block_height: BlockHeight },
+    /// Place the new block on top of an existing block at height `base_block_height`. Block height
+    /// is arbitrary.
+    SelectedHeightOnSelectedBlock {
+        produced_block_height: BlockHeight,
+        base_block_height: BlockHeight,
+    },
+}
+
+#[cfg(feature = "test_features")]
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<u64>")]
 pub enum NetworkAdversarialMessage {
@@ -430,38 +453,11 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 None
             }
             NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
-                info!(target: "adversary", num_blocks, "Starting adversary blocks production");
-                if only_valid {
-                    self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
-                } else {
-                    self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
-                }
-                let start_height =
-                    self.client.chain.mut_chain_store().get_latest_known().unwrap().height + 1;
-                let signer = self.client.validator_signer.get();
-                let mut blocks_produced = 0;
-                for height in start_height.. {
-                    let block =
-                        self.client.produce_block(height).expect("block should be produced");
-                    if only_valid && block == None {
-                        continue;
-                    }
-                    let block = block.expect("block should exist after produced");
-                    info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::Block { block: block.clone() },
-                    ));
-                    let _ = self.client.start_process_block(
-                        block.into(),
-                        Provenance::PRODUCED,
-                        Some(self.myself_sender.apply_chunks_done.clone()),
-                        &signer,
-                    );
-                    blocks_produced += 1;
-                    if blocks_produced == num_blocks {
-                        break;
-                    }
-                }
+                self.adv_produce_blocks_on(
+                    num_blocks,
+                    only_valid,
+                    AdvProduceBlockHeightSelection::NextHeightOnLatestKnown,
+                );
                 None
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
@@ -2095,6 +2091,88 @@ impl ClientActorInner {
             return true;
         }
         true
+    }
+
+    /// Produces `num_blocks` number of blocks.
+    ///
+    /// The parameter `height_selection` governs the produced blocks' heights and what base block
+    /// height they are placed.
+    #[cfg(feature = "test_features")]
+    pub fn adv_produce_blocks_on(
+        &mut self,
+        num_blocks: BlockHeight,
+        only_valid: bool,
+        height_selection: AdvProduceBlockHeightSelection,
+    ) {
+        use AdvProduceBlockHeightSelection::*;
+
+        info!(target: "adversary", num_blocks, "Starting adversary blocks production");
+        if only_valid {
+            self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
+        } else {
+            self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
+        }
+        let (start_height, prev_block_height) = match height_selection {
+            NextHeightOnLatestKnown => {
+                let latest_height =
+                    self.client.chain.mut_chain_store().get_latest_known().unwrap().height;
+                (latest_height + 1, latest_height)
+            }
+            SelectedHeightOnLatestKnown { produced_block_height } => (
+                produced_block_height,
+                self.client.chain.mut_chain_store().get_latest_known().unwrap().height,
+            ),
+            NextHeightOnCurrentHead => {
+                let head_height = self.client.chain.mut_chain_store().head().unwrap().height;
+                (head_height + 1, head_height)
+            }
+            SelectedHeightOnCurrentHead { produced_block_height } => {
+                (produced_block_height, self.client.chain.mut_chain_store().head().unwrap().height)
+            }
+            NextHeightOnSelectedBlock { base_block_height } => {
+                (base_block_height + 1, base_block_height)
+            }
+            SelectedHeightOnSelectedBlock { produced_block_height, base_block_height } => {
+                (produced_block_height, base_block_height)
+            }
+        };
+        let is_based_on_current_head =
+            prev_block_height == self.client.chain.mut_chain_store().head().unwrap().height;
+        let signer = self.client.validator_signer.get();
+        let mut blocks_produced = 0;
+        for height in start_height.. {
+            let block: Option<Block> = if is_based_on_current_head {
+                self.client.produce_block(height).expect("block should be produced")
+            } else {
+                let prev_block_hash = self
+                    .client
+                    .chain
+                    .chain_store()
+                    .get_block_hash_by_height(prev_block_height)
+                    .expect("prev block should exist");
+                self.client
+                    .produce_block_on(height, prev_block_hash)
+                    .expect("block should be produced")
+            };
+            if only_valid && block == None {
+                continue;
+            }
+            let block = block.expect("block should exist after produced");
+            info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
+            let _ = self.client.start_process_block(
+                block.into(),
+                Provenance::PRODUCED,
+                Some(self.myself_sender.apply_chunks_done.clone()),
+                &signer,
+            );
+            blocks_produced += 1;
+            if blocks_produced == num_blocks {
+                break;
+            }
+        }
     }
 }
 
