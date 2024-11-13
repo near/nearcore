@@ -20,15 +20,11 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
 
-/// The test works only with this shard layout:
-/// shard_ids: [0, 1, 2, 3]
-/// version: 1
+// Check that the shard ids and version are as expected. This is needed because
+// the chunk drop condition uses those values.
 fn assert_shard_layout(shard_layout: &ShardLayout) {
-    let version = 1;
-    let expected_uids: Vec<ShardUId> =
-        (0..4).map(|id| ShardUId { version, shard_id: id }).collect();
-    let layout_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
-    assert_eq!(expected_uids, layout_uids);
+    assert_eq!(shard_layout.shard_ids().sorted().collect_vec(), vec![0, 1, 2, 3]);
+    assert_eq!(shard_layout.version(), 1);
 }
 
 /// Test upgrading the blockchain to another protocol version.
@@ -54,11 +50,9 @@ pub(crate) fn test_protocol_upgrade(
     let clients = accounts.iter().take(num_clients).cloned().collect_vec();
 
     // TODO - support different shard layouts, is there a way to make missing chunks generic?
-    let shard_layout = ShardLayout::v1(
-        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect(),
-        None,
-        1,
-    );
+    let boundary_accounts = ["account3", "account5", "account7"];
+    let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
 
     // split the clients into producers, validators, and rpc nodes
     let tmp = clients.clone();

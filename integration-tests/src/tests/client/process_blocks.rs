@@ -1221,8 +1221,8 @@ fn test_bad_chunk_mask() {
     init_test_logger();
 
     // Create a TestEnv with two shards and two validators who track both shards
-    let account0: AccountId = "shard0.test.near".parse().unwrap();
-    let account1: AccountId = "shard1.test.near".parse().unwrap();
+    let account0: AccountId = "test0.near".parse().unwrap();
+    let account1: AccountId = "test1.near".parse().unwrap();
     let accounts = vec![account0.clone(), account1.clone()];
     let num_validators: u64 = accounts.len().try_into().unwrap();
     let genesis = Genesis::test_sharded(

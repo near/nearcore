@@ -341,13 +341,26 @@ impl ShardLayout {
         Self::multi_shard(1, 0)
     }
 
-    /// Can be used to construct a multi-shard layout, mostly for test purposes
+    /// Creates a multi-shard ShardLayout using the most recent ShardLayout
+    /// version and default boundary accounts. It should be used for tests only.
+    /// The shard ids are deterministic but arbitrary in order to test the
+    /// non-contiguous ShardIds.
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
         let boundary_accounts = (1..num_shards)
-            .map(|i| format!("shard{}.test.near", i).parse().unwrap())
+            .map(|i| format!("test{}", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
+
+        Self::multi_shard_custom(boundary_accounts, version)
+    }
+
+    /// Creates a multi-shard ShardLayout using the most recent ShardLayout
+    /// version and provided boundary accounts. It should be used for tests
+    /// only. The shard ids are deterministic but arbitrary in order to test the
+    /// non-contiguous ShardIds.
+    pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
+        let num_shards = (boundary_accounts.len() + 1) as u64;
 
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
@@ -373,12 +386,13 @@ impl ShardLayout {
     }
 
     /// Return a V0 Shardlayout
-    #[deprecated(note = "Use multi_shard() or v1()/v2() instead")]
+    #[deprecated(note = "Use multi_shard() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
     /// Return a V1 Shardlayout
+    #[deprecated(note = "Use multi_shard() instead")]
     pub fn v1(
         boundary_accounts: Vec<AccountId>,
         shards_split_map: Option<ShardsSplitMap>,
@@ -465,17 +479,9 @@ impl ShardLayout {
         })
     }
 
-    /// Returns a V1 ShardLayout. It is only used in tests
-    pub fn v1_test() -> Self {
-        ShardLayout::v1(
-            vec!["abc", "foo", "test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            Some(new_shards_split_map(vec![vec![0, 1, 2, 3]])),
-            1,
-        )
-    }
-
     /// Returns the simple nightshade layout that we use in production
     pub fn get_simple_nightshade_layout() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
                 .into_iter()
@@ -488,6 +494,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 2, that will be used in production.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
                 .into_iter()
@@ -500,6 +507,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 3, that will be used in production.
     pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec![
                 "aurora",
@@ -534,6 +542,7 @@ impl ShardLayout {
     /// introduced after the last layout upgrade in production. Currently it is built on top of V3.
     #[cfg(feature = "nightly")]
     pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec![
                 "aurora",
@@ -1099,6 +1108,7 @@ mod tests {
         let aid = |s: &str| s.parse().unwrap();
         let sid = |s: u64| ShardId::new(s);
 
+        #[allow(deprecated)]
         let shard_layout = ShardLayout::v1(
             parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
             Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),

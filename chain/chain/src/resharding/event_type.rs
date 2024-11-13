@@ -145,6 +145,7 @@ mod tests {
         // Shard layouts V0 and V1 are rejected.
         #[allow(deprecated)]
         let layout_v0 = ShardLayout::v0(1, 0);
+        #[allow(deprecated)]
         let layout_v1 =
             ShardLayout::v1(vec!["ccc".parse().unwrap(), "kkk".parse().unwrap()], None, 1);
         assert!(ReshardingEventType::from_shard_layout(&layout_v0, block).is_err());

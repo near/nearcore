@@ -53,6 +53,7 @@ fn run_chunk_validation_test(
     let num_validators = 8;
     // Split accounts into 4 shards, so that each shard will store two
     // validator accounts.
+    #[allow(deprecated)]
     let shard_layout = ShardLayout::v1(
         vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
         None,
@@ -320,6 +321,7 @@ fn test_protocol_upgrade_81() {
     let num_validators = 8;
     // Split accounts into 4 shards, so that each shard will store two
     // validator accounts.
+    #[allow(deprecated)]
     let shard_layout = ShardLayout::v1(
         vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
         None,
