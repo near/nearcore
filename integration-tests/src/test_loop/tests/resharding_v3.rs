@@ -94,6 +94,10 @@ struct TestReshardingParameters {
     track_all_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
     loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
+    // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
+    // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
+    // epoch length, but it's good to also check what happens with shorter ones.
+    all_chunks_expected: bool,
 }
 
 impl TestReshardingParameters {
@@ -106,6 +110,7 @@ impl TestReshardingParameters {
         let initial_balance = 1_000_000 * ONE_NEAR;
         let epoch_length = 6;
         let track_all_shards = true;
+        let all_chunks_expected = true;
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
         assert!(num_clients > 0 && num_clients <= epoch_length);
@@ -141,6 +146,7 @@ impl TestReshardingParameters {
             initial_balance,
             epoch_length,
             track_all_shards,
+            all_chunks_expected,
             ..Default::default()
         }
     }
@@ -181,6 +187,11 @@ impl TestReshardingParameters {
 
     fn track_all_shards(mut self, track_all_shards: bool) -> Self {
         self.track_all_shards = track_all_shards;
+        self
+    }
+
+    fn all_chunks_expected(mut self, all_chunks_expected: bool) -> Self {
+        self.all_chunks_expected = all_chunks_expected;
         self
     }
 }
@@ -334,7 +345,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             }
             latest_block_height.set(tip.height);
             println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
-            if params.chunk_ranges_to_drop.is_empty() {
+            if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
         }
