@@ -245,6 +245,15 @@ pub fn pre_validate_chunk_state_witness(
         )));
     }
 
+    let (new_tx_root_from_state_witness, _) = merklize(&state_witness.new_transactions);
+    let chunk_tx_root = state_witness.chunk_header.tx_root();
+    if new_tx_root_from_state_witness != chunk_tx_root {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Witness new transactions root {:?} does not match chunk {:?}",
+            new_tx_root_from_state_witness, chunk_tx_root
+        )));
+    }
+
     // Verify that all proposed transactions are valid.
     let new_transactions = &state_witness.new_transactions;
     if !new_transactions.is_empty() {
