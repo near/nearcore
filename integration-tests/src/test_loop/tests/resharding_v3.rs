@@ -6,11 +6,12 @@ use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Tip;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::types::{AccountId, BlockHeightDelta, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
@@ -20,14 +21,33 @@ use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::transactions::get_smallest_height_head;
 use crate::test_loop::utils::ONE_NEAR;
 use near_client::client_actor::ClientActorInner;
 
-fn print_and_assert_shard_accounts(client: &Client) {
-    let tip = client.chain.head().unwrap();
-    let epoch_id = tip.epoch_id;
-    let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+fn client_tracking_shard<'a>(clients: &'a [&Client], tip: &Tip, shard_id: ShardId) -> &'a Client {
+    for client in clients {
+        let signer = client.validator_signer.get();
+        let cares_about_shard = client.shard_tracker.care_about_shard(
+            signer.as_ref().map(|s| s.validator_id()),
+            &tip.prev_block_hash,
+            shard_id,
+            true,
+        );
+        if cares_about_shard {
+            return client;
+        }
+    }
+    panic!(
+        "client_tracking_shard() could not find client tracking shard {} at {} #{}",
+        shard_id, &tip.last_block_hash, tip.height
+    );
+}
+
+fn print_and_assert_shard_accounts(clients: &[&Client], tip: &Tip) {
+    let epoch_config = clients[0].epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
     for shard_uid in epoch_config.shard_layout.shard_uids() {
+        let client = client_tracking_shard(clients, tip, shard_uid.shard_id());
         let chunk_extra = client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
         let trie = client
             .runtime_adapter
@@ -328,20 +348,25 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         )
         .build();
 
-    let client_handle = node_datas[0].client_sender.actor_handle();
+    let client_handles =
+        node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
-        params.loop_action.as_ref().map(|action| action(test_loop_data, client_handle.clone()));
+        params.loop_action.as_ref().map(|action| action(test_loop_data, client_handles[0].clone()));
 
-        let client = &test_loop_data.get(&client_handle).client;
-        let tip = client.chain.head().unwrap();
+        let clients =
+            client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
+        let client = &clients[0];
+
+        let tip = get_smallest_height_head(&clients);
 
         // Check that all chunks are included.
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
         if latest_block_height.get() < tip.height {
             if latest_block_height.get() == 0 {
                 println!("State before resharding:");
-                print_and_assert_shard_accounts(client);
+                print_and_assert_shard_accounts(&clients, &tip);
             }
             latest_block_height.set(tip.height);
             println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
@@ -362,7 +387,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
 
         println!("State after resharding:");
-        print_and_assert_shard_accounts(client);
+        print_and_assert_shard_accounts(&clients, &tip);
         check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
         return true;
     };
@@ -441,4 +466,15 @@ fn test_resharding_v3_double_sign_resharding_block() {
         TestReshardingParameters::with_clients(1)
             .loop_action(Some(fork_before_resharding_block(true))),
     );
+}
+
+// TODO(resharding): fix nearcore and un-ignore this test
+#[test]
+#[ignore]
+fn test_resharding_v3_shard_shuffling() {
+    let params = TestReshardingParameters::new()
+        .shuffle_shard_assignment(true)
+        .track_all_shards(false)
+        .all_chunks_expected(false);
+    test_resharding_v3_base(params);
 }

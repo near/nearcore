@@ -36,7 +36,7 @@ pub(crate) struct BalanceMismatchError {
 }
 
 // Returns the head with the smallest height
-fn get_smallest_height_head(clients: &[&Client]) -> Tip {
+pub(crate) fn get_smallest_height_head(clients: &[&Client]) -> Tip {
     clients
         .iter()
         .map(|client| client.chain.head().unwrap())
