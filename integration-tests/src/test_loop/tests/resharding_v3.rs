@@ -151,6 +151,8 @@ impl TestReshardingParameters {
 fn fork_before_resharding_block(
     double_signing: bool,
 ) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+    use near_client::client_actor::AdvProduceBlockHeightSelection;
+
     let done = std::cell::Cell::new(false);
     Box::new(
         move |test_loop_data: &mut TestLoopData,
@@ -177,14 +179,19 @@ fn fork_before_resharding_block(
             // If there's a new shard layout force a chain fork.
             if next_block_has_new_shard_layout {
                 println!("creating chain fork at height {}", tip.height);
-                let block_height = if double_signing {
-                    // For double signing blocks height will be computed as prev_block + 1.
-                    None
+                let height_selection = if double_signing {
+                    // In the double signing scenario we want a new block on top of prev block, with consecutive height.
+                    AdvProduceBlockHeightSelection::NextHeightOnSelectedBlock {
+                        base_block_height: tip.height - 1,
+                    }
                 } else {
-                    // Set block height = tip + 1 to avoid double signing.
-                    Some(tip.height + 1)
+                    // To avoid double signing skip already produced height.
+                    AdvProduceBlockHeightSelection::SelectedHeightOnSelectedBlock {
+                        produced_block_height: tip.height + 1,
+                        base_block_height: tip.height - 1,
+                    }
                 };
-                client_actor.adv_produce_blocks_on(3, true, block_height, Some(tip.height - 1));
+                client_actor.adv_produce_blocks_on(3, true, height_selection);
                 done.set(true);
             }
         },
