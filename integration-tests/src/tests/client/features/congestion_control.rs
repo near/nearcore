@@ -132,7 +132,7 @@ fn setup_account(
         account_id.clone(),
         amount,
         public_key,
-        &signer.clone().into(),
+        &signer.into(),
         *block_hash,
     );
 

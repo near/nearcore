@@ -1,5 +1,4 @@
 use crate::{Client, DistributeStateWitnessRequest};
-use core::panic;
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
