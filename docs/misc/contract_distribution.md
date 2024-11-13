@@ -11,7 +11,7 @@ In feature `ExcludeContractCodeFromStateWitness`, we optimize the state witness 
 A contract is deployed and called through a Near account.
 When a contract is deployed to an account with id `account_id`, (by running a `DeployContractAction`), the deployment of the contract is recorded in *State* in two places:
 
-1. The `cache_key` field of the `Account` struct (pointed by the key `TrieKey::Account{account_id}`) is updated to store the hash of the (uncompiled) contract code ([link](https://github.com/near/nearcore/blob/ba0b23768e21eed3428024d19e763a37a2e055dd/core/primitives-core/src/account.rs#L64)). Note that, when no contract is deployed, this field contains `CryptoHash::default()`.
+1. The `code_hash` field of the `Account` struct (pointed by the key `TrieKey::Account{account_id}`) is updated to store the hash of the (uncompiled) contract code ([link](https://github.com/near/nearcore/blob/ba0b23768e21eed3428024d19e763a37a2e055dd/core/primitives-core/src/account.rs#L64)). Note that, when no contract is deployed, this field contains `CryptoHash::default()`.
 2. A new entry is created with key `TrieKey::ContractCode{account_id}` and value containing the (uncompiled) code of the contract.
 
 When the contract is deployed, it is also pre-compiled, and the compiled code is persisted on disk in the compiled-contract cache. When applying a function call to a pre-compiled contract, the implementation skips reading from the trie and directly invokes the compiled code from the cache.
@@ -36,7 +36,7 @@ When `ExcludeContractCodeFromStateWitness` is enabled, we distribute the followi
 ### Collecting contract accesses and deployments
 
 In order to identify which contracts to distribute, we collect (1) the hashes of the contracts called by a `FunctionCallAction` and (2) contract code deployed by a `DeployContractAction`. 
-When `ExcludeContractCodeFromStateWitness` is enabled, the chunk producer performs the following when applying the receips in a chunk (note that it is done by all the chunk producers tracking the same shard):
+When `ExcludeContractCodeFromStateWitness` is enabled, the chunk producer performs the following when applying the receipts in a chunk (note that it is done by all the chunk producers tracking the same shard):
 
 - For function calls, it skips recoding the read of the value from `TrieKey::ContractCode{account_id}`. Instead, it just records the hash of the contract code. [The `TrieUpdate::record_contract_call` function](https://github.com/near/nearcore/blob/82707e8edfd1af7b1d2e5bb1c82ccf768c313e7c/core/store/src/trie/update.rs#L267) called when executing a `FunctionCallAction` implements the different behaviors with and without the feature enabled.
 - For contract deployments, it records the code deployed when executing a `DeployContractAction`, by calling [the `TrieUpdate::record_contract_deploy` function](https://github.com/near/nearcore/blob/82707e8edfd1af7b1d2e5bb1c82ccf768c313e7c/core/store/src/trie/update.rs#L255).
@@ -51,7 +51,7 @@ Upon finishing producing the new chunk, the chunk producer reconstructs `Contrac
 NOTE: All the operations described in the rest of this document are performed in the `PartialWitnessActor`.
 
 `PartialWitnessActor` distributes the state witness and the contract updates in the following order ([see code here](https://github.com/near/nearcore/blob/82707e8edfd1af7b1d2e5bb1c82ccf768c313e7c/chain/client/src/stateless_validation/partial_witness/partial_witness_actor.rs#L207-L246)):
-1. It first sends the hashes of the contract code accessed to the chunk validators (except for the validators that trak the same shard). This allows validators to check their compiled-contract cache and request code for the missing contracts, while waiting for the witness parts. This is sent in a message called `ChunkContractAccesses`.
+1. It first sends the hashes of the contract code accessed to the chunk validators (except for the validators that track the same shard). This allows validators to check their compiled-contract cache and request code for the missing contracts, while waiting for the witness parts. This is sent in a message called `ChunkContractAccesses`.
 1. It then send the state witness parts to witness-part owners.
 1. It finally sends the new contracts deployed to the validators that do not validate the witness in the current turn. This allows the other validators to update their compiled-contract cache for the later turns when they become a chunk validator for the respective shard. The parts are sent in a message called `PartialEncodedContractDeploys`. The code for deployed contracts is distributed to validators in parts after compressing and encoding in `Reed-Solomon code`, similarly to how the state witness is sent in parts. 
 
