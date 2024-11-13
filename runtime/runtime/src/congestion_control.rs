@@ -338,7 +338,7 @@ impl ReceiptSinkV2<'_> {
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
 
-        self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
+        self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
         Ok(())
     }
 }
@@ -508,7 +508,7 @@ impl DelayedReceiptQueueWrapper {
 
         self.new_delayed_gas = safe_add_gas(self.new_delayed_gas, gas)?;
         self.new_delayed_bytes = safe_add_gas(self.new_delayed_bytes, size)?;
-        self.queue.push(trie_update, &receipt)?;
+        self.queue.push_back(trie_update, &receipt)?;
         Ok(())
     }
 
