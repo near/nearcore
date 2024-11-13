@@ -2280,9 +2280,10 @@ impl Chain {
         // Check the header is valid before we proceed with the full block.
         self.validate_header(header, provenance, challenges)?;
 
-        self.epoch_manager.verify_block_vrf(
-            header.epoch_id(),
-            header.height(),
+        let validator =
+            self.epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
+        crate::signature_verification::verify_block_vrf(
+            validator,
             &prev_random_value,
             block.vrf_value(),
             block.vrf_proof(),
