@@ -90,6 +90,7 @@ struct TestReshardingParameters {
     block_and_chunk_producers: Vec<AccountId>,
     initial_balance: u128,
     epoch_length: BlockHeightDelta,
+    shuffle_shard_assignment_for_chunk_producers: bool,
     /// Custom behavior executed at every iteration of test loop.
     loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
 }
@@ -169,6 +170,11 @@ impl TestReshardingParameters {
         self.loop_action = loop_action;
         self
     }
+
+    fn shuffle_shard_assignment(mut self, shuffle: bool) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers = shuffle;
+        self
+    }
 }
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
@@ -246,7 +252,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let mut base_epoch_config =
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
     base_epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
-        false;
+        params.shuffle_shard_assignment_for_chunk_producers;
     if !params.chunk_ranges_to_drop.is_empty() {
         base_epoch_config.block_producer_kickout_threshold = 0;
         base_epoch_config.chunk_producer_kickout_threshold = 0;
