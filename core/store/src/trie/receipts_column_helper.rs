@@ -93,7 +93,7 @@ pub trait TrieQueue {
         Ok(())
     }
 
-    fn pop(
+    fn pop_front(
         &mut self,
         state_update: &mut TrieUpdate,
     ) -> Result<Option<Self::Item<'static>>, StorageError> {
@@ -455,7 +455,7 @@ mod tests {
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
-        while let Some(receipt) = queue.pop(trie).expect("pop must not fail") {
+        while let Some(receipt) = queue.pop_front(trie).expect("pop must not fail") {
             let receipt = receipt.into_receipt();
             popped.push(receipt);
         }

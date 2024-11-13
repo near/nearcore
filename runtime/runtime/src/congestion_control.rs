@@ -517,7 +517,7 @@ impl DelayedReceiptQueueWrapper {
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
-        let receipt = self.queue.pop(trie_update)?;
+        let receipt = self.queue.pop_front(trie_update)?;
         if let Some(receipt) = &receipt {
             let delayed_gas = receipt_congestion_gas(receipt, &config)?;
             let delayed_bytes = receipt_size(receipt)? as u64;
