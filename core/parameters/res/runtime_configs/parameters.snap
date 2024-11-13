@@ -208,7 +208,7 @@ vm_kind                                 NearVm
 eth_implicit_accounts                   true
 yield_resume                            true
 discard_custom_sections                 true
-max_congestion_incoming_gas             40_000_000_000_000_000
+max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
 max_congestion_memory_consumption              1_000_000_000
 max_congestion_missed_chunks                               5

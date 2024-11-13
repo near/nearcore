@@ -1986,7 +1986,7 @@ impl ClientActorInner {
         if block_exists {
             return Ok((false, true));
         }
-        let timeout = self.client.config.state_sync_timeout;
+        let timeout = self.client.config.state_sync_external_timeout;
         let timeout = near_async::time::Duration::try_from(timeout);
         let timeout = timeout.unwrap();
 

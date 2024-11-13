@@ -28,6 +28,7 @@ hex.workspace = true
 hyper-tls.workspace = true
 hyper.workspace = true
 indicatif.workspace = true
+itertools.workspace = true
 num-rational.workspace = true
 rand.workspace = true
 rayon.workspace = true

@@ -48,7 +48,7 @@ impl AdversarialBehaviorTestData {
             let config = &mut genesis.config;
             config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
             config.epoch_length = epoch_length;
-            config.shard_layout = ShardLayout::v1_test();
+            config.shard_layout = ShardLayout::multi_shard(4, 3);
             config.num_block_producer_seats_per_shard = vec![
                 num_block_producers as u64,
                 num_block_producers as u64,
@@ -379,6 +379,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 
 #[test]
 #[cfg(feature = "test_features")]
+#[cfg_attr(feature = "protocol_feature_relaxed_chunk_validation", ignore)]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();

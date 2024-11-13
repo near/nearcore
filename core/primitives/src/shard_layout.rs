@@ -4,6 +4,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use std::collections::BTreeMap;
 use std::{fmt, str};
 
@@ -342,10 +345,16 @@ impl ShardLayout {
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
-        let boundary_accounts = (0..num_shards - 1)
+        let boundary_accounts = (1..num_shards)
             .map(|i| format!("shard{}.test.near", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
-        let shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+
+        // In order to test the non-contiguous shard ids randomize the order and
+        // TODO(wacban) randomize the range of shard ids.
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        shard_ids.shuffle(&mut rng);
+
         let (id_to_index_map, index_to_id_map) = shard_ids
             .iter()
             .enumerate()
@@ -383,6 +392,7 @@ impl ShardLayout {
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
+                    let shard_id: u64 = shard_id.into();
                     assert!(shard_id < num_shards, "shard id should be valid");
                 }
             }
@@ -672,7 +682,10 @@ impl ShardLayout {
         }
     }
 
-    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> + '_ {
+    /// Returns an iterator that iterates over all the shard ids in the shard layout.
+    /// Please also see the `shard_infos` method that returns the ShardInfo for each
+    /// shard and should be used when ShardIndex is needed.
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
         match self {
             Self::V0(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
@@ -684,6 +697,16 @@ impl ShardLayout {
     /// shards in the shard layout
     pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
+    }
+
+    /// Returns an iterator that returns the ShardInfos for every shard in
+    /// this shard layout. This method should be preferred over calling
+    /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
+    /// it may be changed in the future.
+    pub fn shard_infos(&self) -> impl Iterator<Item = ShardInfo> + '_ {
+        self.shard_uids()
+            .enumerate()
+            .map(|(shard_index, shard_uid)| ShardInfo { shard_index, shard_uid })
     }
 
     /// Returns the shard index for a given shard id. The shard index should be
@@ -950,6 +973,25 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     }
 }
 
+pub struct ShardInfo {
+    shard_index: ShardIndex,
+    shard_uid: ShardUId,
+}
+
+impl ShardInfo {
+    pub fn shard_index(&self) -> ShardIndex {
+        self.shard_index
+    }
+
+    pub fn shard_id(&self) -> ShardId {
+        self.shard_uid.shard_id()
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        self.shard_uid
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
@@ -1036,8 +1078,10 @@ mod tests {
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
-            assert!(shard_id < num_shards);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
+
+            let shard_id: u64 = shard_id.into();
+            assert!(shard_id < num_shards);
         }
         let expected_distribution: HashMap<ShardId, _> = [
             (ShardId::new(0), 247),
@@ -1481,5 +1525,16 @@ mod tests {
                 ])),
             )
         );
+    }
+
+    // Check that the ShardLayout::multi_shard method returns interesting shard
+    // layouts. A shard layout is interesting if it has non-contiguous shard
+    // ids.
+    #[test]
+    fn test_multi_shard_non_contiguous() {
+        for n in 2..10 {
+            let shard_layout = ShardLayout::multi_shard(n, 0);
+            assert!(!shard_layout.shard_ids().is_sorted());
+        }
     }
 }
