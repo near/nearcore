@@ -9,23 +9,6 @@ use near_primitives::{
 };
 use std::{collections::HashSet, sync::Arc};
 
-/// Gets block approvers for epoch
-fn get_heuristic_block_approvers_ordered(
-    epoch_info: Arc<EpochInfo>,
-) -> Result<Vec<ApprovalStake>, EpochError> {
-    let mut result = vec![];
-    let mut validators: HashSet<AccountId> = HashSet::new();
-    for validator_id in epoch_info.block_producers_settlement().into_iter() {
-        let validator_stake = epoch_info.get_validator(*validator_id);
-        let account_id = validator_stake.account_id();
-        if validators.insert(account_id.clone()) {
-            result.push(validator_stake.get_approval_stake(false));
-        }
-    }
-
-    Ok(result)
-}
-
 pub fn verify_approval_with_approvers_info(
     prev_block_hash: &CryptoHash,
     prev_block_height: BlockHeight,
@@ -68,7 +51,7 @@ pub fn verify_approvals_and_threshold_orphan(
     approvals: &[Option<Box<Signature>>],
     epoch_info: Arc<EpochInfo>,
 ) -> Result<(), Error> {
-    let block_approvers = get_heuristic_block_approvers_ordered(epoch_info)?;
+    let block_approvers = get_heuristic_block_approvers_ordered(&epoch_info)?;
     let message_to_sign = Approval::get_data_for_sig(
         &if prev_block_height + 1 == block_height {
             ApprovalInner::Endorsement(*prev_block_hash)
@@ -94,4 +77,20 @@ pub fn verify_approvals_and_threshold_orphan(
     } else {
         Ok(())
     }
+}
+
+fn get_heuristic_block_approvers_ordered(
+    epoch_info: &EpochInfo,
+) -> Result<Vec<ApprovalStake>, EpochError> {
+    let mut result = vec![];
+    let mut validators: HashSet<AccountId> = HashSet::new();
+    for validator_id in epoch_info.block_producers_settlement().into_iter() {
+        let validator_stake = epoch_info.get_validator(*validator_id);
+        let account_id = validator_stake.account_id();
+        if validators.insert(account_id.clone()) {
+            result.push(validator_stake.get_approval_stake(false));
+        }
+    }
+
+    Ok(result)
 }

@@ -204,7 +204,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, EpochError>;
 
-    /// Get block producers for epoch, slashing info, sometimes block producers for next epoch
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
@@ -728,7 +727,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_protocol_upgrade_block_height(block_hash)
     }
 
-    /// Get block producers for epoch, slashing info
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
