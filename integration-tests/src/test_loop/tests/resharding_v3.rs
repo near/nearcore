@@ -91,6 +91,7 @@ struct TestReshardingParameters {
     initial_balance: u128,
     epoch_length: BlockHeightDelta,
     shuffle_shard_assignment_for_chunk_producers: bool,
+    track_all_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
     loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
 }
@@ -104,6 +105,7 @@ impl TestReshardingParameters {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
         let epoch_length = 6;
+        let track_all_shards = true;
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
         assert!(num_clients > 0 && num_clients <= epoch_length);
@@ -138,6 +140,7 @@ impl TestReshardingParameters {
             block_and_chunk_producers,
             initial_balance,
             epoch_length,
+            track_all_shards,
             ..Default::default()
         }
     }
@@ -173,6 +176,11 @@ impl TestReshardingParameters {
 
     fn shuffle_shard_assignment(mut self, shuffle: bool) -> Self {
         self.shuffle_shard_assignment_for_chunk_producers = shuffle;
+        self
+    }
+
+    fn track_all_shards(mut self, track_all_shards: bool) -> Self {
+        self.track_all_shards = track_all_shards;
         self
     }
 }
@@ -244,7 +252,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
 
     init_test_logger();
-    let builder = TestLoopBuilder::new();
+    let mut builder = TestLoopBuilder::new();
 
     // Prepare shard split configuration.
     let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
@@ -296,6 +304,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
     let (genesis, _) = genesis_builder.build();
 
+    if params.track_all_shards {
+        builder = builder.track_all_shards();
+    }
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
@@ -304,7 +315,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             base_protocol_version + 1,
             params.chunk_ranges_to_drop.clone(),
         )
-        .track_all_shards()
         .build();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
