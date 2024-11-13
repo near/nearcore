@@ -3,12 +3,27 @@
 ## [unreleased]
 
 ### Protocol Changes
-
-* Fixing invalid cost used for wasm_yield_resume_byte. #12192
-* Relaxing Congestion Control to allow accepting and buffering more transactions. #12241
+**No Changes**
 
 ### Non-protocol Changes
 **No Changes**
+
+## [2.4.0]
+
+### Protocol Changes
+
+* Fixing invalid cost used for `wasm_yield_resume_byte`. [#12192](https://github.com/near/nearcore/pull/12192)
+* Relaxing Congestion Control to allow accepting and buffering more transactions. [#12241](https://github.com/near/nearcore/pull/12241) [#12430](https://github.com/near/nearcore/pull/12430)
+* Exclude contract code out of state witness and distribute it separately. [#11099](https://github.com/near/nearcore/issues/11099)
+
+### Non-protocol Changes
+* **Epoch Sync V4**: A capability to bootstrap a node from another active node. [#73](https://github.com/near/near-one-project-tracking/issues/73)
+* **Decentralized state sync**: Before, nodes that needed to download state
+(either because they're several epochs behind the chain or because they're going to start producing chunks for a shard they don't currently track)
+would download them from a centralized GCS bucket. Now, nodes will attempt to download pieces of the state from peers in the network,
+and only fallback to downloading from GCS if that fails. Please note that in order to participate in providing state parts to peers,
+your node may generate snapshots of the state. These snapshots should not take too much space,
+since they're hard links to database files that get cleaned up on every epoch. [#12004](https://github.com/near/nearcore/issues/12004)
 
 ## [2.3.0]
 
@@ -18,7 +33,7 @@
 ### Non-protocol Changes
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
-* Decentralized state sync: Before, nodes that needed to download state (either because they're several epochs behind the chain or because they're going to start producing chunks for a shard they don't currently track) would download them from a centralized GCS bucket. Now, nodes will attempt to download pieces of the state from peers in the network, and only fallback to downloading from GCS if that fails. Please note that in order to participate in providing state parts to peers, your node may generate snapshots of the state. These snapshots should not take too much space, since they're hard links to database files that get cleaned up on every epoch.
+* Enabled state snapshots on every epoch to allow the nodes to take part in decentralized state sync in future releases.
 
 ### 2.2.1
 
