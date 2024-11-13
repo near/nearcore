@@ -301,49 +301,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     // TODO #3488 this likely to be updated
-    /// Data that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    >;
-
-    // TODO #3488 this likely to be updated
-    /// Hash that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data_hash(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, EpochError> {
-        let (
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
-        Ok(CryptoHash::hash_borsh(&(
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        )))
-    }
 
     fn is_chunk_producer_for_epoch(
         &self,
@@ -877,36 +834,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<ProtocolVersion, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
-    }
-
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    > {
-        let epoch_manager = self.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_id = *last_block_info.epoch_id();
-        Ok((
-            epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
-            epoch_manager.get_block_info(last_block_info.prev_hash())?,
-            last_block_info,
-            epoch_manager.get_epoch_info(&prev_epoch_id)?,
-            epoch_manager.get_epoch_info(epoch_id)?,
-            epoch_manager.get_epoch_info(next_epoch_id)?,
-        ))
     }
 
     fn init_after_epoch_sync(
