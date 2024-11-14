@@ -1,6 +1,7 @@
 ./sandbox.txt
 ./pytest.txt
 ./expensive.txt
+./bls12381.txt
 
 # Very expensive catchup tests
 expensive --timeout=3600 near-client near_client tests::catching_up::test_all_chunks_accepted_1000
