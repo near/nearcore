@@ -5354,6 +5354,7 @@ version = "0.0.0"
 dependencies = [
  "assert_matches",
  "borsh",
+ "bytesize",
  "enum-map",
  "hex",
  "near-chain-configs",

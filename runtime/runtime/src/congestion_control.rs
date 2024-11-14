@@ -2,6 +2,7 @@ use crate::config::{
     safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::ApplyState;
+use bytesize::ByteSize;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
@@ -11,6 +12,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
+use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue, TrieQueueIterator,
 };
@@ -48,6 +50,7 @@ pub(crate) struct ReceiptSinkV2<'a> {
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
+    pub(crate) outgoing_metadatas: OutgoingMetadatas,
     pub(crate) protocol_version: ProtocolVersion,
 }
 
@@ -120,11 +123,19 @@ impl<'a> ReceiptSink<'a> {
                 })
                 .collect();
 
+            let outgoing_metadatas = OutgoingMetadatas::load(
+                trie,
+                outgoing_buffers.shards(),
+                ReceiptGroupsConfig::default_config(),
+                apply_state.current_protocol_version,
+            )?;
+
             Ok(ReceiptSink::V2(ReceiptSinkV2 {
                 own_congestion_info,
                 outgoing_receipts: outgoing_receipts,
                 outgoing_limit,
                 outgoing_buffers,
+                outgoing_metadatas,
                 protocol_version,
             }))
         } else {
@@ -201,12 +212,14 @@ impl ReceiptSinkV2<'_> {
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
         let mut num_forwarded = 0;
+        let mut outgoing_metadatas_updates: Vec<(ByteSize, Gas)> = Vec::new();
         for receipt_result in
             self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie, true)
         {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
             let size = receipt_size(&receipt)?;
+            let should_update_outgoing_metadatas = receipt.should_update_outgoing_metadatas();
             let receipt = receipt.into_receipt();
 
             match Self::try_forward(
@@ -221,6 +234,10 @@ impl ReceiptSinkV2<'_> {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
+                    if should_update_outgoing_metadatas {
+                        // Can't update metadatas immediately because state_update is borrowed by iterator.
+                        outgoing_metadatas_updates.push((ByteSize::b(size), gas));
+                    }
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
                     // `state_update.trie`.
@@ -232,6 +249,9 @@ impl ReceiptSinkV2<'_> {
             }
         }
         self.outgoing_buffers.to_shard(shard_id).pop_n(state_update, num_forwarded)?;
+        for (size, gas) in outgoing_metadatas_updates {
+            self.outgoing_metadatas.update_on_receipt_popped(shard_id, size, gas, state_update)?;
+        }
         Ok(())
     }
 
@@ -337,6 +357,15 @@ impl ReceiptSinkV2<'_> {
 
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
+
+        if receipt.should_update_outgoing_metadatas() {
+            self.outgoing_metadatas.update_on_receipt_pushed(
+                shard,
+                ByteSize::b(size),
+                gas,
+                state_update,
+            )?;
+        }
 
         self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
         Ok(())

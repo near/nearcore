@@ -174,6 +174,15 @@ impl ReceiptOrStateStoredReceipt<'_> {
             ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => receipt.get_receipt(),
         }
     }
+
+    pub fn should_update_outgoing_metadatas(&self) -> bool {
+        match self {
+            ReceiptOrStateStoredReceipt::Receipt(_) => false,
+            ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt) => {
+                state_stored_receipt.should_update_outgoing_metadatas()
+            }
+        }
+    }
 }
 
 impl<'a> StateStoredReceipt<'a> {
@@ -223,6 +232,13 @@ impl<'a> StateStoredReceipt<'a> {
         match self {
             StateStoredReceipt::V0(v0) => &v0.metadata,
             StateStoredReceipt::V1(v1) => &v1.metadata,
+        }
+    }
+
+    pub fn should_update_outgoing_metadatas(&self) -> bool {
+        match self {
+            StateStoredReceipt::V0(_) => false,
+            StateStoredReceipt::V1(_) => true,
         }
     }
 }
