@@ -253,7 +253,10 @@ def new_test_cmd(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(lambda node: node.neard_runner_new_test(), targeted)
+    test_keys = pmap(
+        lambda node: node.neard_runner_new_test(args.genesis_protocol_version,
+                                                args.epoch_config_overrides),
+        targeted)
 
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators)
@@ -591,6 +594,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument('--gcs-state-sync', action='store_true')
+    new_test_parser.add_argument('--epoch-config-overrides', type=json.loads)
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test_cmd)
 

@@ -5,6 +5,7 @@ import argparse
 import datetime
 from enum import Enum
 import fcntl
+import jq
 import json
 import jsonrpc
 import logging
@@ -82,6 +83,7 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
             return
 
         body = self.rfile.read(int(l))
+        logging.info(f'got request: {body}')
         response = jsonrpc.JSONRPCResponseManager.handle(body, self.dispatcher)
         response_body = response.json.encode('UTF-8')
 
@@ -139,6 +141,77 @@ LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
         done
     endscript
 }"""
+
+
+class EpochConfigOverrides:
+
+    def __init__(self, epoch_config_overrides):
+        self.common_overrides = ""
+        if 'all' in epoch_config_overrides:
+            self.common_overrides = epoch_config_overrides['all']
+            del epoch_config_overrides['all']
+        self.epoch_config_overrides = epoch_config_overrides
+        self.new_protocol_versions = list(epoch_config_overrides.keys())
+
+    def override_file(self, epoch_config_path, overrides):
+        with open(epoch_config_path, 'r') as f:
+            json_data = json.load(f)
+
+        # Apply the overrides
+        updated_json = jq.compile(overrides).input(json_data).first()
+
+        with open(epoch_config_path, 'w') as f:
+            json.dump(updated_json, f, indent=2)
+
+    def override(self, epoch_config_dir):
+        self._create_missing_epoch_config_files(epoch_config_dir)
+        for protocol_version in self.existing_protocol_versions:
+            protocol_overrides = self.epoch_config_overrides.get(
+                protocol_version, "")
+
+            overrides = []
+            if self.common_overrides != "":
+                overrides.append(self.common_overrides)
+            if protocol_overrides != "":
+                overrides.append(protocol_overrides)
+            overrides = ' | '.join(overrides)
+
+            if overrides == "":
+                continue
+            epoch_config_path = os.path.join(epoch_config_dir,
+                                             f'{protocol_version}.json')
+            logging.info(
+                f'Applying overrides to {epoch_config_path}: {overrides}')
+            self.override_file(epoch_config_path, overrides)
+
+    """
+    Creates the epoch config files before we override them.
+    Non existent epoch config files are created by copying the previous protocol version file.
+    """
+
+    def _create_missing_epoch_config_files(self, epoch_config_dir):
+
+        existing_epoch_config_files = os.listdir(epoch_config_dir)
+        existing_protocol_versions = set([
+            int(re.match(r'(\d+)\.json', f).group(1))
+            for f in existing_epoch_config_files
+        ])
+        previous_protocol_version_file = min(existing_protocol_versions)
+        for protocol_version in sorted(self.new_protocol_versions):
+            if protocol_version in existing_protocol_versions:
+                previous_protocol_version_file = protocol_version
+                continue
+            source_file = os.path.join(
+                epoch_config_dir, f'{previous_protocol_version_file}.json')
+            new_epoch_config_path = os.path.join(epoch_config_dir,
+                                                 f'{protocol_version}.json')
+            shutil.copy(source_file, new_epoch_config_path)
+            previous_protocol_version_file = protocol_version
+            existing_protocol_versions.add(protocol_version)
+        self.existing_protocol_versions = existing_protocol_versions
+
+    def __str__(self):
+        return json.dumps(self.epoch_config_overrides)
 
 
 class NeardRunner:
@@ -352,7 +425,8 @@ class NeardRunner:
         args = ('tmp-near-home',) + args
         return os.path.join(self.home, *args)
 
-    def neard_init(self, rpc_port, protocol_port, validator_id):
+    def neard_init(self, rpc_port, protocol_port, validator_id,
+                   genesis_protocol_version, epoch_config_overrides):
         # We make neard init save files to self.tmp_near_home_path() just to make it
         # a bit cleaner, so we can init to a non-existent directory and then move
         # the files we want to the real near home without having to remove it first
@@ -360,6 +434,10 @@ class NeardRunner:
             self.data['binaries'][0]['system_path'], '--home',
             self.tmp_near_home_path(), 'init'
         ]
+
+        if epoch_config_overrides is not None:
+            cmd += ['--dump-epoch-config', str(genesis_protocol_version)]
+
         if not self.is_traffic_generator():
             if validator_id is None:
                 validator_id = f'{socket.gethostname()}.near'
@@ -369,7 +447,12 @@ class NeardRunner:
                 logging.warning(
                     f'ignoring validator ID "{validator_id}" for traffic generator node'
                 )
+        logging.info(f'running {" ".join(cmd)}')
         subprocess.check_call(cmd)
+
+        if epoch_config_overrides is not None:
+            EpochConfigOverrides(epoch_config_overrides).override(
+                self.tmp_near_home_path('epoch_configs'))
 
         with open(self.tmp_near_home_path('config.json'), 'r') as f:
             config = json.load(f)
@@ -427,9 +510,16 @@ class NeardRunner:
             filename = self.target_near_home_path(p)
             if os.path.isfile(filename):
                 os.remove(filename)
+        path = self.target_near_home_path('epoch_configs')
+        if os.path.exists(path):
+            shutil.rmtree(path)
+
         self.reset_starting_data_dir()
 
         paths = ['config.json', 'node_key.json']
+        if os.path.exists(self.tmp_near_home_path('epoch_configs')):
+            paths.append('epoch_configs')
+
         if not self.is_traffic_generator():
             paths.append('validator_key.json')
         for path in paths:
@@ -450,16 +540,28 @@ class NeardRunner:
     def do_new_test(self,
                     rpc_port=3030,
                     protocol_port=24567,
-                    validator_id=None):
+                    validator_id=None,
+                    genesis_protocol_version=None,
+                    epoch_config_overrides=None):
         if not isinstance(rpc_port, int):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='rpc_port argument not an int')
         if not isinstance(protocol_port, int):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='protocol_port argument not an int')
-        if validator_id is not None and not isinstance(validator_id, str):
+        if not (validator_id is None or isinstance(validator_id, str)):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='validator_id argument not a string')
+        if not (genesis_protocol_version is None or
+                isinstance(genesis_protocol_version, int)):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600,
+                message='genesis_protocol_version argument not an int')
+        if not (epoch_config_overrides is None or
+                isinstance(epoch_config_overrides, dict)):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600,
+                message='epoch_config_overrides argument not a dict')
 
         with self.lock:
             self.kill_neard()
@@ -475,8 +577,16 @@ class NeardRunner:
                 os.remove(self.home_path('network_init.json'))
             except FileNotFoundError:
                 pass
+            try:
+                self.neard_init(rpc_port, protocol_port, validator_id,
+                                genesis_protocol_version,
+                                epoch_config_overrides)
+            except Exception as e:
+                logging.error(f'Failed to initialize neard: {e}')
+                self.set_state(TestState.ERROR)
+                self.save_data()
+                raise jsonrpc.exceptions.JSONRPCException(e)
 
-            self.neard_init(rpc_port, protocol_port, validator_id)
             self.move_init_files()
 
             with open(self.target_near_home_path('config.json'), 'r') as f:

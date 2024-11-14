@@ -136,11 +136,13 @@ class LocalTestNeardRunner:
     def neard_runner_post(self, body):
         return http_post(self.ip_addr(), self.port, body)
 
-    def new_test_params(self):
+    def new_test_params(self, genesis_protocol_version, epoch_config_overrides):
         return {
             'rpc_port': self.neard_rpc_port,
             'protocol_port': self.neard_protocol_port,
             'validator_id': self._name,
+            'genesis_protocol_version': genesis_protocol_version,
+            'epoch_config_overrides': epoch_config_overrides,
         }
 
     def get_validators(self):
