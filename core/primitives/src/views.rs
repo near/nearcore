@@ -2060,7 +2060,9 @@ pub struct CurrentEpochValidatorInfo {
     pub is_slashed: bool,
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    pub shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    #[serde(rename = "shards")]
+    pub shards_produced: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
     #[serde(default)]
@@ -2070,6 +2072,8 @@ pub struct CurrentEpochValidatorInfo {
     // The following two fields correspond to the shards in the shard array.
     #[serde(default)]
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    /// Number of chunks this validator was expected to produce in each shard.
+    /// Each entry in the array corresponds to the shard in the `shards_produced` array.
     #[serde(default)]
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
     #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
@@ -2078,8 +2082,12 @@ pub struct CurrentEpochValidatorInfo {
     pub num_expected_endorsements: NumBlocks,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
+    /// Number of chunks this validator was expected to validate and endorse in each shard.
+    /// Each entry in the array corresponds to the shard in the `shards_endorsed` array.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    pub shards_endorsed: Vec<ShardId>,
 }
 
 fn num_blocks_is_zero(n: &NumBlocks) -> bool {
