@@ -8,13 +8,7 @@ platform_excludes := if os() == "macos" {
 } else {
     ""
 }
-# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
-# See https://github.com/dtolnay/inventory/issues/52.
-with_macos_incremental := if os() == "macos" {
-    "CARGO_INCREMENTAL=0"
-} else {
-    ""
-}
+
 nightly_flags := "--features nightly,test_features"
 public_libraries := "-p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core"
 
@@ -143,7 +137,10 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
-check-protocol-schema: install-rustc-nightly
+# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
+# See https://github.com/dtolnay/inventory/issues/52.
+protocol_schema_env := "CARGO_TARGET_DIR=" + justfile_directory() + "/target/schema-check RUSTC_BOOTSTRAP=1 RUSTFLAGS='--cfg enable_const_type_id' CARGO_INCREMENTAL=0"
+check-protocol-schema:
     # Below, we *should* have been used `cargo +nightly ...` instead of
     # `RUSTC_BOOTSTRAP=1`. However, the env var appears to be more stable.
     # `nightly` builds are updated daily and may be broken sometimes, e.g.
