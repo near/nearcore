@@ -85,7 +85,6 @@ pub enum TrackingMode<'a> {
 
 /// Tracks intermediate trie changes, final version of which is to be committed
 /// to disk after finishing trie update.
-#[derive(Default)]
 struct TrieChangesTracker<'a> {
     /// Counts hashes deleted so far.
     /// Includes hashes of both trie nodes and state values!
@@ -102,10 +101,18 @@ struct TrieChangesTracker<'a> {
 }
 
 impl<'a> TrieChangesTracker<'a> {
+    fn with_recorder(recorder: Option<&'a mut TrieRecorder>) -> Self {
+        Self {
+            refcount_deleted_hashes: BTreeMap::new(),
+            refcount_inserted_values: BTreeMap::new(),
+            recorder,
+        }
+    }
+
     fn record<M: ArenaMemory>(&mut self, node: &MemTrieNodeView<'a, M>) {
         let node_hash = node.node_hash();
         let raw_node_serialized = borsh::to_vec(&node.to_raw_trie_node_with_size()).unwrap();
-        self.refcount_deleted_hashes.entry(node_hash).and_modify(|rc| *rc += 1).or_insert(1);
+        *self.refcount_deleted_hashes.entry(node_hash).or_default() += 1;
         if let Some(recorder) = self.recorder.as_mut() {
             recorder.record(&node_hash, raw_node_serialized.into());
         }
@@ -172,20 +179,23 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
     }
 
     fn store_value(&mut self, value: GenericTrieValue) -> FlatStateValue {
-        // First, set the value which will be stored in memtrie.
-        let flat_value = match &value {
-            GenericTrieValue::MemtrieOnly(value) => return value.clone(),
-            GenericTrieValue::MemtrieAndDisk(value) => FlatStateValue::on_disk(value.as_slice()),
+        let (flat_value, full_value) = match value {
+            // If value is provided only for memtrie, it is flat, so we can't
+            // record nodes. Just return flat value back.
+            // TODO: check consistency with trie recorder setup.
+            // `GenericTrieValue::MemtrieOnly` must not be used if
+            // `nodes_tracker` is set and vice versa.
+            GenericTrieValue::MemtrieOnly(flat_value) => return flat_value,
+            GenericTrieValue::MemtrieAndDisk(full_value) => {
+                (FlatStateValue::on_disk(full_value.as_slice()), full_value)
+            }
         };
 
-        // Then, record disk changes if needed.
+        // Otherwise, record disk changes if needed.
         let Some(nodes_tracker) = self.nodes_tracker.as_mut() else {
             return flat_value;
         };
-        let GenericTrieValue::MemtrieAndDisk(value) = value else {
-            return flat_value;
-        };
-        nodes_tracker.refcount_inserted_values.entry(value).and_modify(|rc| *rc += 1).or_insert(1);
+        *nodes_tracker.refcount_inserted_values.entry(full_value).or_default() += 1;
 
         flat_value
     }
@@ -196,7 +206,7 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
         };
 
         let hash = value.to_value_ref().hash;
-        nodes_tracker.refcount_deleted_hashes.entry(hash).and_modify(|rc| *rc += 1).or_insert(1);
+        *nodes_tracker.refcount_deleted_hashes.entry(hash).or_default() += 1;
         Ok(())
     }
 }
@@ -210,12 +220,10 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     ) -> Self {
         let nodes_tracker = match mode {
             TrackingMode::None => None,
-            TrackingMode::Refcounts => Some(TrieChangesTracker::default()),
-            TrackingMode::RefcountsAndAccesses(recorder) => Some(TrieChangesTracker {
-                refcount_inserted_values: BTreeMap::new(),
-                refcount_deleted_hashes: BTreeMap::new(),
-                recorder: Some(recorder),
-            }),
+            TrackingMode::Refcounts => Some(TrieChangesTracker::with_recorder(None)),
+            TrackingMode::RefcountsAndAccesses(recorder) => {
+                Some(TrieChangesTracker::with_recorder(Some(recorder)))
+            }
         };
         let mut trie_update =
             Self { root, memory, shard_uid, updated_nodes: vec![], nodes_tracker };
