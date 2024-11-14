@@ -1626,7 +1626,7 @@ impl EpochManager {
                             .filter_map(|(shard, stats)| (stats.expected() > 0).then_some(*shard))
                             .collect_vec();
                         shards_produced.sort();
-                        // Collect the shards for which the validator was *expected* to validate at least one chunk chunk.
+                        // Collect the shards for which the validator was *expected* to validate at least one chunk.
                         let mut shards_endorsed = chunks_stats_by_shard
                             .iter()
                             .filter_map(|(shard, stats)| {
