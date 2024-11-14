@@ -62,11 +62,6 @@ costs_counting = ["near-vm-runner/costs_counting"]
 required = [
   "costs_counting",
   "near-vm-runner/no_cpu_compatibility_checks",
-  "no_cache",
-]
-no_cache = [
-  "node-runtime/no_cache",
-  "near-store/no_cache",
 ]
 nightly = [
   "genesis-populate/nightly",

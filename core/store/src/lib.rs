@@ -1161,12 +1161,6 @@ mod tests {
 
     use super::{DBCol, NodeStorage, Store};
 
-    #[test]
-    fn test_no_cache_disabled() {
-        #[cfg(feature = "no_cache")]
-        panic!("no cache is enabled");
-    }
-
     fn test_clear_column(store: Store) {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {

@@ -59,12 +59,6 @@ nightly_protocol = [
 ]
 protocol_feature_nonrefundable_transfer_nep491 = []
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
-
-no_cache = [
-  "near-vm-runner/no_cache",
-  "near-store/no_cache",
-]
-
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
   "near-primitives/test_features",

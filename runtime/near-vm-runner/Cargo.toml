@@ -131,8 +131,6 @@ prepare = [
 
 no_cpu_compatibility_checks = []
 
-no_cache = []
-
 protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
@@ -159,7 +157,3 @@ protocol_schema = [
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
-
-[package.metadata.cargo-udeps.ignore]
-# `no_cache` feature leads to an unused `cached` crate
-normal = ["cached"]
