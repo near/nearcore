@@ -120,48 +120,48 @@ expensive --timeout=600 near-chain near_chain tests::garbage_collection::ultrasl
 expensive --timeout=700 near-chain near_chain tests::garbage_collection::ultraslow_test_gc_star_large
 expensive --timeout=700 near-chain near_chain tests::garbage_collection::ultraslow_test_gc_star_large --features nightly
 
-expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails
-expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_disabled
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_disabled --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_wrong_urls
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_wrong_urls --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_shard_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_shard_cop --features nightly
+expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultraslow_test_check_process_flipped_block_fails
+expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultraslow_test_check_process_flipped_block_fails --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full_timeout_too_short
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full_timeout_too_short --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full_timeout_too_short_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_full_timeout_too_short_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_others
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_others --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_others_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_recovered_from_others_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_one_val_per_shard
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_one_val_per_shard --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_one_val_shard_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultraslow_test_chunks_produced_and_distributed_one_val_shard_cop --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::ultraslow_test_gc_after_state_sync
 expensive integration-tests integration_tests tests::client::process_blocks::ultraslow_test_gc_after_state_sync --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::ultraslow_test_process_block_after_state_sync
 expensive integration-tests integration_tests tests::client::process_blocks::ultraslow_test_process_block_after_state_sync --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_empty_state
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_empty_state --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_dump
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_dump --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_empty_state
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_empty_state --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_state_dump
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_state_dump --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_state_nodes
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_state_nodes --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_state_nodes_multishard
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultraslow_test_sync_state_nodes_multishard --features nightly
 
 # other tests
 expensive --timeout=300 near-chain near_chain tests::garbage_collection::ultraslow_test_clear_old_data_too_many_heights
@@ -173,8 +173,8 @@ expensive integration-tests integration_tests tests::test_simple::ultraslow_test
 expensive integration-tests integration_tests tests::test_simple::ultraslow_test_7_10_multiple_nodes
 expensive integration-tests integration_tests tests::test_simple::ultraslow_test_7_10_multiple_nodes --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change --features nightly
+expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultraslow_test_sync_state_stake_change
+expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultraslow_test_sync_state_stake_change --features nightly
 
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultraslow_test_block_unknown_block_error
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultraslow_test_block_unknown_block_error --features nightly
@@ -211,14 +211,14 @@ expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultras
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultraslow_test_tx_not_enough_balance_must_return_error --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultraslow_test_validators_by_epoch_id_current_epoch_not_fails
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultraslow_test_validators_by_epoch_id_current_epoch_not_fails --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_1
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_1 --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_2
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_2 --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_4_4
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_4_4 --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_4_4_2
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_4_4_2 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_1_2_1
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_1_2_1 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_1_2_2
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_1_2_2 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_1_4_4
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_1_4_4 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_4_4_2
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultraslow_test_run_nodes_4_4_2 --features nightly
 
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultraslow_test_inflation
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultraslow_test_inflation --features nightly
@@ -229,5 +229,5 @@ expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultr
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultraslow_test_validator_kickout
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultraslow_test_validator_kickout --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::track_shards::track_shards
-expensive integration-tests integration_tests tests::nearcore::track_shards::track_shards --features nightly
+expensive integration-tests integration_tests tests::nearcore::track_shards::ultraslow_test_track_shards
+expensive integration-tests integration_tests tests::nearcore::track_shards::ultraslow_test_track_shards --features nightly
