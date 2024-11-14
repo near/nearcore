@@ -54,6 +54,7 @@ pub mod iterator;
 pub mod mem;
 mod nibble_slice;
 pub mod ops;
+pub mod outgoing_metadata;
 mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
