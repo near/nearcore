@@ -1,3 +1,4 @@
+use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing,
@@ -1061,11 +1062,13 @@ impl Chain {
         // producer, confirmation signatures and finality info.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
-            if !self.epoch_manager.verify_approval(
+            let info = self.epoch_manager.get_epoch_block_approvers_ordered(prev_header.hash())?;
+            if !verify_approval_with_approvers_info(
                 prev_header.hash(),
                 prev_header.height(),
                 header.height(),
                 header.approvals(),
+                info,
             )? {
                 return Err(Error::InvalidApprovals);
             };

@@ -90,7 +90,7 @@ fn cold_store_copy(
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
-    // If COLD_HEAD is not set for hot storage we default it to genesis_height.
+    // If HEAD is not set for cold storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
