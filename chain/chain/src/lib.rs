@@ -30,6 +30,7 @@ pub mod missing_chunks;
 pub mod orphan;
 pub mod resharding;
 pub mod runtime;
+pub mod signature_verification;
 mod state_request_tracker;
 pub mod state_snapshot_actor;
 mod state_sync;
