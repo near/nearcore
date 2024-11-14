@@ -292,7 +292,7 @@ static TEST_CASES: &[StateSyncTest] = &[
 ];
 
 #[test]
-fn test_state_sync_current_epoch() {
+fn slow_test_state_sync_current_epoch() {
     init_test_logger();
 
     for t in TEST_CASES.iter() {
@@ -354,7 +354,7 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 }
 
 #[test]
-fn test_state_request() {
+fn slow_test_state_request() {
     init_test_logger();
 
     let TestState { mut env, .. } = setup_initial_blockchain(4, HashMap::default());

@@ -373,37 +373,37 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-fn test_state_sync_with_dumped_parts_2_non_final() {
+fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 2, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_2_final() {
+fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 2, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_3_non_final() {
+fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 3, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_3_final() {
+fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 3, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_4_non_final() {
+fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 4, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_4_final() {
+fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 5);
 }

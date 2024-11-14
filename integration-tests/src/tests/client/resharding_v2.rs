@@ -893,16 +893,16 @@ fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
 // latest protocol
 
 #[test]
-fn test_latest_protocol_missing_chunks_low_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_mid_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_high_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
 }

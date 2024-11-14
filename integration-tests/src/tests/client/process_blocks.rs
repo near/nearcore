@@ -478,7 +478,7 @@ fn produce_block_with_approvals() {
 
 /// When approvals arrive early, they should be properly cached.
 #[test]
-fn produce_block_with_approvals_arrived_early() {
+fn slow_test_produce_block_with_approvals_arrived_early() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
@@ -1635,8 +1635,7 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_after_state_sync() {
+fn ultraslow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -1664,8 +1663,7 @@ fn test_gc_after_state_sync() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_process_block_after_state_sync() {
+fn ultraslow_test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
     let mut genesis = Genesis::test_sharded_new_version(
@@ -2396,7 +2394,7 @@ fn test_validate_chunk_extra() {
 }
 
 #[test]
-fn test_catchup_gas_price_change() {
+fn slow_test_catchup_gas_price_change() {
     init_test_logger();
     let epoch_length = 5;
     let min_gas_price = 10000;
@@ -2953,7 +2951,7 @@ fn test_epoch_multi_protocol_version_change() {
 }
 
 #[test]
-fn test_epoch_multi_protocol_version_change_epoch_overlap() {
+fn slow_test_epoch_multi_protocol_version_change_epoch_overlap() {
     init_test_logger();
 
     let v0 = PROTOCOL_VERSION - 2;
@@ -3717,7 +3715,7 @@ mod contract_precompilation_tests {
 
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
-    fn test_sync_and_call_cached_contract() {
+    fn slow_test_sync_and_call_cached_contract() {
         init_integration_logger();
         let num_clients = 2;
         let mut genesis =
@@ -3817,7 +3815,7 @@ mod contract_precompilation_tests {
 
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
-    fn test_two_deployments() {
+    fn slow_test_two_deployments() {
         init_integration_logger();
         let num_clients = 2;
         let mut genesis =
@@ -3893,7 +3891,7 @@ mod contract_precompilation_tests {
 
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
-    fn test_sync_after_delete_account() {
+    fn slow_test_sync_after_delete_account() {
         init_test_logger();
         let num_clients = 3;
         let mut genesis = Genesis::test(

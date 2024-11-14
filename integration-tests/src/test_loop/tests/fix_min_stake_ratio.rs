@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Check that small validator is included in the validator set after
 /// enabling protocol feature `FixMinStakeRatio`.
 #[test]
-fn test_fix_min_stake_ratio() {
+fn slow_test_fix_min_stake_ratio() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
