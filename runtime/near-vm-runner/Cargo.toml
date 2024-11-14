@@ -139,6 +139,7 @@ protocol_feature_fix_contract_loading_cost = [
 
 metrics = ["prometheus", "near-o11y"]
 
+expensive_tests = []
 
 nightly = [
   "near-o11y/nightly",

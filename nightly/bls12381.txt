@@ -1,0 +1,42 @@
+# bls12381 fuzzer tests
+
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g1_multiexp_incorrect_input_fuzzer --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g1_multiexp_invariants_checks_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g1_multiexp_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g1_multiexp_mul_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g2_multiexp_incorrect_input_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g2_multiexp_invariants_checks_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g2_multiexp_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_g2_multiexp_mul_fuzzer  --features prepare
+
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_map_fp2_to_g2_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_map_fp2_to_g2_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_map_fp_to_g1_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_map_fp_to_g1_many_points_fuzzer  --features prepare
+
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_decompress_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_decompress_incorrect_input_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_decompress_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_sum_edge_cases_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_sum_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_sum_incorrect_input_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_sum_inverse_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_sum_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p1_sum_not_g1_points_fuzzer  --features prepare
+
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_decompress_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_decompress_incorrect_input_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_decompress_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_sum_edge_cases_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_sum_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_sum_incorrect_input_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_sum_inverse_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_sum_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_p2_sum_not_g2_points_fuzzer  --features prepare
+
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_pairing_check_many_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_pairing_check_one_point_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_pairing_check_two_points_fuzzer  --features prepare
+expensive near-vm-runner near_vm_runner logic::tests::bls12381::tests::test_bls12381_pairing_incorrect_input_point_fuzzer  --features prepare

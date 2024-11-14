@@ -424,6 +424,7 @@ mod tests {
             $test_bls12381_sum_incorrect_input:ident
         ) => {
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_sum_edge_cases() {
                 // 0 + 0
                 let zero = get_zero($GOp::POINT_LEN);
@@ -481,6 +482,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_sum() {
                 bolero::check!().with_type().for_each(|(p, q): &($EPoint, $EPoint)| {
                     $check_sum(p.p, q.p);
@@ -498,6 +500,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_sum_not_g_points() {
                 //points not from G
                 bolero::check!().with_type().for_each(|(p, q): &($EnotGPoint, $EnotGPoint)| {
@@ -506,6 +509,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_sum_inverse() {
                 let zero = get_zero($GOp::POINT_LEN);
 
@@ -541,6 +545,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_sum_many_points() {
                 let zero = get_zero($GOp::POINT_LEN);
                 //empty input
@@ -573,6 +578,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
                 bolero::check!()
                     .with_generator(
@@ -593,6 +599,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_sum_incorrect_input() {
                 bolero::check!().with_type().for_each(|p: &$EPoint| {
                     let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points(p)
@@ -709,6 +716,7 @@ mod tests {
             $test_bls12381_error_encoding: ident
         ) => {
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_multiexp_mul() {
                 bolero::check!()
                     .with_generator((
@@ -734,6 +742,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_multiexp_many_points() {
                 bolero::check!()
                     .with_generator(
@@ -755,6 +764,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_multiexp_incorrect_input() {
                 let zero_scalar = vec![0u8; 32];
                 bolero::check!().with_type().for_each(|p: &$EPoint| {
@@ -776,6 +786,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_multiexp_invariants_checks() {
                 let zero1 = get_zero($GOp::POINT_LEN);
                 let r = Fr::from_str(R).unwrap();
@@ -883,6 +894,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_map_fp_to_g() {
                 bolero::check!().with_type().for_each(|fp: &$FP| {
                     $check_map_fp(fp.p);
@@ -890,6 +902,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_map_fp_to_g_many_points() {
                 bolero::check!()
                     .with_generator(bolero::gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP))
@@ -964,6 +977,7 @@ mod tests {
             $test_bls12381_decompress_incorrect_input:ident
         ) => {
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_decompress() {
                 bolero::check!().with_type().for_each(|p1: &$GPoint| {
                     let res1 = $GOp::decompress_p(vec![p1.p.clone()]);
@@ -984,6 +998,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_decompress_many_points() {
                 bolero::check!()
                     .with_generator(
@@ -1017,6 +1032,7 @@ mod tests {
             }
 
             #[test]
+            #[cfg_attr(not(feature = "expensive_tests"), ignore)]
             fn $test_bls12381_decompress_incorrect_input() {
                 // Incorrect encoding of the point at infinity
                 let mut zero = vec![0u8; $POINT_LEN];
@@ -1082,6 +1098,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_bls12381_pairing_check_one_point_fuzzer() {
         bolero::check!().with_type().for_each(|(p1, p2): &(G1Point, G2Point)| {
             let zero1 = G1Affine::zero();
@@ -1098,6 +1115,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_bls12381_pairing_check_two_points_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1, p2, s1, s2): &(G1Point, G2Point, Scalar, Scalar)| {
@@ -1134,6 +1152,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_bls12381_pairing_check_many_points_fuzzer() {
         bolero::check!()
             .with_generator(
@@ -1180,6 +1199,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_bls12381_pairing_incorrect_input_point_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1_not_from_g1, p2, p1, p2_not_from_g2, curve_p1, curve_p2): &(

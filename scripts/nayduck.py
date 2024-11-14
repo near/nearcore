@@ -253,13 +253,16 @@ def run_locally(args, tests):
 
         if fields[0] == 'expensive':
             # TODO --test doesn't work
+            features = ['expensive_tests']
+            if fields[4] == '--features':
+                features.extend(fields[5].split(','))
             cmd = [
                 'cargo',
                 'test',
                 '-p',
                 fields[1],  # '--test', fields[2],
                 '--features',
-                'expensive_tests',
+                ','.join(features),
                 '--',
                 '--exact',
                 fields[3]
