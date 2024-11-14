@@ -14,6 +14,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
+use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
@@ -881,10 +882,10 @@ impl Chain {
                 if chunk_header.shard_id() != shard_id {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
-                if !epoch_manager.verify_chunk_header_signature(
-                    &chunk_header.clone(),
-                    block.header().epoch_id(),
-                    block.header().prev_hash(),
+                if !verify_chunk_header_signature_with_epoch_manager(
+                    epoch_manager,
+                    &chunk_header,
+                    &block.header().prev_hash(),
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(
