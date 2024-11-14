@@ -64,12 +64,6 @@ protocol_feature_relaxed_chunk_validation = [
   "near-primitives-core/protocol_feature_relaxed_chunk_validation",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
-
-no_cache = [
-  "near-vm-runner/no_cache",
-  "near-store/no_cache",
-]
-
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
   "near-primitives/test_features",
