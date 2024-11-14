@@ -10,7 +10,7 @@ use near_primitives::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::logic::ProtocolVersion;
 
-use crate::TrieUpdate;
+use crate::{get, set, TrieUpdate};
 
 use super::receipts_column_helper::TrieQueue;
 use super::TrieAccess;
@@ -285,14 +285,26 @@ impl ReceiptGroupsQueue {
     }
 
     fn load_data(
-        _trie: &dyn TrieAccess,
-        _receiver_shard: ShardId,
+        trie: &dyn TrieAccess,
+        receiver_shard: ShardId,
     ) -> Result<Option<ReceiptGroupsQueueDataV0>, StorageError> {
-        todo!()
+        let data_opt: Option<ReceiptGroupsQueueData> = get(
+            trie,
+            &TrieKey::OutgoingReceiptGroupsQueueData { receiving_shard: receiver_shard },
+        )?;
+        let data_v0_opt = data_opt.map(|data_enum| match data_enum {
+            ReceiptGroupsQueueData::V0(data_v0) => data_v0,
+        });
+        Ok(data_v0_opt)
     }
 
-    fn save_data(&self, _state_update: &mut TrieUpdate) {
-        todo!()
+    fn save_data(&self, state_update: &mut TrieUpdate) {
+        let data_enum = ReceiptGroupsQueueData::V0(self.data.clone());
+        set(
+            state_update,
+            TrieKey::OutgoingReceiptGroupsQueueData { receiving_shard: self.receiver_shard },
+            &data_enum,
+        );
     }
 
     pub fn update_on_receipt_pushed(
@@ -410,8 +422,8 @@ impl TrieQueue for ReceiptGroupsQueue {
         self.save_data(state_update);
     }
 
-    fn trie_key(&self, _index: u64) -> TrieKey {
-        todo!()
+    fn trie_key(&self, index: u64) -> TrieKey {
+        TrieKey::OutgoingReceiptGroupsQueueItem { receiving_shard: self.receiver_shard, index }
     }
 }
 
