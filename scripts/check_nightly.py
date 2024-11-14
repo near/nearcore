@@ -83,12 +83,19 @@ def nightly_tests(repo_dir: pathlib.Path) -> typing.Iterable[str]:
     for test in nayduck.read_tests_from_file(repo_dir /
                                              nayduck.DEFAULT_TEST_FILE,
                                              include_comments=True):
+        if not test:
+            continue
         t = test.split()
+        # The test may have optional --features a,b,c arguments at the end.
+        # Remove it as it's not relevant for the test name.
+        if len(t) > 2 and t[-2] == '--features':
+            t = t[:-2]
         try:
             # It's okay to comment out a test intentionally.
             if t[t[0] == '#'] in ('expensive', '#expensive'):
                 yield t[-1].split('::')[-1]
         except IndexError:
+            print('error fail to yield from', test)
             pass
 
 
