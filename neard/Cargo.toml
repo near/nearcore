@@ -73,6 +73,11 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
+# TODO - this is a hack to make neard compile with the prepare feature enabled.
+# This is required for nayduck to be able to build neard in the near-vm-runner
+# expensive tests suite. The build isn't actually used for those tests so it's
+# ok that it's not passed on to the near-vm-runner.
+prepare=[]
 
 nightly = [
   "near-chain-configs/nightly",
