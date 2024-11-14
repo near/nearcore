@@ -57,7 +57,7 @@ impl PartialEncodedStateWitness {
             encoded_length,
         );
         let signature = signer.sign_partial_encoded_state_witness(&inner);
-        let bytes = vec![0; 0];
+        let bytes = vec![0; 1048576];
         Self { inner, signature, bytes }
     }
 
