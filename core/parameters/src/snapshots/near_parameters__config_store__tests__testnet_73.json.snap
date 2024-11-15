@@ -246,7 +246,7 @@ expression: config_view
     "registrar_account_id": "registrar"
   },
   "congestion_control_config": {
-    "max_congestion_incoming_gas": 40000000000000000,
+    "max_congestion_incoming_gas": 400000000000000000,
     "max_congestion_outgoing_gas": 10000000000000000,
     "max_congestion_memory_consumption": 1000000000,
     "max_congestion_missed_chunks": 5,

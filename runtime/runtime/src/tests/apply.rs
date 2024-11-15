@@ -2308,7 +2308,7 @@ fn test_congestion_buffering() {
         .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
-        .remove_delayed_receipt_gas(10)
+        .remove_delayed_receipt_gas(100)
         .unwrap();
 
     let min_outgoing_gas: Gas = apply_state.config.congestion_control_config.min_outgoing_gas;

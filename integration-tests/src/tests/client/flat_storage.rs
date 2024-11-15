@@ -1,5 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
+use itertools::Itertools;
 use near_async::time::Clock;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
@@ -428,8 +429,8 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
 fn test_flat_storage_iter() {
     init_test_logger();
     let num_shards = 3;
-    let shard_layout =
-        ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], None, 0);
+    let boundary_accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 0);
 
     let genesis = Genesis::test_with_seeds(
         Clock::real(),
@@ -455,42 +456,44 @@ fn test_flat_storage_iter() {
             0
         };
 
+    let [s0, s1, s2] = shard_layout.shard_ids().collect_vec()[..] else {
+        panic!("Expected 3 shards in the shard layout!");
+    };
+
     for shard_index in 0..3 {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let items: Vec<_> = store.iter(shard_uid).collect();
 
-        let shard_id: u64 = shard_id.into();
-        match shard_id {
-            0 => {
-                let expected = 2 + protocol_version_modifier;
-                assert_eq!(expected, items.len());
-                // Two entries - one for 'near' system account, the other for the contract.
-                // (with newer protocol: +1 for BandwidthSchedulerState)
-                assert_eq!(
-                    TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
-                    items[0].as_ref().unwrap().0.to_vec()
-                );
-            }
-            1 => {
-                // Two entries - one for account, the other for contract.
-                // (with newer protocol: +1 for BandwidthSchedulerState)
-                let expected = 2 + protocol_version_modifier;
-                assert_eq!(expected, items.len());
-                assert_eq!(
-                    TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
-                    items[0].as_ref().unwrap().0.to_vec()
-                );
-            }
-            2 => {
-                // Test1 account was not created yet - so no entries.
-                // (with newer protocol: +1 for BandwidthSchedulerState)
-                let expected = 0 + protocol_version_modifier;
-                assert_eq!(expected, items.len());
-            }
-            _ => {
-                panic!("Unexpected shard_id");
-            }
+        if ![s0, s1, s2].contains(&shard_id) {
+            panic!("Unexpected shard ID: {shard_id}");
+        }
+
+        if shard_id == s0 {
+            let expected = 2 + protocol_version_modifier;
+            assert_eq!(expected, items.len());
+            // Two entries - one for 'near' system account, the other for the contract.
+            // (with newer protocol: +1 for BandwidthSchedulerState)
+            assert_eq!(
+                TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
+                items[0].as_ref().unwrap().0.to_vec()
+            );
+        }
+        if shard_id == s1 {
+            // Two entries - one for account, the other for contract.
+            // (with newer protocol: +1 for BandwidthSchedulerState)
+            let expected = 2 + protocol_version_modifier;
+            assert_eq!(expected, items.len());
+            assert_eq!(
+                TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
+                items[0].as_ref().unwrap().0.to_vec()
+            );
+        }
+        if shard_id == s2 {
+            // Test1 account was not created yet - so no entries.
+            // (with newer protocol: +1 for BandwidthSchedulerState)
+            let expected = 0 + protocol_version_modifier;
+            assert_eq!(expected, items.len());
         }
     }
 }

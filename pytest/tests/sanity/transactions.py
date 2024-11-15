@@ -30,7 +30,11 @@ nodes = start_cluster(
     client_config_changes={
         0: {
             "consensus": {
-                "state_sync_timeout": {
+                "state_sync_external_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                },
+                "state_sync_p2p_timeout": {
                     "secs": 2,
                     "nanos": 0
                 }
@@ -38,7 +42,11 @@ nodes = start_cluster(
         },
         1: {
             "consensus": {
-                "state_sync_timeout": {
+                "state_sync_external_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                },
+                "state_sync_p2p_timeout": {
                     "secs": 2,
                     "nanos": 0
                 }
@@ -46,7 +54,11 @@ nodes = start_cluster(
         },
         2: {
             "consensus": {
-                "state_sync_timeout": {
+                "state_sync_external_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                },
+                "state_sync_p2p_timeout": {
                     "secs": 2,
                     "nanos": 0
                 }
@@ -54,7 +66,11 @@ nodes = start_cluster(
         },
         3: {
             "consensus": {
-                "state_sync_timeout": {
+                "state_sync_external_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                },
+                "state_sync_p2p_timeout": {
                     "secs": 2,
                     "nanos": 0
                 }
@@ -62,7 +78,11 @@ nodes = start_cluster(
         },
         4: {
             "consensus": {
-                "state_sync_timeout": {
+                "state_sync_external_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                },
+                "state_sync_p2p_timeout": {
                     "secs": 2,
                     "nanos": 0
                 }

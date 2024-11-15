@@ -412,6 +412,14 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_state_sync_requests_throttled_total",
+        "Total number of state sync requests which were received and ignored",
+    )
+    .unwrap()
+});
+
 pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_produce_and_distribute_chunk_time",

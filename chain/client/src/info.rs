@@ -521,14 +521,17 @@ impl InfoHelper {
                     metrics::VALIDATORS_CHUNKS_EXPECTED
                         .with_label_values(&[stats.account_id.as_str()])
                         .set(stats.num_expected_chunks as i64);
-                    for i in 0..stats.shards.len() {
-                        let shard = stats.shards[i];
+                    for i in 0..stats.shards_produced.len() {
+                        let shard = stats.shards_produced[i];
                         metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_chunks_per_shard[i] as i64);
                         metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_produced_chunks_per_shard[i] as i64);
+                    }
+                    for i in 0..stats.shards_endorsed.len() {
+                        let shard = stats.shards_endorsed[i];
                         metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_endorsements_per_shard[i] as i64);
@@ -909,7 +912,10 @@ struct ValidatorProductionStats {
     num_expected_blocks: NumBlocks,
     num_produced_chunks: NumBlocks,
     num_expected_chunks: NumBlocks,
-    shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    shards_produced: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    shards_endorsed: Vec<ShardId>,
     num_produced_chunks_per_shard: Vec<NumBlocks>,
     num_expected_chunks_per_shard: Vec<NumBlocks>,
     num_produced_endorsements_per_shard: Vec<NumBlocks>,
@@ -921,13 +927,24 @@ impl ValidatorProductionStatus {
         Self::Kickout(kickout.account_id)
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+        debug_assert_eq!(
+            info.shards_produced.len(),
+            info.num_expected_chunks_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
+        debug_assert_eq!(
+            info.shards_endorsed.len(),
+            info.num_expected_endorsements_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
         Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
-            shards: info.shards,
+            shards_produced: info.shards_produced,
+            shards_endorsed: info.shards_endorsed,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
             num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,

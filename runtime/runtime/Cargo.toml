@@ -44,6 +44,7 @@ nightly = [
   "near-wallet-contract/nightly",
   "nightly_protocol",
   "protocol_feature_nonrefundable_transfer_nep491",
+  "protocol_feature_relaxed_chunk_validation",
   "testlib/nightly",
 ]
 nightly_protocol = [
@@ -58,6 +59,10 @@ nightly_protocol = [
   "testlib/nightly_protocol",
 ]
 protocol_feature_nonrefundable_transfer_nep491 = []
+protocol_feature_relaxed_chunk_validation = [
+  "near-primitives/protocol_feature_relaxed_chunk_validation",
+  "near-primitives-core/protocol_feature_relaxed_chunk_validation",
+]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = [

@@ -18,7 +18,7 @@ use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
 use super::lookup::memtrie_lookup;
-use super::mem_trie_update::{construct_root_from_changes, MemTrieUpdate};
+use super::mem_trie_update::{construct_root_from_changes, MemTrieUpdate, TrackingMode};
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
@@ -177,19 +177,14 @@ impl MemTries {
             .set(self.roots.len() as i64);
     }
 
-    pub fn update(
-        &self,
+    pub fn update<'a>(
+        &'a self,
         root: CryptoHash,
-        track_trie_changes: bool,
-    ) -> Result<MemTrieUpdate<HybridArenaMemory>, StorageError> {
+        mode: TrackingMode<'a>,
+    ) -> Result<MemTrieUpdate<'a, HybridArenaMemory>, StorageError> {
         let root_id =
             if root == CryptoHash::default() { None } else { Some(self.get_root(&root)?.id()) };
-        Ok(MemTrieUpdate::new(
-            root_id,
-            &self.arena.memory(),
-            self.shard_uid.to_string(),
-            track_trie_changes,
-        ))
+        Ok(MemTrieUpdate::new(root_id, &self.arena.memory(), self.shard_uid.to_string(), mode))
     }
 
     /// Returns an iterator over the memtrie for the given trie root.

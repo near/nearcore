@@ -13,6 +13,7 @@ use near_client::{
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId,
@@ -75,6 +76,7 @@ fn test_view_requests_to_archival_node() {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
     let (genesis, epoch_config_store) = genesis_builder.build();
+    let shard_layout = genesis.config.shard_layout.clone();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
@@ -99,7 +101,7 @@ fn test_view_requests_to_archival_node() {
     );
 
     let mut view_client_tester = ViewClientTester::new(&mut test_loop, &node_datas);
-    view_client_tester.run_tests();
+    view_client_tester.run_tests(&shard_layout);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -139,7 +141,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the messages to retrieve different kinds of information
     /// and issues them to the view client of the archival node.
-    fn run_tests(&mut self) {
+    fn run_tests(&mut self, shard_layout: &ShardLayout) {
         // Sanity check: Validators cannot return old blocks after GC (eg. genesis block) but archival node can.
         let genesis_block_request =
             GetBlock(BlockReference::BlockId(BlockId::Height(GENESIS_HEIGHT)));
@@ -157,7 +159,7 @@ impl<'a> ViewClientTester<'a> {
         self.check_get_ordered_validators();
         self.check_get_state_changes_in_block();
         self.check_get_state_changes();
-        self.check_get_execution_outcomes();
+        self.check_get_execution_outcomes(shard_layout);
     }
 
     fn get_block_at_height(&mut self, height: BlockHeight) -> BlockView {
@@ -371,15 +373,20 @@ impl<'a> ViewClientTester<'a> {
     }
 
     /// Generates variations of the [`GetReceipt`] request and issues them to the view client of the archival node.
-    fn check_get_execution_outcomes(&mut self) {
+    fn check_get_execution_outcomes(&mut self, shard_layout: &ShardLayout) {
         let block = self.get_block_at_height(6);
 
         let request = GetExecutionOutcomesForBlock { block_hash: block.header.hash };
         let outcomes = self.send(request, ARCHIVAL_CLIENT).unwrap();
         assert_eq!(outcomes.len(), NUM_SHARDS);
-        assert_eq!(outcomes[&ShardId::new(0)].len(), 1);
+
+        let [s0, s1, s2, s3] = shard_layout.shard_ids().collect_vec()[..] else {
+            panic!("Expected 4 shards in the shard layout");
+        };
+
+        assert_eq!(outcomes[&s0].len(), 1);
         assert!(matches!(
-            outcomes[&ShardId::new(0)][0],
+            outcomes[&s0][0],
             ExecutionOutcomeWithIdView {
                 outcome: ExecutionOutcomeView {
                     status: ExecutionStatusView::SuccessReceiptId(_),
@@ -388,9 +395,9 @@ impl<'a> ViewClientTester<'a> {
                 ..
             }
         ));
-        assert_eq!(outcomes[&ShardId::new(1)].len(), 1);
+        assert_eq!(outcomes[&s1].len(), 1);
         assert!(matches!(
-            outcomes[&ShardId::new(1)][0],
+            outcomes[&s1][0],
             ExecutionOutcomeWithIdView {
                 outcome: ExecutionOutcomeView {
                     status: ExecutionStatusView::SuccessReceiptId(_),
@@ -399,8 +406,8 @@ impl<'a> ViewClientTester<'a> {
                 ..
             }
         ));
-        assert_eq!(outcomes[&ShardId::new(2)].len(), 0);
-        assert_eq!(outcomes[&ShardId::new(3)].len(), 0);
+        assert_eq!(outcomes[&s2].len(), 0);
+        assert_eq!(outcomes[&s3].len(), 0);
     }
 
     /// Generates variations of the [`GetStateChanges`] request and issues them to the view client of the archival node.

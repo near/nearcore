@@ -89,7 +89,9 @@ impl StateSync {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-        timeout: Duration,
+        external_timeout: Duration,
+        p2p_timeout: Duration,
+        retry_timeout: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
@@ -102,7 +104,7 @@ impl StateSync {
             clock: clock.clone(),
             store: store.clone(),
             request_sender: network_adapter,
-            request_timeout: timeout,
+            request_timeout: p2p_timeout,
             state: peer_source_state.clone(),
         }) as Arc<dyn StateSyncDownloadSource>;
         let (fallback_source, num_attempts_before_fallback, num_concurrent_requests) =
@@ -118,7 +120,7 @@ impl StateSync {
                         let bucket = create_bucket_readonly(
                             &bucket,
                             &region,
-                            timeout.max(Duration::ZERO).unsigned_abs(),
+                            external_timeout.max(Duration::ZERO).unsigned_abs(),
                         );
                         if let Err(err) = bucket {
                             panic!("Failed to create an S3 bucket: {}", err);
@@ -144,7 +146,7 @@ impl StateSync {
                     store: store.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
-                    timeout,
+                    timeout: external_timeout,
                 }) as Arc<dyn StateSyncDownloadSource>;
                 (
                     Some(fallback_source),
@@ -164,7 +166,7 @@ impl StateSync {
             num_attempts_before_fallback,
             header_validation_sender: chain_requests_sender.clone().into_sender(),
             runtime: runtime.clone(),
-            retry_timeout: timeout, // TODO: This is not what timeout meant. Introduce a new parameter.
+            retry_timeout,
             task_tracker: downloading_task_tracker.clone(),
         });
 

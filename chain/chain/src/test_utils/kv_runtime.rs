@@ -18,7 +18,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -30,7 +29,6 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -498,7 +496,7 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(Default::default())
     }
 
-    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         Ok(EpochConfig {
             epoch_length: self.epoch_length,
             num_block_producer_seats: 2,
@@ -514,7 +512,7 @@ impl EpochManagerAdapter for MockEpochManager {
             fishermen_threshold: 1,
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            shard_layout: ShardLayout::v1_test(),
+            shard_layout: self.get_shard_layout(epoch_id).unwrap(),
             validator_selection_config: ValidatorSelectionConfig::default(),
         })
     }
@@ -877,25 +875,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(PROTOCOL_VERSION)
     }
 
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    > {
-        Ok(Default::default())
-    }
-
     fn init_after_epoch_sync(
         &self,
         _store_update: &mut StoreUpdate,
@@ -938,76 +917,6 @@ impl EpochManagerAdapter for MockEpochManager {
         let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
         let validator_stake = &self.validators[&validator];
         Ok(header.verify_block_producer(validator_stake.public_key()))
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        _chunk_hash: &ChunkHash,
-        _signature: &Signature,
-        _epoch_id: &EpochId,
-        _last_kown_hash: &CryptoHash,
-        _height_created: BlockHeight,
-        _shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approval(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approval_with_approvers_info(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Box<Signature>>],
-        _info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
-        if !can_approved_block_be_produced(approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
-        }
     }
 
     fn verify_chunk_endorsement_signature(

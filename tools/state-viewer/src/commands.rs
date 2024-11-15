@@ -629,7 +629,9 @@ pub(crate) fn print_chain(
                     let mut chunk_debug_str: Vec<String> = Vec::new();
 
                     let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-                    for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
+                    for shard_info in shard_layout.shard_infos() {
+                        let shard_index = shard_info.shard_index();
+                        let shard_id = shard_info.shard_id();
                         let chunk_producer = epoch_manager
                             .get_chunk_producer_info(&ChunkProductionKey {
                                 epoch_id,
@@ -969,8 +971,7 @@ pub(crate) fn print_epoch_analysis(
     // stored on disk.
     let mut next_epoch_info =
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
-    let mut next_next_epoch_config =
-        epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION).unwrap();
+    let mut next_next_epoch_config = epoch_manager.get_epoch_config(PROTOCOL_VERSION);
     let mut has_same_shard_layout;
     let mut epoch_protocol_version;
     let mut next_next_protocol_version;
@@ -1007,7 +1008,9 @@ pub(crate) fn print_epoch_analysis(
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
         let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
-        let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
+        let next_epoch_config = epoch_manager.get_epoch_config(
+            epoch_manager.get_epoch_info(next_epoch_id).unwrap().protocol_version(),
+        );
         let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
 
         match mode {
@@ -1016,8 +1019,9 @@ pub(crate) fn print_epoch_analysis(
                 // about epochs.
                 next_epoch_info =
                     epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-                next_next_epoch_config =
-                    epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
+                next_next_epoch_config = epoch_manager.get_epoch_config(
+                    epoch_manager.get_epoch_info(next_next_epoch_id).unwrap().protocol_version(),
+                );
                 has_same_shard_layout =
                     next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
                 epoch_protocol_version = epoch_info.protocol_version();

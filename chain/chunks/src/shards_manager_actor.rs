@@ -96,6 +96,9 @@ use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
+use near_chain::signature_verification::{
+    verify_chunk_header_signature, verify_chunk_header_signature_with_epoch_manager,
+};
 use near_chain::types::EpochManagerAdapter;
 use near_chain_configs::MutableValidatorSigner;
 pub use near_chunks_primitives::Error;
@@ -1219,13 +1222,19 @@ impl ShardsManagerActor {
 
         // check signature
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
-        let valid_signature = self.epoch_manager.verify_chunk_signature_with_header_parts(
+        let key = ChunkProductionKey {
+            epoch_id,
+            height_created: forward.height_created,
+            shard_id: forward.shard_id,
+        };
+        let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
+        let block_info = self.epoch_manager.get_block_info(&forward.prev_block_hash)?;
+
+        let valid_signature = verify_chunk_header_signature(
             &forward.chunk_hash,
             &forward.signature,
-            &epoch_id,
-            &forward.prev_block_hash,
-            forward.height_created,
-            forward.shard_id,
+            chunk_producer,
+            block_info,
         )?;
 
         if !valid_signature {
@@ -1385,7 +1394,11 @@ impl ShardsManagerActor {
             }
         };
 
-        if !self.epoch_manager.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)? {
+        if !verify_chunk_header_signature_with_epoch_manager(
+            self.epoch_manager.as_ref(),
+            &header,
+            &ancestor_hash,
+        )? {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)

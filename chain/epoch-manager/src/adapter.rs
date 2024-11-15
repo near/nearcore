@@ -2,14 +2,13 @@ use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
-use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
@@ -308,49 +307,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     // TODO #3488 this likely to be updated
-    /// Data that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    >;
-
-    // TODO #3488 this likely to be updated
-    /// Hash that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data_hash(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, EpochError> {
-        let (
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
-        Ok(CryptoHash::hash_borsh(&(
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        )))
-    }
 
     fn is_chunk_producer_for_epoch(
         &self,
@@ -398,73 +354,6 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Verify header signature.
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
-
-    /// Verify chunk header signature.
-    /// return false if the header signature does not match the key for the assigned chunk producer
-    /// for this chunk, or if the chunk producer has been slashed
-    /// return `EpochError::NotAValidator` if cannot find chunk producer info for this chunk
-    /// `header`: chunk header
-    /// `epoch_id`: epoch_id that the chunk header belongs to
-    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
-    fn verify_chunk_header_signature(
-        &self,
-        header: &ShardChunkHeader,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        self.verify_chunk_signature_with_header_parts(
-            &header.chunk_hash(),
-            header.signature(),
-            epoch_id,
-            last_known_hash,
-            header.height_created(),
-            header.shard_id(),
-        )
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error>;
-
-    /// Verify aggregated bls signature
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error>;
-
-    /// Verify aggregated bls signature given block approvers info
-    fn verify_approval_with_approvers_info(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-        info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error>;
-
-    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            // (stake this in epoch, stake in next epoch, is_slashed)
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error>;
 
     fn verify_chunk_endorsement_signature(
         &self,
@@ -606,7 +495,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(epoch_id)
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        Ok(epoch_manager.get_epoch_config(protocol_version))
     }
 
     fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
@@ -621,7 +511,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         let epoch_manager = self.read();
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id)?;
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        let epoch_config = epoch_manager.get_epoch_config(protocol_version);
         Ok(ShardConfig::new(epoch_config))
     }
 
@@ -883,36 +774,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
     }
 
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    > {
-        let epoch_manager = self.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_id = *last_block_info.epoch_id();
-        Ok((
-            epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
-            epoch_manager.get_block_info(last_block_info.prev_hash())?,
-            last_block_info,
-            epoch_manager.get_epoch_info(&prev_epoch_id)?,
-            epoch_manager.get_epoch_info(epoch_id)?,
-            epoch_manager.get_epoch_info(next_epoch_id)?,
-        ))
-    }
-
     fn init_after_epoch_sync(
         &self,
         store_update: &mut StoreUpdate,
@@ -1000,122 +861,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
             }
             Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
-        }
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.read();
-        let key =
-            ChunkProductionKey { epoch_id: *epoch_id, height_created: height_created, shard_id };
-        let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
-        let block_info = epoch_manager.get_block_info(last_known_hash)?;
-        if block_info.slashed().contains_key(chunk_producer.account_id()) {
-            return Ok(false);
-        }
-        Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
-    }
-
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error> {
-        let info = {
-            let epoch_manager = self.read();
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash)?
-        };
-        self.verify_approval_with_approvers_info(
-            prev_block_hash,
-            prev_block_height,
-            block_height,
-            approvals,
-            info,
-        )
-    }
-
-    fn verify_approval_with_approvers_info(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-        info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error> {
-        if approvals.len() > info.len() {
-            return Ok(false);
-        }
-
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key)
-                {
-                    return Ok(false);
-                }
-            }
-        }
-        Ok(true)
-    }
-
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error> {
-        let info = {
-            let epoch_manager = self.read();
-            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id)?
-        };
-
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = info
-            .iter()
-            .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
-            .collect::<Vec<_>>();
-        if !can_approved_block_be_produced(approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
         }
     }
 

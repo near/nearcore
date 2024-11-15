@@ -16,5 +16,5 @@ pytest --skip-build --timeout=1h sanity/docker.py
 ### Flaky tests. Should be fixed to be added to CI and added back to pytest-sanity.txt
 pytest --timeout=120 sanity/validator_switch_key_quick.py
 pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes --features nightly

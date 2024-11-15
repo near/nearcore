@@ -322,7 +322,9 @@ impl Client {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             network_adapter.clone().into_sender(),
-            config.state_sync_timeout,
+            config.state_sync_external_timeout,
+            config.state_sync_p2p_timeout,
+            config.state_sync_retry_timeout,
             &config.chain_id,
             &config.state_sync.sync,
             chain_sender_for_state_sync.clone(),
@@ -612,7 +614,7 @@ impl Client {
             validator_signer.validator_id(),
             &next_block_proposer,
         )? {
-            debug!(target: "client", "Should reschedule block");
+            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
             return Ok(None);
         }
         let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
@@ -769,11 +771,23 @@ impl Client {
         };
 
         let epoch_sync_data_hash = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            Some(self.epoch_manager.get_epoch_sync_data_hash(
-                prev_block.hash(),
-                &epoch_id,
-                &next_epoch_id,
-            )?)
+            let last_block_info = self.epoch_manager.get_block_info(prev_block.hash())?;
+            let prev_epoch_id = *last_block_info.epoch_id();
+            let prev_epoch_first_block_info =
+                self.epoch_manager.get_block_info(last_block_info.epoch_first_block())?;
+            let prev_epoch_prev_last_block_info =
+                self.epoch_manager.get_block_info(last_block_info.prev_hash())?;
+            let prev_epoch_info = self.epoch_manager.get_epoch_info(&prev_epoch_id)?;
+            let cur_epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
+            let next_epoch_info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
+            Some(CryptoHash::hash_borsh(&(
+                prev_epoch_first_block_info,
+                prev_epoch_prev_last_block_info,
+                last_block_info,
+                prev_epoch_info,
+                cur_epoch_info,
+                next_epoch_info,
+            )))
         } else {
             None
         };
@@ -2544,7 +2558,6 @@ impl Client {
         {
             assert_eq!(&epoch_first_block, state_sync_info.epoch_first_block());
 
-            let state_sync_timeout = self.config.state_sync_timeout;
             let block_header = self.chain.get_block(&epoch_first_block)?.header().clone();
             let epoch_id = block_header.epoch_id();
 
@@ -2563,7 +2576,9 @@ impl Client {
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
                             self.network_adapter.clone().into_sender(),
-                            state_sync_timeout,
+                            self.config.state_sync_external_timeout,
+                            self.config.state_sync_p2p_timeout,
+                            self.config.state_sync_retry_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
                             self.chain_sender_for_state_sync.clone(),
