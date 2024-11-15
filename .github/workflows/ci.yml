@@ -50,7 +50,7 @@ jobs:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       # Run the tests:
-      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
+      - run: mkdir -p coverage/profraw/{unit,binaries}
       # - Run the unit tests, retrieving the coverage information
       - run: just codecov-ci "nextest-slow ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
@@ -338,8 +338,6 @@ jobs:
         include:
           - type: unit
             profraws: unit
-          - type: integration
-            profraws: unit integration
     steps:
       - uses: actions/checkout@v4
         with:
@@ -413,21 +411,6 @@ jobs:
           files: unit-macos.json
           fail_ci_if_error: true
           flags: unittests,macos
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: integration-linux.json
-          fail_ci_if_error: true
-          flags: integration-tests,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: integration-linux-nightly.json
-          fail_ci_if_error: true
-          flags: integration-tests,linux-nightly
-      # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-      #   with:
-      #     files: integration-macos.json
-      #     fail_ci_if_error: true
-      #     flags: integration-tests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-backward-compat.json
