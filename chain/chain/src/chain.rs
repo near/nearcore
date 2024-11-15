@@ -14,7 +14,9 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
-use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
+use crate::signature_verification::{
+    verify_chunk_header_signature_with_epoch_manager, verify_header_signature_with_epoch_manager,
+};
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
@@ -965,7 +967,7 @@ impl Chain {
         }
 
         // Check the signature.
-        if !self.epoch_manager.verify_header_signature(header)? {
+        if !verify_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)? {
             return Err(Error::InvalidSignature);
         }
 
@@ -1190,7 +1192,8 @@ impl Chain {
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
         // makes sure the block header content is not tampered
-        if !self.epoch_manager.verify_header_signature(block.header())? {
+        if !verify_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), block.header())?
+        {
             tracing::error!("wrong signature");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }

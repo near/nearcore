@@ -67,7 +67,7 @@ pub fn verify_chunk_header_signature_with_epoch_manager(
 
 /// This function requires that the previous block of `header` has been processed.
 /// If not, it returns EpochError::MissingBlock.
-fn verify_header_signature_with_epoch_manager(
+pub fn verify_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<bool, Error> {
