@@ -334,7 +334,7 @@ fn chunks_produced_and_distributed_all_in_all_shards() {
 }
 
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard() {
+fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard() {
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
@@ -346,7 +346,7 @@ fn ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard() {
 }
 
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_one_val_per_shard() {
+fn ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
@@ -361,7 +361,7 @@ fn ultraslow_test_chunks_produced_and_distributed_one_val_per_shard() {
 // because we always fallback on the p2p mechanism. This test runs with a config
 // where `enabled: false`.
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled() {
+fn ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled() {
     let config = ChunkDistributionNetworkConfig {
         enabled: false,
         uris: ChunkDistributionUris { set: String::new(), get: String::new() },
@@ -380,7 +380,7 @@ fn ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_dis
 // because we always fallback on the p2p mechanism. This test runs with a config
 // where the URIs are not real endpoints.
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls() {
+fn ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls() {
     let config = ChunkDistributionNetworkConfig {
         enabled: false,
         uris: ChunkDistributionUris {
@@ -403,7 +403,7 @@ fn ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_wro
 // where the `get` URI points at a random http server (therefore it does not
 // return valid chunks).
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return()
+fn ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return()
 {
     let config = ChunkDistributionNetworkConfig {
         enabled: false,
@@ -433,7 +433,7 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
 }
 
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding(
+fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding(
 ) {
     Test {
         validator_groups: 2,
@@ -446,7 +446,7 @@ fn ultraslow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succee
 }
 
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding(
+fn ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding(
 ) {
     Test {
         validator_groups: 4,
@@ -470,7 +470,7 @@ fn ultraslow_test_chunks_produced_and_distributed_one_val_per_shard_should_succe
 /// TODO: this test is broken due to (#8395) - with fix in #8211
 
 #[test]
-fn ultraslow_test_chunks_recovered_from_others() {
+fn ultra_slow_test_chunks_recovered_from_others() {
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
@@ -486,7 +486,7 @@ fn ultraslow_test_chunks_recovered_from_others() {
 /// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
 /// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
-fn ultraslow_test_chunks_recovered_from_full_timeout_too_short() {
+fn ultra_slow_test_chunks_recovered_from_full_timeout_too_short() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
@@ -500,7 +500,7 @@ fn ultraslow_test_chunks_recovered_from_full_timeout_too_short() {
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
 /// chunk
 #[test]
-fn ultraslow_test_chunks_recovered_from_full() {
+fn ultra_slow_test_chunks_recovered_from_full() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
@@ -515,7 +515,7 @@ fn ultraslow_test_chunks_recovered_from_full() {
 
 /// Happy case -- each shard is handled by one cop and one block producers.
 #[test]
-fn ultraslow_test_chunks_produced_and_distributed_one_val_shard_cop() {
+fn ultra_slow_test_chunks_produced_and_distributed_one_val_shard_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,
@@ -528,7 +528,7 @@ fn ultraslow_test_chunks_produced_and_distributed_one_val_shard_cop() {
 
 /// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
 #[test]
-fn ultraslow_test_chunks_recovered_from_others_cop() {
+fn ultra_slow_test_chunks_recovered_from_others_cop() {
     Test {
         validator_groups: 1,
         chunk_only_producers: true,
@@ -542,7 +542,7 @@ fn ultraslow_test_chunks_recovered_from_others_cop() {
 /// `test4` can't talk neither to `cop1` nor to `test1`, so it can't fetch chunk
 /// from chunk producers and has to reconstruct it.
 #[test]
-fn ultraslow_test_chunks_recovered_from_full_timeout_too_short_cop() {
+fn ultra_slow_test_chunks_recovered_from_full_timeout_too_short_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,
@@ -558,7 +558,7 @@ fn ultraslow_test_chunks_recovered_from_full_timeout_too_short_cop() {
 
 /// Same as above, but with longer block production timeout which should allow for full reconstruction.
 #[test]
-fn ultraslow_test_chunks_recovered_from_full_cop() {
+fn ultra_slow_test_chunks_recovered_from_full_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,

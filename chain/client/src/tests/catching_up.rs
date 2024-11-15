@@ -108,7 +108,7 @@ pub struct StateRequestStruct {
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
 #[test]
-fn ultraslow_test_catchup_receipts_sync_third_epoch() {
+fn ultra_slow_test_catchup_receipts_sync_third_epoch() {
     test_catchup_receipts_sync_common(13, 1, false)
 }
 
@@ -120,17 +120,17 @@ fn ultraslow_test_catchup_receipts_sync_third_epoch() {
 /// The reason of increasing block_prod_time in the test is to allow syncing complete.
 /// Otherwise epochs will be changing faster than state sync happen.
 #[test]
-fn ultraslow_test_catchup_receipts_sync_hold() {
+fn ultra_slow_test_catchup_receipts_sync_hold() {
     test_catchup_receipts_sync_common(13, 1, true)
 }
 
 #[test]
-fn ultraslow_test_catchup_receipts_sync_last_block() {
+fn ultra_slow_test_catchup_receipts_sync_last_block() {
     test_catchup_receipts_sync_common(13, 5, false)
 }
 
 #[test]
-fn ultraslow_test_catchup_receipts_sync_distant_epoch() {
+fn ultra_slow_test_catchup_receipts_sync_distant_epoch() {
     test_catchup_receipts_sync_common(35, 1, false)
 }
 
@@ -380,7 +380,7 @@ enum RandomSinglePartPhases {
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
-fn ultraslow_test_catchup_random_single_part_sync() {
+fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
 
@@ -388,24 +388,24 @@ fn ultraslow_test_catchup_random_single_part_sync() {
 // It causes all the receipts to be applied only on height 16, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]
-fn ultraslow_test_catchup_random_single_part_sync_skip_15() {
+fn ultra_slow_test_catchup_random_single_part_sync_skip_15() {
     test_catchup_random_single_part_sync_common(true, false, 13)
 }
 
 #[test]
-fn ultraslow_test_catchup_random_single_part_sync_send_15() {
+fn ultra_slow_test_catchup_random_single_part_sync_send_15() {
     test_catchup_random_single_part_sync_common(false, false, 15)
 }
 
 // Make sure that transactions are at least applied.
 #[test]
-fn ultraslow_test_catchup_random_single_part_sync_non_zero_amounts() {
+fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(false, true, 13)
 }
 
 // Use another height to send txs.
 #[test]
-fn ultraslow_test_catchup_random_single_part_sync_height_6() {
+fn ultra_slow_test_catchup_random_single_part_sync_height_6() {
     test_catchup_random_single_part_sync_common(false, false, 6)
 }
 
@@ -607,7 +607,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
-fn ultraslow_test_catchup_sanity_blocks_produced() {
+fn ultra_slow_test_catchup_sanity_blocks_produced() {
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
@@ -673,17 +673,17 @@ fn ultraslow_test_catchup_sanity_blocks_produced() {
 }
 
 #[test]
-fn ultraslow_test_all_chunks_accepted_1000() {
+fn ultra_slow_test_all_chunks_accepted_1000() {
     test_all_chunks_accepted_common(1000, 3000, 5)
 }
 
 #[test]
-fn ultraslow_test_all_chunks_accepted_1000_slow() {
+fn ultra_slow_test_all_chunks_accepted_1000_slow() {
     test_all_chunks_accepted_common(1000, 6000, 5)
 }
 
 #[test]
-fn ultraslow_test_all_chunks_accepted_1000_rare_epoch_changing() {
+fn ultra_slow_test_all_chunks_accepted_1000_rare_epoch_changing() {
     test_all_chunks_accepted_common(1000, 1500, 100)
 }
 

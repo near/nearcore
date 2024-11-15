@@ -269,11 +269,11 @@ changes.
 Not all tests are created equal though and while some may only need
 milliseconds to run, others may run for several seconds or even
 minutes.  Tests that take a long time should be marked as such by
-prefixing their name with `slow_test_` or `ultraslow_test_`:
+prefixing their name with `slow_test_` or `ultra_slow_test_`:
 
 ```rust
 #[test]
-fn ultraslow_test_catchup_random_single_part_sync() {
+fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
 ```
@@ -281,14 +281,14 @@ fn ultraslow_test_catchup_random_single_part_sync() {
 During local development both slow and ultra-slow tests will not run
 with a typical `just nextest` invocation. You can run them with `just
 nextest-slow` or `just nextest-all` locally. CI will run the slow
-tests and the ultraslow ones are left to run on Nayduck.
+tests and the `ultra_slow` ones are left to run on Nayduck.
 
-Because ultraslow tests are run on nayduck, they need to be explicitly
+Because `ultra_slow` tests are run on nayduck, they need to be explicitly
 included in `nightly/expensive.txt` file; for example:
 
 ```text
-expensive --timeout=1800 near-client near_client tests::catching_up::ultraslow_test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::ultraslow_test_catchup_random_single_part_sync --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
 ```
 
 For more details regarding nightly tests see `nightly/README.md`.

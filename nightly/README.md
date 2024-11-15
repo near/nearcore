@@ -43,10 +43,10 @@ The `expensive` tests run a test binary and execute specific test in
 it.  (Test binaries are those built via `cargo test --no-run`).  While
 this can be used to run any Rust test, the intention is to run
 expensive tests only.  Those are the tests which are normally ignored unless
-their name is prefixed with `ultraslow_test` like so:
+their name is prefixed with `ultra_slow_test` like so:
 
     #[test]
-    fn ultraslow_test_gc_boundaries_large() {
+    fn ultra_slow_test_gc_boundaries_large() {
         /* ... */
     }
 
@@ -54,7 +54,7 @@ The arguments of an expensive test specify package in which the test
 is defined, test binary name and the full path to the test function.
 For example:
 
-    expensive nearcore test_tps_regression test::ultraslow_test_highload
+    expensive nearcore test_tps_regression test::ultra_slow_test_highload
 
 (Currently the package name is ignored but it may change in the future
 so make sure it’s set correctly).  The path to the test function must
@@ -156,7 +156,7 @@ New tests can be created either as a Rust test or a pytest.
 
 If a Rust test is long-running (or otherwise requires a lot of
 resources) and intended to be run as a nightly test on NayDuck it's
-name should be marked prefixed with `ultraslow_test`.  With that, the
+name should be marked prefixed with `ultra_slow_test`.  With that, the
 tests will not be part of a `cargo test` run performed on every
 commit, but NayDuck will be able to execute them. Apart from that,
 expensive Rust tests work exactly the same as any other Rust tests.

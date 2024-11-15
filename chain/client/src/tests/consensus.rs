@@ -23,7 +23,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 /// Periodically verify finality is not violated.
 /// This test is designed to reproduce finality bugs on the epoch boundaries.
 #[test]
-fn ultraslow_test_consensus_with_epoch_switches() {
+fn ultra_slow_test_consensus_with_epoch_switches() {
     init_integration_logger();
 
     const HEIGHT_GOAL: u64 = 120;

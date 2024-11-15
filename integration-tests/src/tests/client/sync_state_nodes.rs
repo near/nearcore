@@ -33,7 +33,7 @@ use crate::tests::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-fn ultraslow_test_sync_state_nodes() {
+fn ultra_slow_test_sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -135,7 +135,7 @@ fn ultraslow_test_sync_state_nodes() {
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-fn ultraslow_test_sync_state_nodes_multishard() {
+fn ultra_slow_test_sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -295,7 +295,7 @@ fn ultraslow_test_sync_state_nodes_multishard() {
 /// Start a validator that validators four shards. Since we only have 3 accounts one shard must have
 /// empty state. Start another node that does state sync. Check state sync on empty state works.
 #[test]
-fn ultraslow_test_sync_empty_state() {
+fn ultra_slow_test_sync_empty_state() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -426,7 +426,7 @@ fn ultraslow_test_sync_empty_state() {
 #[allow(clippy::await_holding_lock)]
 /// Runs one node for some time, which dumps state to a temp directory.
 /// Start the second node which gets state parts from that temp directory.
-fn ultraslow_test_sync_state_dump() {
+fn ultra_slow_test_sync_state_dump() {
     heavy_test(|| {
         init_integration_logger();
 

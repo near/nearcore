@@ -13,7 +13,7 @@ use near_primitives::types::ShardId;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
 #[test]
-fn ultraslow_test_track_shards() {
+fn ultra_slow_test_track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
