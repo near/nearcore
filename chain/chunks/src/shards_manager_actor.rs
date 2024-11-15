@@ -1373,29 +1373,32 @@ impl ShardsManagerActor {
         //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
-        let (epoch_id, epoch_id_confirmed) = {
+        let (ancestor_hash, epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
-                (epoch_id, true)
+                (prev_block_hash, epoch_id, true)
             } else if let Some(request_info) =
                 self.requested_partial_encoded_chunks.get_request_info(&chunk_hash)
             {
                 let ancestor_hash = request_info.ancestor_hash;
                 let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&ancestor_hash)?;
-                (epoch_id, true)
+                (ancestor_hash, epoch_id, true)
             } else {
                 // we can safely unwrap here because chain head must already be accepted
                 let epoch_id = self
                     .epoch_manager
                     .get_epoch_id_from_prev_block(&self.chain_head.last_block_hash)
                     .unwrap();
-                (epoch_id, false)
+                (self.chain_head.last_block_hash, epoch_id, false)
             }
         };
 
-        if !verify_chunk_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), &header)?
-        {
+        if !verify_chunk_header_signature_with_epoch_manager(
+            self.epoch_manager.as_ref(),
+            &header,
+            &ancestor_hash,
+        )? {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)
