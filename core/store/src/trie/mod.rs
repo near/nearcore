@@ -1811,6 +1811,7 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
 
     use crate::test_utils::{
@@ -1847,8 +1848,10 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         // test trie version > 0
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
-        let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
         assert_eq!(trie.get(&[122]), Ok(None));
         let changes = vec![
@@ -1867,8 +1870,10 @@ mod tests {
 
     #[test]
     fn test_trie_iter() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
-        let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let pairs = vec![
             (b"a".to_vec(), Some(b"111".to_vec())),
             (b"b".to_vec(), Some(b"222".to_vec())),
@@ -1901,8 +1906,10 @@ mod tests {
 
     #[test]
     fn test_trie_leaf_into_branch() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
-        let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let changes = vec![
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"dog2".to_vec(), Some(b"puppy".to_vec())),

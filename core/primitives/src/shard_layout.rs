@@ -365,7 +365,7 @@ impl ShardLayout {
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
         let mut rng = StdRng::seed_from_u64(42);
-        let shard_id_begin = 3;
+        let shard_id_begin = 0;
         let shard_id_end = shard_id_begin + num_shards;
         let mut shard_ids =
             (shard_id_begin..shard_id_end).map(ShardId::new).collect::<Vec<ShardId>>();
@@ -686,7 +686,7 @@ impl ShardLayout {
         }
     }
 
-    fn num_shards(&self) -> NumShards {
+    pub fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
