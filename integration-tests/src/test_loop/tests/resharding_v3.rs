@@ -210,7 +210,7 @@ impl TestReshardingParameters {
         self
     }
 
-    fn chunk_miss_expected(mut self) -> Self {
+    fn chunk_miss_possible(mut self) -> Self {
         self.all_chunks_expected = false;
         self
     }
@@ -475,6 +475,6 @@ fn test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParameters::new()
         .shuffle_shard_assignment()
         .single_shard_tracking()
-        .chunk_miss_expected();
+        .chunk_miss_possible();
     test_resharding_v3_base(params);
 }
