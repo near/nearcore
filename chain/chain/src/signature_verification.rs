@@ -3,7 +3,6 @@ use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
     epoch_block_info::BlockInfo,
-    hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
     types::validator_stake::ValidatorStake,
@@ -29,8 +28,8 @@ pub fn verify_chunk_header_signature(
 pub fn verify_chunk_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
-    parent_hash: &CryptoHash,
 ) -> Result<bool, Error> {
+    let parent_hash = chunk_header.prev_block_hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
     let key = ChunkProductionKey {
         epoch_id,
