@@ -18,7 +18,7 @@ use near_primitives::sharding::{
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::adapter::StoreAdapter;
@@ -79,6 +79,7 @@ impl ChunkTestFixture {
             2,
         );
         let epoch_manager = epoch_manager.into_handle();
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let shard_tracker = ShardTracker::new(
             if track_all_shards { TrackedConfig::AllShards } else { TrackedConfig::new_empty() },
             Arc::new(epoch_manager.clone()),
@@ -94,7 +95,7 @@ impl ChunkTestFixture {
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
-        let mock_shard_id: ShardId = ShardId::new(0);
+        let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer = epoch_manager
