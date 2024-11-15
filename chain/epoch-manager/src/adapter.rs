@@ -841,9 +841,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
-    /// Returns true if the header signature is signed by the assigned block producer and the block
-    /// producer is not slashed
-
     fn verify_chunk_endorsement_signature(
         &self,
         endorsement: &ChunkEndorsement,
