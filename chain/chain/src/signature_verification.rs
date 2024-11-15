@@ -5,11 +5,28 @@ use near_primitives::{
     block::BlockHeader,
     epoch_block_info::BlockInfo,
     errors::EpochError,
+    hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
     types::validator_stake::ValidatorStake,
 };
 use std::sync::Arc;
+
+pub fn verify_block_vrf(
+    validator: ValidatorStake,
+    prev_random_value: &CryptoHash,
+    vrf_value: &near_crypto::vrf::Value,
+    vrf_proof: &near_crypto::vrf::Proof,
+) -> Result<(), Error> {
+    let public_key =
+        near_crypto::key_conversion::convert_public_key(validator.public_key().unwrap_as_ed25519())
+            .unwrap();
+
+    if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
+        return Err(Error::InvalidRandomnessBeaconOutput);
+    }
+    Ok(())
+}
 
 /// Verify chunk header signature.
 /// return false if the header signature does not match the key for the assigned chunk producer
@@ -30,8 +47,8 @@ pub fn verify_chunk_header_signature(
 pub fn verify_chunk_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
+    parent_hash: &CryptoHash,
 ) -> Result<bool, Error> {
-    let parent_hash = chunk_header.prev_block_hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
     let key = ChunkProductionKey {
         epoch_id,

@@ -233,6 +233,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         height: BlockHeight,
     ) -> Result<AccountId, EpochError>;
 
+    /// Block producers and stake for given height for the main block. Return EpochError if outside of known boundaries.
+    fn get_block_producer_info(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+    ) -> Result<ValidatorStake, EpochError>;
+
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
     fn get_chunk_producer_info(
         &self,
@@ -323,15 +330,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         next_epoch_id: &EpochId,
         next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError>;
-
-    fn verify_block_vrf(
-        &self,
-        epoch_id: &EpochId,
-        block_height: BlockHeight,
-        prev_random_value: &CryptoHash,
-        vrf_value: &near_crypto::vrf::Value,
-        vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error>;
 
     /// Verify validator signature for the given epoch.
     /// Note: doesn't account for slashed accounts within given epoch. USE WITH CAUTION.
@@ -691,8 +689,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, EpochError> {
+        self.get_block_producer_info(epoch_id, height).map(|validator| validator.take_account_id())
+    }
+
+    fn get_block_producer_info(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
+        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?)
     }
 
     fn get_chunk_producer_info(
@@ -794,27 +800,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
-    }
-
-    fn verify_block_vrf(
-        &self,
-        epoch_id: &EpochId,
-        block_height: BlockHeight,
-        prev_random_value: &CryptoHash,
-        vrf_value: &near_crypto::vrf::Value,
-        vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error> {
-        let epoch_manager = self.read();
-        let validator = epoch_manager.get_block_producer_info(epoch_id, block_height)?;
-        let public_key = near_crypto::key_conversion::convert_public_key(
-            validator.public_key().unwrap_as_ed25519(),
-        )
-        .unwrap();
-
-        if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
-            return Err(Error::InvalidRandomnessBeaconOutput);
-        }
-        Ok(())
     }
 
     fn verify_validator_signature(
