@@ -200,18 +200,18 @@ impl TestReshardingParameters {
         self
     }
 
-    fn shuffle_shard_assignment(mut self, shuffle: bool) -> Self {
-        self.shuffle_shard_assignment_for_chunk_producers = shuffle;
+    fn shuffle_shard_assignment(mut self) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers = true;
         self
     }
 
-    fn track_all_shards(mut self, track_all_shards: bool) -> Self {
-        self.track_all_shards = track_all_shards;
+    fn single_shard_tracking(mut self) -> Self {
+        self.track_all_shards = false;
         self
     }
 
-    fn all_chunks_expected(mut self, all_chunks_expected: bool) -> Self {
-        self.all_chunks_expected = all_chunks_expected;
+    fn chunk_miss_expected(mut self) -> Self {
+        self.all_chunks_expected = false;
         self
     }
 }
@@ -473,8 +473,8 @@ fn test_resharding_v3_double_sign_resharding_block() {
 #[ignore]
 fn test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParameters::new()
-        .shuffle_shard_assignment(true)
-        .track_all_shards(false)
-        .all_chunks_expected(false);
+        .shuffle_shard_assignment()
+        .single_shard_tracking()
+        .chunk_miss_expected();
     test_resharding_v3_base(params);
 }
