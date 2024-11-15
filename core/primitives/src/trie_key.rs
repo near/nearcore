@@ -62,11 +62,9 @@ pub mod col {
     pub const OUTGOING_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
     pub const OUTGOING_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-
-    // NOTE: NEW_COLUMN = 15 will be the last unique nibble in the trie!
-    // Consider demultiplexing on 15 and using 2-nibble prefixes.
     pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
