@@ -1717,8 +1717,8 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
-        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
         let local_receipt_count = processing_state.local_receipts.len();
+        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
             let (front, back) = local_receipts.as_slices();

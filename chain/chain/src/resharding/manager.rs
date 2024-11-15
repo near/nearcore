@@ -5,6 +5,7 @@ use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use super::types::ReshardingSender;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
 use crate::types::RuntimeAdapter;
+use crate::ChainStoreUpdate;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -14,10 +15,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::trie::mem::mem_trie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
-use near_store::{DBCol, PartialStorage, ShardTries, ShardUId, Store};
-
-use crate::ChainStoreUpdate;
+use near_store::trie::TrieRecorder;
+use near_store::{DBCol, ShardTries, ShardUId, Store};
 
 pub struct ReshardingManager {
     store: Store,
@@ -201,16 +202,15 @@ impl ReshardingManager {
                 "Creating child memtrie by retaining nodes in parent memtrie..."
             );
             let mut mem_tries = mem_tries.write().unwrap();
-            let mem_trie_update = mem_tries.update(*chunk_extra.state_root(), true)?;
+            let mut trie_recorder = TrieRecorder::new();
+            let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
+            let mem_trie_update = mem_tries.update(*chunk_extra.state_root(), mode)?;
 
-            let (trie_changes, _) =
-                mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
-            // TODO(#12019): proof generation
-            let partial_state = PartialState::default();
-            let partial_state_len = match &partial_state {
+            let trie_changes = mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
+            let partial_storage = trie_recorder.recorded_storage();
+            let partial_state_len = match &partial_storage.nodes {
                 PartialState::TrieValues(values) => values.len(),
             };
-            let partial_storage = PartialStorage { nodes: partial_state };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger

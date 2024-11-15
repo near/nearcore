@@ -5,6 +5,7 @@ use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageStatus;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
+use crate::trie::mem::mem_trie_update::TrackingMode;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
@@ -155,7 +156,7 @@ pub fn load_trie_from_flat_state_and_delta(
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
 
-            let mut trie_update = mem_tries.update(old_state_root, false)?;
+            let mut trie_update = mem_tries.update(old_state_root, TrackingMode::None)?;
             for (key, value) in changes.0 {
                 match value {
                     Some(value) => {

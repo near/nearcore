@@ -898,7 +898,8 @@ fn test_get_validator_info() {
             public_key: block_producers[0].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![ShardId::new(0)],
+            shards_produced: vec![ShardId::new(0)],
+            shards_endorsed: vec![ShardId::new(0)],
             num_produced_blocks: expected_blocks[0],
             num_expected_blocks: expected_blocks[0],
             num_produced_chunks: expected_chunks[0],
@@ -915,7 +916,8 @@ fn test_get_validator_info() {
             public_key: block_producers[1].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![ShardId::new(0)],
+            shards_produced: vec![ShardId::new(0)],
+            shards_endorsed: vec![ShardId::new(0)],
             num_produced_blocks: expected_blocks[1],
             num_expected_blocks: expected_blocks[1],
             num_produced_chunks: expected_chunks[1],
@@ -995,14 +997,15 @@ fn test_get_validator_info() {
     current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
     current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
     current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
-    current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![expected_chunks[1]];
-    current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![expected_chunks[1]];
+    current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![];
+    current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![];
     current_epoch_validator_info[1].num_produced_endorsements = expected_endorsements[1];
     current_epoch_validator_info[1].num_expected_endorsements = expected_endorsements[1];
     current_epoch_validator_info[1].num_produced_endorsements_per_shard =
         vec![expected_endorsements[1]];
     current_epoch_validator_info[1].num_expected_endorsements_per_shard =
         vec![expected_endorsements[1]];
+    current_epoch_validator_info[1].shards_produced = vec![];
     assert_eq!(response.current_validators, current_epoch_validator_info);
     assert_eq!(
         response.next_validators,
