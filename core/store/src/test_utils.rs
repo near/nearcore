@@ -99,6 +99,7 @@ impl TestTriesBuilder {
         self
     }
 
+    // TODO(wacban) here
     pub fn with_shard_layout(mut self, shard_version: ShardVersion, num_shards: NumShards) -> Self {
         self.shard_version = shard_version;
         self.num_shards = num_shards;
