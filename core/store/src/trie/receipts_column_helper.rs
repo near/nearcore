@@ -260,7 +260,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
 }
 
 impl<'a> Iterator for ReceiptIterator<'a> {
-    type Item = Result<ReceiptOrStateStoredReceipt<'a>, StorageError>;
+    type Item = Result<ReceiptOrStateStoredReceipt, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
@@ -297,8 +297,6 @@ impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
     use super::*;
     use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
@@ -418,7 +416,7 @@ mod tests {
         queue: &mut impl TrieQueue,
     ) {
         for receipt in input_receipts {
-            let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
+            let receipt = ReceiptOrStateStoredReceipt::Receipt(receipt.clone());
             queue.push(trie, &receipt).expect("pushing must not fail");
         }
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
