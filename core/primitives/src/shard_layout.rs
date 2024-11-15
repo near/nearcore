@@ -365,10 +365,7 @@ impl ShardLayout {
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
         let mut rng = StdRng::seed_from_u64(42);
-        let shard_id_begin = 3;
-        let shard_id_end = shard_id_begin + num_shards;
-        let mut shard_ids =
-            (shard_id_begin..shard_id_end).map(ShardId::new).collect::<Vec<ShardId>>();
+        let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
         shard_ids.shuffle(&mut rng);
 
         let (id_to_index_map, index_to_id_map) = shard_ids
