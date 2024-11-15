@@ -112,6 +112,12 @@ impl TestTriesBuilder {
         self
     }
 
+    pub fn build2(self) -> (ShardTries, ShardLayout) {
+        let shard_layout = self.shard_layout.clone();
+        let shard_tries = self.build();
+        (shard_tries, shard_layout)
+    }
+
     pub fn build(self) -> ShardTries {
         if self.enable_in_memory_tries && !self.enable_flat_storage {
             panic!("In-memory tries require flat storage");
