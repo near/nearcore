@@ -367,7 +367,9 @@ impl ShardLayout {
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
         let mut rng = StdRng::seed_from_u64(42);
-        let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        let start = 3;
+        let end = start + num_shards;
+        let mut shard_ids = (start..end).map(ShardId::new).collect::<Vec<ShardId>>();
         shard_ids.shuffle(&mut rng);
 
         let (id_to_index_map, index_to_id_map) = shard_ids
@@ -807,7 +809,7 @@ impl ShardUId {
     }
 
     /// Returns the only shard uid in the ShardLayout::single_shard layout.
-    /// It is not suitable for use with any other shard layouts.
+    /// It is not suitable for use with any other shard layout.
     pub fn single_shard() -> Self {
         ShardLayout::single_shard().shard_uids().next().unwrap()
     }
