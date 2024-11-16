@@ -2307,12 +2307,14 @@ mod test {
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
+        let epoch_id = EpochId::default();
+        let next_epoch_id = EpochId::default();
         let mock_tip = Tip {
             height: 0,
             last_block_hash: CryptoHash::default(),
             prev_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            next_epoch_id: EpochId::default(),
+            epoch_id,
+            next_epoch_id,
         };
         let store = create_test_store();
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
@@ -2323,6 +2325,8 @@ mod test {
             2,
         );
         let epoch_manager = Arc::new(epoch_manager.into_handle());
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
@@ -2347,7 +2351,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: ShardId::new(0),
+                shard_id,
                 added,
                 last_requested: added,
             },

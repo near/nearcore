@@ -16,7 +16,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
     SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;
@@ -152,8 +152,8 @@ impl<'a> ViewClientTester<'a> {
         // Run the tests for various kinds of requests.
         self.check_get_block();
         self.check_get_block_headers();
-        self.check_get_chunk();
-        self.check_get_shard_chunk();
+        self.check_get_chunk(shard_layout);
+        self.check_get_shard_chunk(shard_layout);
         self.check_get_protocol_config();
         self.check_get_validator_info();
         self.check_get_ordered_validators();
@@ -217,7 +217,11 @@ impl<'a> ViewClientTester<'a> {
     }
 
     /// Generates variations of the [`GetChunk`] request and issues them to the view client of the archival node.
-    fn check_get_chunk(&mut self) {
+    fn check_get_chunk(&mut self, shard_layout: &ShardLayout) {
+        let shard_info = shard_layout.shard_infos().next().unwrap();
+        let shard_id = shard_info.shard_id();
+        let shard_index = shard_info.shard_index();
+
         let block = self.get_block_at_height(6);
 
         let mut get_and_check_chunk = |request: GetChunk| {
@@ -226,18 +230,23 @@ impl<'a> ViewClientTester<'a> {
             chunk
         };
 
-        let chunk_by_height = GetChunk::Height(6, ShardId::new(0));
+        let chunk_by_height = GetChunk::Height(6, shard_id);
         get_and_check_chunk(chunk_by_height);
 
-        let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, ShardId::new(0));
+        let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, shard_id);
         get_and_check_chunk(chunk_by_block_hash);
 
-        let chunk_by_chunk_hash = GetChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
+        let chunk_hash = ChunkHash(block.chunks[shard_index].chunk_hash);
+        let chunk_by_chunk_hash = GetChunk::ChunkHash(chunk_hash);
         get_and_check_chunk(chunk_by_chunk_hash);
     }
 
     /// Generates variations of the [`GetShardChunk`] request and issues them to the view client of the archival node.
-    fn check_get_shard_chunk(&mut self) {
+    fn check_get_shard_chunk(&mut self, shard_layout: &ShardLayout) {
+        let shard_info = shard_layout.shard_infos().next().unwrap();
+        let shard_id = shard_info.shard_id();
+        let shard_index = shard_info.shard_index();
+
         let block = self.get_block_at_height(6);
 
         let mut get_and_check_shard_chunk = |request: GetShardChunk| {
@@ -245,13 +254,14 @@ impl<'a> ViewClientTester<'a> {
             assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
         };
 
-        let chunk_by_height = GetShardChunk::Height(6, ShardId::new(0));
+        let chunk_by_height = GetShardChunk::Height(6, shard_id);
         get_and_check_shard_chunk(chunk_by_height);
 
-        let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, ShardId::new(0));
+        let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, shard_id);
         get_and_check_shard_chunk(chunk_by_block_hash);
 
-        let chunk_by_chunk_hash = GetShardChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
+        let chunk_hash = ChunkHash(block.chunks[shard_index].chunk_hash);
+        let chunk_by_chunk_hash = GetShardChunk::ChunkHash(chunk_hash);
         get_and_check_shard_chunk(chunk_by_chunk_hash);
     }
 

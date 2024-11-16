@@ -331,12 +331,12 @@ impl KeyValueRuntime {
         epoch_manager: &MockEpochManager,
         no_gc: bool,
     ) -> Arc<Self> {
-        let num_shards = epoch_manager.shard_ids(&EpochId::default()).unwrap().len() as NumShards;
-        let epoch_length =
-            epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
+        let epoch_id = EpochId::default();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
         let tries = TestTriesBuilder::new()
             .with_store(store.clone())
-            .with_shard_layout(0, num_shards)
+            .with_shard_layout(shard_layout.clone())
             .build();
         let mut initial_amounts = HashMap::new();
         for (i, validator_stake) in epoch_manager
@@ -361,7 +361,8 @@ impl KeyValueRuntime {
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut store_update = store.store_update();
-        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        let genesis_roots: Vec<CryptoHash> =
+            shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
         store_update.commit().expect("Store failed on genesis intialization");
@@ -370,7 +371,7 @@ impl KeyValueRuntime {
             store,
             tries,
             no_gc,
-            num_shards,
+            num_shards: shard_layout.num_shards(),
             epoch_length,
             headers_cache: RwLock::new(HashMap::new()),
             state: RwLock::new(state),
