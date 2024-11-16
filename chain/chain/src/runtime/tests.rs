@@ -737,7 +737,7 @@ fn test_state_sync() {
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
     env.step_default(vec![staking_transaction]);
     env.step_default(vec![]);
-    let block_hash = hash(&[env.head.height as u8]); // what is this madness?
+    let block_hash = hash(&[env.head.height as u8]);
 
     let shard_layout =
         env.epoch_manager.get_shard_layout_from_prev_block(&env.head.prev_block_hash).unwrap();
@@ -828,7 +828,6 @@ fn test_get_validator_info() {
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
-
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer =
