@@ -60,18 +60,19 @@ fn generate_accounts(boundary_accounts: &[String]) -> Vec<Vec<(AccountId, Nonce)
 
 struct TestState {
     env: TestLoopEnv,
-    accounts: Vec<Vec<(AccountId, Nonce)>>,
+    accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
 }
 
 fn setup_initial_blockchain(
+    num_validators: usize,
     num_shards: usize,
+    generate_shard_accounts: bool,
     chunks_produced: HashMap<ShardId, Vec<bool>>,
 ) -> TestState {
     let builder = TestLoopBuilder::new();
 
     let num_block_producer_seats = 1;
     let num_chunk_producer_seats = num_shards;
-    let num_validators = std::cmp::max(num_block_producer_seats, num_chunk_producer_seats);
     let validators = (0..num_validators)
         .map(|i| {
             let account_id = format!("node{}", i);
@@ -86,7 +87,8 @@ fn setup_initial_blockchain(
     let clients = validators.iter().map(|v| v.account_id.clone()).collect::<Vec<_>>();
 
     let boundary_accounts = get_boundary_accounts(num_shards);
-    let accounts = generate_accounts(&boundary_accounts);
+    let accounts =
+        if generate_shard_accounts { Some(generate_accounts(&boundary_accounts)) } else { None };
 
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
@@ -109,9 +111,11 @@ fn setup_initial_blockchain(
         // This part is the only reference to state sync at all in this test, since all we check is that the blockchain
         // progresses for a few epochs, meaning that state sync must have been successful.
         .shuffle_shard_assignment_for_chunk_producers(true);
-    for accounts in accounts.iter() {
-        for (account, _nonce) in accounts.iter() {
-            genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
+    if let Some(accounts) = accounts.as_ref() {
+        for accounts in accounts.iter() {
+            for (account, _nonce) in accounts.iter() {
+                genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
+            }
         }
     }
     let (genesis, epoch_config_store) = genesis_builder.build();
@@ -196,7 +200,7 @@ fn send_txs_between_shards(
 /// runs the network and sends transactions at the beginning of each epoch. At the end the condition we're
 /// looking for is just that a few epochs have passed, because that should only be possible if state sync was successful
 /// (which will be required because we enable chunk producer shard shuffling on this chain)
-fn produce_chunks(env: &mut TestLoopEnv, mut accounts: Vec<Vec<(AccountId, Nonce)>>) {
+fn produce_chunks(env: &mut TestLoopEnv, mut accounts: Option<Vec<Vec<(AccountId, Nonce)>>>) {
     let handle = env.datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
     let mut tip = client.chain.head().unwrap();
@@ -226,7 +230,9 @@ fn produce_chunks(env: &mut TestLoopEnv, mut accounts: Vec<Vec<(AccountId, Nonce
             if epoch_id_switches > 2 {
                 break;
             }
-            send_txs_between_shards(&mut env.test_loop, &env.datas, &mut accounts);
+            if let Some(accounts) = accounts.as_mut() {
+                send_txs_between_shards(&mut env.test_loop, &env.datas, accounts);
+            }
         }
         tip = new_tip;
     }
@@ -240,7 +246,9 @@ fn run_test(state: TestState) {
         * u32::try_from(EPOCH_LENGTH).unwrap_or(u32::MAX)
         + Duration::seconds(2);
 
-    send_txs_between_shards(&mut env.test_loop, &env.datas, &mut accounts);
+    if let Some(accounts) = accounts.as_mut() {
+        send_txs_between_shards(&mut env.test_loop, &env.datas, accounts);
+    }
 
     env.test_loop.run_until(
         |data| {
@@ -258,17 +266,42 @@ fn run_test(state: TestState) {
 
 #[derive(Debug)]
 struct StateSyncTest {
+    num_validators: usize,
     num_shards: usize,
+    // If true, generate several extra accounts per shard. We have a test with this disabled
+    // to test state syncing shards without any account data
+    generate_shard_accounts: bool,
     chunks_produced: &'static [(ShardId, &'static [bool])],
 }
 
 static TEST_CASES: &[StateSyncTest] = &[
     // The first two make no modifications to chunks_produced, and all chunks should be produced. This is the normal case
-    StateSyncTest { num_shards: 2, chunks_produced: &[] },
-    StateSyncTest { num_shards: 4, chunks_produced: &[] },
+    StateSyncTest {
+        num_validators: 2,
+        num_shards: 2,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+    },
+    StateSyncTest {
+        num_validators: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+    },
+    // In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
+    // That makes 3 accounts ncluding the "near" account. This means at least one shard will have no
+    // accounts in it, so we check that corner case here.
+    StateSyncTest {
+        num_validators: 2,
+        num_shards: 4,
+        generate_shard_accounts: false,
+        chunks_produced: &[],
+    },
     // Now we miss some chunks at the beginning of the epoch
     StateSyncTest {
+        num_validators: 4,
         num_shards: 4,
+        generate_shard_accounts: true,
         chunks_produced: &[
             (ShardId::new(0), &[false]),
             (ShardId::new(1), &[true]),
@@ -277,11 +310,15 @@ static TEST_CASES: &[StateSyncTest] = &[
         ],
     },
     StateSyncTest {
+        num_validators: 4,
         num_shards: 4,
+        generate_shard_accounts: true,
         chunks_produced: &[(ShardId::new(0), &[true, false]), (ShardId::new(1), &[true, false])],
     },
     StateSyncTest {
+        num_validators: 4,
         num_shards: 4,
+        generate_shard_accounts: true,
         chunks_produced: &[
             (ShardId::new(0), &[false, true]),
             (ShardId::new(2), &[true, false, true]),
@@ -296,7 +333,9 @@ fn test_state_sync_current_epoch() {
     for t in TEST_CASES.iter() {
         tracing::info!("run test: {:?}", t);
         let state = setup_initial_blockchain(
+            t.num_validators,
             t.num_shards,
+            t.generate_shard_accounts,
             t.chunks_produced
                 .iter()
                 .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
@@ -355,7 +394,7 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 fn test_state_request() {
     init_test_logger();
 
-    let TestState { mut env, .. } = setup_initial_blockchain(4, HashMap::default());
+    let TestState { mut env, .. } = setup_initial_blockchain(4, 4, false, HashMap::default());
 
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
