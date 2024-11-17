@@ -19,14 +19,7 @@ use std::collections::HashMap;
 
 const EPOCH_LENGTH: BlockHeightDelta = 40;
 
-struct ShardAccounts {
-    boundary_accounts: Vec<String>,
-    accounts: Vec<Vec<(AccountId, Nonce)>>,
-}
-
-fn generate_accounts(num_shards: usize) -> ShardAccounts {
-    let accounts_per_shard = 5;
-
+fn get_boundary_accounts(num_shards: usize) -> Vec<String> {
     if num_shards > 27 {
         todo!("don't know how to include more than 27 shards yet!");
     }
@@ -41,7 +34,11 @@ fn generate_accounts(num_shards: usize) -> ShardAccounts {
         }
         boundary_accounts.push(boundary_account);
     }
+    boundary_accounts
+}
 
+fn generate_accounts(boundary_accounts: &[String]) -> Vec<Vec<(AccountId, Nonce)>> {
+    let accounts_per_shard = 5;
     let mut accounts = Vec::new();
     let mut account_base = "0";
     for a in boundary_accounts.iter() {
@@ -58,7 +55,7 @@ fn generate_accounts(num_shards: usize) -> ShardAccounts {
             .collect::<Vec<_>>(),
     );
 
-    ShardAccounts { boundary_accounts, accounts }
+    accounts
 }
 
 struct TestState {
@@ -88,7 +85,8 @@ fn setup_initial_blockchain(
         .collect::<Vec<_>>();
     let clients = validators.iter().map(|v| v.account_id.clone()).collect::<Vec<_>>();
 
-    let ShardAccounts { boundary_accounts, accounts } = generate_accounts(num_shards);
+    let boundary_accounts = get_boundary_accounts(num_shards);
+    let accounts = generate_accounts(&boundary_accounts);
 
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
