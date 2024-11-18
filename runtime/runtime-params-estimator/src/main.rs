@@ -526,7 +526,7 @@ mod tests {
     /// enabled. It will not cover all compilation errors for building the
     /// params-estimator in isolation.
     #[test]
-    fn sanity_check() {
+    fn slow_test_sanity_check() {
         // select a mix of estimations that are all fast
         let costs = vec![Cost::WasmInstruction, Cost::StorageHasKeyByte, Cost::AltBn128G1SumBase];
         let args = CliArgs {

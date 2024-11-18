@@ -27,19 +27,16 @@ jobs:
             id: linux
             os: ubuntu-22.04-16core
             type: stable
-            runs_integ_tests: true
             upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
             os: ubuntu-22.04-16core
             type: nightly
-            runs_integ_tests: true
             upload_profraws: true
           - name: MacOS
             id: macos
             os: macos-latest-xlarge
             type: stable
-            runs_integ_tests: false
             # TODO: Currently only computing linux coverage, because the MacOS runners
             # have files at a different path and thus comes out duplicated.
             upload_profraws: false
@@ -53,18 +50,11 @@ jobs:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       # Run the tests:
-      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
+      - run: mkdir -p coverage/profraw/{unit,binaries}
       # - Run the unit tests, retrieving the coverage information
-      - run: just codecov-ci "nextest-unit ${{ matrix.type }}"
+      - run: just codecov-ci "nextest-slow ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
       - run: mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
-      # - Run the integration tests, retrieving the coverage information
-      - run: just codecov-ci "nextest-integration ${{ matrix.type }}"
-        if: matrix.runs_integ_tests
-      - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
-        if: matrix.runs_integ_tests
-      - run: mv coverage/profraw/{new,integration/${{matrix.id}}}.tar.zst
-        if: matrix.runs_integ_tests
 
       # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
       - run: just tar-bins-for-coverage-ci
@@ -348,8 +338,6 @@ jobs:
         include:
           - type: unit
             profraws: unit
-          - type: integration
-            profraws: unit integration
     steps:
       - uses: actions/checkout@v4
         with:
@@ -425,21 +413,6 @@ jobs:
           flags: unittests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          files: integration-linux.json
-          fail_ci_if_error: true
-          flags: integration-tests,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: integration-linux-nightly.json
-          fail_ci_if_error: true
-          flags: integration-tests,linux-nightly
-      # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-      #   with:
-      #     files: integration-macos.json
-      #     fail_ci_if_error: true
-      #     flags: integration-tests,macos
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
           files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
@@ -463,7 +436,7 @@ jobs:
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
-  
+
   windows_public_libraries_check:
     name: "Windows check for building public libraries"
     runs-on: "windows-latest"

@@ -7,8 +7,7 @@ use std::sync::{Arc, RwLock};
 use super::test_helpers::{heavy_test, wait};
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup() {
+fn ultra_slow_test_catchup() {
     /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`. After
     /// `num_blocks_to_wait` starts the last node and verifies that it can start validating within
     /// `catchup_timeout`.

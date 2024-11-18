@@ -1,233 +1,235 @@
 # catchup tests
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_third_epoch
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_third_epoch --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_distant_epoch
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_distant_epoch --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_skip_15
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_skip_15 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_non_zero_amounts
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_non_zero_amounts --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_height_6
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_height_6 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_sanity_blocks_produced
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_sanity_blocks_produced --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_last_block
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_last_block --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15 --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15 --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6 --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_hold
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_hold --features nightly
 
-expensive integration-tests integration_tests tests::test_catchup::test_catchup
-expensive integration-tests integration_tests tests::test_catchup::test_catchup --features nightly
+expensive integration-tests integration_tests tests::test_catchup::ultra_slow_test_catchup
+expensive integration-tests integration_tests tests::test_catchup::ultra_slow_test_catchup --features nightly
 
 # cross-shard transactions tests
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx
-# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx --features nightly
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_doomslug
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_doomslug --features nightly
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_drop_chunks
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_drop_chunks --features nightly
+# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
+# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug --features nightly
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks
+expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_1
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_1 --features nightly
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_2
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_with_validator_rotation_2 --features nightly
-# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_8_iterations
-# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::test_cross_shard_tx_8_iterations_drop_chunks
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1 --features nightly
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2
+# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2 --features nightly
+# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations
+# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations_drop_chunks
 
 # consensus tests
-expensive --timeout=3000 near-chain near_chain tests::doomslug::test_fuzzy_doomslug_liveness_and_safety
-expensive --timeout=3000 near-chain near_chain tests::doomslug::test_fuzzy_doomslug_liveness_and_safety --features nightly
-expensive --timeout=500 near-client near_client tests::consensus::test_consensus_with_epoch_switches
-expensive --timeout=500 near-client near_client tests::consensus::test_consensus_with_epoch_switches --features nightly
+expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
+expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
+expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_test_consensus_with_epoch_switches
+expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 
 # testnet rpc
-expensive integration-tests integration_tests tests::test_tps_regression::test_highload
-expensive integration-tests integration_tests tests::test_tps_regression::test_highload --features nightly
+expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_highload
+expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_highload --features nightly
 
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_access_key_smart_contract_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_access_key_smart_contract_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_access_key_function_call_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_access_key_function_call_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_access_key_with_allowance_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_access_key_with_allowance_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_existing_key_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_existing_key_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_key_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_add_key_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_create_account_again_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_create_account_again_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_create_account_failure_already_exists_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_create_account_failure_already_exists_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_create_account_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_create_account_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_access_key_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_access_key_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_access_key_with_allowance_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_access_key_with_allowance_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_key_last_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_key_last_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_key_not_owned_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_key_not_owned_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_key_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_delete_key_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_nonce_update_when_deploying_contract_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_nonce_update_when_deploying_contract_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_nonce_updated_when_tx_failed_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_nonce_updated_when_tx_failed_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_redeploy_contract_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_redeploy_contract_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_refund_on_send_money_to_non_existent_account_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_refund_on_send_money_to_non_existent_account_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_send_money_over_balance_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_send_money_over_balance_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_send_money_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_send_money_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_bad_method_name_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_bad_method_name_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_empty_method_name_with_no_tokens_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_empty_method_name_with_no_tokens_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_empty_method_name_with_tokens_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_empty_method_name_with_tokens_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_self_call_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_self_call_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_simple_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_simple_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_with_args_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_smart_contract_with_args_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_swap_key_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_swap_key_testnet --features nightly
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_upload_contract_testnet
-expensive integration-tests integration_tests tests::standard_cases::rpc::test_upload_contract_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_access_key_function_call_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_access_key_function_call_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_access_key_with_allowance_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_access_key_with_allowance_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_existing_key_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_existing_key_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_key_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_add_key_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_create_account_again_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_create_account_again_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_create_account_failure_already_exists_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_create_account_failure_already_exists_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_create_account_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_create_account_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_with_allowance_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_with_allowance_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_key_last_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_key_last_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_key_not_owned_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_key_not_owned_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_key_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_key_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_nonce_update_when_deploying_contract_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_nonce_update_when_deploying_contract_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_nonce_updated_when_tx_failed_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_nonce_updated_when_tx_failed_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_redeploy_contract_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_redeploy_contract_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_refund_on_send_money_to_non_existent_account_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_refund_on_send_money_to_non_existent_account_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_send_money_over_balance_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_send_money_over_balance_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_send_money_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_send_money_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_bad_method_name_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_bad_method_name_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_empty_method_name_with_no_tokens_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_empty_method_name_with_no_tokens_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_empty_method_name_with_tokens_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_empty_method_name_with_tokens_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_self_call_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_self_call_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_simple_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_simple_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_with_args_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_with_args_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_swap_key_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_swap_key_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_upload_contract_testnet
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_upload_contract_testnet --features nightly
 
 # GC tests
-expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_remove_fork_large
-expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_remove_fork_large --features nightly
-expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_not_remove_fork_large
-expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_not_remove_fork_large --features nightly
-expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_boundaries_large
-expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_boundaries_large --features nightly
-expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_random_large
-expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_random_large --features nightly
-expensive --timeout=600 near-chain near_chain tests::garbage_collection::test_gc_pine
-expensive --timeout=600 near-chain near_chain tests::garbage_collection::test_gc_pine --features nightly
-expensive --timeout=700 near-chain near_chain tests::garbage_collection::test_gc_star_large
-expensive --timeout=700 near-chain near_chain tests::garbage_collection::test_gc_star_large --features nightly
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_remove_fork_large
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_remove_fork_large --features nightly
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_not_remove_fork_large
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_not_remove_fork_large --features nightly
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_boundaries_large
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_boundaries_large --features nightly
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_random_large
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_random_large --features nightly
+expensive --timeout=600 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_pine
+expensive --timeout=600 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_pine --features nightly
+expensive --timeout=700 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_star_large
+expensive --timeout=700 near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_star_large --features nightly
 
-expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails
-expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_disabled
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_disabled --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_wrong_urls
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_wrong_urls --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_shard_cop
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_produced_and_distributed_one_val_shard_cop --features nightly
-expensive integration-tests integration_tests tests::client::process_blocks::test_gc_after_state_sync
-expensive integration-tests integration_tests tests::client::process_blocks::test_gc_after_state_sync --features nightly
-expensive integration-tests integration_tests tests::client::process_blocks::test_process_block_after_state_sync
-expensive integration-tests integration_tests tests::client::process_blocks::test_process_block_after_state_sync --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_empty_state
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_empty_state --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_dump
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_dump --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard
-expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard --features nightly
+expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails
+expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full_timeout_too_short
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full_timeout_too_short --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full_timeout_too_short_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_full_timeout_too_short_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_others
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_others --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_others_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_recovered_from_others_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_one_val_shard_cop
+expensive integration-tests integration_tests tests::client::chunks_management::ultra_slow_test_chunks_produced_and_distributed_one_val_shard_cop --features nightly
+expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_gc_after_state_sync
+expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_gc_after_state_sync --features nightly
+expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_process_block_after_state_sync
+expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_process_block_after_state_sync --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_empty_state
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_empty_state --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
 
 # other tests
-expensive --timeout=300 near-chain near_chain tests::garbage_collection::test_clear_old_data_too_many_heights
+expensive --timeout=300 near-chain near_chain tests::garbage_collection::ultra_slow_test_clear_old_data_too_many_heights
 
-expensive integration-tests integration_tests tests::test_simple::test_2_10_multiple_nodes
-expensive integration-tests integration_tests tests::test_simple::test_2_10_multiple_nodes --features nightly
-expensive integration-tests integration_tests tests::test_simple::test_4_10_multiple_nodes
-expensive integration-tests integration_tests tests::test_simple::test_4_10_multiple_nodes --features nightly
-expensive integration-tests integration_tests tests::test_simple::test_7_10_multiple_nodes
-expensive integration-tests integration_tests tests::test_simple::test_7_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_2_10_multiple_nodes
+expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_2_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_4_10_multiple_nodes
+expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_4_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_7_10_multiple_nodes
+expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_7_10_multiple_nodes --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change --features nightly
+expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change
+expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_block_unknown_block_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_block_unknown_block_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_chunk_unknown_chunk_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_chunk_unknown_chunk_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_gas_price_unknown_block_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_gas_price_unknown_block_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_protocol_config_unknown_block_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_protocol_config_unknown_block_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_query_rpc_account_view_unknown_block_must_return_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_query_rpc_account_view_unknown_block_must_return_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_receipt_id_unknown_receipt_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_receipt_id_unknown_receipt_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_tx_invalid_tx_error
-expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_tx_invalid_tx_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_block_unknown_block_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_block_unknown_block_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_chunk_unknown_chunk_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_chunk_unknown_chunk_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_gas_price_unknown_block_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_gas_price_unknown_block_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_protocol_config_unknown_block_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_protocol_config_unknown_block_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_query_rpc_account_view_unknown_block_must_return_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_query_rpc_account_view_unknown_block_must_return_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_receipt_id_unknown_receipt_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_receipt_id_unknown_receipt_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_tx_invalid_tx_error
+expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::ultra_slow_test_tx_invalid_tx_error --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_status_on_lightclient_must_return_does_not_track_shard
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_status_on_lightclient_must_return_does_not_track_shard --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_check_unknown_tx_must_return_error
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_check_unknown_tx_must_return_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_execution_outcome_tx_failure
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_execution_outcome_tx_failure --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_execution_outcome_tx_success
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_execution_outcome_tx_success --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_validator_info_rpc
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_validator_info_rpc --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_protocol_config_rpc
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_protocol_config_rpc --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_account_doesnt_exist_must_return_error
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_account_doesnt_exist_must_return_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_must_succeed
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_must_succeed --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_not_enough_balance_must_return_error
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_not_enough_balance_must_return_error --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_validators_by_epoch_id_current_epoch_not_fails
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_validators_by_epoch_id_current_epoch_not_fails --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_1
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_1 --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_2
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_2_2 --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_4_4
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_1_4_4 --features nightly
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_4_4_2
-expensive integration-tests integration_tests tests::nearcore::run_nodes::run_nodes_4_4_2 --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_tx_status_on_lightclient_must_return_does_not_track_shard
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_tx_status_on_lightclient_must_return_does_not_track_shard --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_check_unknown_tx_must_return_error
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_check_unknown_tx_must_return_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_validator_info_rpc
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_validator_info_rpc --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_protocol_config_rpc
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_protocol_config_rpc --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_account_doesnt_exist_must_return_error
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_account_doesnt_exist_must_return_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_must_succeed
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_must_succeed --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_tx_not_enough_balance_must_return_error
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_tx_not_enough_balance_must_return_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_validators_by_epoch_id_current_epoch_not_fails
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_validators_by_epoch_id_current_epoch_not_fails --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_4_4
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_4_4 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_4_4_2
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_4_4_2 --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_inflation
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_inflation --features nightly
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_stake_nodes
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_stake_nodes --features nightly
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_validator_join
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_validator_join --features nightly
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_validator_kickout
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::test_validator_kickout --features nightly
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_inflation
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_inflation --features nightly
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_stake_nodes
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_stake_nodes --features nightly
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_kickout
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_kickout --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::track_shards::track_shards
-expensive integration-tests integration_tests tests::nearcore::track_shards::track_shards --features nightly
+expensive integration-tests integration_tests tests::nearcore::track_shards::ultra_slow_test_track_shards
+expensive integration-tests integration_tests tests::nearcore::track_shards::ultra_slow_test_track_shards --features nightly
+
+expensive --timeout=1800 estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
