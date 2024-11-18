@@ -4897,6 +4897,7 @@ dependencies = [
  "near-vm-runner",
  "num_cpus",
  "rand",
+ "rand_chacha",
  "rayon",
  "reed-solomon-erasure",
  "rlimit",

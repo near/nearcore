@@ -59,6 +59,7 @@ near-chain.workspace = true
 near-chunks.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+rand_chacha.workspace = true
 
 [[bench]]
 name = "trie_bench"

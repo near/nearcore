@@ -366,12 +366,16 @@ impl<'a, Queue: TrieQueue> DoubleEndedIterator for TrieQueueIterator<'a, Queue> 
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::collections::VecDeque;
 
     use super::*;
     use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
     use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardUId;
+    use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha20Rng;
 
     #[test]
     fn test_delayed_receipts_queue() {
@@ -529,5 +533,206 @@ mod tests {
         let shard_uid = ShardUId { version: shard_layout_version, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         TrieUpdate::new(trie)
+    }
+
+    // Queue used to test the TrieQueue trait.
+    struct TestTrieQueue {
+        indices: TrieQueueIndices,
+    }
+
+    impl TestTrieQueue {
+        pub fn new() -> Self {
+            Self { indices: Default::default() }
+        }
+
+        pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
+            Ok(Self { indices: Self::read_indices(trie)? })
+        }
+
+        fn read_indices(trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+            Ok(get(
+                trie,
+                &TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },
+            )?
+            .unwrap_or_default())
+        }
+
+        /// TestQueue reuses the trie columns used for storing buffered receipt groups queue.
+        /// It pretends to be a buffered receipt groups queue for the shard with the maximum ID.
+        /// Reusing the columns is the easiest way to implement the TrieQueue trait
+        /// for a test queue that doesn't have a dedicated trie column.
+        fn fake_shard_id() -> ShardId {
+            ShardId::max()
+        }
+    }
+
+    impl TrieQueue for TestTrieQueue {
+        type Item<'a> = i32;
+
+        fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+            Self::read_indices(trie)
+        }
+
+        fn indices(&self) -> TrieQueueIndices {
+            self.indices.clone()
+        }
+
+        fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+            &mut self.indices
+        }
+
+        fn write_indices(&self, state_update: &mut TrieUpdate) {
+            set(
+                state_update,
+                TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },
+                &self.indices,
+            );
+        }
+
+        fn trie_key(&self, index: u64) -> TrieKey {
+            TrieKey::BufferedReceiptGroupsQueueItem {
+                receiving_shard: Self::fake_shard_id(),
+                index,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum RandomOperation {
+        PushBack(i32),
+        PopFront,
+        PopBack,
+        ModifyFirst,
+        PopN(usize),
+    }
+
+    /// Generates random TrieQueue operations.
+    /// Special care is taken to ensure that queue size sometimes reaches zero.
+    /// For 100 operations the queue has a balanced number of pushes and pops.
+    /// For the next 100 operations, the pops outweigh pushes 2:1. The queue will most likely
+    /// be cleared during this phase.
+    /// And so on, the phases repeat.
+    fn generate_random_operation(rng: &mut impl Rng, i: usize) -> RandomOperation {
+        // The mode of operations switches every 100 operations.
+        let mode = if (i / 100) % 2 == 0 { "random_balanced" } else { "mostly_pops" };
+
+        let weighted_items = match mode {
+            "random_balanced" => {
+                // Same number of items removed and added on average
+                vec![
+                    (RandomOperation::PushBack(rng.gen_range(0..1000)), 3), // On average adds 3 items
+                    (RandomOperation::PopFront, 1), // On average removes 1 item
+                    (RandomOperation::PopBack, 1),  // On average removes 1 item
+                    (RandomOperation::ModifyFirst, 1), // Doesn't remove any items
+                    (RandomOperation::PopN(rng.gen_range(0..=2)), 1), // On average removes 1 item
+                ]
+            }
+            "mostly_pops" => {
+                // Pops are 2x as likely as pushes, to clear the queue
+                vec![
+                    (RandomOperation::PushBack(rng.gen_range(0..1000)), 3), // On average adds 3 items
+                    (RandomOperation::PopFront, 2), // On average removes 2 items
+                    (RandomOperation::PopBack, 2),  // On average removes 2 items
+                    (RandomOperation::ModifyFirst, 2), // Doesn't remove any items
+                    (RandomOperation::PopN(rng.gen_range(0..=2)), 2), // On average removes 2 items
+                ]
+            }
+            other => panic!("Unknown mode: {}", other),
+        };
+
+        weighted_items.choose_weighted(rng, |item| item.1).unwrap().0
+    }
+
+    // Load the queue from the trie, discarding the current data stored in the variable.
+    // Ensures that all changes are written to the trie after every operation.
+    fn maybe_reload_queue(trie: &mut TrieUpdate, queue: &mut TestTrieQueue, rng: &mut impl Rng) {
+        if rng.gen::<bool>() {
+            *queue = TestTrieQueue::load(trie).unwrap();
+        }
+    }
+
+    /// Test the TrieQueue trait by performing random operations on the queue
+    /// and comparing the results with a VecDeque.
+    #[test]
+    fn test_random_trie_queue_operations() {
+        let rng = &mut ChaCha20Rng::seed_from_u64(0);
+
+        let mut trie = init_state();
+        // Trie queue
+        let mut trie_queue = TestTrieQueue::new();
+        // In-memory queue to compare against
+        let mut memory_queue = VecDeque::new();
+
+        // Run 20_000 random operations on the queue
+        for i in 0..20_000 {
+            maybe_reload_queue(&mut trie, &mut trie_queue, rng);
+
+            let op = generate_random_operation(rng, i);
+            match op {
+                RandomOperation::PushBack(value) => {
+                    trie_queue.push_back(&mut trie, &value).unwrap();
+                    memory_queue.push_back(value);
+                }
+                RandomOperation::PopFront => {
+                    let trie_item = trie_queue.pop_front(&mut trie).unwrap();
+                    let memory_item = memory_queue.pop_front();
+                    assert_eq!(trie_item, memory_item);
+                }
+                RandomOperation::PopBack => {
+                    let trie_item = trie_queue.pop_back(&mut trie).unwrap();
+                    let memory_item = memory_queue.pop_back();
+                    assert_eq!(trie_item, memory_item);
+                }
+                RandomOperation::ModifyFirst => {
+                    if memory_queue.is_empty() {
+                        // modify_first panics if the queue is empty
+                        continue;
+                    }
+
+                    let modify_fn: Box<dyn Fn(i32) -> Option<i32>> = if rng.gen::<bool>() {
+                        Box::new(|item: i32| -> Option<i32> { Some(item.wrapping_add(1)) })
+                    } else {
+                        Box::new(|_: i32| -> Option<i32> { None })
+                    };
+
+                    trie_queue.modify_first(&mut trie, &modify_fn).unwrap();
+
+                    let memory_item = memory_queue.pop_front().unwrap();
+                    if let Some(new_item) = modify_fn(memory_item) {
+                        memory_queue.push_front(new_item);
+                    }
+                }
+                RandomOperation::PopN(n) => {
+                    let trie_popped = trie_queue.pop_n(&mut trie, n as u64).unwrap();
+                    let mut memory_popped = 0;
+                    for _ in 0..n {
+                        if memory_queue.pop_front().is_some() {
+                            memory_popped += 1;
+                        }
+                    }
+                    assert_eq!(trie_popped, memory_popped as u64);
+                }
+            }
+
+            maybe_reload_queue(&mut trie, &mut trie_queue, rng);
+
+            if rng.gen::<bool>() {
+                // Compare a random prefix from both queues
+                let prefix_len = if rng.gen::<bool>() || memory_queue.is_empty() {
+                    memory_queue.len()
+                } else {
+                    rng.gen_range(0..memory_queue.len())
+                };
+                let mut trie_items = Vec::new();
+                let mut trie_iter = trie_queue.iter(&trie, rng.gen::<bool>());
+                for _ in 0..prefix_len {
+                    let trie_item = trie_iter.next().unwrap().unwrap();
+                    trie_items.push(trie_item);
+                }
+                let memory_items =
+                    memory_queue.iter().take(prefix_len).copied().collect::<Vec<_>>();
+                assert_eq!(trie_items, memory_items);
+            }
+        }
     }
 }
