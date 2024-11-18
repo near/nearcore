@@ -58,6 +58,7 @@ pub struct OutgoingReceiptBuffer<'parent> {
 /// queue items. Based on that, a common push(), pop(), len(), and iter()
 /// implementation is provided as trait default implementation.
 pub trait TrieQueue {
+    // TODO - remove the lifetime once we get rid of Cow in StateStoredReceipt.
     type Item<'a>: BorshDeserialize + BorshSerialize;
 
     /// Read queue indices of the queue from the trie, depending on impl.
