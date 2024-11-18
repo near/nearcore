@@ -327,7 +327,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
 }
 
 impl<'a, Queue: TrieQueue> Iterator for TrieQueueIterator<'a, Queue> {
-    type Item = Result<<Queue as TrieQueue>::Item<'static>, StorageError>;
+    type Item = Result<Queue::Item<'static>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
