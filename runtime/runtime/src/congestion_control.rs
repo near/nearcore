@@ -91,7 +91,7 @@ pub(crate) struct DelayedReceiptQueueWrapper {
     removed_delayed_bytes: u64,
 }
 
-impl<'a> ReceiptSink {
+impl ReceiptSink {
     pub(crate) fn new(
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
