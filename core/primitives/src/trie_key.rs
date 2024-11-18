@@ -59,9 +59,9 @@ pub mod col {
     pub const BANDWIDTH_SCHEDULER_STATE: u8 = 15;
     /// Stores `ReceiptGroupsQueueData` for the receipt groups queue
     /// which corresponds to the buffered receipts to `receiver_shard`.
-    pub const OUTGOING_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
+    pub const BUFFERED_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
-    pub const OUTGOING_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+    pub const BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -93,8 +93,8 @@ pub mod col {
         (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
         (BUFFERED_RECEIPT, "BufferedReceipt"),
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
-        (OUTGOING_RECEIPT_GROUPS_QUEUE_DATA, "OutgoingReceiptGroupsQueueData"),
-        (OUTGOING_RECEIPT_GROUPS_QUEUE_ITEM, "OutgoingReceiptGroupsQueueItem"),
+        (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
+        (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
     ];
 }
 
@@ -185,11 +185,11 @@ pub enum TrieKey {
     BandwidthSchedulerState,
     /// Stores `ReceiptGroupsQueueData` for the receipt groups queue
     /// which corresponds to the buffered receipts to `receiver_shard`.
-    OutgoingReceiptGroupsQueueData {
+    BufferedReceiptGroupsQueueData {
         receiving_shard: ShardId,
     },
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
-    OutgoingReceiptGroupsQueueItem {
+    BufferedReceiptGroupsQueueItem {
         receiving_shard: ShardId,
         index: u64,
     },
@@ -269,11 +269,11 @@ impl TrieKey {
                     + std::mem::size_of_val(index)
             }
             TrieKey::BandwidthSchedulerState => col::BANDWIDTH_SCHEDULER_STATE.len(),
-            TrieKey::OutgoingReceiptGroupsQueueData { .. } => {
-                col::OUTGOING_RECEIPT_GROUPS_QUEUE_DATA.len() + std::mem::size_of::<u64>()
+            TrieKey::BufferedReceiptGroupsQueueData { .. } => {
+                col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA.len() + std::mem::size_of::<u64>()
             }
-            TrieKey::OutgoingReceiptGroupsQueueItem { index, .. } => {
-                col::OUTGOING_RECEIPT_GROUPS_QUEUE_ITEM.len()
+            TrieKey::BufferedReceiptGroupsQueueItem { index, .. } => {
+                col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM.len()
                     + std::mem::size_of::<u64>()
                     + std::mem::size_of_val(index)
             }
@@ -361,12 +361,12 @@ impl TrieKey {
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::BandwidthSchedulerState => buf.push(col::BANDWIDTH_SCHEDULER_STATE),
-            TrieKey::OutgoingReceiptGroupsQueueData { receiving_shard: receiver_shard } => {
-                buf.push(col::OUTGOING_RECEIPT_GROUPS_QUEUE_DATA);
+            TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: receiver_shard } => {
+                buf.push(col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA);
                 buf.extend(&receiver_shard.to_le_bytes());
             }
-            TrieKey::OutgoingReceiptGroupsQueueItem { receiving_shard: receiver_shard, index } => {
-                buf.push(col::OUTGOING_RECEIPT_GROUPS_QUEUE_ITEM);
+            TrieKey::BufferedReceiptGroupsQueueItem { receiving_shard: receiver_shard, index } => {
+                buf.push(col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM);
                 buf.extend(&receiver_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
@@ -399,8 +399,8 @@ impl TrieKey {
             TrieKey::BufferedReceiptIndices => None,
             TrieKey::BufferedReceipt { .. } => None,
             TrieKey::BandwidthSchedulerState => None,
-            TrieKey::OutgoingReceiptGroupsQueueData { .. } => None,
-            TrieKey::OutgoingReceiptGroupsQueueItem { .. } => None,
+            TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
+            TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
         }
     }
 }

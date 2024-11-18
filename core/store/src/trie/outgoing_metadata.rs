@@ -263,7 +263,7 @@ impl ReceiptGroupsQueue {
     ) -> Result<Option<ReceiptGroupsQueueDataV0>, StorageError> {
         let data_opt: Option<ReceiptGroupsQueueData> = get(
             trie,
-            &TrieKey::OutgoingReceiptGroupsQueueData { receiving_shard: receiver_shard },
+            &TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: receiver_shard },
         )?;
         let data_v0_opt = data_opt.map(|data_enum| match data_enum {
             ReceiptGroupsQueueData::V0(data_v0) => data_v0,
@@ -275,7 +275,7 @@ impl ReceiptGroupsQueue {
         let data_enum = ReceiptGroupsQueueData::V0(self.data.clone());
         set(
             state_update,
-            TrieKey::OutgoingReceiptGroupsQueueData { receiving_shard: self.receiver_shard },
+            TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: self.receiver_shard },
             &data_enum,
         );
     }
@@ -396,7 +396,7 @@ impl TrieQueue for ReceiptGroupsQueue {
     }
 
     fn trie_key(&self, index: u64) -> TrieKey {
-        TrieKey::OutgoingReceiptGroupsQueueItem { receiving_shard: self.receiver_shard, index }
+        TrieKey::BufferedReceiptGroupsQueueItem { receiving_shard: self.receiver_shard, index }
     }
 }
 

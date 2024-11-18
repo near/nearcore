@@ -357,8 +357,8 @@ impl StateChanges {
                 TrieKey::BufferedReceiptIndices => {}
                 TrieKey::BufferedReceipt { .. } => {}
                 TrieKey::BandwidthSchedulerState => {}
-                TrieKey::OutgoingReceiptGroupsQueueData { .. } => {}
-                TrieKey::OutgoingReceiptGroupsQueueItem { .. } => {}
+                TrieKey::BufferedReceiptGroupsQueueData { .. } => {}
+                TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
             }
         }
 
