@@ -167,7 +167,7 @@ pub struct ReceiptGroupsConfig {
     pub size_lower_bound: ByteSize,
     /// All receipt groups aim to have a size below this threshold.
     /// Should be no larger than `max_receipt_size`, otherwise the bandwidth
-    /// scheduler will not be able to grant the bandwidth neeed to send
+    /// scheduler will not be able to grant the bandwidth needed to send
     /// the receipts in this group.
     pub size_upper_bound: ByteSize,
     /// All receipt groups aim to have gas above this threshold.
