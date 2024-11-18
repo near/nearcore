@@ -14,6 +14,7 @@ pub enum ApplyChunkReason {
     ValidateChunkStateWitness,
     /// Apply-chunk is invoked to view the state of a tracked shard (eg. calling a function from a specific state).
     ViewTrackedShard,
+    Experiment,
 }
 
 impl ApplyChunkReason {
@@ -23,6 +24,7 @@ impl ApplyChunkReason {
             ApplyChunkReason::UpdateTrackedShard => "update_shard",
             ApplyChunkReason::ValidateChunkStateWitness => "validate_chunk",
             ApplyChunkReason::ViewTrackedShard => "view_shard",
+            ApplyChunkReason::Experiment => "experiment",
         }
     }
 }

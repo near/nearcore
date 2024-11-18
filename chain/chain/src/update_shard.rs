@@ -40,6 +40,7 @@ pub enum ShardUpdateResult {
     OldChunk(OldChunkResult),
 }
 
+#[derive(Clone)]
 pub struct NewChunkData {
     pub chunk_header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
@@ -49,6 +50,7 @@ pub struct NewChunkData {
     pub storage_context: StorageContext,
 }
 
+#[derive(Clone)]
 pub struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
     pub block: ApplyChunkBlockContext,
@@ -57,6 +59,7 @@ pub struct OldChunkData {
 
 /// Reason to update a shard when new block appears on chain.
 #[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
 pub enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.
@@ -68,6 +71,7 @@ pub enum ShardUpdateReason {
 }
 
 /// Information about shard to update.
+#[derive(Clone)]
 pub struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether node cares about shard in this epoch.
@@ -79,6 +83,7 @@ pub struct ShardContext {
 }
 
 /// Information about storage used for applying txs and receipts.
+#[derive(Clone)]
 pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
@@ -92,17 +97,18 @@ pub fn process_shard_update(
     runtime: &dyn RuntimeAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
+    apply_chunk_reason: ApplyChunkReason,
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
-            ApplyChunkReason::UpdateTrackedShard,
+            apply_chunk_reason,
             parent_span,
             data,
             shard_context,
             runtime,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
-            ApplyChunkReason::UpdateTrackedShard,
+            apply_chunk_reason,
             parent_span,
             data,
             shard_context,

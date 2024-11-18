@@ -50,7 +50,7 @@ pub mod state_patch {
 pub mod state_patch {
     use crate::state_record::StateRecord;
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct SandboxStatePatch;
 
     impl SandboxStatePatch {

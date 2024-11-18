@@ -1979,7 +1979,11 @@ impl Runtime {
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+            if matches!(apply_state.apply_reason, ApplyChunkReason::Experiment) {
+                Some(100_000_000)
+            } else {
+                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+            }
         } else {
             None
         };
@@ -2143,7 +2147,7 @@ impl Runtime {
         let state_root = trie_changes.new_root;
         let chunk_recorded_size = trie.recorded_storage_size() as f64;
         metrics::CHUNK_RECORDED_SIZE
-            .with_label_values(&[shard_id_str.as_str()])
+            .with_label_values(&[shard_id_str.as_str(), apply_state.apply_reason.as_str()])
             .observe(chunk_recorded_size);
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .with_label_values(&[shard_id_str.as_str()])

@@ -333,7 +333,7 @@ pub static CHUNK_RECORDED_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_recorded_size",
         "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
-        &["shard_id"],
+        &["shard_id", "apply_reason"],
         Some(buckets_for_chunk_storage_proof_size()),
     )
     .unwrap()
@@ -417,7 +417,17 @@ static CHUNK_RECORDED_TRIE_COLUMN_SIZE: LazyLock<HistogramVec> = LazyLock::new(|
     try_create_histogram_vec(
         "near_chunk_recorded_trie_column_size",
         "Size of data belonging to a specific trie column inside chunk's recorded storage proof",
-        &["shard_id", "trie_column"],
+        &["shard_id", "trie_column", "apply_reason"],
+        Some(buckets_for_recorded_trie_column_size()),
+    )
+    .unwrap()
+});
+
+static CHUNK_TOTAL_SIZE_EXCLUDING_CONTRACT_CODE: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_total_size_excluding_contract_code",
+        "Storage proof total excluding contract code",
+        &["shard_id", "apply_reason"],
         Some(buckets_for_recorded_trie_column_size()),
     )
     .unwrap()
@@ -427,7 +437,7 @@ static CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE: LazyLock<HistogramVec> = LazyLock:
     try_create_histogram_vec(
         "near_chunk_recorded_trie_nodes_values_size",
         "Measures size of values and non-value nodes in the recorded trie. Allows to measure how much overhead there is from non-value nodes.",
-        &["shard_id", "trie_part"], // trie_part is either "values" or "nodes"
+        &["shard_id", "trie_part", "apply_reason"], // trie_part is either "values" or "nodes"
         Some(buckets_for_chunk_storage_proof_size()),
     )
     .unwrap()
@@ -546,13 +556,13 @@ fn buckets_for_recorded_trie_column_size() -> Vec<f64> {
     let mut buckets = vec![50_000., 100_000., 200_000., 400_000., 600_000., 800_000.];
 
     // Coarse buckets for the larger values
-    buckets.extend(linear_buckets(1_000_000., 500_000., 15).unwrap());
+    buckets.extend(linear_buckets(1_000_000., 200_000., 25).unwrap());
     buckets
 }
 
 /// Buckets from 0 to 15.2MB
 fn buckets_for_chunk_storage_proof_size() -> Vec<f64> {
-    linear_buckets(0., 800_000., 20).unwrap()
+    linear_buckets(0., 200_000., 50).unwrap()
 }
 
 /// Buckets from 1 to 12.84
@@ -811,19 +821,32 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
     let mut total_size = SubtreeSize::default();
 
     let shard_id_str = apply_state.shard_id.to_string();
+    let mut excl_contracts_size = 0;
     for column in trie_recorder_stats.trie_column_sizes.iter() {
         let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
         CHUNK_RECORDED_TRIE_COLUMN_SIZE
-            .with_label_values(&[shard_id_str.as_str(), column.column_name])
+            .with_label_values(&[
+                shard_id_str.as_str(),
+                column.column_name,
+                apply_state.apply_reason.as_str(),
+            ])
             .observe(column_size as f64);
-
+        if column.column_name != "ContractCode" {
+            excl_contracts_size += column.size.nodes_size + column.size.values_size;
+        }
         total_size = total_size.saturating_add(column.size);
     }
+    CHUNK_TOTAL_SIZE_EXCLUDING_CONTRACT_CODE
+        .with_label_values(&[
+            shard_id_str.as_str(),
+            apply_state.apply_reason.as_str(),
+        ])
+        .observe(excl_contracts_size as f64);
 
     CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
-        .with_label_values(&[shard_id_str.as_str(), "nodes"])
+        .with_label_values(&[shard_id_str.as_str(), "nodes", apply_state.apply_reason.as_str()])
         .observe(total_size.nodes_size as f64);
     CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
-        .with_label_values(&[shard_id_str.as_str(), "values"])
+        .with_label_values(&[shard_id_str.as_str(), "values", apply_state.apply_reason.as_str()])
         .observe(total_size.values_size as f64);
 }
