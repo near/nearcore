@@ -132,7 +132,7 @@ pub trait TrieQueue {
         let key = self.trie_key(last_item_index);
         let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
-                "Receipt #{} should be in the state",
+                "TrieQueue::Item #{} should be in the state",
                 last_item_index
             ))
         })?;
