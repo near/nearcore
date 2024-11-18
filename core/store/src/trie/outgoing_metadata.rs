@@ -422,3 +422,32 @@ fn subtract_gas_checked(total: &mut u128, delta: Gas) {
     *total =
         total.checked_sub(delta.into()).expect("subtract_gas_checked - Underflow! Negative gas!")
 }
+
+#[cfg(test)]
+mod tests {
+    use bytesize::ByteSize;
+
+    use super::{ReceiptGroup, ReceiptGroupsConfig};
+
+    #[test]
+    fn test_receipt_groups_config() {
+        let config =
+            ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: 100 };
+
+        let group = ReceiptGroup::new(ByteSize::kb(50), 50);
+
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), 0), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(50), 0), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), 0), true);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 0), false);
+
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 10), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 50), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 100), true);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(0), 0), false);
+
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(10), 30), false);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(100), 30), true);
+        assert_eq!(config.should_start_new_group(&group, ByteSize::kb(30), 100), true);
+    }
+}
