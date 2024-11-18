@@ -481,7 +481,7 @@ impl ReceiptSinkV2 {
             return Ok(Some(BandwidthRequest::make_max_receipt_size_request(shard_u8, params)));
         }
 
-        // Metadata is fully intialized, make a proper bandwidth request using it.
+        // Metadata is fully initialized, make a proper bandwidth request using it.
         let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
         BandwidthRequest::make_from_receipt_sizes(shard_u8, receipt_sizes_iter, params)
     }
