@@ -12,11 +12,11 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId, ShardVersion};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{NumShards, StateRoot};
+use near_primitives::types::StateRoot;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -77,8 +77,7 @@ pub fn create_test_split_store() -> (Store, Store) {
 
 pub struct TestTriesBuilder {
     store: Option<Store>,
-    shard_version: ShardVersion,
-    num_shards: NumShards,
+    shard_layout: ShardLayout,
     enable_flat_storage: bool,
     enable_in_memory_tries: bool,
 }
@@ -87,8 +86,7 @@ impl TestTriesBuilder {
     pub fn new() -> Self {
         Self {
             store: None,
-            shard_version: 0,
-            num_shards: 1,
+            shard_layout: ShardLayout::single_shard(),
             enable_flat_storage: false,
             enable_in_memory_tries: false,
         }
@@ -99,9 +97,8 @@ impl TestTriesBuilder {
         self
     }
 
-    pub fn with_shard_layout(mut self, shard_version: ShardVersion, num_shards: NumShards) -> Self {
-        self.shard_version = shard_version;
-        self.num_shards = num_shards;
+    pub fn with_shard_layout(mut self, shard_layout: ShardLayout) -> Self {
+        self.shard_layout = shard_layout;
         self
     }
 
@@ -115,14 +112,18 @@ impl TestTriesBuilder {
         self
     }
 
+    pub fn build2(self) -> (ShardTries, ShardLayout) {
+        let shard_layout = self.shard_layout.clone();
+        let shard_tries = self.build();
+        (shard_tries, shard_layout)
+    }
+
     pub fn build(self) -> ShardTries {
         if self.enable_in_memory_tries && !self.enable_flat_storage {
             panic!("In-memory tries require flat storage");
         }
         let store = self.store.unwrap_or_else(create_test_store);
-        let shard_uids = (0..self.num_shards)
-            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: self.shard_version })
-            .collect::<Vec<_>>();
+        let shard_uids = self.shard_layout.shard_uids().collect_vec();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.trie_store(),
@@ -136,26 +137,17 @@ impl TestTriesBuilder {
         );
         if self.enable_flat_storage {
             let mut store_update = tries.store_update();
-            for shard_id in 0..self.num_shards {
-                let shard_uid = ShardUId {
-                    version: self.shard_version,
-                    shard_id: shard_id.try_into().unwrap(),
-                };
+            for &shard_uid in &shard_uids {
+                let flat_head = BlockInfo::genesis(CryptoHash::default(), 0);
                 store_update.flat_store_update().set_flat_storage_status(
                     shard_uid,
-                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                        flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
-                    }),
+                    FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
             }
             store_update.commit().unwrap();
 
             let flat_storage_manager = tries.get_flat_storage_manager();
-            for shard_id in 0..self.num_shards {
-                let shard_uid = ShardUId {
-                    version: self.shard_version,
-                    shard_id: shard_id.try_into().unwrap(),
-                };
+            for &shard_uid in &shard_uids {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
         }

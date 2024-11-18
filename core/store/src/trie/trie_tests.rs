@@ -6,7 +6,7 @@ use assert_matches::assert_matches;
 use near_primitives::challenge::PartialState;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -100,8 +100,10 @@ where
 fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
-        let tries = TestTriesBuilder::new().with_shard_layout(1, 2).build();
-        let shard_uid = ShardUId { version: 1, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, 1);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie_changes = gen_changes(&mut rng, 20);
         let trie_changes = simplify_changes(&trie_changes);
         if trie_changes.is_empty() {
