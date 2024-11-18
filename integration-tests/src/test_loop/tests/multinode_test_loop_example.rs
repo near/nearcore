@@ -13,7 +13,7 @@ use crate::test_loop::utils::ONE_NEAR;
 const NUM_CLIENTS: usize = 4;
 
 #[test]
-fn test_client_with_multi_test_loop() {
+fn slow_test_client_with_multi_test_loop() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 

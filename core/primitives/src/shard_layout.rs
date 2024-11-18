@@ -335,6 +335,8 @@ impl fmt::Display for ShardLayoutError {
     }
 }
 
+impl std::error::Error for ShardLayoutError {}
+
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {

@@ -208,12 +208,12 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
-fn test_protocol_upgrade_no_missing_chunks() {
+fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
 }
 
 #[test]
-fn test_protocol_upgrade_with_missing_chunk_one() {
+fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
         PROTOCOL_VERSION,
@@ -222,7 +222,7 @@ fn test_protocol_upgrade_with_missing_chunk_one() {
 }
 
 #[test]
-fn test_protocol_upgrade_with_missing_chunks_two() {
+fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
         PROTOCOL_VERSION,

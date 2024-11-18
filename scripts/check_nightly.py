@@ -33,7 +33,7 @@ import nayduck
 
 IGNORED_SUBDIRS = ('target', 'target_expensive', 'sandbox')
 
-EXPENSIVE_DIRECTIVE = '#[cfg_attr(not(feature = "expensive_tests"), ignore)]'
+EXPENSIVE_DIRECTIVE = 'ultra_slow_test_'
 TEST_DIRECTIVE = '#[test]'
 
 
@@ -66,10 +66,9 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
             if not line:
                 pass
             elif line.startswith('#'):
-                is_expensive = is_expensive or line == EXPENSIVE_DIRECTIVE
                 is_test = is_test or line == TEST_DIRECTIVE
-            elif is_expensive or is_test:
-                if is_expensive and is_test:
+            elif line.startswith('fn ultra_slow_test_'):
+                if is_test:
                     match = re.search(r'\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b',
                                       line)
                     if match:

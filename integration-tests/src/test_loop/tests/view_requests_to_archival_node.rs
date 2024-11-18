@@ -45,7 +45,7 @@ const NUM_SHARDS: usize = 4;
 /// The goal is to exercise the codepath that answers the requests, rather than checking
 /// it returns a fully correct response.
 #[test]
-fn test_view_requests_to_archival_node() {
+fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
@@ -357,7 +357,7 @@ impl<'a> ViewClientTester<'a> {
         get_and_check_ordered_validators(ordered_validators_latest);
     }
 
-    /// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.    
+    /// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.
     fn check_get_state_changes_in_block(&mut self) {
         let block = self.get_block_at_height(6);
 
