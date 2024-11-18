@@ -153,25 +153,13 @@ impl ReceiptGroup {
 }
 
 /// Parameters which control size and gas of receipt groups stored in the ReceiptGroupsQueue.
-/// There is a lower bound and upper bound on size and gas.
 /// By default receipts are added to the last group in the queue.
-/// A new group is started if:
-///     A) adding a new receipt would make the group exceed the upper bound
-///     B) the last group already has size or gas above the lower bound
-///
-/// This way we ensure that the size and gas of the groups are within the bounds,
-/// as long as size/gas of a single receipt doesn't exceed the upper bound.
+/// A new group is started if adding a new receipt would make the group exceed the upper bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReceiptGroupsConfig {
-    /// All receipt groups aim to have a size above this threshold.
-    pub size_lower_bound: ByteSize,
     /// All receipt groups aim to have a size below this threshold.
-    /// Should be no larger than `max_receipt_size`, otherwise the bandwidth
-    /// scheduler will not be able to grant the bandwidth needed to send
-    /// the receipts in this group.
+    /// A group can be larger that this if a single receipt has size larger than the limit.
     pub size_upper_bound: ByteSize,
-    /// All receipt groups aim to have gas above this threshold.
-    pub gas_lower_bound: Gas,
     /// All receipt groups aim to have gas below this threshold.
     pub gas_upper_bound: Gas,
 }
@@ -179,17 +167,12 @@ pub struct ReceiptGroupsConfig {
 impl ReceiptGroupsConfig {
     pub fn default_config() -> Self {
         // TODO(bandwidth_scheduler) - put in runtime config
-        ReceiptGroupsConfig {
-            size_lower_bound: ByteSize::kb(90),
-            size_upper_bound: ByteSize::b(4 * 1024 * 1024), // max_receipt_size
-            gas_lower_bound: Gas::MAX,
-            gas_upper_bound: Gas::MAX,
-        }
+        ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::MAX }
     }
 
     /// Decide whether a new receipt should be added to the last group
     /// or a new group be started for this receipt.
-    /// Enforces the lower and upper bounds on size and gas.
+    /// Enforces the bounds on size and gas.
     pub fn should_start_new_group(
         &self,
         last_group: &ReceiptGroup,
@@ -197,11 +180,6 @@ impl ReceiptGroupsConfig {
         new_receipt_gas: Gas,
     ) -> bool {
         let mut group_size = last_group.size();
-        if group_size > self.gas_lower_bound {
-            // The existing group has size above the threshold, start a new group.
-            return true;
-        }
-
         add_size_checked(&mut group_size, new_receipt_size);
         if group_size > self.size_upper_bound.as_u64() {
             // The new group would be too large, start a new group.
@@ -209,11 +187,6 @@ impl ReceiptGroupsConfig {
         }
 
         let mut group_gas = last_group.gas();
-        if group_gas > self.gas_lower_bound.into() {
-            // The existing group has gas above the threshold, start a new group.
-            return true;
-        }
-
         add_gas_checked(&mut group_gas, new_receipt_gas);
         if group_gas > self.gas_upper_bound.into() {
             // The new group would have too much gas, start a new group.
