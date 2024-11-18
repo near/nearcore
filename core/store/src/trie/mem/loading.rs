@@ -205,8 +205,9 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     fn check_maybe_parallelize(keys: Vec<Vec<u8>>, parallelize: bool) {
-        let shard_tries = TestTriesBuilder::new().with_flat_storage(true).build();
-        let shard_uid = ShardUId::single_shard();
+        let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
         let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
         let changes = simplify_changes(&changes);
         test_populate_flat_storage(

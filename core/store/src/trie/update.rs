@@ -343,8 +343,8 @@ mod tests {
     use crate::test_utils::TestTriesBuilder;
     use crate::{ShardUId, TrieAccess as _};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
     const SHARD_VERSION: u32 = 1;
-    const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };
 
     fn test_key(key: Vec<u8>) -> TrieKey {
         TrieKey::ContractData { account_id: "alice".parse().unwrap(), key }
@@ -352,9 +352,12 @@ mod tests {
 
     #[test]
     fn trie() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let root = Trie::EMPTY_ROOT;
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, root);
+        let mut trie_update = tries.new_trie_update(shard_uid, root);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
@@ -362,9 +365,9 @@ mod tests {
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
-        let trie_update2 = tries.new_trie_update(COMPLEX_SHARD_UID, new_root);
+        let trie_update2 = tries.new_trie_update(shard_uid, new_root);
         assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
         let values = trie_update2
             .iter(&test_key(b"dog".to_vec()).to_vec())
@@ -379,47 +382,50 @@ mod tests {
 
     #[test]
     fn trie_remove() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
 
         // Delete non-existing element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update.commit(StateChangeCause::TransactionProcessing { tx_hash: Trie::EMPTY_ROOT });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add and right away delete element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add, apply changes and then delete element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_ne!(new_root, Trie::EMPTY_ROOT);
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, new_root);
+        let mut trie_update = tries.new_trie_update(shard_uid, new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
     }
