@@ -102,7 +102,7 @@ pub enum ReceiptGroup {
 pub struct ReceiptGroupV0 {
     /// Total size of receipts in this group.
     /// Should be no larger than `max_receipt_size`, otherwise the bandwidth
-    /// scheduler will not be able to grant the bandwidth neeed to send
+    /// scheduler will not be able to grant the bandwidth needed to send
     /// the receipts in this group.
     pub size: u64,
     /// Total gas of receipts in this group.
