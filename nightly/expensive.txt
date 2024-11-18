@@ -154,8 +154,6 @@ expensive integration-tests integration_tests tests::client::process_blocks::ult
 expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_gc_after_state_sync --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_process_block_after_state_sync
 expensive integration-tests integration_tests tests::client::process_blocks::ultra_slow_test_process_block_after_state_sync --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_empty_state
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_empty_state --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes
