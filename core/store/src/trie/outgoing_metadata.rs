@@ -20,7 +20,7 @@ use super::TrieAccess;
 pub struct OutgoingMetadatas {
     /// Metadata information for outgoing buffer to each shard.
     metadatas: BTreeMap<ShardId, ReceiptGroupsQueue>,
-    /// Parameteres which control size of receipt groups.
+    /// Parameters which control size of receipt groups.
     groups_config: ReceiptGroupsConfig,
 }
 
