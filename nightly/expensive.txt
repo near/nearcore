@@ -232,4 +232,4 @@ expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultr
 expensive integration-tests integration_tests tests::nearcore::track_shards::ultra_slow_test_track_shards
 expensive integration-tests integration_tests tests::nearcore::track_shards::ultra_slow_test_track_shards --features nightly
 
-expensive estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
+expensive --timeout=1800 estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
