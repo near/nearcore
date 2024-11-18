@@ -354,8 +354,8 @@ impl ReceiptGroupsQueue {
         receipt_gas: Gas,
         state_update: &mut TrieUpdate,
     ) -> Result<(), StorageError> {
-        substract_size_checked(&mut self.data.total_size, receipt_size);
-        substract_gas_checked(&mut self.data.total_gas, receipt_gas);
+        subtract_size_checked(&mut self.data.total_size, receipt_size);
+        subtract_gas_checked(&mut self.data.total_gas, receipt_gas);
 
         self.data.total_receipts_num = self
             .data
@@ -366,8 +366,8 @@ impl ReceiptGroupsQueue {
         assert!(self.data.indices.len() > 0, "No receipt groups to pop from!");
 
         self.modify_first(state_update, |mut first_group| {
-            substract_size_checked(first_group.size_mut(), receipt_size);
-            substract_gas_checked(first_group.gas_mut(), receipt_gas);
+            subtract_size_checked(first_group.size_mut(), receipt_size);
+            subtract_gas_checked(first_group.gas_mut(), receipt_gas);
             if first_group.is_empty() {
                 // No more receipts in the first group, remove it.
                 None
@@ -433,10 +433,10 @@ fn add_size_checked(total: &mut u64, delta: ByteSize) {
         .expect("add_size_checked - Overflow! Reached exabytes of size!");
 }
 
-fn substract_size_checked(total: &mut u64, delta: ByteSize) {
+fn subtract_size_checked(total: &mut u64, delta: ByteSize) {
     *total = total
         .checked_sub(delta.as_u64())
-        .expect("substract_size_checked - Underflow! Negative size!");
+        .expect("subtract_size_checked - Underflow! Negative size!");
 }
 
 fn add_gas_checked(total: &mut u128, delta: Gas) {
@@ -445,7 +445,7 @@ fn add_gas_checked(total: &mut u128, delta: Gas) {
         .expect("add_gas_checked - Overflow! Total gas doesn't fit into u128!");
 }
 
-fn substract_gas_checked(total: &mut u128, delta: Gas) {
+fn subtract_gas_checked(total: &mut u128, delta: Gas) {
     *total =
-        total.checked_sub(delta.into()).expect("substract_gas_checked - Underflow! Negative gas!")
+        total.checked_sub(delta.into()).expect("subtract_gas_checked - Underflow! Negative gas!")
 }
