@@ -367,32 +367,27 @@ also helps during refactoring since it catches unintended behaviour
 changes.</p>
 <p>Not all tests are created equal though and while some may only need
 milliseconds to run, others may run for several seconds or even
-minutes.  Tests that take a long time should be marked as such with an
-<code>expensive_tests</code> feature, for example:</p>
+minutes.  Tests that take a long time should be marked as such by
+prefixing their name with <code>slow_test_</code> or <code>ultra_slow_test_</code>:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[test]
-#[cfg_attr(not(feature = &quot;expensive_tests&quot;), ignore)]
-fn test_catchup_random_single_part_sync() {
+fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Such tests will be ignored by default and can be executed by using
-<code>--ignored</code> or <code>--include-ignored</code> flag as in <code>cargo test -- --ignored</code> or by compiling the tests with <code>expensive_tests</code> feature
-enabled.</p>
-<p>Because expensive tests are not run by default, they are also not run
-in CI.  Instead, they are run nightly and need to be explicitly
+<p>During local development both slow and ultra-slow tests will not run
+with a typical <code>just nextest</code> invocation. You can run them with <code>just nextest-slow</code> or <code>just nextest-all</code> locally. CI will run the slow
+tests and the <code>ultra_slow</code> ones are left to run on Nayduck.</p>
+<p>Because <code>ultra_slow</code> tests are run on nayduck, they need to be explicitly
 included in <code>nightly/expensive.txt</code> file; for example:</p>
-<pre><code class="language-text">expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
+<pre><code class="language-text">expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
 </code></pre>
 <p>For more details regarding nightly tests see <code>nightly/README.md</code>.</p>
-<p>Note that what counts as a slow test isn’t exactly defined as of now.
-If it takes just a couple seconds then it’s probably fine.  Anything
-slower should probably be classified as an expensive test.  In
-particular, if libtest complains the test takes more than 60 seconds
-then it definitely is an expensive test.</p>
+<p>Note that what counts as a slow test is defined in
+<code>.config/nextest.toml</code>.</p>
 
                     </main>
 
