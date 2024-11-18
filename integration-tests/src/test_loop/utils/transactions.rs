@@ -8,6 +8,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
@@ -34,19 +35,20 @@ pub(crate) struct BalanceMismatchError {
     pub actual: u128,
 }
 
+// Returns the head with the smallest height
+pub(crate) fn get_smallest_height_head(clients: &[&Client]) -> Tip {
+    clients
+        .iter()
+        .map(|client| client.chain.head().unwrap())
+        .min_by_key(|head| head.height)
+        .unwrap()
+}
+
 // Transactions have to be built on top of some block in chain. To make
 // sure all clients accept them, we select the head of the client with
 // the smallest height.
 pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
-    let (_, anchor_hash) = clients
-        .iter()
-        .map(|client| {
-            let head = client.chain.head().unwrap();
-            (head.height, head.last_block_hash)
-        })
-        .min_by_key(|&(height, _)| height)
-        .unwrap();
-    anchor_hash
+    get_smallest_height_head(clients).last_block_hash
 }
 
 /// Get next available nonce for the account's public key.
