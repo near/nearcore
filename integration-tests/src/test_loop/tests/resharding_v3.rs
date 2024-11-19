@@ -112,6 +112,10 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
     }
 }
 
+/// Signature of functions callable from inside the inner loop of the resharding suite of tests.
+type LoopActionFn =
+    Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>;
+
 #[derive(Default)]
 struct TestReshardingParameters {
     chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
@@ -123,12 +127,13 @@ struct TestReshardingParameters {
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
-    loop_action:
-        Option<Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
+    loop_action: Option<LoopActionFn>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
     // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
     // epoch length, but it's good to also check what happens with shorter ones.
     all_chunks_expected: bool,
+    /// Optionally deploy the test contract
+    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided account.
     deploy_test_contract: Option<AccountId>,
 }
 
@@ -322,6 +327,23 @@ fn call_burn_gas_contract(
                 {
                     tracing::debug!(target: "test", height=tip.height, "resharding height set");
                     resharding_height.set(Some(tip.height));
+                    // Verify that delayed receipts are indeed in the queue.
+                    let epoch_manager = &client_actor.client.epoch_manager;
+                    let shard_id =
+                        epoch_manager.account_id_to_shard_id(&signer_id, &tip.epoch_id).unwrap();
+                    let shard_uid = &ShardUId::from_shard_id_and_layout(
+                        shard_id,
+                        &epoch_manager.get_shard_layout(&tip.epoch_id).unwrap(),
+                    );
+                    let congestion_info = &client_actor
+                        .client
+                        .chain
+                        .chain_store()
+                        .get_chunk_extra(&tip.last_block_hash, shard_uid)
+                        .unwrap()
+                        .congestion_info()
+                        .unwrap();
+                    assert_ne!(congestion_info.delayed_receipts_gas(), 0);
                 }
             }
             // Before resharding and one block after: call the test contract a few times per block.
