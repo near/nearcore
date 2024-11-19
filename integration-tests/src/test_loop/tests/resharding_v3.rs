@@ -11,7 +11,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, BlockHeightDelta, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
@@ -20,10 +20,20 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
-use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::transactions::get_smallest_height_head;
-use crate::test_loop::utils::ONE_NEAR;
+use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::utils::transactions::{
+    get_shared_block_hash, get_smallest_height_head, run_tx, submit_tx,
+};
+use crate::test_loop::utils::{ONE_NEAR, TGAS};
+use assert_matches::assert_matches;
 use near_client::client_actor::ClientActorInner;
+use near_crypto::Signer;
+use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::views::FinalExecutionStatus;
+use std::cell::Cell;
+use std::u64;
 
 fn client_tracking_shard<'a>(clients: &'a [&Client], tip: &Tip, shard_id: ShardId) -> &'a Client {
     for client in clients {
@@ -102,6 +112,10 @@ fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_
     }
 }
 
+/// Signature of functions callable from inside the inner loop of the resharding suite of tests.
+type LoopActionFn =
+    Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>;
+
 #[derive(Default)]
 struct TestReshardingParameters {
     chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
@@ -113,11 +127,14 @@ struct TestReshardingParameters {
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
-    loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
+    loop_action: Option<LoopActionFn>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
     // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
     // epoch length, but it's good to also check what happens with shorter ones.
     all_chunks_expected: bool,
+    /// Optionally deploy the test contract
+    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided account.
+    deploy_test_contract: Option<AccountId>,
 }
 
 impl TestReshardingParameters {
@@ -194,7 +211,9 @@ impl TestReshardingParameters {
     #[allow(unused)]
     fn loop_action(
         mut self,
-        loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
+        loop_action: Option<
+            Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>,
+        >,
     ) -> Self {
         self.loop_action = loop_action;
         self
@@ -214,18 +233,24 @@ impl TestReshardingParameters {
         self.all_chunks_expected = false;
         self
     }
+
+    fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
+        self.deploy_test_contract = Some(account_id);
+        self
+    }
 }
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
 fn fork_before_resharding_block(
     double_signing: bool,
-) -> Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+) -> Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
-    let done = std::cell::Cell::new(false);
+    let done = Cell::new(false);
     Box::new(
-        move |test_loop_data: &mut TestLoopData,
+        move |_: &[TestData],
+              test_loop_data: &mut TestLoopData,
               client_handle: TestLoopDataHandle<ClientActorInner>| {
             // It must happen only for the first resharding block encountered.
             if done.get() {
@@ -235,19 +260,8 @@ fn fork_before_resharding_block(
             let client_actor = &mut test_loop_data.get_mut(&client_handle);
             let tip = client_actor.client.chain.head().unwrap();
 
-            // We want to understand if the most recent block is a resharding block.
-            // To do this check if the latest block is an epoch start and compare the two epochs' shard layouts.
-            let epoch_manager = client_actor.client.epoch_manager.clone();
-            let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-            let next_epoch_id =
-                epoch_manager.get_next_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
-            let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
-            let next_block_has_new_shard_layout =
-                epoch_manager.is_next_block_epoch_start(&tip.last_block_hash).unwrap()
-                    && shard_layout != next_shard_layout;
-
             // If there's a new shard layout force a chain fork.
-            if next_block_has_new_shard_layout {
+            if next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip) {
                 println!("creating chain fork at height {}", tip.height);
                 let height_selection = if double_signing {
                     // In the double signing scenario we want a new block on top of prev block, with consecutive height.
@@ -266,6 +280,111 @@ fn fork_before_resharding_block(
             }
         },
     )
+}
+
+/// Returns a loop action that invokes a costly method from a contract multiple times per block height.
+fn call_burn_gas_contract(
+    signer_id: AccountId,
+    receiver_id: AccountId,
+) -> Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+    const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
+    const GAS_PER_CALL: Gas = 275 * TGAS;
+    const CALLS_PER_BLOCK_HEIGHT: u64 = 5;
+
+    let resharding_height = Cell::new(None);
+    let nonce = Cell::new(102);
+    let txs = Cell::new(vec![]);
+    let latest_height = Cell::new(0);
+    let signer: Signer = create_user_test_signer(&signer_id).into();
+
+    Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_handle: TestLoopDataHandle<ClientActorInner>| {
+            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            // After resharding: wait some blocks and check that all txs have been executed correctly.
+            if let Some(height) = resharding_height.get() {
+                if tip.height > height + TX_CHECK_BLOCKS_AFTER_RESHARDING {
+                    for (tx, tx_height) in txs.take() {
+                        let tx_outcome =
+                            client_actor.client.chain.get_partial_transaction_result(&tx);
+                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+                        let status = status.unwrap();
+                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
+                    }
+                }
+            } else {
+                if next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip)
+                {
+                    tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                    resharding_height.set(Some(tip.height));
+                    // Verify that delayed receipts are indeed in the queue.
+                    let epoch_manager = &client_actor.client.epoch_manager;
+                    let shard_id =
+                        epoch_manager.account_id_to_shard_id(&signer_id, &tip.epoch_id).unwrap();
+                    let shard_uid = &ShardUId::from_shard_id_and_layout(
+                        shard_id,
+                        &epoch_manager.get_shard_layout(&tip.epoch_id).unwrap(),
+                    );
+                    let congestion_info = &client_actor
+                        .client
+                        .chain
+                        .chain_store()
+                        .get_chunk_extra(&tip.last_block_hash, shard_uid)
+                        .unwrap()
+                        .congestion_info()
+                        .unwrap();
+                    assert_ne!(congestion_info.delayed_receipts_gas(), 0);
+                }
+            }
+            // Before resharding and one block after: call the test contract a few times per block.
+            // The objective is to pile up receipts (e.g. delayed).
+            if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
+                for _ in 0..CALLS_PER_BLOCK_HEIGHT {
+                    nonce.set(nonce.get() + 1);
+                    let method_name = "burn_gas_raw".to_owned();
+                    let burn_gas: u64 = GAS_PER_CALL;
+                    let args = burn_gas.to_le_bytes().to_vec();
+                    let tx = SignedTransaction::call(
+                        nonce.get(),
+                        signer_id.clone(),
+                        receiver_id.clone(),
+                        &signer,
+                        0,
+                        method_name,
+                        args,
+                        GAS_PER_CALL + 10 * TGAS,
+                        tip.last_block_hash,
+                    );
+                    let mut txs_vec = txs.take();
+                    tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
+                    txs_vec.push((tx.get_hash(), tip.height));
+                    txs.set(txs_vec);
+                    submit_tx(&node_datas, &"account0".parse().unwrap(), tx);
+                }
+            }
+        },
+    )
+}
+
+// We want to understand if the most recent block is a resharding block.
+// To do this check if the latest block is an epoch start and compare the two epochs' shard layouts.
+fn next_block_has_new_shard_layout(epoch_manager: Arc<dyn EpochManagerAdapter>, tip: &Tip) -> bool {
+    let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let next_epoch_id =
+        epoch_manager.get_next_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
+    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+    epoch_manager.is_next_block_epoch_start(&tip.last_block_hash).unwrap()
+        && shard_layout != next_shard_layout
 }
 
 /// Base setup to check sanity of Resharding V3.
@@ -348,12 +467,27 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         )
         .build();
 
+    if let Some(account) = params.deploy_test_contract {
+        let signer = &create_user_test_signer(&account).into();
+        let deploy_contract_tx = SignedTransaction::deploy_contract(
+            101,
+            &account,
+            near_test_contracts::rs_contract().into(),
+            &signer,
+            get_shared_block_hash(&node_datas, &test_loop),
+        );
+        run_tx(&mut test_loop, deploy_contract_tx, &node_datas, Duration::seconds(5));
+    }
+
     let client_handles =
         node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
 
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
-        params.loop_action.as_ref().map(|action| action(test_loop_data, client_handles[0].clone()));
+        params
+            .loop_action
+            .as_ref()
+            .map(|action| action(&node_datas, test_loop_data, client_handles[0].clone()));
 
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
@@ -476,5 +610,27 @@ fn test_resharding_v3_shard_shuffling() {
         .shuffle_shard_assignment()
         .single_shard_tracking()
         .chunk_miss_possible();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore]
+fn test_resharding_v3_delayed_receipts_left_child() {
+    let account: AccountId = "account4".parse().unwrap();
+    let params = TestReshardingParameters::new()
+        .deploy_test_contract(account.clone())
+        .loop_action(Some(call_burn_gas_contract(account.clone(), account)));
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore]
+fn test_resharding_v3_delayed_receipts_right_child() {
+    let account: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParameters::new()
+        .deploy_test_contract(account.clone())
+        .loop_action(Some(call_burn_gas_contract(account.clone(), account)));
     test_resharding_v3_base(params);
 }
