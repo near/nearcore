@@ -350,8 +350,7 @@ fn test_gc_remove_fork_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_remove_fork_large() {
+fn ultra_slow_test_gc_remove_fork_large() {
     test_gc_remove_fork_common(20)
 }
 
@@ -397,8 +396,7 @@ fn test_gc_not_remove_fork_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_not_remove_fork_large() {
+fn ultra_slow_test_gc_not_remove_fork_large() {
     test_gc_not_remove_fork_common(20)
 }
 
@@ -416,7 +414,7 @@ fn test_gc_not_remove_longer_fork() {
 
 // This test creates forks from genesis
 #[test]
-fn test_gc_forks_from_genesis() {
+fn slow_test_gc_forks_from_genesis() {
     for fork_length in 1..=10 {
         let chains = vec![
             SimpleChain { from: 0, length: 101, is_removed: false },
@@ -450,7 +448,7 @@ fn test_gc_forks_from_genesis() {
 }
 
 #[test]
-fn test_gc_overlap() {
+fn slow_test_gc_overlap() {
     for max_changes in 1..=20 {
         let chains = vec![
             SimpleChain { from: 0, length: 101, is_removed: false },
@@ -483,8 +481,7 @@ fn test_gc_boundaries_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_boundaries_large() {
+fn ultra_slow_test_gc_boundaries_large() {
     test_gc_boundaries_common(20)
 }
 
@@ -507,13 +504,12 @@ fn test_gc_random_common(runs: u64) {
 }
 
 #[test]
-fn test_gc_random_small() {
+fn slow_test_gc_random_small() {
     test_gc_random_common(3);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_random_large() {
+fn ultra_slow_test_gc_random_large() {
     test_gc_random_common(25);
 }
 
@@ -545,8 +541,7 @@ fn test_gc_pine_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_pine() {
+fn ultra_slow_test_gc_pine() {
     for max_changes in 1..=20 {
         let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
         for i in 1..100 {
@@ -578,8 +573,7 @@ fn test_gc_star_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_star_large() {
+fn ultra_slow_test_gc_star_large() {
     test_gc_star_common(20)
 }
 
@@ -834,9 +828,8 @@ fn test_clear_old_data_fixed_height() {
 
 /// Test that `gc_blocks_limit` works properly
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[allow(unreachable_code)]
-fn test_clear_old_data_too_many_heights() {
+fn ultra_slow_test_clear_old_data_too_many_heights() {
     // TODO(#10634): panics on `clear_data` -> `clear_resharding_data` ->
     // `MockEpochManager::is_next_block_epoch_start` apparently because
     // epoch manager is not updated at all. Should we fix it together with

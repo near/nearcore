@@ -87,10 +87,10 @@ def main():
                               boot_node=boot_node)
 
     # create account in each shard so that the state is not empty
-    create_account(boot_node, "000.test0", 1)
-    create_account(boot_node, "shard0.test0", 2)
-    create_account(boot_node, "shard1.test0", 3)
-    create_account(boot_node, "shard2.test0", 4)
+    create_account(boot_node, "test0.test0", 1)
+    create_account(boot_node, "test1.test0", 2)
+    create_account(boot_node, "test2.test0", 3)
+    create_account(boot_node, "test3.test0", 4)
 
     dump_check.kill()
     chain_id = boot_node.get_status()['chain_id']

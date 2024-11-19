@@ -6,7 +6,7 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use near_vm_runner::logic::ProtocolVersion;
@@ -20,16 +20,12 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
 
-/// The test works only with this shard layout:
-/// shard_ids: [0, 1, 2, 3]
-/// version: 1
-fn assert_shard_layout(shard_layout: &ShardLayout) {
-    let version = 1;
-    let expected_uids: Vec<ShardUId> =
-        (0..4).map(|id| ShardUId { version, shard_id: id }).collect();
-    let layout_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
-    assert_eq!(expected_uids, layout_uids);
-}
+// // Check that the shard ids and version are as expected. This is needed because
+// // the chunk drop condition uses those values.
+// fn assert_shard_layout(shard_layout: &ShardLayout) {
+//     assert_eq!(shard_layout.shard_ids().sorted().collect_vec(), vec![0, 1, 2, 3]);
+//     assert_eq!(shard_layout.version(), 1);
+// }
 
 /// Test upgrading the blockchain to another protocol version.
 /// Optionally make some chunks around epoch boundary missing.
@@ -37,7 +33,7 @@ fn assert_shard_layout(shard_layout: &ShardLayout) {
 pub(crate) fn test_protocol_upgrade(
     old_protocol: ProtocolVersion,
     new_protocol: ProtocolVersion,
-    missing_chunk_ranges: HashMap<ShardId, std::ops::Range<i64>>,
+    missing_chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
 ) {
     init_test_logger();
 
@@ -54,11 +50,9 @@ pub(crate) fn test_protocol_upgrade(
     let clients = accounts.iter().take(num_clients).cloned().collect_vec();
 
     // TODO - support different shard layouts, is there a way to make missing chunks generic?
-    let shard_layout = ShardLayout::v1(
-        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect(),
-        None,
-        1,
-    );
+    let boundary_accounts = ["account3", "account5", "account7"];
+    let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
 
     // split the clients into producers, validators, and rpc nodes
     let tmp = clients.clone();
@@ -119,8 +113,9 @@ pub(crate) fn test_protocol_upgrade(
     // Translate shard ids to shard uids
     let chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>> = missing_chunk_ranges
         .iter()
-        .map(|(&shard_id, range)| {
-            let shard_uid = ShardUId::new(1, shard_id);
+        .map(|(&shard_index, range)| {
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+            let shard_uid = ShardUId::new(shard_layout.version(), shard_id);
             (shard_uid, range.clone())
         })
         .collect();
@@ -153,10 +148,8 @@ pub(crate) fn test_protocol_upgrade(
             tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
             last_observed_height.set(block_header.height());
 
-            let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-            assert_shard_layout(&shard_layout);
-
             // Record observed missing chunks
+            let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
             for shard_info in shard_layout.shard_infos() {
                 let shard_index = shard_info.shard_index();
                 let shard_id = shard_info.shard_id();
@@ -198,13 +191,14 @@ pub(crate) fn test_protocol_upgrade(
     // Validate that the correct chunks were missing
     let upgraded_epoch_start = first_new_protocol_height.get().unwrap();
     let mut expected_missing_chunks = BTreeMap::new();
-    for (shard_id, missing_range) in &missing_chunk_ranges {
+    for (shard_index, missing_range) in &missing_chunk_ranges {
+        let shard_id = shard_layout.get_shard_id(*shard_index).unwrap();
         let missing_heights: Vec<BlockHeight> = missing_range
             .clone()
             .map(|delta| (upgraded_epoch_start as i64 + delta).try_into().unwrap())
             .collect();
         if !missing_heights.is_empty() {
-            expected_missing_chunks.insert(*shard_id, missing_heights);
+            expected_missing_chunks.insert(shard_id, missing_heights);
         }
     }
     assert_eq!(&*observed_missing_chunks.borrow(), &expected_missing_chunks);
@@ -214,40 +208,24 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
-fn test_protocol_upgrade_no_missing_chunks() {
+fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
 }
 
 #[test]
-fn test_protocol_upgrade_with_missing_chunk_one() {
+fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
         PROTOCOL_VERSION,
-        HashMap::from_iter(
-            [
-                (ShardId::new(0), 0..0),
-                (ShardId::new(1), -1..0),
-                (ShardId::new(2), 0..1),
-                (ShardId::new(3), -1..1),
-            ]
-            .into_iter(),
-        ),
+        HashMap::from_iter([(0, 0..0), (1, -1..0), (2, 0..1), (3, -1..1)].into_iter()),
     );
 }
 
 #[test]
-fn test_protocol_upgrade_with_missing_chunks_two() {
+fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
         PROTOCOL_VERSION,
-        HashMap::from_iter(
-            [
-                (ShardId::new(0), 0..0),
-                (ShardId::new(1), -2..0),
-                (ShardId::new(2), 0..2),
-                (ShardId::new(3), -2..2),
-            ]
-            .into_iter(),
-        ),
+        HashMap::from_iter([(0, 0..0), (1, -2..0), (2, 0..2), (3, -2..2)].into_iter()),
     );
 }

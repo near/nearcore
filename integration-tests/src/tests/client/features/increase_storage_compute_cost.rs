@@ -133,7 +133,7 @@ fn test_non_storage() {
 
 /// Test the case where a function call fails and the limit is unaffected by compute costs.
 #[test]
-fn test_non_storage_gas_exceeded() {
+fn slow_test_non_storage_gas_exceeded() {
     // `loop_forever()` loops until either gas is exhausted.
     // It should not be affected by compute costs, as it doesn't access storage.
     let method_name = "loop_forever".to_owned();

@@ -1,18 +1,14 @@
 # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
 # them at earliest convenience :)
 # Also in addition to this, the `nextest-integration` test is currently disabled on macos
-with_macos_excludes := if os() == "macos" {
-    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
+platform_excludes := if os() == "macos" {
+    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
+} else if os() == "windows" {
+    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
 } else {
     ""
 }
-# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
-# See https://github.com/dtolnay/inventory/issues/52.
-with_macos_incremental := if os() == "macos" {
-    "CARGO_INCREMENTAL=0"
-} else {
-    ""
-}
+
 nightly_flags := "--features nightly,test_features"
 public_libraries := "-p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core"
 
@@ -39,46 +35,23 @@ test-ci *FLAGS: check-cargo-fmt \
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
 
-# all cargo tests, TYPE is "stable" or "nightly"
-nextest TYPE *FLAGS: (nextest-unit TYPE FLAGS) (nextest-integration TYPE FLAGS)
-
-# cargo unit tests, TYPE is "stable" or "nightly"
-nextest-unit TYPE *FLAGS:
-    RUSTFLAGS="-D warnings" \
+# all cargo tests,
+# TYPE is one of "stable", "nightly"
+nextest TYPE *FLAGS:
+    env RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --workspace \
-        --exclude integration-tests \
         --cargo-profile dev-release \
         {{ ci_hack_nextest_profile }} \
-        {{ with_macos_excludes }} \
+        {{ platform_excludes }} \
         {{ if TYPE == "nightly" { nightly_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
 
-# cargo integration tests, TYPE is "stable" or "nightly"
-[linux]
-nextest-integration TYPE *FLAGS:
-    RUSTFLAGS="-D warnings" \
-    cargo nextest run \
-        --locked \
-        --package integration-tests \
-        --cargo-profile dev-release \
-        {{ ci_hack_nextest_profile }} \
-        {{ if TYPE == "nightly" { nightly_flags } \
-           else if TYPE == "stable" { "" } \
-           else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
-        {{ FLAGS }}
-# Note: when re-enabling this on macos, ci.yml will need to be adjusted to report code coverage again
-[macos]
-nextest-integration TYPE *FLAGS:
-    @echo "Nextest integration tests are currently disabled on macos!"
-
-[windows]
-nextest-integration TYPE *FLAGS:
-    @echo "Nextest integration tests are currently disabled on windows!"
-
+nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
+nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
 
 doctests:
     cargo test --doc
@@ -164,22 +137,18 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
-check-protocol-schema: install-rustc-nightly
+# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
+# See https://github.com/dtolnay/inventory/issues/52.
+protocol_schema_env := "CARGO_TARGET_DIR=" + justfile_directory() + "/target/schema-check RUSTC_BOOTSTRAP=1 RUSTFLAGS='--cfg enable_const_type_id' CARGO_INCREMENTAL=0"
+check-protocol-schema:
     # Below, we *should* have been used `cargo +nightly ...` instead of
     # `RUSTC_BOOTSTRAP=1`. However, the env var appears to be more stable.
     # `nightly` builds are updated daily and may be broken sometimes, e.g.
     # https://github.com/rust-lang/rust/issues/130769.
     #
     # If there is an issue with the env var, fall back to `cargo +nightly ...`.
-
-    # Test that checker is not broken
-    RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
-        cargo test -p protocol-schema-check --profile dev-artifacts
-
-    # Run the checker
-    RUSTC_BOOTSTRAP=1 RUSTFLAGS="--cfg enable_const_type_id" \
-        {{ with_macos_incremental }} \
-        cargo run -p protocol-schema-check --profile dev-artifacts
+    env {{protocol_schema_env}} cargo test -p protocol-schema-check --profile dev-artifacts
+    env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts
 
 check_build_public_libraries:
     cargo check {{public_libraries}}

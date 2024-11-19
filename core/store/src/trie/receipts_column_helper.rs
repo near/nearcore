@@ -303,7 +303,7 @@ mod tests {
     use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
     use near_primitives::receipt::Receipt;
-    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::shard_layout::ShardLayout;
 
     #[test]
     fn test_delayed_receipts_queue() {
@@ -456,9 +456,11 @@ mod tests {
 
     fn init_state() -> TrieUpdate {
         let shard_layout_version = 1;
-        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout_version, 2).build();
+        let shard_layout = ShardLayout::multi_shard(2, shard_layout_version);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
         let state_root = Trie::EMPTY_ROOT;
-        let shard_uid = ShardUId { version: shard_layout_version, shard_id: 0 };
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         TrieUpdate::new(trie)
     }

@@ -30,7 +30,7 @@ use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
 
 #[test]
-fn repro_1183() {
+fn slow_test_repro_1183() {
     init_test_logger();
     run_actix(async {
         let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
@@ -169,7 +169,7 @@ fn repro_1183() {
 }
 
 #[test]
-fn test_sync_from_archival_node() {
+fn slow_test_sync_from_archival_node() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
@@ -279,7 +279,7 @@ fn test_sync_from_archival_node() {
 }
 
 #[test]
-fn test_long_gap_between_blocks() {
+fn slow_test_long_gap_between_blocks() {
     init_test_logger();
     let vs = ValidatorSchedule::new()
         .num_shards(2)

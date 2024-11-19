@@ -216,10 +216,8 @@ impl NightshadeRuntime {
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
-        let shard_version =
-            epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_version = epoch_manager.get_shard_layout(&epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -229,8 +227,7 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let shard_version =
-            epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
+        let shard_version = epoch_manager.get_shard_layout(epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -240,7 +237,7 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let shard_id = account_id_to_shard_id(account_id, &shard_layout);
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }

@@ -12,7 +12,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{AccountId, AccountInfo, Balance, ShardId};
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::genesis::GenesisStateApplier;
@@ -83,8 +83,7 @@ impl StandaloneRuntime {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
         let writers = std::sync::atomic::AtomicUsize::new(0);
-        let shard_uid =
-            ShardUId::from_shard_id_and_layout(ShardId::new(0), &genesis.config.shard_layout);
+        let shard_uid = genesis.config.shard_layout.shard_uids().next().unwrap();
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),
@@ -143,10 +142,16 @@ impl StandaloneRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
+        // TODO - the shard id is correct but the shard version is hardcoded. It
+        // would be better to store the shard layout in self and read the uid
+        // from there.
+        let shard_id = self.apply_state.shard_id;
+        let shard_uid = ShardUId::new(0, shard_id);
+        let trie = self.tries.get_trie_for_shard(shard_uid, self.root);
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root),
+                trie,
                 &None,
                 &self.apply_state,
                 receipts,
@@ -157,11 +162,7 @@ impl StandaloneRuntime {
             .unwrap();
 
         let mut store_update = self.tries.store_update();
-        self.root = self.tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
+        self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 

@@ -13,9 +13,10 @@ use near_client::{
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
     SyncCheckpoint,
 };
 use near_primitives::version::PROTOCOL_VERSION;
@@ -44,7 +45,7 @@ const NUM_SHARDS: usize = 4;
 /// The goal is to exercise the codepath that answers the requests, rather than checking
 /// it returns a fully correct response.
 #[test]
-fn test_view_requests_to_archival_node() {
+fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
@@ -75,6 +76,7 @@ fn test_view_requests_to_archival_node() {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
     let (genesis, epoch_config_store) = genesis_builder.build();
+    let shard_layout = genesis.config.shard_layout.clone();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
@@ -99,7 +101,7 @@ fn test_view_requests_to_archival_node() {
     );
 
     let mut view_client_tester = ViewClientTester::new(&mut test_loop, &node_datas);
-    view_client_tester.run_tests();
+    view_client_tester.run_tests(&shard_layout);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -139,7 +141,7 @@ impl<'a> ViewClientTester<'a> {
 
     /// Generates variations of the messages to retrieve different kinds of information
     /// and issues them to the view client of the archival node.
-    fn run_tests(&mut self) {
+    fn run_tests(&mut self, shard_layout: &ShardLayout) {
         // Sanity check: Validators cannot return old blocks after GC (eg. genesis block) but archival node can.
         let genesis_block_request =
             GetBlock(BlockReference::BlockId(BlockId::Height(GENESIS_HEIGHT)));
@@ -150,14 +152,14 @@ impl<'a> ViewClientTester<'a> {
         // Run the tests for various kinds of requests.
         self.check_get_block();
         self.check_get_block_headers();
-        self.check_get_chunk();
-        self.check_get_shard_chunk();
+        self.check_get_chunk(shard_layout);
+        self.check_get_shard_chunk(shard_layout);
         self.check_get_protocol_config();
         self.check_get_validator_info();
         self.check_get_ordered_validators();
         self.check_get_state_changes_in_block();
         self.check_get_state_changes();
-        self.check_get_execution_outcomes();
+        self.check_get_execution_outcomes(shard_layout);
     }
 
     fn get_block_at_height(&mut self, height: BlockHeight) -> BlockView {
@@ -215,7 +217,11 @@ impl<'a> ViewClientTester<'a> {
     }
 
     /// Generates variations of the [`GetChunk`] request and issues them to the view client of the archival node.
-    fn check_get_chunk(&mut self) {
+    fn check_get_chunk(&mut self, shard_layout: &ShardLayout) {
+        let shard_info = shard_layout.shard_infos().next().unwrap();
+        let shard_id = shard_info.shard_id();
+        let shard_index = shard_info.shard_index();
+
         let block = self.get_block_at_height(6);
 
         let mut get_and_check_chunk = |request: GetChunk| {
@@ -224,18 +230,23 @@ impl<'a> ViewClientTester<'a> {
             chunk
         };
 
-        let chunk_by_height = GetChunk::Height(6, ShardId::new(0));
+        let chunk_by_height = GetChunk::Height(6, shard_id);
         get_and_check_chunk(chunk_by_height);
 
-        let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, ShardId::new(0));
+        let chunk_by_block_hash = GetChunk::BlockHash(block.header.hash, shard_id);
         get_and_check_chunk(chunk_by_block_hash);
 
-        let chunk_by_chunk_hash = GetChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
+        let chunk_hash = ChunkHash(block.chunks[shard_index].chunk_hash);
+        let chunk_by_chunk_hash = GetChunk::ChunkHash(chunk_hash);
         get_and_check_chunk(chunk_by_chunk_hash);
     }
 
     /// Generates variations of the [`GetShardChunk`] request and issues them to the view client of the archival node.
-    fn check_get_shard_chunk(&mut self) {
+    fn check_get_shard_chunk(&mut self, shard_layout: &ShardLayout) {
+        let shard_info = shard_layout.shard_infos().next().unwrap();
+        let shard_id = shard_info.shard_id();
+        let shard_index = shard_info.shard_index();
+
         let block = self.get_block_at_height(6);
 
         let mut get_and_check_shard_chunk = |request: GetShardChunk| {
@@ -243,13 +254,14 @@ impl<'a> ViewClientTester<'a> {
             assert_eq!(shard_chunk.take_header().gas_limit(), 1_000_000_000_000_000);
         };
 
-        let chunk_by_height = GetShardChunk::Height(6, ShardId::new(0));
+        let chunk_by_height = GetShardChunk::Height(6, shard_id);
         get_and_check_shard_chunk(chunk_by_height);
 
-        let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, ShardId::new(0));
+        let chunk_by_block_hash = GetShardChunk::BlockHash(block.header.hash, shard_id);
         get_and_check_shard_chunk(chunk_by_block_hash);
 
-        let chunk_by_chunk_hash = GetShardChunk::ChunkHash(ChunkHash(block.chunks[0].chunk_hash));
+        let chunk_hash = ChunkHash(block.chunks[shard_index].chunk_hash);
+        let chunk_by_chunk_hash = GetShardChunk::ChunkHash(chunk_hash);
         get_and_check_shard_chunk(chunk_by_chunk_hash);
     }
 
@@ -345,7 +357,7 @@ impl<'a> ViewClientTester<'a> {
         get_and_check_ordered_validators(ordered_validators_latest);
     }
 
-    /// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.    
+    /// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.
     fn check_get_state_changes_in_block(&mut self) {
         let block = self.get_block_at_height(6);
 
@@ -371,15 +383,20 @@ impl<'a> ViewClientTester<'a> {
     }
 
     /// Generates variations of the [`GetReceipt`] request and issues them to the view client of the archival node.
-    fn check_get_execution_outcomes(&mut self) {
+    fn check_get_execution_outcomes(&mut self, shard_layout: &ShardLayout) {
         let block = self.get_block_at_height(6);
 
         let request = GetExecutionOutcomesForBlock { block_hash: block.header.hash };
         let outcomes = self.send(request, ARCHIVAL_CLIENT).unwrap();
         assert_eq!(outcomes.len(), NUM_SHARDS);
-        assert_eq!(outcomes[&ShardId::new(0)].len(), 1);
+
+        let [s0, s1, s2, s3] = shard_layout.shard_ids().collect_vec()[..] else {
+            panic!("Expected 4 shards in the shard layout");
+        };
+
+        assert_eq!(outcomes[&s0].len(), 1);
         assert!(matches!(
-            outcomes[&ShardId::new(0)][0],
+            outcomes[&s0][0],
             ExecutionOutcomeWithIdView {
                 outcome: ExecutionOutcomeView {
                     status: ExecutionStatusView::SuccessReceiptId(_),
@@ -388,9 +405,9 @@ impl<'a> ViewClientTester<'a> {
                 ..
             }
         ));
-        assert_eq!(outcomes[&ShardId::new(1)].len(), 1);
+        assert_eq!(outcomes[&s1].len(), 1);
         assert!(matches!(
-            outcomes[&ShardId::new(1)][0],
+            outcomes[&s1][0],
             ExecutionOutcomeWithIdView {
                 outcome: ExecutionOutcomeView {
                     status: ExecutionStatusView::SuccessReceiptId(_),
@@ -399,8 +416,8 @@ impl<'a> ViewClientTester<'a> {
                 ..
             }
         ));
-        assert_eq!(outcomes[&ShardId::new(2)].len(), 0);
-        assert_eq!(outcomes[&ShardId::new(3)].len(), 0);
+        assert_eq!(outcomes[&s2].len(), 0);
+        assert_eq!(outcomes[&s3].len(), 0);
     }
 
     /// Generates variations of the [`GetStateChanges`] request and issues them to the view client of the archival node.

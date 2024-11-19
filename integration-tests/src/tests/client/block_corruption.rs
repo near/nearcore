@@ -240,8 +240,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// `oks` are printed to check the sanity of the test.
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn check_process_flipped_block_fails() {
+fn ultra_slow_test_check_process_flipped_block_fails() {
     init_test_logger();
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.

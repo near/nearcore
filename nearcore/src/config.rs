@@ -1584,24 +1584,15 @@ mod tests {
             s0
         );
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("shard0.test.near").unwrap(),
-                &shard_layout,
-            ),
+            account_id_to_shard_id(&AccountId::from_str("test0.near").unwrap(), &shard_layout,),
             s0
         );
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("shard1.test.near").unwrap(),
-                &shard_layout,
-            ),
+            account_id_to_shard_id(&AccountId::from_str("test1.near").unwrap(), &shard_layout,),
             s1
         );
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("shard2.test.near").unwrap(),
-                &shard_layout,
-            ),
+            account_id_to_shard_id(&AccountId::from_str("test2.near").unwrap(), &shard_layout,),
             s2
         );
     }
