@@ -45,7 +45,7 @@ async fn random_handshake_connect(input: &[u8]) {
 }
 
 #[test]
-fn random_handshake_connect_fuzzer() {
+fn slow_test_random_handshake_connect_fuzzer() {
     // init_test_logger(); // Enable only when reproducing a failure, to avoid slowing down the fuzzers too much
     bolero::check!().for_each(|input| in_tokio(random_handshake_connect(input)))
 }

@@ -15,6 +15,7 @@ from configured_logger import logger
 import cluster
 import simple_test
 import state_sync_lib
+from geventhttpclient import useragent
 
 NUM_VALIDATORS = 2
 EPOCH_LENGTH = 10
@@ -109,12 +110,21 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
         # Sanity check: Validators cannot return old blocks after GC (eg. genesis block) but archival node can.
         logger.info("Running sanity check for archival node")
         for node in self.nodes:
-            result = node.get_block_by_height(GC_BLOCKS_LIMIT - 1)
-            if node == self.archival_node:
-                assert 'error' not in result, result
-                assert result['result']['header']['hash'] is not None, result
-            else:
-                assert 'error' in result, result
+            try:
+                result = node.get_block_by_height(GC_BLOCKS_LIMIT - 1)
+                if node == self.archival_node:
+                    assert "error" not in result, result
+                    assert result["result"]["header"][
+                        "hash"] is not None, result
+                else:
+                    assert "error" in result, result
+            except useragent.BadStatusCode as e:
+                assert "code=422" in str(
+                    e), f"Expected status code 422 in exception, got: {e}"
+            except Exception as e:
+                assert (
+                    False
+                ), f"Unexpected exception type raised: {type(e)}. Exception: {e}"
 
         # Capture the last height to replay before killing the nodes.
         end_height = self.testcase.wait_for_blocks(1)

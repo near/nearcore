@@ -963,7 +963,9 @@ mod tests {
         .unwrap();
 
         let shard_layout = &epoch_config.shard_layout;
-        for (shard_index, shard_id) in shard_layout.shard_ids().enumerate() {
+        for shard_info in shard_layout.shard_infos() {
+            let shard_index = shard_info.shard_index();
+            let shard_id = shard_info.shard_id();
             for h in 0..100_000 {
                 let cp = epoch_info.sample_chunk_producer(shard_layout, shard_id, h);
                 // Don't read too much into this. The reason the ValidatorId always

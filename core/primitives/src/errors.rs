@@ -56,8 +56,7 @@ impl From<InvalidTxError> for TxExecutionError {
 pub enum RuntimeError {
     /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
     UnexpectedIntegerOverflow(String),
-    /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
-    /// and should be challenged.
+    /// An error happened during TX verification and account charging.
     InvalidTxError(InvalidTxError),
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.

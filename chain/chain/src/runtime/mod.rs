@@ -101,10 +101,7 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
-        let epoch_config = epoch_manager
-            .read()
-            .get_config_for_protocol_version(genesis_config.protocol_version)
-            .unwrap();
+        let epoch_config = epoch_manager.read().get_epoch_config(genesis_config.protocol_version);
         let shard_uids: Vec<_> = epoch_config.shard_layout.shard_uids().collect();
         let tries = ShardTries::new(
             store.trie_store(),
@@ -219,10 +216,8 @@ impl NightshadeRuntime {
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
-        let shard_version =
-            epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_version = epoch_manager.get_shard_layout(&epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -232,8 +227,7 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let shard_version =
-            epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
+        let shard_version = epoch_manager.get_shard_layout(epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -243,7 +237,7 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let shard_id = account_id_to_shard_id(account_id, &shard_layout);
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
@@ -1402,11 +1396,18 @@ fn chunk_tx_gas_limit(
 fn calculate_transactions_size_limit(
     protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
-    last_chunk_transactions_size: usize,
+    mut last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+        if near_primitives::checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            last_chunk_transactions_size = 0;
+        }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config

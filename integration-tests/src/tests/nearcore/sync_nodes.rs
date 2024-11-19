@@ -20,8 +20,7 @@ use std::sync::{Arc, RwLock};
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_state_stake_change() {
+fn ultra_slow_test_sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
 

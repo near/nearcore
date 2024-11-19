@@ -335,19 +335,34 @@ impl fmt::Display for ShardLayoutError {
     }
 }
 
+impl std::error::Error for ShardLayoutError {}
+
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {
         Self::multi_shard(1, 0)
     }
 
-    /// Can be used to construct a multi-shard layout, mostly for test purposes
+    /// Creates a multi-shard ShardLayout using the most recent ShardLayout
+    /// version and default boundary accounts. It should be used for tests only.
+    /// The shard ids are deterministic but arbitrary in order to test the
+    /// non-contiguous ShardIds.
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
         let boundary_accounts = (1..num_shards)
-            .map(|i| format!("shard{}.test.near", i).parse().unwrap())
+            .map(|i| format!("test{}", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
+
+        Self::multi_shard_custom(boundary_accounts, version)
+    }
+
+    /// Creates a multi-shard ShardLayout using the most recent ShardLayout
+    /// version and provided boundary accounts. It should be used for tests
+    /// only. The shard ids are deterministic but arbitrary in order to test the
+    /// non-contiguous ShardIds.
+    pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
+        let num_shards = (boundary_accounts.len() + 1) as u64;
 
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
@@ -373,12 +388,13 @@ impl ShardLayout {
     }
 
     /// Return a V0 Shardlayout
-    #[deprecated(note = "Use multi_shard() or v1()/v2() instead")]
+    #[deprecated(note = "Use multi_shard() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
     /// Return a V1 Shardlayout
+    #[deprecated(note = "Use multi_shard() instead")]
     pub fn v1(
         boundary_accounts: Vec<AccountId>,
         shards_split_map: Option<ShardsSplitMap>,
@@ -392,6 +408,7 @@ impl ShardLayout {
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
                     assert!(prev.is_none(), "no shard should appear in the map twice");
+                    let shard_id: u64 = shard_id.into();
                     assert!(shard_id < num_shards, "shard id should be valid");
                 }
             }
@@ -464,17 +481,9 @@ impl ShardLayout {
         })
     }
 
-    /// Returns a V1 ShardLayout. It is only used in tests
-    pub fn v1_test() -> Self {
-        ShardLayout::v1(
-            vec!["abc", "foo", "test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            Some(new_shards_split_map(vec![vec![0, 1, 2, 3]])),
-            1,
-        )
-    }
-
     /// Returns the simple nightshade layout that we use in production
     pub fn get_simple_nightshade_layout() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
                 .into_iter()
@@ -487,6 +496,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 2, that will be used in production.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
                 .into_iter()
@@ -499,6 +509,7 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 3, that will be used in production.
     pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec![
                 "aurora",
@@ -533,6 +544,7 @@ impl ShardLayout {
     /// introduced after the last layout upgrade in production. Currently it is built on top of V3.
     #[cfg(feature = "nightly")]
     pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
+        #[allow(deprecated)]
         ShardLayout::v1(
             vec![
                 "aurora",
@@ -673,7 +685,7 @@ impl ShardLayout {
         }
     }
 
-    fn num_shards(&self) -> NumShards {
+    pub fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
@@ -681,7 +693,10 @@ impl ShardLayout {
         }
     }
 
-    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> + '_ {
+    /// Returns an iterator that iterates over all the shard ids in the shard layout.
+    /// Please also see the `shard_infos` method that returns the ShardInfo for each
+    /// shard and should be used when ShardIndex is needed.
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
         match self {
             Self::V0(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
@@ -693,6 +708,16 @@ impl ShardLayout {
     /// shards in the shard layout
     pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
+    }
+
+    /// Returns an iterator that returns the ShardInfos for every shard in
+    /// this shard layout. This method should be preferred over calling
+    /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
+    /// it may be changed in the future.
+    pub fn shard_infos(&self) -> impl Iterator<Item = ShardInfo> + '_ {
+        self.shard_uids()
+            .enumerate()
+            .map(|(shard_index, shard_uid)| ShardInfo { shard_index, shard_uid })
     }
 
     /// Returns the shard index for a given shard id. The shard index should be
@@ -781,8 +806,10 @@ impl ShardUId {
         Self { version, shard_id: shard_id.into() }
     }
 
+    /// Returns the only shard uid in the ShardLayout::single_shard layout.
+    /// It is not suitable for use with any other shard layouts.
     pub fn single_shard() -> Self {
-        Self { version: 0, shard_id: 0 }
+        ShardLayout::single_shard().shard_uids().next().unwrap()
     }
 
     /// Byte representation of the shard uid
@@ -959,6 +986,25 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     }
 }
 
+pub struct ShardInfo {
+    shard_index: ShardIndex,
+    shard_uid: ShardUId,
+}
+
+impl ShardInfo {
+    pub fn shard_index(&self) -> ShardIndex {
+        self.shard_index
+    }
+
+    pub fn shard_id(&self) -> ShardId {
+        self.shard_uid.shard_id()
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        self.shard_uid
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
@@ -1045,8 +1091,10 @@ mod tests {
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
-            assert!(shard_id < num_shards);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
+
+            let shard_id: u64 = shard_id.into();
+            assert!(shard_id < num_shards);
         }
         let expected_distribution: HashMap<ShardId, _> = [
             (ShardId::new(0), 247),
@@ -1064,6 +1112,7 @@ mod tests {
         let aid = |s: &str| s.parse().unwrap();
         let sid = |s: u64| ShardId::new(s);
 
+        #[allow(deprecated)]
         let shard_layout = ShardLayout::v1(
             parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
             Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),

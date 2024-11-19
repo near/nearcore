@@ -1,3 +1,4 @@
+use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing,
@@ -80,7 +81,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot,
+    NumBlocks, ShardId, ShardIndex, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -1061,11 +1062,13 @@ impl Chain {
         // producer, confirmation signatures and finality info.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
-            if !self.epoch_manager.verify_approval(
+            let info = self.epoch_manager.get_epoch_block_approvers_ordered(prev_header.hash())?;
+            if !verify_approval_with_approvers_info(
                 prev_header.hash(),
                 prev_header.height(),
                 header.height(),
                 header.approvals(),
+                info,
             )? {
                 return Err(Error::InvalidApprovals);
             };
@@ -3198,6 +3201,17 @@ impl Chain {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+
+        if checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            return Ok(());
+        }
+
         if !validate_transactions_order(chunk.transactions()) {
             let merkle_paths =
                 Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
@@ -3214,8 +3228,6 @@ impl Chain {
             return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
         }
 
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
             for transaction in chunk.transactions() {
@@ -4466,8 +4478,10 @@ impl Chain {
         //
         // Pre-populating because even if there are no receipts for a shard, we
         // need an empty vector for it.
-        let mut result: BTreeMap<_, _> =
-            shard_layout.shard_ids().enumerate().map(|shard_info| (shard_info, vec![])).collect();
+        let mut result_map: BTreeMap<ShardIndex, (ShardId, Vec<&Receipt>)> = BTreeMap::new();
+        for shard_info in shard_layout.shard_infos() {
+            result_map.insert(shard_info.shard_index(), (shard_info.shard_id(), vec![]));
+        }
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
@@ -4476,16 +4490,15 @@ impl Chain {
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            let shard_info = (shard_index, shard_id);
-            result.get_mut(&shard_info).unwrap().push(receipt);
+            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
         }
-        result
-            .into_iter()
-            .map(|((_, shard_id), receipts)| {
-                let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
-                hash(&bytes)
-            })
-            .collect()
+
+        let mut result_vec = vec![];
+        for (_, (shard_id, receipts)) in result_map {
+            let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
+            result_vec.push(hash(&bytes));
+        }
+        result_vec
     }
 }
 
