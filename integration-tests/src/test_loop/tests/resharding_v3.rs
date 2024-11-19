@@ -316,7 +316,7 @@ fn call_burn_gas_contract(
                         tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
                         assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
                     }
-                } 
+                }
             } else {
                 if next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip)
                 {
@@ -349,7 +349,7 @@ fn call_burn_gas_contract(
                     txs.set(txs_vec);
                     submit_tx(&node_datas, &"account0".parse().unwrap(), tx);
                 }
-            } 
+            }
         },
     )
 }
