@@ -3265,6 +3265,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand",
+ "rand_chacha",
  "reed-solomon-erasure",
  "regex",
  "rlp",
