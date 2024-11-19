@@ -6,7 +6,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
     create_bucket_readwrite, external_storage_location, StateFileType,
@@ -19,9 +19,8 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
+use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
-use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
