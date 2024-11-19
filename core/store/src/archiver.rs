@@ -110,7 +110,7 @@ impl ArchivalStorage for ColdDBArchiver {
 }
 
 struct FilesystemArchiver {
-    dir: rustix::fd::OwnedFd,
+    base_dir: rustix::fd::OwnedFd,
     col_to_dir: HashMap<DBCol, std::path::PathBuf>,
 }
 
@@ -123,7 +123,7 @@ impl FilesystemArchiver {
             path = %path.display(),
             message = "opened archive directory"
         );
-        Ok(Self { dir, col_to_dir })
+        Ok(Self { base_dir: dir, col_to_dir })
     }
 
     fn setup_dirs(base_path: &std::path::Path) -> io::Result<HashMap<DBCol, std::path::PathBuf>> {
@@ -156,7 +156,7 @@ impl FilesystemArchiver {
         let mut temp_file = tempfile::Builder::new().make_in("", |filename| {
             let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
             let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-            Ok(std::fs::File::from(rustix::fs::openat(&self.dir, filename, flags, mode)?))
+            Ok(std::fs::File::from(rustix::fs::openat(&self.base_dir, filename, flags, mode)?))
         })?;
 
         temp_file.write_all(value)?;
@@ -164,7 +164,7 @@ impl FilesystemArchiver {
         let temp_filename = temp_file.into_temp_path();
         let final_filename = self.get_path(col, key);
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.dir, &*temp_filename, &self.dir, final_filename)?;
+        rustix::fs::renameat(&self.base_dir, &*temp_filename, &self.base_dir, final_filename)?;
         // Don't attempt deleting the temporary file now that it has been moved.
         std::mem::forget(temp_filename);
         Ok(())
@@ -175,7 +175,7 @@ impl FilesystemArchiver {
         let filename = self.get_path(col, key);
         let mode = Mode::empty();
         let flags = OFlags::RDONLY;
-        let file = rustix::fs::openat(&self.dir, &filename, flags, mode);
+        let file = rustix::fs::openat(&self.base_dir, &filename, flags, mode);
         let file = match file {
             Err(rustix::io::Errno::NOENT) => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -190,7 +190,7 @@ impl FilesystemArchiver {
 
     fn delete_file(&self, col: DBCol, key: &[u8]) -> io::Result<()> {
         let filename = self.get_path(col, key);
-        Ok(rustix::fs::unlinkat(&self.dir, &filename, rustix::fs::AtFlags::empty())?)
+        Ok(rustix::fs::unlinkat(&self.base_dir, &filename, rustix::fs::AtFlags::empty())?)
     }
 }
 
