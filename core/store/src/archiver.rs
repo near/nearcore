@@ -17,6 +17,28 @@ use crate::{
     DBCol,
 };
 
+pub struct ArchivalStorageOpener {
+    home_dir: std::path::PathBuf,
+    config: ArchivalStorageConfig,
+}
+
+impl ArchivalStorageOpener {
+    pub fn new(home_dir: std::path::PathBuf, config: ArchivalStorageConfig) -> Self {
+        Self { home_dir, config }
+    }
+
+    pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
+        let storage: Arc<dyn ArchivalStorage> = match &self.config.storage {
+            ArchivalStorageLocation::ColdDB => Arc::new(ColdDBArchiver::new(cold_db.clone())),
+            ArchivalStorageLocation::Filesystem { base_dir } => {
+                Arc::new(FilesystemArchiver::open(self.home_dir.join(base_dir).as_path())?)
+            }
+        };
+        let cold_store = Store::new(cold_db.clone());
+        Ok(Arc::new(Archiver { cold_store, cold_db, storage }))
+    }
+}
+
 #[derive(Clone)]
 pub struct Archiver {
     cold_store: Store,
@@ -25,20 +47,6 @@ pub struct Archiver {
 }
 
 impl Archiver {
-    pub(crate) fn new(
-        config: ArchivalStorageConfig,
-        cold_db: Arc<ColdDB>,
-    ) -> io::Result<Arc<Archiver>> {
-        let storage: Arc<dyn ArchivalStorage> = match &config.storage {
-            ArchivalStorageLocation::ColdDB => Arc::new(ColdDBArchiver::new(cold_db.clone())),
-            ArchivalStorageLocation::Filesystem { root_dir } => {
-                Arc::new(FilesystemArchiver::open(root_dir.as_path())?)
-            }
-        };
-        let cold_store = Store::new(cold_db.clone());
-        Ok(Arc::new(Archiver { cold_store, cold_db, storage }))
-    }
-
     pub(crate) fn from(cold_db: Arc<ColdDB>) -> Arc<Archiver> {
         let storage: Arc<dyn ArchivalStorage> = Arc::new(ColdDBArchiver::new(cold_db.clone()));
         let cold_store = Store::new(cold_db.clone());
