@@ -4907,6 +4907,7 @@ dependencies = [
  "smallvec",
  "strum",
  "tempfile",
+ "testlib",
  "thiserror 2.0.0",
  "tokio",
  "tracing",
