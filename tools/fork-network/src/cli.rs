@@ -23,7 +23,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, StateRoot,
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
@@ -40,6 +40,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
@@ -121,6 +122,20 @@ struct SetValidatorsCmd {
     /// will be used.
     #[arg(long)]
     pub protocol_version: Option<ProtocolVersion>,
+}
+
+const FORKED_ROOTS_KEY_PREFIX: &str = "FORK_TOOL_SHARD_ID:";
+
+fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
+    let key = std::str::from_utf8(key)?;
+    // Sanity check assertion since we should be iterating based on this prefix
+    assert!(key.starts_with(FORKED_ROOTS_KEY_PREFIX));
+    let int_part = &key[FORKED_ROOTS_KEY_PREFIX.len()..];
+    ShardId::from_str(int_part).with_context(|| format!("Failed parsing ShardId from {}", int_part))
+}
+
+fn make_state_roots_key(shard_id: ShardId) -> Vec<u8> {
+    format!("{FORKED_ROOTS_KEY_PREFIX}{shard_id}").into_bytes()
 }
 
 #[derive(clap::Parser)]
@@ -276,7 +291,7 @@ impl ForkNetworkCommand {
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
-        let state_roots: Vec<StateRoot> = shard_layout
+        let state_roots: Vec<(ShardId, StateRoot)> = shard_layout
             .shard_ids()
             .map(|shard_id| {
                 let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
@@ -287,7 +302,7 @@ impl ForkNetworkCommand {
                 let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
-                *state_root
+                (shard_id, *state_root)
             })
             .collect();
 
@@ -305,12 +320,8 @@ impl ForkNetworkCommand {
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH", &desired_block_hash)?;
         store_update.set(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT", &block_height.to_le_bytes());
-        for (shard_id, state_root) in state_roots.iter().enumerate() {
-            store_update.set_ser(
-                DBCol::Misc,
-                format!("FORK_TOOL_SHARD_ID:{shard_id}").as_bytes(),
-                state_root,
-            )?;
+        for (shard_id, state_root) in state_roots.iter() {
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
         }
         store_update.commit()?;
         Ok(())
@@ -329,17 +340,19 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let (prev_state_roots, prev_hash, epoch_id, block_height) =
-            self.get_state_roots_and_hash(store.clone())?;
-        tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
-
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
             &near_config.genesis.config,
             Some(home_dir),
         );
+        let (prev_state_roots, prev_hash, epoch_id, block_height) =
+            self.get_state_roots_and_hash(epoch_manager.as_ref(), store.clone())?;
+        tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
+
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let all_shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
+        assert_eq!(all_shard_uids.len(), prev_state_roots.len());
+
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
@@ -350,9 +363,17 @@ impl ForkNetworkCommand {
                 SingleShardStorageMutator::new(&runtime.clone(), prev_state_root)
             });
 
+        let prev_state_roots = prev_state_roots
+            .into_iter()
+            .enumerate()
+            .map(|(index, root)| {
+                let shard_id = shard_layout.get_shard_id(index).unwrap();
+                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                (shard_uid, root)
+            })
+            .collect::<Vec<_>>();
         let new_state_roots = self.prepare_state(
             batch_size,
-            &all_shard_uids,
             store,
             &prev_state_roots,
             block_height,
@@ -380,14 +401,14 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let (prev_state_roots, _prev_hash, epoch_id, block_height) =
-            self.get_state_roots_and_hash(store.clone())?;
-
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
             &near_config.genesis.config,
             Some(home_dir),
         );
+
+        let (prev_state_roots, _prev_hash, epoch_id, block_height) =
+            self.get_state_roots_and_hash(epoch_manager.as_ref(), store.clone())?;
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
@@ -440,24 +461,32 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
+    // The Vec<StateRoot> returned is in ShardIndex order
     fn get_state_roots_and_hash(
         &self,
+        epoch_manager: &EpochManagerHandle,
         store: Store,
     ) -> anyhow::Result<(Vec<StateRoot>, CryptoHash, EpochId, BlockHeight)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
         let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
         let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
-        let mut state_roots = vec![];
-        for (shard_id, item) in
-            store.iter_prefix(DBCol::Misc, "FORK_TOOL_SHARD_ID:".as_bytes()).enumerate()
-        {
+        let shard_layout = epoch_manager
+            .get_shard_layout(&epoch_id)
+            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
+        let mut state_roots = vec![None; shard_layout.shard_ids().count()];
+        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
             let (key, value) = item?;
-            let key = String::from_utf8(key.to_vec())?;
-            let state_root = borsh::from_slice(&value)?;
-            assert_eq!(key, format!("FORK_TOOL_SHARD_ID:{shard_id}"));
-            state_roots.push(state_root);
+            let shard_id = parse_state_roots_key(&key)?;
+            let shard_index = shard_layout
+                .get_shard_index(shard_id)
+                .with_context(|| format!("Failed finding shard index for {}", shard_id))?;
+            let state_root: StateRoot = borsh::from_slice(&value)?;
+
+            assert!(state_roots[shard_index].is_none());
+            state_roots[shard_index] = Some(state_root);
         }
+        let state_roots = state_roots.into_iter().map(|s| s.unwrap()).collect();
         tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
         Ok((state_roots, block_hash, epoch_id, block_height))
     }
@@ -711,21 +740,20 @@ impl ForkNetworkCommand {
     fn prepare_state(
         &self,
         batch_size: u64,
-        all_shard_uids: &[ShardUId],
         store: Store,
-        prev_state_roots: &[StateRoot],
+        prev_state_roots: &[(ShardUId, StateRoot)],
         block_height: BlockHeight,
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
     ) -> anyhow::Result<Vec<StateRoot>> {
-        let state_roots = all_shard_uids
+        let state_roots = prev_state_roots
             .into_par_iter()
-            .map(|shard_uid| {
+            .map(|(shard_uid, state_root)| {
                 let state_root = self
                     .prepare_shard_state(
                         batch_size,
                         *shard_uid,
                         store.clone(),
-                        prev_state_roots[shard_uid.shard_id as usize],
+                        *state_root,
                         block_height,
                         make_storage_mutator.clone(),
                     )

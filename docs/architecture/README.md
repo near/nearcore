@@ -268,35 +268,30 @@ changes.
 
 Not all tests are created equal though and while some may only need
 milliseconds to run, others may run for several seconds or even
-minutes.  Tests that take a long time should be marked as such with an
-`expensive_tests` feature, for example:
+minutes.  Tests that take a long time should be marked as such by
+prefixing their name with `slow_test_` or `ultra_slow_test_`:
 
 ```rust
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_random_single_part_sync() {
+fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
 ```
 
-Such tests will be ignored by default and can be executed by using
-`--ignored` or `--include-ignored` flag as in `cargo test --
---ignored` or by compiling the tests with `expensive_tests` feature
-enabled.
+During local development both slow and ultra-slow tests will not run
+with a typical `just nextest` invocation. You can run them with `just
+nextest-slow` or `just nextest-all` locally. CI will run the slow
+tests and the `ultra_slow` ones are left to run on Nayduck.
 
-Because expensive tests are not run by default, they are also not run
-in CI.  Instead, they are run nightly and need to be explicitly
+Because `ultra_slow` tests are run on nayduck, they need to be explicitly
 included in `nightly/expensive.txt` file; for example:
 
 ```text
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
 ```
 
 For more details regarding nightly tests see `nightly/README.md`.
 
-Note that what counts as a slow test isn’t exactly defined as of now.
-If it takes just a couple seconds then it’s probably fine.  Anything
-slower should probably be classified as an expensive test.  In
-particular, if libtest complains the test takes more than 60 seconds
-then it definitely is an expensive test.
+Note that what counts as a slow test is defined in
+`.config/nextest.toml`.

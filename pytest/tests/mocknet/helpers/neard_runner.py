@@ -476,6 +476,9 @@ class NeardRunner:
             except FileNotFoundError:
                 pass
 
+            self.reset_current_neard_path()
+            self.save_data()
+
             self.neard_init(rpc_port, protocol_port, validator_id)
             self.move_init_files()
 

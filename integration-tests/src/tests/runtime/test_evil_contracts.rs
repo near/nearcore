@@ -39,7 +39,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 }
 
 #[test]
-fn test_evil_deep_trie() {
+fn slow_test_evil_deep_trie() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
     for i in 0..50 {
         println!("insertStrings #{}", i);
@@ -88,7 +88,7 @@ fn test_evil_deep_trie() {
 /// Test delaying the conclusion of a receipt for as long as possible through the use of self
 /// cross-contract calls.
 #[test]
-fn test_self_delay() {
+fn slow_test_self_delay() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
     let res = node
         .user()
