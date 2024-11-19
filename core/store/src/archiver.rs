@@ -29,9 +29,14 @@ impl ArchivalStorageOpener {
 
     pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
         let storage: Arc<dyn ArchivalStorage> = match &self.config.storage {
-            ArchivalStorageLocation::ColdDB => Arc::new(ColdDBArchiver::new(cold_db.clone())),
-            ArchivalStorageLocation::Filesystem { base_dir } => {
-                Arc::new(FilesystemArchiver::open(self.home_dir.join(base_dir).as_path())?)
+            ArchivalStorageLocation::ColdDB => {
+                tracing::info!(target: "archiver", "Using ColdDB as the archival storage location");
+                Arc::new(ColdDBArchiver::new(cold_db.clone()))
+            }
+            ArchivalStorageLocation::Filesystem { path } => {
+                let base_path = self.home_dir.join(path);
+                tracing::info!(target: "archiver", path=%base_path.display(), "Using filesystem as the archival storage location");
+                Arc::new(FilesystemArchiver::open(base_path.as_path())?)
             }
         };
         let cold_store = Store::new(cold_db.clone());

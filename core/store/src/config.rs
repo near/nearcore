@@ -359,7 +359,7 @@ pub struct ArchivalStorageConfig {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum ArchivalStorageLocation {
     Filesystem {
-        base_dir: PathBuf,
+        path: PathBuf,
     },
     #[default]
     ColdDB,

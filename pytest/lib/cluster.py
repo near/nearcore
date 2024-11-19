@@ -1003,7 +1003,8 @@ def apply_config_changes(node_dir: str,
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
     allowed_missing_configs = (
-        'archive', 'consensus.block_fetch_horizon',
+        'archive', 'archival_storage',
+        'consensus.block_fetch_horizon',
         'consensus.block_header_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.max_block_production_delay',
@@ -1019,7 +1020,7 @@ def apply_config_changes(node_dir: str,
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
-            raise ValueError(f'Unknown configuration option: {k}')
+            raise ValueError(f"Unknown configuration option: {k}")
         if k in config_json and isinstance(v, dict):
             config_json[k].update(v)
         else:
