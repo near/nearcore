@@ -267,7 +267,7 @@ pub trait Database: Sync + Send {
     }
 }
 
-fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+pub(crate) fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
     assert!(
         value == old_value,
         "\

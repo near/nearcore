@@ -8,6 +8,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_store::archiver::Archiver;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
@@ -228,8 +229,9 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     // For that we need epoch_id.
     // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
     // we use cold_head_hash.
+    let archiver = Archiver::new_cold(store.cold_db().unwrap().clone());
     update_cold_db(
-        &*store.cold_db().unwrap(),
+        &archiver,
         &store.get_hot_store(),
         &epoch_manager
             .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
@@ -239,7 +241,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
 
-    update_cold_head(&*store.cold_db().unwrap(), &store.get_hot_store(), &next_height)
+    update_cold_head(&archiver, &store.get_hot_store(), &next_height)
         .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", next_height));
 }
 
@@ -255,17 +257,14 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold(
-        (*storage.cold_db().unwrap()).clone(),
-        &storage.get_hot_store(),
-        batch_size,
-        &keep_going,
-    )
-    .expect("Failed to do migration to cold db");
+    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+
+    copy_all_data_to_cold(archiver.cold_db(), &storage.get_hot_store(), batch_size, &keep_going)
+        .expect("Failed to do migration to cold db");
 
     // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
     // Doesn't really matter here, but very important in case of migration during `neard run`.
-    update_cold_head(&*storage.cold_db().unwrap(), &storage.get_hot_store(), &hot_final_head)
+    update_cold_head(&archiver, &storage.get_hot_store(), &hot_final_head)
         .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", hot_final_head));
 
     if check {

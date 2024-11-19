@@ -51,7 +51,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::StateSnapshotType;
+use near_store::config::{ArchivalStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -274,6 +274,8 @@ pub struct Config {
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archival_storage: Option<ArchivalStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -368,6 +370,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,
+            archival_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),

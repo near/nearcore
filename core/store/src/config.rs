@@ -3,6 +3,7 @@ use crate::trie::{
 };
 use crate::DBCol;
 use near_primitives::shard_layout::ShardUId;
+use std::path::PathBuf;
 use std::{collections::HashMap, iter::FromIterator};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -345,4 +346,21 @@ pub struct PrefetchConfig {
     pub sender: String,
     /// Contract method name.
     pub method_name: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ArchivalStorageConfig {
+    /// The storage defaults to ColdDB if cold rocksdb is specified.
+    pub storage: ArchivalStorageLocation,
+}
+
+/// Similar to External
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum ArchivalStorageLocation {
+    Filesystem {
+        root_dir: PathBuf,
+    },
+    #[default]
+    ColdDB,
 }

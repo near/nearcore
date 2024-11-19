@@ -4901,6 +4901,7 @@ dependencies = [
  "reed-solomon-erasure",
  "rlimit",
  "rocksdb",
+ "rustix",
  "serde",
  "serde_json",
  "smallvec",
