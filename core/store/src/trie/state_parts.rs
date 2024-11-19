@@ -326,7 +326,7 @@ impl Trie {
         let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
 
-        let mut iterator = self.disk_iter().unwrap();
+        let mut iterator = self.disk_iter()?;
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
             target: "state-parts",
