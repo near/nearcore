@@ -580,7 +580,6 @@ pub fn validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
-    tracing::debug!(target: "client", "shard_uid: {:?}", shard_uid);
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
