@@ -3,6 +3,7 @@ use crate::chain::{
     ShardContext, StorageContext,
 };
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use crate::resharding::event_type::ReshardingEventType;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::types::{
@@ -22,16 +23,17 @@ use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ProtocolVersion, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
-use near_store::PartialStorage;
+use near_store::trie::ops::resharding::RetainMode;
+use near_store::{PartialStorage, Trie};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -71,7 +73,7 @@ impl MainTransition {
 
 pub struct PreValidationOutput {
     pub main_transition_params: MainTransition,
-    pub implicit_transition_params: Vec<ApplyChunkBlockContext>,
+    pub implicit_transition_params: Vec<ImplicitTransitionParams>,
 }
 
 #[derive(Clone)]
@@ -113,72 +115,202 @@ pub fn validate_prepared_transactions(
     )
 }
 
+pub enum ImplicitTransitionParams {
+    ApplyChunk(ApplyChunkBlockContext, ShardContext),
+    Resharding(AccountId, RetainMode, ShardUId),
+}
+
 struct StateWitnessBlockRange {
-    /// Blocks from the last new chunk (exclusive) to the parent block
-    /// (inclusive).
-    blocks_after_last_chunk: Vec<Block>,
+    /// Transition parameters **after** the last chunk, corresponding to all
+    /// state transitions from the last new chunk (exclusive) to the parent
+    /// block (inclusive).
+    implicit_transition_params: Vec<ImplicitTransitionParams>,
     /// Blocks from the last last new chunk (exclusive) to the last new chunk
-    /// (inclusive).
+    /// (inclusive). Note they are in **reverse** order, from the newest to the
+    /// oldest. They are needed to validate the chunk's source receipt proofs.
     blocks_after_last_last_chunk: Vec<Block>,
+    /// Shard id and index of last chunk before the chunk being validated.
     last_chunk_shard_id: ShardId,
     last_chunk_shard_index: ShardIndex,
 }
 
+/// Gets ranges of blocks that are needed to validate a chunk state witness.
+/// Iterates backwards through the chain, from the chunk being validated to
+/// the second last chunk, if it exists.
 fn get_state_witness_block_range(
     store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
     state_witness: &ChunkStateWitness,
 ) -> Result<StateWitnessBlockRange, Error> {
-    let mut blocks_after_last_chunk = Vec::new();
+    let mut implicit_transition_params = Vec::new();
     let mut blocks_after_last_last_chunk = Vec::new();
 
-    let mut block_hash = *state_witness.chunk_header.prev_block_hash();
-    let mut prev_chunks_seen = 0;
+    /// Position in the chain while traversing the blocks backwards.
+    struct TraversalPosition {
+        /// Shard ID of chunk, needed to validate state transitions, in the
+        /// currently observed block.
+        shard_id: ShardId,
+        /// Hash of the previous block.
+        prev_hash: CryptoHash,
+        /// Previous block.
+        prev_block: Block,
+        /// Number of chunks seen during traversal.
+        chunks_seen: u32,
+        /// Below, supposed id and index of last chunk before the chunk being
+        /// validated.
+        last_chunk_shard_id: ShardId,
+        last_chunk_shard_index: usize,
+    }
 
-    // It is ok to use the shard id from the header because it is a new
-    // chunk. An old chunk may have the shard id from the parent shard.
-    let (mut current_shard_id, mut current_shard_index) =
-        epoch_manager.get_prev_shard_id(&block_hash, state_witness.chunk_header.shard_id())?;
+    let initial_prev_hash = *state_witness.chunk_header.prev_block_hash();
+    let initial_prev_block = store.get_block(&initial_prev_hash)?;
+    let initial_shard_layout =
+        epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;
+    let initial_shard_id = state_witness.chunk_header.shard_id();
+    let initial_shard_index = initial_shard_layout.get_shard_index(initial_shard_id)?;
 
-    let mut last_chunk_shard_id = current_shard_id;
-    let mut last_chunk_shard_index = current_shard_index;
+    let mut position = TraversalPosition {
+        shard_id: initial_shard_id,
+        prev_hash: initial_prev_hash,
+        prev_block: initial_prev_block,
+        chunks_seen: 0,
+        last_chunk_shard_id: initial_shard_id,
+        last_chunk_shard_index: initial_shard_index,
+    };
+
     loop {
-        let block = store.get_block(&block_hash)?;
-        let prev_hash = *block.header().prev_hash();
-        let chunks = block.chunks();
-        let Some(chunk) = chunks.get(current_shard_index) else {
-            return Err(Error::InvalidChunkStateWitness(format!(
+        let prev_prev_hash = *position.prev_block.header().prev_hash();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&position.prev_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(position.shard_id, &shard_layout);
+
+        if let Some(transition) = check_shard_layout_transition(
+            epoch_manager,
+            &position.prev_hash,
+            &shard_layout,
+            shard_uid,
+            position.chunks_seen,
+        )? {
+            implicit_transition_params.push(transition);
+        }
+        let (prev_shard_id, prev_shard_index) =
+            epoch_manager.get_prev_shard_id(&position.prev_hash, position.shard_id)?;
+
+        let chunks = position.prev_block.chunks();
+        let chunk = chunks.get(prev_shard_index).ok_or_else(|| {
+            Error::InvalidChunkStateWitness(format!(
                 "Shard {} does not exist in block {:?}",
-                current_shard_id, block_hash
-            )));
-        };
-        let is_new_chunk = chunk.is_new_chunk(block.header().height());
-        let is_genesis = block.header().is_genesis();
-        if is_new_chunk {
-            prev_chunks_seen += 1;
+                prev_shard_id, position.prev_hash
+            ))
+        })?;
+
+        let is_new_chunk = chunk.is_new_chunk(position.prev_block.header().height());
+        let chunks_seen_update = position.chunks_seen + if is_new_chunk { 1 } else { 0 };
+
+        match chunks_seen_update {
+            // If we have seen 0 chunks, the block contributes to implicit
+            // state transition.
+            0 => {
+                let block_context = Chain::get_apply_chunk_block_context(
+                    epoch_manager,
+                    &position.prev_block,
+                    &store.get_block_header(&prev_prev_hash)?,
+                    false,
+                )?;
+
+                implicit_transition_params.push(ImplicitTransitionParams::ApplyChunk(
+                    block_context,
+                    ShardContext { shard_uid, should_apply_chunk: false },
+                ));
+            }
+            // If we have seen 1 chunk, the block contributes to source receipt
+            // proofs.
+            1 => blocks_after_last_last_chunk.push(position.prev_block.clone()),
+            // If we have seen the 2nd chunk, we are done.
+            2 => break,
+            _ => unreachable!("chunks_seen should never exceed 2"),
         }
-        if prev_chunks_seen == 0 {
-            last_chunk_shard_id = current_shard_id;
-            last_chunk_shard_index = current_shard_index;
-            blocks_after_last_chunk.push(block);
-        } else if prev_chunks_seen == 1 {
-            blocks_after_last_last_chunk.push(block);
-        }
-        if prev_chunks_seen == 2 || is_genesis {
+
+        if position.prev_block.header().is_genesis() {
             break;
         }
 
-        block_hash = prev_hash;
-        (current_shard_id, current_shard_index) =
-            epoch_manager.get_prev_shard_id(&prev_hash, current_shard_id)?;
+        let prev_prev_block = store.get_block(&prev_prev_hash)?;
+        position = TraversalPosition {
+            shard_id: prev_shard_id,
+            prev_hash: prev_prev_hash,
+            prev_block: prev_prev_block,
+            chunks_seen: chunks_seen_update,
+            // If we have not seen chunks, switch to previous shard id, but
+            // once we just saw the first chunk, start keeping its shard id.
+            last_chunk_shard_id: if position.chunks_seen == 0 {
+                prev_shard_id
+            } else {
+                position.last_chunk_shard_id
+            },
+            last_chunk_shard_index: if position.chunks_seen == 0 {
+                prev_shard_index
+            } else {
+                position.last_chunk_shard_index
+            },
+        };
     }
 
+    implicit_transition_params.reverse();
     Ok(StateWitnessBlockRange {
-        blocks_after_last_chunk,
+        implicit_transition_params,
         blocks_after_last_last_chunk,
-        last_chunk_shard_id,
-        last_chunk_shard_index,
+        last_chunk_shard_id: position.last_chunk_shard_id,
+        last_chunk_shard_index: position.last_chunk_shard_index,
     })
+}
+
+/// Checks if chunk validation requires a transition to new shard layout in the
+/// block with `prev_hash`, with a split resulting in the `shard_uid`, and if
+/// so, returns the corresponding resharding transition parameters.
+fn check_shard_layout_transition(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_hash: &CryptoHash,
+    shard_layout: &ShardLayout,
+    shard_uid: ShardUId,
+    chunks_seen: u32,
+) -> Result<Option<ImplicitTransitionParams>, Error> {
+    // If we have already seen a new chunk, we don't need to validate
+    // resharding transition.
+    if chunks_seen > 0 {
+        return Ok(None);
+    }
+
+    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
+    let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
+    let block_has_new_shard_layout =
+        epoch_manager.is_next_block_epoch_start(prev_hash)? && shard_layout != &prev_shard_layout;
+
+    if !block_has_new_shard_layout {
+        return Ok(None);
+    }
+
+    let Some(ReshardingEventType::SplitShard(params)) =
+        ReshardingEventType::from_shard_layout(shard_layout, *prev_hash)?
+    else {
+        return Ok(None);
+    };
+
+    if params.left_child_shard == shard_uid {
+        Ok(Some(ImplicitTransitionParams::Resharding(
+            params.boundary_account,
+            RetainMode::Left,
+            shard_uid,
+        )))
+    } else if params.right_child_shard == shard_uid {
+        Ok(Some(ImplicitTransitionParams::Resharding(
+            params.boundary_account,
+            RetainMode::Right,
+            shard_uid,
+        )))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Pre-validates the chunk's receipts and transactions against the chain.
@@ -200,25 +332,11 @@ pub fn pre_validate_chunk_state_witness(
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
     let StateWitnessBlockRange {
-        blocks_after_last_chunk,
+        implicit_transition_params,
         blocks_after_last_last_chunk,
         last_chunk_shard_id,
         last_chunk_shard_index,
     } = get_state_witness_block_range(store, epoch_manager, state_witness)?;
-
-    let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
-        Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
-    })?;
-    let last_chunk_shard_layout =
-        epoch_manager.get_shard_layout(&last_chunk_block.header().epoch_id())?;
-    let chunk_shard_layout = epoch_manager
-        .get_shard_layout_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
-    if last_chunk_shard_layout != chunk_shard_layout {
-        return Ok(PreValidationOutput {
-            main_transition_params: MainTransition::ShardLayoutChange,
-            implicit_transition_params: Vec::new(),
-        });
-    }
 
     let receipts_to_apply = validate_source_receipt_proofs(
         epoch_manager,
@@ -341,21 +459,7 @@ pub fn pre_validate_chunk_state_witness(
         })
     };
 
-    Ok(PreValidationOutput {
-        main_transition_params,
-        implicit_transition_params: blocks_after_last_chunk
-            .into_iter()
-            .rev()
-            .map(|block| -> Result<_, Error> {
-                Ok(Chain::get_apply_chunk_block_context(
-                    epoch_manager,
-                    &block,
-                    &store.get_block_header(block.header().prev_hash())?,
-                    false,
-                )?)
-            })
-            .collect::<Result<_, _>>()?,
-    })
+    Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
 }
 
 /// Validate that receipt proofs contain the receipts that should be applied during the
@@ -484,6 +588,7 @@ pub fn validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
+    tracing::debug!(target: "client", "shard_uid: {:?}", shard_uid);
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
@@ -498,12 +603,7 @@ pub fn validate_chunk_state_witness(
                     ApplyChunkReason::ValidateChunkStateWitness,
                     &span,
                     new_chunk_data,
-                    ShardContext {
-                        shard_uid,
-                        cares_about_shard_this_epoch: true,
-                        will_shard_layout_change: false,
-                        should_apply_chunk: true,
-                    },
+                    ShardContext { shard_uid, should_apply_chunk: true },
                     runtime_adapter,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
@@ -549,43 +649,68 @@ pub fn validate_chunk_state_witness(
         );
     }
 
-    for (block, transition) in pre_validation_output
+    if pre_validation_output.implicit_transition_params.len()
+        != state_witness.implicit_transitions.len()
+    {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Implicit transitions count mismatch. Expected {}, found {}",
+            pre_validation_output.implicit_transition_params.len(),
+            state_witness.implicit_transitions.len(),
+        )));
+    }
+
+    for (implicit_transition_params, transition) in pre_validation_output
         .implicit_transition_params
         .into_iter()
         .zip(state_witness.implicit_transitions.into_iter())
     {
-        let block_hash = block.block_hash;
-        let old_chunk_data = OldChunkData {
-            prev_chunk_extra: chunk_extra.clone(),
-            block,
-            storage_context: StorageContext {
-                storage_data_source: StorageDataSource::Recorded(PartialStorage {
-                    nodes: transition.base_state,
-                }),
-                state_patch: Default::default(),
-            },
+        let (shard_uid, new_state_root) = match implicit_transition_params {
+            ImplicitTransitionParams::ApplyChunk(block, shard_context) => {
+                let shard_uid = shard_context.shard_uid;
+                let old_chunk_data = OldChunkData {
+                    prev_chunk_extra: chunk_extra.clone(),
+                    block,
+                    storage_context: StorageContext {
+                        storage_data_source: StorageDataSource::Recorded(PartialStorage {
+                            nodes: transition.base_state,
+                        }),
+                        state_patch: Default::default(),
+                    },
+                };
+                let OldChunkResult { apply_result, .. } = apply_old_chunk(
+                    ApplyChunkReason::ValidateChunkStateWitness,
+                    &span,
+                    old_chunk_data,
+                    shard_context,
+                    runtime_adapter,
+                )?;
+                (shard_uid, apply_result.new_root)
+            }
+            ImplicitTransitionParams::Resharding(
+                boundary_account,
+                retain_mode,
+                child_shard_uid,
+            ) => {
+                panic!("resharding should not be validated");
+                let old_root = *chunk_extra.state_root();
+                let trie = Trie::from_recorded_storage(
+                    PartialStorage { nodes: transition.base_state },
+                    old_root,
+                    true,
+                );
+                let new_root = trie.retain_split_shard(&boundary_account, retain_mode)?;
+                (child_shard_uid, new_root)
+            }
         };
-        let OldChunkResult { apply_result, .. } = apply_old_chunk(
-            ApplyChunkReason::ValidateChunkStateWitness,
-            &span,
-            old_chunk_data,
-            ShardContext {
-                // Consider other shard uid in case of resharding.
-                shard_uid,
-                cares_about_shard_this_epoch: true,
-                will_shard_layout_change: false,
-                should_apply_chunk: false,
-            },
-            runtime_adapter,
-        )?;
-        *chunk_extra.state_root_mut() = apply_result.new_root;
+
+        *chunk_extra.state_root_mut() = new_state_root;
         if chunk_extra.state_root() != &transition.post_state_root {
             // This is an early check, it's not for correctness, only for better
             // error reporting in case of an invalid state witness due to a bug.
             // Only the final state root check against the chunk header is required.
             return Err(Error::InvalidChunkStateWitness(format!(
-                "Post state root {:?} for implicit transition at block {:?}, does not match expected state root {:?}",
-                chunk_extra.state_root(), block_hash, transition.post_state_root
+                "Post state root {:?} for implicit transition at block {:?} to shard {:?}, does not match expected state root {:?}",
+                chunk_extra.state_root(), transition.block_hash, shard_uid, transition.post_state_root
             )));
         }
     }

@@ -257,20 +257,22 @@ fn get_current_state(
         _ => None,
     };
 
-    let latest_epoch_info = get_latest_epoch(shard_id, &chain, epoch_manager.clone());
-    let LatestEpochInfo {
+    let maybe_latest_epoch_info = get_latest_epoch(shard_id, &chain, epoch_manager.clone());
+    let latest_epoch_info = match maybe_latest_epoch_info {
+        Ok(latest_epoch_info) => latest_epoch_info,
+        Err(err) => {
+            tracing::error!(target: "state_sync_dump", ?shard_id, ?err, "Failed to get the latest epoch");
+            return Err(err);
+        }
+    };
+    let Some(LatestEpochInfo {
         prev_epoch_id,
         epoch_id: new_epoch_id,
         epoch_height: new_epoch_height,
         sync_hash: new_sync_hash,
-    } = latest_epoch_info.map_err(|err| {
-        tracing::error!(target: "state_sync_dump", ?shard_id, ?err, "Failed to get the latest epoch");
-        err
-    })?;
-
-    let new_sync_hash = match new_sync_hash {
-        Some(h) => h,
-        None => return Ok(StateDumpAction::Wait),
+    }) = latest_epoch_info
+    else {
+        return Ok(StateDumpAction::Wait);
     };
 
     if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
@@ -656,7 +658,7 @@ struct LatestEpochInfo {
     prev_epoch_id: EpochId,
     epoch_id: EpochId,
     epoch_height: EpochHeight,
-    sync_hash: Option<CryptoHash>,
+    sync_hash: CryptoHash,
 }
 
 /// return epoch_id and sync_hash of the latest complete epoch available locally.
@@ -664,13 +666,18 @@ fn get_latest_epoch(
     shard_id: &ShardId,
     chain: &Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> Result<LatestEpochInfo, Error> {
+) -> Result<Option<LatestEpochInfo>, Error> {
     let head = chain.head()?;
     tracing::debug!(target: "state_sync_dump", ?shard_id, "Check if a new complete epoch is available");
     let hash = head.last_block_hash;
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();
-    let sync_hash = chain.get_sync_hash(final_hash)?;
+    if final_hash == &CryptoHash::default() {
+        return Ok(None);
+    }
+    let Some(sync_hash) = chain.get_sync_hash(final_hash)? else {
+        return Ok(None);
+    };
     let final_block_header = chain.get_block_header(&final_hash)?;
     let epoch_id = *final_block_header.epoch_id();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
@@ -679,5 +686,5 @@ fn get_latest_epoch(
 
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");
 
-    Ok(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash })
+    Ok(Some(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash }))
 }
