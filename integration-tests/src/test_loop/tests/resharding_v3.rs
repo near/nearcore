@@ -592,7 +592,7 @@ fn test_resharding_v3_shard_shuffling() {
 }
 
 #[test]
-// TOOD(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
 #[ignore]
 fn test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
@@ -603,7 +603,7 @@ fn test_resharding_v3_delayed_receipts_left_child() {
 }
 
 #[test]
-// TOOD(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
 #[ignore]
 fn test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
