@@ -19,7 +19,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
 #[tokio::test]
-async fn connection_spam_security_test() {
+async fn slow_test_connection_spam_security_test() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;

@@ -233,7 +233,7 @@ fn test_flat_storage_creation_sanity() {
 
 /// Check that client can create flat storage on some shard while it already exists on another shard.
 #[test]
-fn test_flat_storage_creation_two_shards() {
+fn slow_test_flat_storage_creation_two_shards() {
     init_test_logger();
     let num_shards = 2;
     let genesis =

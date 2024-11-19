@@ -332,7 +332,7 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
 }
 
 #[test]
-fn test_protocol_upgrade_under_congestion() {
+fn slow_test_protocol_upgrade_under_congestion() {
     init_test_logger();
 
     // The following only makes sense to test if the feature is enabled in the current build.
@@ -653,7 +653,7 @@ fn test_transaction_limit_for_remote_congestion() {
 
 /// Test that clients stop including transactions to fully congested receivers.
 #[test]
-fn test_transaction_filtering() {
+fn slow_test_transaction_filtering() {
     init_test_logger();
 
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {

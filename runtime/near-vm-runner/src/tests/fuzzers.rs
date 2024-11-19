@@ -141,7 +141,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 }
 
 #[test]
-fn current_vm_does_not_crash_fuzzer() {
+fn slow_test_current_vm_does_not_crash_fuzzer() {
     let config = test_vm_config();
     if config.vm_kind.is_available() {
         bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(
@@ -155,7 +155,7 @@ fn current_vm_does_not_crash_fuzzer() {
 
 #[test]
 #[cfg_attr(not(all(feature = "wasmtime_vm", feature = "near_vm", target_arch = "x86_64")), ignore)]
-fn near_vm_and_wasmtime_agree_fuzzer() {
+fn slow_test_near_vm_and_wasmtime_agree_fuzzer() {
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
         let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
@@ -166,7 +166,7 @@ fn near_vm_and_wasmtime_agree_fuzzer() {
 
 #[test]
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-fn near_vm_is_reproducible_fuzzer() {
+fn slow_test_near_vm_is_reproducible_fuzzer() {
     use crate::near_vm_runner::NearVM;
     use near_primitives_core::hash::CryptoHash;
 
