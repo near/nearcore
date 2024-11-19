@@ -168,7 +168,10 @@ pub trait TrieQueue {
         })?;
         let modified_item = modify_fn(first_item);
         match modified_item {
-            Some(item) => set(state_update, key, &item),
+            Some(item) => {
+                set(state_update, key, &item);
+                self.write_indices(state_update);
+            }
             None => {
                 // Modify function returned None, remove the first item.
                 let _removed = self.pop_front(state_update)?;
