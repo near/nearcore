@@ -242,7 +242,6 @@ impl<'a> DiskTrieIterator<'a> {
     fn has_value(&self) -> bool {
         match self.trail.last() {
             Some(b) => match &b.status {
-                // CrumbStatus::At => b.node.node.has_value(),
                 CrumbStatus::At => match &b.node {
                     Some(node) => node.node.has_value(),
                     None => false,
@@ -313,12 +312,9 @@ impl<'a> DiskTrieIterator<'a> {
                         IterStep::Continue
                     }
                 }
-                TrieNode::Leaf(_, _) => {
-                    panic!("LEAF: Should never see AtChild without a Branch here.");
+                _ => {
+                    panic!("Should never see AtChild without a Branch here.");
                 }
-                TrieNode::Extension(_, _) => {
-                    panic!("EXTENSION: Should never see AtChild without a Branch here.");
-                } // _ => panic!("Should never see AtChild without a Branch here."),
             },
             _ => panic!("Should never see Entering or AtChild without a Branch here."),
         })

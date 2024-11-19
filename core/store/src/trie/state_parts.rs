@@ -79,9 +79,6 @@ impl Trie {
             }
             None => Ok(vec![]),
         }
-        // let total_size = root_node.memory_usage;
-        // let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
-        // self.find_node_in_dfs_order(&root_node, size_start)
     }
 
     /// Generates state parts using the trie storage (i.e. State) and not using
