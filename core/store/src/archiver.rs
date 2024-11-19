@@ -132,7 +132,7 @@ impl FilesystemArchiver {
         for col in DBCol::iter() {
             if col.is_cold() {
                 let path: std::path::PathBuf =
-                    [base_path, Self::to_dirname(col)].into_iter().collect();
+                    [base_path, cold_column_dirname(col).as_ref()].into_iter().collect();
                 std::fs::create_dir(&path).unwrap();
                 col_to_dir.insert(col, path);
             }
@@ -145,10 +145,6 @@ impl FilesystemArchiver {
         let dirname = self.col_to_dir.get(&col);
         let filename = bs58::encode(key).with_alphabet(bs58::Alphabet::BITCOIN).into_string();
         [dirname.as_ref().unwrap(), std::path::Path::new(&filename)].into_iter().collect()
-    }
-
-    fn to_dirname(col: DBCol) -> &'static std::path::Path {
-        <&str>::from(col).as_ref()
     }
 
     fn write_file(&self, col: DBCol, key: &[u8], value: &[u8]) -> io::Result<()> {
@@ -229,5 +225,31 @@ impl ArchivalStorage for FilesystemArchiver {
             .unwrap();
         }
         Ok(())
+    }
+}
+
+fn cold_column_dirname(col: DBCol) -> &'static str {
+    match col {
+        DBCol::BlockMisc => "BlockMisc",
+        DBCol::Block => "Block",
+        DBCol::BlockExtra => "BlockExtra",
+        DBCol::BlockInfo => "BlockInfo",
+        DBCol::BlockPerHeight => "BlockPerHeight",
+        DBCol::ChunkExtra => "ChunkExtra",
+        DBCol::ChunkHashesByHeight => "ChunkHashesByHeight",
+        DBCol::Chunks => "Chunks",
+        DBCol::IncomingReceipts => "IncomingReceipts",
+        DBCol::NextBlockHashes => "NextBlockHashes",
+        DBCol::OutcomeIds => "OutcomeIds",
+        DBCol::OutgoingReceipts => "OutgoingReceipts",
+        DBCol::Receipts => "Receipts",
+        DBCol::State => "State",
+        DBCol::StateChanges => "StateChanges",
+        DBCol::StateChangesForSplitStates => "StateChangesForSplitStates",
+        DBCol::StateHeaders => "StateHeaders",
+        DBCol::TransactionResultForBlock => "TransactionResultForBlock",
+        DBCol::Transactions => "Transactions",
+        DBCol::StateShardUIdMapping => "StateShardUIdMapping",
+        _ => panic!("Missing entry for column: {:?}", col),
     }
 }
