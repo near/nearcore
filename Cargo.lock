@@ -7679,6 +7679,7 @@ dependencies = [
  "near-primitives",
  "near-test-contracts",
  "node-runtime",
+ "rand",
 ]
 
 [[package]]
