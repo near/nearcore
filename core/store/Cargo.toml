@@ -16,6 +16,7 @@ actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
+bs58.workspace = true
 bytesize.workspace = true
 crossbeam.workspace = true
 derive_more.workspace = true

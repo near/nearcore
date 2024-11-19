@@ -4873,6 +4873,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
+ "bs58 0.4.0",
  "bytesize",
  "crossbeam",
  "derive-where",
