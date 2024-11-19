@@ -112,6 +112,7 @@ struct TestReshardingParameters {
     epoch_length: BlockHeightDelta,
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
+    load_mem_tries_for_tracked_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
     loop_action: Option<Box<dyn Fn(&mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
@@ -212,6 +213,14 @@ impl TestReshardingParameters {
 
     fn chunk_miss_possible(mut self) -> Self {
         self.all_chunks_expected = false;
+        self
+    }
+
+    fn load_mem_tries_for_tracked_shards(
+        mut self,
+        load_mem_tries_for_tracked_shards: bool,
+    ) -> Self {
+        self.load_mem_tries_for_tracked_shards = load_mem_tries_for_tracked_shards;
         self
     }
 }
@@ -342,6 +351,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
+        .load_mem_tries_for_tracked_shards(params.load_mem_tries_for_tracked_shards)
         .drop_protocol_upgrade_chunks(
             base_protocol_version + 1,
             params.chunk_ranges_to_drop.clone(),
@@ -403,7 +413,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 }
 
 #[test]
-fn test_resharding_v3() {
+fn test_resharding_v3_simple() {
     test_resharding_v3_base(TestReshardingParameters::new());
 }
 
@@ -476,5 +486,11 @@ fn test_resharding_v3_shard_shuffling() {
         .shuffle_shard_assignment()
         .single_shard_tracking()
         .chunk_miss_possible();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+fn test_resharding_v3_load_mem_trie() {
+    let params = TestReshardingParameters::new().load_mem_tries_for_tracked_shards(false);
     test_resharding_v3_base(params);
 }

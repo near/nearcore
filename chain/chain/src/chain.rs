@@ -510,6 +510,14 @@ impl Chain {
         };
         store_update.commit()?;
 
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store().clone(),
+            epoch_manager.clone(),
+            runtime_adapter.clone(),
+            chain_config.resharding_config,
+            resharding_sender,
+        );
+
         // We must load in-memory tries here, and not inside runtime, because
         // if we were initializing from genesis, the runtime would be
         // initialized when no blocks or flat storage were initialized. We
@@ -517,8 +525,8 @@ impl Chain {
         // TODO(#9511): The calculation of shard UIDs is not precise in the case
         // of resharding. We need to revisit this.
         let tip = chain_store.head()?;
-        let shard_uids: Vec<_> =
-            epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
+        let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
+        let shard_uids = shard_layout.shard_uids().collect_vec();
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
@@ -531,7 +539,15 @@ impl Chain {
             })
             .cloned()
             .collect();
-        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(&tracked_shards, true)?;
+
+        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
+        let extra_load_mem_tries_for_shards = resharding_manager
+            .get_extra_load_mem_tries_for_shards(head_protocol_version, PROTOCOL_VERSION)?;
+        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(
+            &tracked_shards,
+            &extra_load_mem_tries_for_shards,
+            true,
+        )?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -549,13 +565,6 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager = ReshardingManager::new(
-            chain_store.store().clone(),
-            epoch_manager.clone(),
-            runtime_adapter.clone(),
-            chain_config.resharding_config,
-            resharding_sender,
-        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -3618,6 +3627,7 @@ impl Chain {
         })
     }
 
+    // TODO(wacban) - unused, remove it
     pub fn get_resharding_state_roots(
         chain_store: &dyn ChainStoreAccess,
         epoch_manager: &dyn EpochManagerAdapter,
