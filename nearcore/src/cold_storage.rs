@@ -424,18 +424,9 @@ pub fn spawn_cold_store_loop(
         return Ok(None);
     }
 
+    let archiver = storage.archiver().unwrap().clone();
     let hot_store = storage.get_hot_store();
-    let cold_db = match storage.cold_db() {
-        Some(cold_db) => cold_db.clone(),
-        None => {
-            tracing::debug!(target : "cold_store", "Not spawning the cold store loop because cold store is not configured");
-            return Ok(None);
-        }
-    };
-
     let genesis_height = config.genesis.config.genesis_height;
-    let archival_storage_config = config.config.archival_storage.clone().unwrap_or_default();
-    let archiver = Archiver::new(archival_storage_config, cold_db)?;
 
     // Perform the sanity check before spawning the thread.
     // If the check fails when the node is starting it's better to just fail

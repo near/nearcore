@@ -333,7 +333,7 @@ pub fn copy_all_data_to_cold(
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
 pub fn test_cold_genesis_update(cold_db: Arc<ColdDB>, hot_store: &Store) -> io::Result<()> {
-    let archiver = Archiver::new_cold(cold_db);
+    let archiver = Archiver::from(cold_db);
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;

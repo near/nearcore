@@ -39,6 +39,7 @@ fn main() {
         near_config.config.archive,
         &near_config.config.store,
         None,
+        None,
     )
     .open()
     .unwrap()

@@ -93,6 +93,7 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         near_config.client_config.archive,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
+        near_config.config.archival_storage.as_ref(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {

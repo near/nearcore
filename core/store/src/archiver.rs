@@ -23,7 +23,10 @@ pub struct Archiver {
 }
 
 impl Archiver {
-    pub fn new(config: ArchivalStorageConfig, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
+    pub(crate) fn new(
+        config: ArchivalStorageConfig,
+        cold_db: Arc<ColdDB>,
+    ) -> io::Result<Arc<Archiver>> {
         let storage: Arc<dyn ArchivalStorage> = match &config.storage {
             ArchivalStorageLocation::ColdDB => Arc::new(ColdDBArchiver::new(cold_db.clone())),
             ArchivalStorageLocation::Filesystem { root_dir } => {
@@ -34,7 +37,7 @@ impl Archiver {
         Ok(Arc::new(Archiver { cold_store, cold_db, storage }))
     }
 
-    pub fn new_cold(cold_db: Arc<ColdDB>) -> Arc<Archiver> {
+    pub(crate) fn from(cold_db: Arc<ColdDB>) -> Arc<Archiver> {
         let storage: Arc<dyn ArchivalStorage> = Arc::new(ColdDBArchiver::new(cold_db.clone()));
         let cold_store = Store::new(cold_db.clone());
         Arc::new(Archiver { cold_store, cold_db, storage })

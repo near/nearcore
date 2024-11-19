@@ -85,6 +85,7 @@ impl HighLoadStatsCommand {
             near_config.archive,
             &near_config.store,
             near_config.cold_store.as_ref(),
+            near_config.archival_storage.as_ref(),
         );
         let storage = opener.open()?;
         let store = std::sync::Arc::new(

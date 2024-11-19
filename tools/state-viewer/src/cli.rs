@@ -144,12 +144,12 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
         let store_opener = NodeStorage::opener(
             home_dir,
             near_config.config.archive,
             &near_config.config.store,
-            cold_config,
+            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_storage.as_ref(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();

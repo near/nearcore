@@ -13,7 +13,6 @@ use near_primitives::transaction::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
-use near_store::archiver::Archiver;
 use near_store::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
     test_get_store_reads, update_cold_db, update_cold_head,
@@ -116,7 +115,7 @@ fn test_storage_after_commit_of_cold_update() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
 
     test_cold_genesis_update(archiver.cold_db(), &env.clients[0].runtime_adapter.store()).unwrap();
 
@@ -210,7 +209,7 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
-    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)
@@ -251,7 +250,7 @@ fn test_cold_db_copy_with_height_skips() {
         .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
 
     test_cold_genesis_update(archiver.cold_db(), &env.clients[0].runtime_adapter.store()).unwrap();
 
@@ -414,7 +413,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
-    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
     let mut env = TestEnv::builder(&genesis.config)
         .archive(true)
         .save_trie_changes(true)

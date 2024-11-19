@@ -150,6 +150,7 @@ pub(crate) fn open_storage_for_replay(
         near_config.client_config.archive,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
+        near_config.config.archival_storage.as_ref(),
     );
     let split_storage = opener.open_in_mode(Mode::ReadOnly).context("Failed to open storage")?;
     match split_storage.get_split_db() {

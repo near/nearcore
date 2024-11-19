@@ -1,3 +1,5 @@
+use crate::archiver::Archiver;
+use crate::config::ArchivalStorageConfig;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
 use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
@@ -174,6 +176,9 @@ pub struct StoreOpener<'a> {
     /// A migrator which performs database migration if the database has old
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
+
+    /// Archival config. This is set to a valid config iff archive is true.
+    archival: Option<ArchivalStorageConfig>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -202,11 +207,21 @@ impl<'a> StoreOpener<'a> {
         archive: bool,
         config: &'a StoreConfig,
         cold_config: Option<&'a StoreConfig>,
+        archival_config: Option<&'a ArchivalStorageConfig>,
     ) -> Self {
+        // Initialize archival_config if this is an archival node.
+        let archival = if archive {
+            // Initialize the archival config to ColdDB (RocksDB) if not set.
+            Some(archival_config.cloned().unwrap_or_default())
+        } else {
+            assert!(archival_config.is_none(), "Archival config must set only for archival nodes");
+            None
+        };
         Self {
             hot: DBOpener::new(home_dir, config, Temperature::Hot),
             cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold)),
-            archive: archive,
+            archive,
+            archival,
             migrator: None,
         }
     }
@@ -271,20 +286,26 @@ impl<'a> StoreOpener<'a> {
             Snapshot::none()
         };
 
-        let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
-        let cold_db = self
+        let (hot_rocksdb, _) = self.hot.open(mode, DB_VERSION)?;
+        let cold_rocksdb = self
             .cold
             .as_ref()
             .map(|cold| cold.open(mode, DB_VERSION))
             .transpose()?
             .map(|(db, _)| db);
 
-        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let hot_storage = Arc::new(hot_rocksdb);
+        let cold_storage =
+            cold_rocksdb.map(|rocksdb| Arc::new(crate::db::ColdDB::new(Arc::new(rocksdb))));
+        let archiver = cold_storage
+            .clone()
+            .map(|cold_db| Archiver::new(self.archival.clone().unwrap(), cold_db))
+            .transpose()?;
 
         hot_snapshot.remove()?;
         cold_snapshot.remove()?;
 
-        Ok(storage)
+        Ok(NodeStorage { hot_storage, cold_storage, archiver })
     }
 
     pub fn create_snapshots(&self, mode: Mode) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
@@ -605,7 +626,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let mut config = StoreConfig::default();
     config.path = Some(checkpoint_path);
     let archive = hot_store.get_db_kind()? == Some(DbKind::Archive);
-    let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
+    let opener = NodeStorage::opener(checkpoint_base_path, archive, &config, None, None);
     // This will create all the column families that were dropped by create_checkpoint(),
     // but all the data and associated files that were in them previously should be gone.
     let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;

@@ -66,7 +66,6 @@ use near_primitives::views::{
 };
 use near_primitives_core::num_rational::{Ratio, Rational32};
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::archiver::Archiver;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
@@ -1474,7 +1473,7 @@ fn test_archival_gc_common(
     genesis.config.epoch_length = epoch_length;
 
     let hot_store = &storage.get_hot_store();
-    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)

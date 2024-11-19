@@ -20,9 +20,15 @@ impl StateDump {
             let storage = TestDB::new();
             near_store::NodeStorage::new(storage)
         } else {
-            near_store::NodeStorage::opener(store_home_dir, archive, &Default::default(), None)
-                .open()
-                .unwrap()
+            near_store::NodeStorage::opener(
+                store_home_dir,
+                archive,
+                &Default::default(),
+                None,
+                None,
+            )
+            .open()
+            .unwrap()
         };
         let store = node_storage.get_hot_store();
         let state_file = dir.join(STATE_DUMP_FILE);

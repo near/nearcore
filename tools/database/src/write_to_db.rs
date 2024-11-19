@@ -35,6 +35,7 @@ impl WriteCryptoHashCommand {
             near_config.config.archive,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
+            near_config.config.archival_storage.as_ref(),
         );
 
         let storage = opener.open()?;

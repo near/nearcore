@@ -853,6 +853,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     target_config.config.archive,
                     &target_config.config.store,
                     None,
+                    None,
                 )
                 .path()
                 .join("mirror");

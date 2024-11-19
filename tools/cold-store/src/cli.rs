@@ -8,7 +8,6 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_store::archiver::Archiver;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
@@ -118,6 +117,7 @@ impl ColdStoreCommand {
             near_config.config.archive,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
+            near_config.config.archival_storage.as_ref(),
         );
 
         match self.subcmd {
@@ -141,6 +141,7 @@ impl ColdStoreCommand {
             near_config.config.archive,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
+            near_config.config.archival_storage.as_ref(),
         )
     }
 }
@@ -192,11 +193,11 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &EpochManagerHandle) {
+fn copy_next_block(storage: &NodeStorage, config: &NearConfig, epoch_manager: &EpochManagerHandle) {
     // Cold HEAD can be not set in testing.
     // It should be set before the copying of a block in prod,
     // but we should default it to genesis height here.
-    let cold_head_height = store
+    let cold_head_height = storage
         .get_cold_store()
         .unwrap()
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
@@ -205,7 +206,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
 
     // If FINAL_HEAD is not set for hot storage though, we default it to 0.
     // And subsequently fail in assert!(next_height <= hot_final_height).
-    let hot_final_head = store
+    let hot_final_head = storage
         .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
@@ -219,7 +220,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     // Here it should be sufficient to just read from hot storage.
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
     let cold_head_hash = get_ser_from_store::<CryptoHash>(
-        &store.get_hot_store(),
+        &storage.get_hot_store(),
         DBCol::BlockHeight,
         &cold_head_height.to_le_bytes(),
     )
@@ -229,10 +230,10 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     // For that we need epoch_id.
     // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
     // we use cold_head_hash.
-    let archiver = Archiver::new_cold(store.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
     update_cold_db(
         &archiver,
-        &store.get_hot_store(),
+        &storage.get_hot_store(),
         &epoch_manager
             .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
             .unwrap(),
@@ -241,7 +242,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
 
-    update_cold_head(&archiver, &store.get_hot_store(), &next_height)
+    update_cold_head(&archiver, &storage.get_hot_store(), &next_height)
         .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", next_height));
 }
 
@@ -256,8 +257,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
         .unwrap_or(0);
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-
-    let archiver = Archiver::new_cold(storage.cold_db().unwrap().clone());
+    let archiver = storage.archiver().unwrap().clone();
 
     copy_all_data_to_cold(archiver.cold_db(), &storage.get_hot_store(), batch_size, &keep_going)
         .expect("Failed to do migration to cold db");
@@ -348,7 +348,7 @@ impl PrepareHotCmd {
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
-        let rpc_opener = NodeStorage::opener(home_dir, false, &rpc_store_config, None);
+        let rpc_opener = NodeStorage::opener(home_dir, false, &rpc_store_config, None, None);
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 

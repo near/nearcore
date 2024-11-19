@@ -26,6 +26,7 @@ impl UndoBlockCommand {
             near_config.config.archive,
             &near_config.config.store,
             None,
+            None,
         );
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
