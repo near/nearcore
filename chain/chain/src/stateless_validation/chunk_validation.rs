@@ -691,7 +691,6 @@ pub fn validate_chunk_state_witness(
                 retain_mode,
                 child_shard_uid,
             ) => {
-                panic!("resharding should not be validated");
                 let old_root = *chunk_extra.state_root();
                 let trie = Trie::from_recorded_storage(
                     PartialStorage { nodes: transition.base_state },
