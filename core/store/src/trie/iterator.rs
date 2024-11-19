@@ -34,12 +34,14 @@ impl Crumb {
         self.status = match (&self.status, &self.node) {
             (_, None) => CrumbStatus::Exiting,
             (&CrumbStatus::Entering, _) => CrumbStatus::At,
-            (&CrumbStatus::At, Some(_)) => CrumbStatus::AtChild(0),
-            // (&CrumbStatus::At, Some(node)) => {
-            //     match node.node {}
-            //     CrumbStatus::AtChild(0)
-            // }
-            (&CrumbStatus::AtChild(x), Some(_)) if x < 15 => CrumbStatus::AtChild(x + 1),
+            (&CrumbStatus::At, Some(node)) => match node.node {
+                TrieNode::Branch(_, _) => CrumbStatus::AtChild(0),
+                _ => CrumbStatus::Exiting,
+            },
+            (&CrumbStatus::AtChild(x), Some(node)) if x < 15 => match node.node {
+                TrieNode::Branch(_, _) => CrumbStatus::AtChild(x + 1),
+                _ => CrumbStatus::Exiting,
+            },
             _ => CrumbStatus::Exiting,
         }
     }
@@ -311,7 +313,12 @@ impl<'a> DiskTrieIterator<'a> {
                         IterStep::Continue
                     }
                 }
-                _ => panic!("Should never see AtChild without a Branch here."),
+                TrieNode::Leaf(_, _) => {
+                    panic!("LEAF: Should never see AtChild without a Branch here.");
+                }
+                TrieNode::Extension(_, _) => {
+                    panic!("EXTENSION: Should never see AtChild without a Branch here.");
+                } // _ => panic!("Should never see AtChild without a Branch here."),
             },
             _ => panic!("Should never see Entering or AtChild without a Branch here."),
         })
