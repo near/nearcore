@@ -858,10 +858,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.store.store_update())
     }
 
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(0)
-    }
-
     fn get_epoch_protocol_version(
         &self,
         _epoch_id: &EpochId,
