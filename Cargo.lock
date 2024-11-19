@@ -51,7 +51,7 @@ checksum = "414360eed71ba2d5435b185ba43ecbe281dfab5df3898286d6b7be8074372c92"
 dependencies = [
  "actix-utils",
  "actix-web",
- "derive_more",
+ "derive_more 0.99.18",
  "futures-util",
  "log",
  "once_cell",
@@ -74,7 +74,7 @@ dependencies = [
  "brotli",
  "bytes",
  "bytestring",
- "derive_more",
+ "derive_more 0.99.18",
  "encoding_rs",
  "flate2",
  "futures-core",
@@ -210,7 +210,7 @@ dependencies = [
  "bytestring",
  "cfg-if 1.0.0",
  "cookie",
- "derive_more",
+ "derive_more 0.99.18",
  "encoding_rs",
  "futures-core",
  "futures-util",
@@ -718,7 +718,7 @@ dependencies = [
  "bytes",
  "cfg-if 1.0.0",
  "cookie",
- "derive_more",
+ "derive_more 0.99.18",
  "futures-core",
  "futures-util",
  "h2",
@@ -2048,15 +2048,35 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "0.99.17"
+version = "0.99.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
+checksum = "5f33878137e4dafd7fa914ad4e259e18a4e8e532b9617a2d0150262bf53abfce"
 dependencies = [
  "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version 0.4.0",
- "syn 1.0.103",
+ "syn 2.0.87",
+]
+
+[[package]]
+name = "derive_more"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -3228,7 +3248,7 @@ dependencies = [
  "chrono",
  "clap",
  "derive-enum-from-into",
- "derive_more",
+ "derive_more 1.0.0",
  "ethabi",
  "futures",
  "hex",
@@ -3899,7 +3919,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "derive-enum-from-into",
- "derive_more",
+ "derive_more 1.0.0",
  "futures",
  "near-async-derive",
  "near-o11y",
@@ -3993,7 +4013,7 @@ dependencies = [
  "anyhow",
  "bytesize",
  "chrono",
- "derive_more",
+ "derive_more 1.0.0",
  "near-config-utils",
  "near-crypto",
  "near-o11y",
@@ -4030,7 +4050,7 @@ dependencies = [
  "borsh",
  "chrono",
  "derive-enum-from-into",
- "derive_more",
+ "derive_more 1.0.0",
  "futures",
  "itertools",
  "lru 0.12.3",
@@ -4075,7 +4095,7 @@ dependencies = [
  "bytesize",
  "chrono",
  "cloud-storage",
- "derive_more",
+ "derive_more 1.0.0",
  "futures",
  "itertools",
  "lru 0.12.3",
@@ -4162,7 +4182,7 @@ dependencies = [
  "borsh",
  "bs58 0.4.0",
  "curve25519-dalek",
- "derive_more",
+ "derive_more 1.0.0",
  "ed25519-dalek",
  "hex",
  "hex-literal",
@@ -4345,7 +4365,7 @@ dependencies = [
  "actix-cors",
  "actix-web",
  "bs58 0.4.0",
- "derive_more",
+ "derive_more 1.0.0",
  "easy-ext",
  "futures",
  "hex",
@@ -4517,7 +4537,7 @@ dependencies = [
  "chrono",
  "criterion",
  "crossbeam-channel",
- "derive_more",
+ "derive_more 1.0.0",
  "enum-map",
  "futures",
  "futures-util",
@@ -4678,7 +4698,7 @@ dependencies = [
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
- "derive_more",
+ "derive_more 1.0.0",
  "easy-ext",
  "enum-map",
  "expect-test",
@@ -4720,7 +4740,7 @@ dependencies = [
  "base64 0.21.0",
  "borsh",
  "bs58 0.4.0",
- "derive_more",
+ "derive_more 1.0.0",
  "enum-map",
  "expect-test",
  "insta",
@@ -4765,7 +4785,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "awc",
- "derive_more",
+ "derive_more 1.0.0",
  "futures",
  "hex",
  "insta",
@@ -4876,7 +4896,7 @@ dependencies = [
  "bytesize",
  "crossbeam",
  "derive-where",
- "derive_more",
+ "derive_more 1.0.0",
  "enum-map",
  "hex",
  "insta",
@@ -6923,7 +6943,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ef2175c2907e7c8bc0a9c3f86aeb5ec1f3b275300ad58a44d0c3ae379a5e52e"
 dependencies = [
  "cfg-if 1.0.0",
- "derive_more",
+ "derive_more 0.99.18",
  "parity-scale-codec",
  "scale-info-derive",
 ]

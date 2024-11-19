@@ -19,7 +19,7 @@ curve25519-dalek = { workspace = true, features = [
     "precomputed-tables",
     "alloc",
 ] }
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "from", "into"] }
 ed25519-dalek = { workspace = true, features = ["hazmat"] }
 hex.workspace = true
 near-account-id.workspace = true
