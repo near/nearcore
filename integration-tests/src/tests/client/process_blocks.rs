@@ -2384,7 +2384,7 @@ fn test_validate_chunk_extra() {
         )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
-    let epoch_id = block.header().epoch_id().clone();
+    let epoch_id = *block.header().epoch_id();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
     env.propagate_chunk_state_witnesses_and_endorsements(false);
     let client = &mut env.clients[0];
