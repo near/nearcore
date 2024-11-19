@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::{io, sync::Arc};
 
 use near_primitives::block::Tip;
 use near_primitives::serialize::to_base64;
 use std::io::Read;
 use std::io::Write;
+use strum::IntoEnumIterator;
 
 use crate::db::assert_no_overwrite;
 use crate::Store;
@@ -96,23 +98,44 @@ impl ArchivalStorage for ColdDBArchiver {
 
 struct FilesystemArchiver {
     dir: rustix::fd::OwnedFd,
+    col_to_dir: HashMap<DBCol, std::path::PathBuf>,
 }
 
 impl FilesystemArchiver {
     fn open(path: &std::path::Path) -> io::Result<Self> {
-        std::fs::create_dir_all(path)?;
+        let col_to_dir = Self::setup_dirs(path)?;
         let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
         tracing::debug!(
             target: "archiver",
             path = %path.display(),
             message = "opened archive directory"
         );
-        Ok(Self { dir })
+        Ok(Self { dir, col_to_dir })
     }
 
-    #[inline(always)]
-    fn to_filename(key: &[u8]) -> String {
-        to_base64(key)
+    fn setup_dirs(base_path: &std::path::Path) -> io::Result<HashMap<DBCol, std::path::PathBuf>> {
+        std::fs::create_dir_all(base_path)?;
+        let mut col_to_dir = HashMap::new();
+        for col in DBCol::iter() {
+            if col.is_cold() {
+                let path: std::path::PathBuf =
+                    [base_path, Self::to_dirname(col)].into_iter().collect();
+                std::fs::create_dir(&path)?;
+                col_to_dir.insert(col, path);
+            }
+        }
+        Ok(col_to_dir)
+    }
+
+    #[inline]
+    fn get_path(&self, col: DBCol, key: &[u8]) -> std::path::PathBuf {
+        let dirname = self.col_to_dir.get(&col);
+        let filename: std::path::PathBuf = to_base64(key).into();
+        [dirname.as_ref().unwrap(), &filename].into_iter().collect()
+    }
+
+    fn to_dirname(col: DBCol) -> &'static std::path::Path {
+        <&str>::from(col).as_ref()
     }
 
     fn write_file(&self, col: DBCol, key: &[u8], value: &[u8]) -> io::Result<()> {
@@ -126,7 +149,7 @@ impl FilesystemArchiver {
         temp_file.write_all(value)?;
 
         let temp_filename = temp_file.into_temp_path();
-        let final_filename = Self::to_filename(key);
+        let final_filename = self.get_path(col, key);
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
         rustix::fs::renameat(&self.dir, &*temp_filename, &self.dir, final_filename)?;
         // Don't attempt deleting the temporary file now that it has been moved.
@@ -136,7 +159,7 @@ impl FilesystemArchiver {
 
     fn read_file(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         use rustix::fs::{Mode, OFlags};
-        let filename = Self::to_filename(key);
+        let filename = self.get_path(col, key);
         let mode = Mode::empty();
         let flags = OFlags::RDONLY;
         let file = rustix::fs::openat(&self.dir, &filename, flags, mode);
@@ -153,7 +176,7 @@ impl FilesystemArchiver {
     }
 
     fn delete_file(&self, col: DBCol, key: &[u8]) -> io::Result<()> {
-        let filename = Self::to_filename(key);
+        let filename = self.get_path(col, key);
         Ok(rustix::fs::unlinkat(&self.dir, &filename, rustix::fs::AtFlags::empty())?)
     }
 }
