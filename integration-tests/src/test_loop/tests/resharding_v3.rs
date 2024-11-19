@@ -29,6 +29,7 @@ use assert_matches::assert_matches;
 use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
 use near_epoch_manager::EpochManagerAdapter;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalExecutionStatus;
@@ -135,6 +136,8 @@ struct TestReshardingParameters {
     /// Optionally deploy the test contract
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided account.
     deploy_test_contract: Option<AccountId>,
+    /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
+    limit_outgoing_gas: bool,
 }
 
 impl TestReshardingParameters {
@@ -238,6 +241,11 @@ impl TestReshardingParameters {
         self.deploy_test_contract = Some(account_id);
         self
     }
+
+    fn limit_outgoing_gas(mut self) -> Self {
+        self.limit_outgoing_gas = true;
+        self
+    }
 }
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
@@ -284,18 +292,17 @@ fn fork_before_resharding_block(
 
 /// Returns a loop action that invokes a costly method from a contract multiple times per block height.
 fn call_burn_gas_contract(
-    signer_id: AccountId,
+    signer_ids: Vec<AccountId>,
     receiver_id: AccountId,
+    gas_burnt_per_call: Gas,
 ) -> Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
     const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
-    const GAS_PER_CALL: Gas = 275 * TGAS;
-    const CALLS_PER_BLOCK_HEIGHT: u64 = 5;
+    const CALLS_PER_BLOCK_HEIGHT: usize = 5;
 
     let resharding_height = Cell::new(None);
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    let signer: Signer = create_user_test_signer(&signer_id).into();
 
     Box::new(
         move |node_datas: &[TestData],
@@ -349,27 +356,30 @@ fn call_burn_gas_contract(
             // Before resharding and one block after: call the test contract a few times per block.
             // The objective is to pile up receipts (e.g. delayed).
             if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
-                for _ in 0..CALLS_PER_BLOCK_HEIGHT {
-                    nonce.set(nonce.get() + 1);
-                    let method_name = "burn_gas_raw".to_owned();
-                    let burn_gas: u64 = GAS_PER_CALL;
-                    let args = burn_gas.to_le_bytes().to_vec();
-                    let tx = SignedTransaction::call(
-                        nonce.get(),
-                        signer_id.clone(),
-                        receiver_id.clone(),
-                        &signer,
-                        0,
-                        method_name,
-                        args,
-                        GAS_PER_CALL + 10 * TGAS,
-                        tip.last_block_hash,
-                    );
-                    let mut txs_vec = txs.take();
-                    tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
-                    txs_vec.push((tx.get_hash(), tip.height));
-                    txs.set(txs_vec);
-                    submit_tx(&node_datas, &"account0".parse().unwrap(), tx);
+                for _ in 0..(CALLS_PER_BLOCK_HEIGHT / signer_ids.len() + 1) {
+                    for signer_id in &signer_ids {
+                        let signer: Signer = create_user_test_signer(&signer_id).into();
+                        nonce.set(nonce.get() + 1);
+                        let method_name = "burn_gas_raw".to_owned();
+                        let burn_gas: u64 = gas_burnt_per_call;
+                        let args = burn_gas.to_le_bytes().to_vec();
+                        let tx = SignedTransaction::call(
+                            nonce.get(),
+                            signer_id.clone(),
+                            receiver_id.clone(),
+                            &signer,
+                            0,
+                            method_name,
+                            args,
+                            gas_burnt_per_call + 10 * TGAS,
+                            tip.last_block_hash,
+                        );
+                        let mut txs_vec = txs.take();
+                        tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
+                        txs_vec.push((tx.get_hash(), tip.height));
+                        txs.set(txs_vec);
+                        submit_tx(&node_datas, &"account0".parse().unwrap(), tx);
+                    }
                 }
             }
         },
@@ -457,6 +467,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     if params.track_all_shards {
         builder = builder.track_all_shards();
     }
+
+    if params.limit_outgoing_gas {
+        let mut runtime_config = RuntimeConfig::test();
+        runtime_config.congestion_control_config.max_outgoing_gas = 100 * TGAS;
+        runtime_config.congestion_control_config.min_outgoing_gas = 100 * TGAS;
+        let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
+        builder = builder.runtime_config_store(runtime_config_store);
+    }
+
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
@@ -620,7 +639,7 @@ fn test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
-        .loop_action(Some(call_burn_gas_contract(account.clone(), account)));
+        .loop_action(Some(call_burn_gas_contract(vec![account.clone()], account, 275 * TGAS)));
     test_resharding_v3_base(params);
 }
 
@@ -631,6 +650,22 @@ fn test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
-        .loop_action(Some(call_burn_gas_contract(account.clone(), account)));
+        .loop_action(Some(call_burn_gas_contract(vec![account.clone()], account, 275 * TGAS)));
+    test_resharding_v3_base(params);
+}
+
+#[test]
+// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore]
+fn test_resharding_v3_buffered_receipts() {
+    let account: AccountId = "account0".parse().unwrap();
+    let params = TestReshardingParameters::new()
+        .deploy_test_contract(account.clone())
+        .limit_outgoing_gas()
+        .loop_action(Some(call_burn_gas_contract(
+            vec![account.clone(), "account4".parse().unwrap(), "account6".parse().unwrap()],
+            account,
+            75 * TGAS,
+        )));
     test_resharding_v3_base(params);
 }
