@@ -43,12 +43,6 @@ use std::time::Instant;
 pub enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
     NewChunk(NewChunkData),
-    // TODO(#11881): this is temporary indicator that resharding happened in the
-    // state transition covered by state witness. Won't happen in production
-    // until resharding release.
-    // Instead, we can store a separate field `resharding_transition` in
-    // `ChunkStateWitness` and use it for proper validation of this case.
-    ShardLayoutChange,
 }
 
 impl MainTransition {
@@ -56,7 +50,6 @@ impl MainTransition {
         match self {
             Self::Genesis { block_hash, .. } => *block_hash,
             Self::NewChunk(data) => data.block.block_hash,
-            Self::ShardLayoutChange => panic!("block_hash called on ShardLayoutChange"),
         }
     }
 
@@ -66,7 +59,6 @@ impl MainTransition {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             Self::NewChunk(data) => data.chunk_header.shard_id(),
-            Self::ShardLayoutChange => panic!("shard_id called on ShardLayoutChange"),
         }
     }
 }
@@ -611,9 +603,6 @@ pub fn validate_chunk_state_witness(
                     apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
 
                 (chunk_extra, outgoing_receipts)
-            }
-            (MainTransition::ShardLayoutChange, _) => {
-                panic!("shard layout change should not be validated")
             }
             (_, Some(result)) => (result.chunk_extra, result.outgoing_receipts),
         };
