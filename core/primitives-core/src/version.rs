@@ -189,6 +189,9 @@ pub enum ProtocolFeature {
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
     #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
     RelaxedChunkValidation,
+    /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
+    /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
+    ExcludeExistingCodeFromWitnessForCodeLen,
 }
 
 impl ProtocolFeature {
@@ -270,7 +273,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV4 => 145,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
             ProtocolFeature::RelaxedChunkValidation => 146,
-            ProtocolFeature::BandwidthScheduler => 147,
+            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
+            ProtocolFeature::BandwidthScheduler => 148,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -284,7 +288,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 147;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 148;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
