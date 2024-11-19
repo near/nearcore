@@ -469,15 +469,11 @@ async fn state_sync_dump(
                                     let (part_id, selected_idx) =
                                         select_random_part_id_with_index(&parts_to_dump);
 
-                                    let state_part = obtain_and_store_state_part(
-                                        runtime.as_ref(),
+                                    let state_part = runtime.obtain_state_part(
                                         shard_id,
-                                        sync_hash,
                                         &sync_prev_prev_hash,
                                         &state_root,
-                                        part_id,
-                                        num_parts,
-                                        &chain,
+                                        PartId::new(part_id, num_parts),
                                     );
                                     let state_part = match state_part {
                                         Ok(state_part) => state_part,
@@ -615,31 +611,6 @@ fn update_dumped_size_and_cnt_metrics(
     metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string()])
         .set(num_parts as i64);
-}
-
-/// Obtains and then saves the part data.
-fn obtain_and_store_state_part(
-    runtime: &dyn RuntimeAdapter,
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    sync_prev_prev_hash: &CryptoHash,
-    state_root: &StateRoot,
-    part_id: u64,
-    num_parts: u64,
-    chain: &Chain,
-) -> Result<Vec<u8>, Error> {
-    let state_part = runtime.obtain_state_part(
-        shard_id,
-        sync_prev_prev_hash,
-        state_root,
-        PartId::new(part_id, num_parts),
-    )?;
-
-    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-    let mut store_update = chain.chain_store().store().store_update();
-    store_update.set(DBCol::StateParts, &key, &state_part);
-    store_update.commit()?;
-    Ok(state_part)
 }
 
 fn cares_about_shard(
