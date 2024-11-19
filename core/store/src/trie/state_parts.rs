@@ -69,7 +69,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
-        let root_node = self.retrieve_node(&self.root)?; //.1;
+        let root_node = self.retrieve_node(&self.root)?;
         match root_node {
             Some((_, node)) => {
                 let total_size = node.memory_usage;
@@ -326,11 +326,11 @@ impl Trie {
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
-        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total).unwrap();
-        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total).unwrap();
+        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
 
         let mut iterator = self.disk_iter().unwrap();
-        let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end).unwrap();
+        let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
             target: "state-parts",
             num_nodes = nodes_list.len());
