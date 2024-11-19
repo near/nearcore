@@ -318,6 +318,7 @@ mod test {
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_epoch_manager::EpochManager;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::account::id::AccountId;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
@@ -797,6 +798,8 @@ mod test {
 
     #[test]
     fn test_dump_state_with_delayed_receipt() {
+        init_test_logger();
+
         let epoch_length = 4;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

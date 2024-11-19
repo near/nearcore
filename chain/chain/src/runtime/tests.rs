@@ -739,8 +739,7 @@ fn test_state_sync() {
     env.step_default(vec![]);
     let block_hash = hash(&[env.head.height as u8]);
 
-    let shard_layout =
-        env.epoch_manager.get_shard_layout_from_prev_block(&env.head.prev_block_hash).unwrap();
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let state_part = env

@@ -32,7 +32,7 @@ use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 pub use node_runtime::bootstrap_congestion_info;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -73,9 +73,9 @@ pub struct GenesisBuilder {
     store: Store,
     epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
-    unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
-    roots: BTreeMap<ShardId, StateRoot>,
-    state_updates: BTreeMap<ShardId, TrieUpdate>,
+    unflushed_records: HashMap<ShardId, Vec<StateRecord>>,
+    roots: HashMap<ShardId, StateRoot>,
+    state_updates: HashMap<ShardId, TrieUpdate>,
 
     // Things that can be set.
     additional_accounts_num: u64,
@@ -135,9 +135,15 @@ impl GenesisBuilder {
         // First, apply whatever is defined by the genesis config.
         let roots = get_genesis_state_roots(self.runtime.store())?
             .expect("genesis state roots not initialized.");
-        let genesis_shard_version = self.genesis.config.shard_layout.version();
-        self.roots =
-            roots.into_iter().enumerate().map(|(k, v)| (ShardId::new(k as u64), v)).collect();
+        let shard_layout = &self.genesis.config.shard_layout;
+        let genesis_shard_version = shard_layout.version();
+        self.roots = roots
+            .into_iter()
+            .enumerate()
+            .map(|(shard_index, state_root)| {
+                (shard_layout.get_shard_id(shard_index).unwrap(), state_root)
+            })
+            .collect();
         self.state_updates = self
             .roots
             .iter()
