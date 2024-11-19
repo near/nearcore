@@ -426,8 +426,12 @@ fn subtract_gas_checked(total: &mut u128, delta: Gas) {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::convert::Infallible;
 
     use bytesize::ByteSize;
+    use near_primitives::bandwidth_scheduler::{
+        BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
+    };
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::types::{Gas, ShardId};
     use rand::{Rng, SeedableRng};
@@ -685,6 +689,80 @@ mod tests {
     fn test_receipt_groups_queue_random_operations() {
         for seed in 0..10 {
             receipt_groups_queue_random_test(seed);
+        }
+    }
+
+    /// The diff between two consecutive values that can be requested in a bandwidth request
+    /// is ~110 kB. The upper bound of the receipt group size is 100 kB. The groups are small
+    /// enough that bandwidth requests produced from group sizes are optimal, optimal meaning
+    /// the same as if the requests were made based on individual receipt sizes.
+    /// The only exception is around `max_receipt_size` - the value that is the closest to
+    /// `max_receipt_size` is set to `max_receipt_size`, which causes the diff to be smaller.
+    #[test]
+    fn test_receipt_groups_produce_optimal_bandwidth_request() {
+        let scheduler_params = BandwidthSchedulerParams {
+            base_bandwidth: 50_000,
+            max_shard_bandwidth: 4_500_000,
+            max_receipt_size: 4 * 1024 * 1024,
+            max_allowance: 4_500_000,
+        };
+        let request_values = BandwidthRequestValues::new(&scheduler_params).values;
+        assert!(request_values[1] - request_values[0] > 110_000);
+
+        let max_receipt_size_pos =
+            request_values.iter().position(|v| v == &scheduler_params.max_receipt_size).unwrap();
+        let groups_config =
+            ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::MAX };
+
+        for test_num in 0..100 {
+            let rng = &mut ChaCha20Rng::seed_from_u64(test_num);
+
+            let initial_receipts_num = rng.gen_range(1..100);
+
+            let mut buffered_receipts = VecDeque::new();
+            let mut test_queue = TestReceiptGroupQueue::new(groups_config);
+            for _ in 0..initial_receipts_num {
+                let receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
+                buffered_receipts.push_back(receipt_size);
+                test_queue.update_on_receipt_pushed(receipt_size, 1);
+            }
+
+            let pop_push_num = rng.gen_range(0..100);
+            for _ in 0..pop_push_num {
+                let popped_receipt_size = buffered_receipts.pop_front().unwrap();
+                test_queue.update_on_receipt_popped(popped_receipt_size, 1);
+
+                // Ideal bandwidth request produced from individual receipt sizes.
+                let ideal_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
+                    0,
+                    buffered_receipts.iter().map(|s| Ok::<u64, Infallible>(s.as_u64())),
+                    &scheduler_params,
+                )
+                .unwrap();
+                // Bandwidth request produced from receipt groups.
+                let groups_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
+                    0,
+                    test_queue.groups.iter().map(|g| Ok::<u64, Infallible>(g.total_size as u64)),
+                    &scheduler_params,
+                )
+                .unwrap();
+                if let Some(mut ideal_request) = ideal_bandwidth_request {
+                    let mut groups_request = groups_bandwidth_request.unwrap();
+
+                    // Zero out everything after `max_receipt_size` in both requests before comparison.
+                    for i in max_receipt_size_pos..request_values.len() {
+                        ideal_request.requested_values_bitmap.set_bit(i, false);
+                        groups_request.requested_values_bitmap.set_bit(i, false);
+                    }
+                    assert_eq!(ideal_request, groups_request);
+                }
+
+                // Bandwidth request produced from receipt groups should be optimal (same as from individual
+                // receipt sizes). (up to `max_receipt_size`)
+                let new_receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
+                buffered_receipts.push_back(new_receipt_size);
+                test_queue.update_on_receipt_pushed(new_receipt_size, 1);
+            }
         }
     }
 }
