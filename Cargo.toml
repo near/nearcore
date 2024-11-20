@@ -397,7 +397,7 @@ wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.218"
-wasm-smith = "0.10"
+wasm-smith = "0.218"
 wasmtime = { version = "26.0.1", default-features = false, features = [
     "cranelift",
 ] }
