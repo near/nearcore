@@ -4885,6 +4885,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lru 0.12.3",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chunks",

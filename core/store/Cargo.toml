@@ -28,6 +28,7 @@ hex.workspace = true
 itoa.workspace = true
 itertools.workspace = true
 lru.workspace = true
+near-async.workspace = true
 num_cpus.workspace = true
 rand.workspace = true
 rayon.workspace = true
