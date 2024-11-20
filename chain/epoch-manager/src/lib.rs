@@ -1213,7 +1213,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         epoch_info
             .get_validator_by_account(account_id)
-            .ok_or(EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
+            .ok_or(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -1225,11 +1225,11 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         epoch_info
             .get_fisherman_by_account(account_id)
-            .ok_or(EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
+            .ok_or(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        Ok(self.get_block_info(block_hash)?.epoch_id().clone())
+        Ok(*self.get_block_info(block_hash)?.epoch_id())
     }
 
     pub fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -1836,7 +1836,7 @@ impl EpochManager {
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
     fn get_next_epoch_id_from_info(&self, block_info: &BlockInfo) -> Result<EpochId, EpochError> {
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
-        Ok(EpochId(first_block_info.prev_hash().clone()))
+        Ok(EpochId(*first_block_info.prev_hash()))
     }
 
     pub fn get_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
@@ -1858,10 +1858,10 @@ impl EpochManager {
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        self.epochs_info.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
-                .ok_or(EpochError::EpochOutOfBounds(epoch_id.clone()))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -1888,7 +1888,7 @@ impl EpochManager {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
             .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or(EpochError::EpochOutOfBounds(epoch_id.clone()))
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
     // Note(#6572): beware, after calling `save_epoch_validator_info`,
@@ -1917,10 +1917,10 @@ impl EpochManager {
     /// EpochError::IOErr if storage returned an error
     /// EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info.get_or_try_put(hash.clone(), |hash| {
+        self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
                 .get_ser(DBCol::BlockInfo, hash.as_ref())?
-                .ok_or(EpochError::MissingBlock(hash.clone()))
+                .ok_or(EpochError::MissingBlock(*hash))
         })
     }
 
@@ -1931,7 +1931,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let block_hash = block_info.hash();
         store_update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)?;
-        self.blocks_info.put(block_hash.clone(), block_info);
+        self.blocks_info.put(*block_hash, block_info);
         Ok(())
     }
 
@@ -1942,15 +1942,15 @@ impl EpochManager {
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
         store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)?;
-        self.epoch_id_to_start.put(epoch_id.clone(), epoch_start);
+        self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
-                .ok_or(EpochError::EpochOutOfBounds(epoch_id.clone()))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
