@@ -44,13 +44,6 @@ impl Crumb {
                 RawTrieNode::BranchWithValue(_, _) => CrumbStatus::AtChild(x + 1),
                 _ => CrumbStatus::Exiting,
             },
-            // (&CrumbStatus::At, Some(node)) => match node.node {
-            //     _ => CrumbStatus::Exiting,
-            // },
-            // (&CrumbStatus::AtChild(x), Some(node)) if x < 15 => match node.node {
-            //     RawTrieNode::BranchWithValue(_, _) => CrumbStatus::AtChild(x + 1),
-            //     _ => CrumbStatus::Exiting,
-            // },
             _ => CrumbStatus::Exiting,
         }
     }
@@ -267,21 +260,19 @@ impl<'a> DiskTrieIterator<'a> {
 
     fn iter_step(&mut self) -> Option<IterStep> {
         let last = self.trail.last_mut()?;
-        if last.node.is_none() {
-            return None;
-        }
         last.increment();
         Some(match (last.status, &last.node) {
-            (_, None) => IterStep::Continue, // ?
-            (CrumbStatus::Exiting, Some(n)) => {
-                match n.node {
-                    RawTrieNode::Leaf(ref key, _) | RawTrieNode::Extension(ref key, _) => {
-                        let existing_key = NibbleSlice::from_encoded(key).0;
-                        let l = self.key_nibbles.len();
-                        self.key_nibbles.truncate(l - existing_key.len());
-                    }
-                    RawTrieNode::BranchNoValue(_) | RawTrieNode::BranchWithValue(_, _) => {
-                        self.key_nibbles.pop();
+            (CrumbStatus::Exiting, n) => {
+                if let Some(node) = n {
+                    match node.node {
+                        RawTrieNode::Leaf(ref key, _) | RawTrieNode::Extension(ref key, _) => {
+                            let existing_key = NibbleSlice::from_encoded(key).0;
+                            let l = self.key_nibbles.len();
+                            self.key_nibbles.truncate(l - existing_key.len());
+                        }
+                        RawTrieNode::BranchNoValue(_) | RawTrieNode::BranchWithValue(_, _) => {
+                            self.key_nibbles.pop();
+                        }
                     }
                 }
                 IterStep::PopTrail
