@@ -31,10 +31,10 @@ impl ArchivalStorageOpener {
     }
 
     pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
-        let mut col_to_dir = HashMap::new();
+        let mut column_to_path = HashMap::new();
         for col in DBCol::iter() {
             if col.is_cold() {
-                col_to_dir.insert(col, cold_column_dirname(col).into());
+                column_to_path.insert(col, cold_column_dirname(col).into());
             }
         }
 
@@ -46,7 +46,10 @@ impl ArchivalStorageOpener {
             ArchivalStorageLocation::Filesystem { path } => {
                 let base_path = self.home_dir.join(path);
                 tracing::info!(target: "archiver", path=%base_path.display(), "Using filesystem as the archival storage location");
-                Arc::new(FilesystemArchiver::open(base_path.as_path(), &col_to_dir)?)
+                Arc::new(FilesystemArchiver::open(
+                    base_path.as_path(),
+                    column_to_path.values().map(|p: &std::path::PathBuf| p.as_path()).collect(),
+                )?)
             }
             ArchivalStorageLocation::GCloud { bucket } => {
                 tracing::info!(target: "archiver", bucket=%bucket, "Using Google Cloud Storage as the archival storage location");
@@ -54,7 +57,7 @@ impl ArchivalStorageOpener {
             }
         };
         let cold_store = Store::new(cold_db.clone());
-        let column_to_path = Arc::new(col_to_dir);
+        let column_to_path = Arc::new(column_to_path);
         Ok(Arc::new(Archiver { cold_store, cold_db, storage, column_to_path }))
     }
 }

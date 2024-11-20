@@ -1,10 +1,5 @@
-use std::collections::HashMap;
-
-use std::io;
-
-use crate::DBCol;
-
 use super::ArchivalStorage;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 
@@ -14,27 +9,25 @@ pub(crate) struct FilesystemArchiver {
 
 impl FilesystemArchiver {
     pub(crate) fn open(
-        path: &std::path::Path,
-        column_to_path: &HashMap<DBCol, std::path::PathBuf>,
+        base_path: &std::path::Path,
+        sub_paths: Vec<&std::path::Path>,
     ) -> io::Result<Self> {
-        Self::setup_dirs(path, column_to_path).unwrap();
-        let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())
-            .unwrap();
+        Self::setup_dirs(base_path, sub_paths).unwrap();
+        let dir =
+            rustix::fs::open(base_path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())
+                .unwrap();
         tracing::debug!(
             target: "archiver",
-            path = %path.display(),
+            path = %base_path.display(),
             message = "opened archive directory"
         );
         Ok(Self { base_dir: dir })
     }
 
-    fn setup_dirs(
-        base_path: &std::path::Path,
-        column_to_path: &HashMap<DBCol, std::path::PathBuf>,
-    ) -> io::Result<()> {
+    fn setup_dirs(base_path: &std::path::Path, sub_paths: Vec<&std::path::Path>) -> io::Result<()> {
         std::fs::create_dir_all(base_path).unwrap();
-        for column_path in column_to_path.values() {
-            std::fs::create_dir(&base_path.join(column_path))?;
+        for sub_path in sub_paths.into_iter() {
+            std::fs::create_dir(&base_path.join(sub_path))?;
         }
         Ok(())
     }
