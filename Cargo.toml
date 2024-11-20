@@ -382,7 +382,7 @@ tracing-subscriber = { version = "0.3.18", features = [
 ] }
 trybuild = "1.0.11"
 turn = "0.6"
-wasm-encoder = "0.27.0"
+wasm-encoder = "0.218.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
@@ -396,7 +396,7 @@ wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near"
 wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
-wasmprinter = "0.2"
+wasmprinter = "0.218"
 wasm-smith = "0.10"
 wasmtime = { version = "26.0.1", default-features = false, features = [
     "cranelift",

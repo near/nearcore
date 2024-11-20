@@ -4943,9 +4943,9 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "rand",
- "wasm-encoder 0.27.0",
+ "wasm-encoder 0.218.0",
  "wasm-smith",
- "wasmprinter 0.2.57",
+ "wasmprinter 0.218.0",
  "wat",
 ]
 
@@ -5101,7 +5101,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.0",
  "tracing",
- "wasm-encoder 0.27.0",
+ "wasm-encoder 0.218.0",
  "wasm-smith",
  "wasmer-compiler-near",
  "wasmer-compiler-singlepass-near",
@@ -5112,7 +5112,7 @@ dependencies = [
  "wasmer-types-near",
  "wasmer-vm-near",
  "wasmparser 0.78.2",
- "wasmprinter 0.2.57",
+ "wasmprinter 0.218.0",
  "wasmtime",
  "wat",
  "zeropool-bn",
@@ -5129,7 +5129,7 @@ dependencies = [
  "near-test-contracts",
  "near-vm-runner",
  "wasm-smith",
- "wasmprinter 0.2.57",
+ "wasmprinter 0.218.0",
 ]
 
 [[package]]

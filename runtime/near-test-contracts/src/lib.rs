@@ -165,7 +165,7 @@ impl LargeContract {
         assert!(self.functions >= 1, "must specify at least 1 function to be generated");
         let mut module = Module::new();
         let mut type_section = TypeSection::new();
-        type_section.function([], []);
+        type_section.ty().function([], []);
         module.section(&type_section);
 
         if self.panic_imports != 0 {
@@ -208,7 +208,7 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     };
     let mut module = Module::new();
     let mut type_section = TypeSection::new();
-    type_section.function([], []);
+    type_section.ty().function([], []);
     module.section(&type_section);
     let mut functions_section = FunctionSection::new();
     functions_section.function(0);
