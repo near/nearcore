@@ -19,21 +19,35 @@ impl ArchivalStorage for GoogleCloudArchiver {
     fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         let async_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
         let _ = async_runtime.block_on(async {
-            let location = "fake";
-            tracing::debug!(target: "archiver", ?path, data_len = value.len(), ?location, "Writing to GCS");
+            let filename = path.to_str().unwrap();
+            tracing::debug!(target: "archiver", data_len = value.len(), ?filename, "Put to GCS");
             self.gcs_client
                     .object()
-                    .create(&self.bucket, value.to_vec(), location, "application/octet-stream")
+                    .create(&self.bucket, value.to_vec(), filename, "application/octet-stream")
                     .await
         }).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
         Ok(())
     }
 
-    fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>> {
-        unimplemented!()
+    fn get(&self, path: &std::path::Path) -> io::Result<Option<Vec<u8>>> {
+        let async_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let value = async_runtime.block_on(async {
+            let filename = path.to_str().unwrap();
+            tracing::debug!(target: "archiver", ?filename, "Get from GCS");
+            self.gcs_client.object().download(&self.bucket, filename).await.ok()
+        });
+        Ok(value)
     }
 
-    fn delete(&self, _path: &std::path::Path) -> io::Result<()> {
-        unimplemented!()
+    fn delete(&self, path: &std::path::Path) -> io::Result<()> {
+        let async_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let _ = async_runtime
+            .block_on(async {
+                let filename = path.to_str().unwrap();
+                tracing::debug!(target: "archiver", ?filename, "Get from GCS");
+                self.gcs_client.object().delete(&self.bucket, filename).await
+            })
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        Ok(())
     }
 }
