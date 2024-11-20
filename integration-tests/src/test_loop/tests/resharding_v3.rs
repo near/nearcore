@@ -699,7 +699,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child.clone()],
-            receiver_account.clone(),
+            receiver_account,
             5 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
