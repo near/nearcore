@@ -131,7 +131,7 @@ impl ReshardingManager {
         let mut protocol_version = head_protocol_version + 1;
         while protocol_version <= client_protocol_version {
             let shard_layout =
-                self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version)?;
+                self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
 
             let last_shard_layout = shard_layouts.last();
             if last_shard_layout == None || last_shard_layout != Some(&shard_layout) {
@@ -143,7 +143,7 @@ impl ReshardingManager {
 
         let mut result = HashSet::new();
         let head_shard_layout =
-            self.epoch_manager.get_shard_layout_from_protocol_version(head_protocol_version)?;
+            self.epoch_manager.get_shard_layout_from_protocol_version(head_protocol_version);
         for shard_uid in head_shard_layout.shard_uids() {
             let shard_id = shard_uid.shard_id();
             for shard_layout in &shard_layouts {
@@ -158,7 +158,6 @@ impl ReshardingManager {
             }
         }
 
-        // Ok([].into())
         Ok(result)
     }
 

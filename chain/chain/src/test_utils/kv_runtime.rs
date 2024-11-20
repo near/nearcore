@@ -571,8 +571,8 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_shard_layout_from_protocol_version(
         &self,
         _protocol_version: ProtocolVersion,
-    ) -> Result<ShardLayout, EpochError> {
-        self.get_shard_layout(&EpochId::default())
+    ) -> ShardLayout {
+        self.get_shard_layout(&EpochId::default()).unwrap()
     }
 
     fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {

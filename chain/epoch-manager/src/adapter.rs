@@ -168,7 +168,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_shard_layout_from_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> Result<ShardLayout, EpochError>;
+    ) -> ShardLayout;
 
     /// Get [`EpochId`] from a block belonging to the epoch.
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
@@ -652,9 +652,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn get_shard_layout_from_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> Result<ShardLayout, EpochError> {
+    ) -> ShardLayout {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_config(protocol_version).shard_layout)
+        epoch_manager.get_epoch_config(protocol_version).shard_layout
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
