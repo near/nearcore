@@ -76,15 +76,10 @@ skip = [
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
 
-    # old version of tokio, parking_lot
-    { name = "windows-sys", version = "=0.36.1" },
-    # console
-    { name = "windows-sys", version = "=0.42.0" },
-    { name = "windows_x86_64_msvc", version = "=0.36.1" },
-
-    # old version of rustix, wasmtime, is-terminal, etc.
-    { name = "windows-sys", version = "=0.42.0" },
-    { name = "windows_x86_64_msvc", version = "=0.42.2" },
+    # ubiquituous dependencies that are prone to duplication due to frequent "breaking" releases.
+    { name = "windows-sys", version = "<0.59" },
+    { name = "windows_x86_64_msvc", version = "<0.59" },
+    { name = "windows-targets", version = "<0.52" },
 
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand_core", version = "=0.5.1" },
