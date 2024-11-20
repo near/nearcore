@@ -2,7 +2,9 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
+    block::BlockHeader,
     epoch_block_info::BlockInfo,
+    errors::EpochError,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
@@ -61,4 +63,29 @@ pub fn verify_chunk_header_signature_with_epoch_manager(
         chunk_producer,
         block_info,
     )
+}
+
+/// This function requires that the previous block of `header` has been processed.
+/// If not, it returns EpochError::MissingBlock.
+pub fn verify_header_signature_with_epoch_manager(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+) -> Result<bool, Error> {
+    let block_producer =
+        epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
+    match epoch_manager.get_block_info(header.prev_hash()) {
+        Ok(block_info) => Ok(verify_header_signature(header, block_producer, block_info)),
+        Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
+    }
+}
+
+fn verify_header_signature(
+    header: &BlockHeader,
+    block_producer: ValidatorStake,
+    block_info: Arc<BlockInfo>,
+) -> bool {
+    if block_info.slashed().contains_key(block_producer.account_id()) {
+        return false;
+    }
+    header.signature().verify(header.hash().as_ref(), block_producer.public_key())
 }
