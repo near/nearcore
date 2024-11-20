@@ -36,21 +36,12 @@ impl FilesystemArchiver {
 impl ArchivalStorage for FilesystemArchiver {
     fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         use rustix::fs::{Mode, OFlags};
-        let mut temp_file = tempfile::Builder::new()
-            .make_in("", |filename| {
-                let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
-                let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-                Ok(std::fs::File::from(rustix::fs::openat(&self.base_dir, filename, flags, mode)?))
-            })
-            .unwrap();
-
-        temp_file.write_all(value).unwrap();
-
-        let temp_path = temp_file.into_temp_path();
+        let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
+        let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
         let file_path = path;
-        rustix::fs::renameat(&self.base_dir, &*temp_path, &self.base_dir, file_path).unwrap();
-        std::mem::forget(temp_path);
-        Ok(())
+        let fd = rustix::fs::openat(&self.base_dir, file_path, flags, mode)?;
+        let mut file = std::fs::File::from(fd);
+        file.write_all(value)
     }
 
     fn get(&self, path: &std::path::Path) -> io::Result<Option<Vec<u8>>> {
