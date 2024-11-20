@@ -109,6 +109,11 @@ impl Archiver {
         self.storage.execute(batch, path_gen)
     }
 
+    pub fn read(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        let path = Self::generate_path(col, key, self.column_to_path.as_ref());
+        self.storage.get(path.as_path())
+    }
+
     pub fn cold_db(&self) -> Arc<ColdDB> {
         self.cold_db.clone()
     }
