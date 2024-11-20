@@ -307,10 +307,8 @@ impl EpochManager {
     ) -> Result<Self, EpochError> {
         let validator_reward =
             HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
-        let epoch_info_aggregator = store
-            .get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)
-            .map_err(EpochError::from)?
-            .unwrap_or_default();
+        let epoch_info_aggregator =
+            store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
         let genesis_num_block_producer_seats =
             config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
         let mut epoch_manager = EpochManager {
@@ -1101,7 +1099,7 @@ impl EpochManager {
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement
             .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+            .ok_or(EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
         Ok(chunk_producers
             .iter()
             .map(|index| epoch_info.validator_account_id(*index).clone())
@@ -1138,12 +1136,12 @@ impl EpochManager {
                 .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
         }
 
-        self.chunk_validators_cache.get(&cache_key).ok_or_else(|| {
-            EpochError::ChunkValidatorSelectionError(format!(
+        self.chunk_validators_cache.get(&cache_key).ok_or(EpochError::ChunkValidatorSelectionError(
+            format!(
                 "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
                 shard_id, height, epoch_id,
-            ))
-        })
+            ),
+        ))
     }
 
     pub fn get_all_block_approvers_ordered(
@@ -1215,7 +1213,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         epoch_info
             .get_validator_by_account(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
+            .ok_or(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -1227,7 +1225,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         epoch_info
             .get_fisherman_by_account(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
+            .ok_or(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -1240,9 +1238,9 @@ impl EpochManager {
     }
 
     pub fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-        let prev_epoch_last_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
-        self.get_epoch_id(&prev_epoch_last_hash)
+        let block_info = self.get_block_info(block_hash)?;
+        let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
+        self.get_epoch_id(epoch_first_block_info.prev_hash())
     }
 
     pub fn get_epoch_info_from_hash(
@@ -1255,19 +1253,19 @@ impl EpochManager {
 
     pub fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let epoch_info = self.get_epoch_info(epoch_id)?;
 
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers_settlement
             .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+            .ok_or(EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
         for validator_id in chunk_producers.iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
@@ -1283,7 +1281,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
+        self.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
     }
 
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
@@ -1302,13 +1300,13 @@ impl EpochManager {
                 .get_children_shards_ids(shard_id)
                 .expect("all shard layouts expect the first one must have a split map");
             for next_shard_id in split_shards {
-                if self.cares_about_shard_in_epoch(next_epoch_id, account_id, next_shard_id)? {
+                if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);
                 }
             }
             Ok(false)
         } else {
-            self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
+            self.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
         }
     }
 
@@ -1788,11 +1786,11 @@ impl EpochManager {
         shard_id: ShardId,
         height: BlockHeight,
     ) -> Result<ValidatorId, EpochError> {
-        epoch_info.sample_chunk_producer(shard_layout, shard_id, height).ok_or_else(|| {
+        epoch_info.sample_chunk_producer(shard_layout, shard_id, height).ok_or(
             EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {shard_id} for height {height}"
-            ))
-        })
+            )),
+        )
     }
 
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
@@ -1863,7 +1861,7 @@ impl EpochManager {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -1890,7 +1888,7 @@ impl EpochManager {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
             .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
     // Note(#6572): beware, after calling `save_epoch_validator_info`,
@@ -1922,8 +1920,7 @@ impl EpochManager {
         self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
                 .get_ser(DBCol::BlockInfo, hash.as_ref())?
-                .ok_or_else(|| EpochError::MissingBlock(*hash))
-                .map(Arc::new)
+                .ok_or(EpochError::MissingBlock(*hash))
         })
     }
 
@@ -1932,11 +1929,9 @@ impl EpochManager {
         store_update: &mut StoreUpdate,
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
-        let block_hash = *block_info.hash();
-        store_update
-            .insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
-            .map_err(EpochError::from)?;
-        self.blocks_info.put(block_hash, block_info);
+        let block_hash = block_info.hash();
+        store_update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)?;
+        self.blocks_info.put(*block_hash, block_info);
         Ok(())
     }
 
@@ -1946,9 +1941,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
-        store_update
-            .set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)
-            .map_err(EpochError::from)?;
+        store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)?;
         self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
@@ -1957,7 +1950,7 @@ impl EpochManager {
         self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -2100,15 +2093,13 @@ impl EpochManager {
                     let tip = self
                         .store
                         .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)?
-                        .ok_or_else(|| EpochError::IOErr("Tip not found in store".to_string()))?;
+                        .ok_or(EpochError::IOErr("Tip not found in store".to_string()))?;
                     let block_header = self
                         .store
                         .get_ser::<BlockHeader>(DBCol::BlockHeader, tip.prev_block_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            EpochError::IOErr(
-                                "BlockHeader for prev block of tip not found in store".to_string(),
-                            )
-                        })?;
+                        .ok_or(EpochError::IOErr(
+                            "BlockHeader for prev block of tip not found in store".to_string(),
+                        ))?;
                     if block_header.prev_hash() == block_info.hash() {
                         (block_info.height() - 1, *block_info.epoch_id())
                     } else {
