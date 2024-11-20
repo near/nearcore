@@ -379,7 +379,9 @@ fn call_burn_gas_contract(
             // Before resharding and one block after: call the test contract a few times per block.
             // The objective is to pile up receipts (e.g. delayed).
             if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
-                for _ in 0..(CALLS_PER_BLOCK_HEIGHT / signer_ids.len() + 1) {
+                for _ in 0..(CALLS_PER_BLOCK_HEIGHT / signer_ids.len()
+                    + (CALLS_PER_BLOCK_HEIGHT % signer_ids.len()).min(1))
+                {
                     for signer_id in &signer_ids {
                         let signer: Signer = create_user_test_signer(&signer_id).into();
                         nonce.set(nonce.get() + 1);
@@ -450,7 +452,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         base_epoch_config.chunk_validator_only_kickout_threshold = 0;
     }
 
-    let boundary_accounts = vec!["account3".parse().unwrap()];
+    let boundary_accounts = vec!["account1".parse().unwrap(), "account3".parse().unwrap()];
     let base_shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
 
     base_epoch_config.shard_layout = base_shard_layout.clone();
@@ -696,9 +698,9 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
-            vec![receiver_account.clone(), account_in_left_child, account_in_right_child.clone()],
+            vec![account_in_left_child, account_in_right_child.clone()],
             receiver_account.clone(),
-            75 * TGAS,
+            5 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account_in_right_child,
