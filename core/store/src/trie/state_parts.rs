@@ -366,14 +366,15 @@ impl Trie {
                 let mut iter = children.iter();
                 while let Some((index, child)) = iter.next() {
                     let NodeHandle::Hash(h) = child;
-                    let child = self.retrieve_node(h)?.unwrap().1;
-                    if *memory_skipped + child.memory_usage > memory_threshold {
-                        core::mem::drop(iter);
-                        key_nibbles.push(index);
-                        *node = child;
-                        return Ok(true);
+                    if let Some((_, child)) = self.retrieve_node(h)? {
+                        if *memory_skipped + child.memory_usage > memory_threshold {
+                            core::mem::drop(iter);
+                            key_nibbles.push(index);
+                            *node = child;
+                            return Ok(true);
+                        }
+                        *memory_skipped += child.memory_usage;
                     }
-                    *memory_skipped += child.memory_usage;
                 }
                 // This line should be unreachable if we descended into current node.
                 // TODO (#8997): test this case properly by simulating trie data corruption.
@@ -383,12 +384,12 @@ impl Trie {
                 )))
             }
             TrieNode::Extension(key, child_handle) => {
-                let child = match child_handle {
-                    NodeHandle::Hash(h) => self.retrieve_node(h)?.unwrap().1,
-                };
-                let (slice, _) = NibbleSlice::from_encoded(key);
-                key_nibbles.extend(slice.iter());
-                *node = child;
+                let NodeHandle::Hash(h) = child_handle;
+                if let Some((_, child)) = self.retrieve_node(h)? {
+                    let (slice, _) = NibbleSlice::from_encoded(key);
+                    key_nibbles.extend(slice.iter());
+                    *node = child;
+                }
                 Ok(true)
             }
         }
@@ -661,7 +662,9 @@ mod tests {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let root_node = self.retrieve_node(&self.root)?.unwrap().1;
+            let Some((_, root_node)) = self.retrieve_node(&self.root)? else {
+                return Ok(());
+            };
             stack.push((self.root, root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
@@ -694,7 +697,9 @@ mod tests {
                             }
                             if let Some(NodeHandle::Hash(ref h)) = children[i] {
                                 let h = *h;
-                                let child = self.retrieve_node(&h)?.unwrap().1;
+                                let Some((_, child)) = self.retrieve_node(&h)? else {
+                                    continue;
+                                };
                                 stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                 stack.push((h, child, CrumbStatus::Entering));
                                 break;
@@ -711,7 +716,9 @@ mod tests {
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
                             let NodeHandle::Hash(h) = child.clone();
-                            let child = self.retrieve_node(&h)?.unwrap().1;
+                            let Some((_, child)) = self.retrieve_node(&h)? else {
+                                continue;
+                            };
                             stack.push((h, node, CrumbStatus::Exiting));
                             stack.push((h, child, CrumbStatus::Entering));
                         }
