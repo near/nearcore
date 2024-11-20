@@ -170,5 +170,4 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []

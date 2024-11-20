@@ -60,8 +60,8 @@ pub mod types;
 mod validator_selection;
 mod validator_stats;
 
-const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
-const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 1000 };
+const EPOCH_CACHE_SIZE: usize = 50;
+const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 /// In the current architecture, various components have access to the same
