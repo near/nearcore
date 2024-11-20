@@ -198,12 +198,12 @@ hkdf = "0.12.3"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 im = "15"
-indexmap = "1.6"
+indexmap = "2"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 inventory = "0.3.15"
-itertools = "0.10.0"
+itertools = "0.12.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
@@ -398,7 +398,7 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "14.0.4", default-features = false, features = [
+wasmtime = { version = "26.0.1", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"

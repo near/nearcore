@@ -173,7 +173,11 @@ fn test_wasmer2_artifact_output_stability() {
         let config = Arc::new(test_vm_config());
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
-        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
+        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+        got_prepared_hashes.push(this_hash);
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
+        }
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -184,8 +188,9 @@ fn test_wasmer2_artifact_output_stability() {
         let serialized = artifact.serialize().unwrap();
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
-
-        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("artifact{}", this_hash), serialized).unwrap();
+        }
     }
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.
@@ -248,7 +253,11 @@ fn test_near_vm_artifact_output_stability() {
         let config = Arc::new(test_vm_config());
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
-        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
+        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+        got_prepared_hashes.push(this_hash);
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
+        }
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -260,7 +269,9 @@ fn test_near_vm_artifact_output_stability() {
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
-        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            let _ = std::fs::write(format!("artifact{}", this_hash), serialized);
+        }
     }
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.
