@@ -4,7 +4,7 @@ use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
-use near_store::archiver::Archiver;
+use near_store::archive::Archiver;
 use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
 use near_store::{
     cold_storage::{update_cold_db, update_cold_head},

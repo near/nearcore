@@ -1,4 +1,4 @@
-use crate::archiver::Archiver;
+use crate::archive::Archiver;
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY};
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};

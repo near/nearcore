@@ -13,7 +13,7 @@ pub use crate::trie::{
     STATE_SNAPSHOT_COLUMNS,
 };
 use adapter::{StoreAdapter, StoreUpdateAdapter};
-use archiver::Archiver;
+use archive::Archiver;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalStorageConfig;
@@ -48,7 +48,7 @@ use std::{fmt, io};
 use strum;
 
 pub mod adapter;
-pub mod archiver;
+pub mod archive;
 pub mod cold_storage;
 mod columns;
 pub mod config;

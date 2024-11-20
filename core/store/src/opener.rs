@@ -1,4 +1,4 @@
-use crate::archiver::ArchivalStorageOpener;
+use crate::archive::ArchivalStorageOpener;
 use crate::config::ArchivalStorageConfig;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
