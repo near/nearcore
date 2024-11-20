@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
 
-use crate::{
-    db::{assert_no_overwrite, refcount, DBOp, DBTransaction},
-    DBCol,
-};
+use crate::DBCol;
 use std::io;
 
 use super::{cold_column_dirname, ArchivalStorage};
@@ -49,8 +46,10 @@ impl FilesystemArchiver {
         let filename = bs58::encode(key).with_alphabet(bs58::Alphabet::BITCOIN).into_string();
         [dirname.as_ref().unwrap(), std::path::Path::new(&filename)].into_iter().collect()
     }
+}
 
-    fn write_file(&self, col: DBCol, key: &[u8], value: &[u8]) -> io::Result<()> {
+impl ArchivalStorage for FilesystemArchiver {
+    fn put(&self, col: DBCol, key: &[u8], value: &[u8]) -> io::Result<()> {
         use rustix::fs::{Mode, OFlags};
         let mut temp_file = tempfile::Builder::new()
             .make_in("", |filename| {
@@ -69,7 +68,7 @@ impl FilesystemArchiver {
         Ok(())
     }
 
-    fn read_file(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         use rustix::fs::{Mode, OFlags};
         let mode = Mode::empty();
         let flags = OFlags::RDONLY;
@@ -87,46 +86,8 @@ impl FilesystemArchiver {
         Ok(Some(buffer))
     }
 
-    fn delete_file(&self, col: DBCol, key: &[u8]) -> io::Result<()> {
+    fn delete(&self, col: DBCol, key: &[u8]) -> io::Result<()> {
         let file_path = self.get_path(col, key);
         Ok(rustix::fs::unlinkat(&self.base_dir, &file_path, rustix::fs::AtFlags::empty())?)
-    }
-}
-
-impl ArchivalStorage for FilesystemArchiver {
-    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        for op in transaction.ops {
-            match op {
-                DBOp::Set { col, key, value } => self.write_file(col, &key, &value),
-                DBOp::Insert { col, key, value } => {
-                    if cfg!(debug_assertions) {
-                        if let Some(old_value) = self.read_file(col, &key)? {
-                            assert_no_overwrite(col, &key, &value, &*old_value)
-                        }
-                    }
-                    self.write_file(col, &key, &value)
-                }
-                DBOp::UpdateRefcount { col, key, value } => {
-                    let existing = self.read_file(col, &key).unwrap();
-                    let operands = [value.as_slice()];
-                    let merged =
-                        refcount::refcount_merge(existing.as_ref().map(Vec::as_slice), operands);
-                    if merged.is_empty() {
-                        self.delete_file(col, &key)
-                    } else {
-                        debug_assert!(
-                            refcount::decode_value_with_rc(&merged).1 > 0,
-                            "Inserting value with non-positive refcount"
-                        );
-                        self.write_file(col, &key, &merged)
-                    }
-                }
-                DBOp::Delete { .. } | DBOp::DeleteAll { .. } | DBOp::DeleteRange { .. } => {
-                    unreachable!("Delete operations unsupported")
-                }
-            }
-            .unwrap();
-        }
-        Ok(())
     }
 }

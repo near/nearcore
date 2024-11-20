@@ -358,9 +358,12 @@ pub struct ArchivalStorageConfig {
 /// Similar to External
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum ArchivalStorageLocation {
+    #[default]
+    ColdDB,
     Filesystem {
         path: PathBuf,
     },
-    #[default]
-    ColdDB,
+    GCloud {
+        bucket: String,
+    },
 }

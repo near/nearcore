@@ -3,6 +3,9 @@ use std::{io, sync::Arc};
 use filesystem::FilesystemArchiver;
 use near_primitives::block::Tip;
 
+use crate::db::assert_no_overwrite;
+use crate::db::refcount;
+use crate::db::DBOp;
 use crate::Store;
 use crate::COLD_HEAD_KEY;
 use crate::HEAD_KEY;
@@ -13,6 +16,7 @@ use crate::{
 };
 
 mod filesystem;
+mod gcloud;
 
 pub struct ArchivalStorageOpener {
     home_dir: std::path::PathBuf,
@@ -34,6 +38,10 @@ impl ArchivalStorageOpener {
                 let base_path = self.home_dir.join(path);
                 tracing::info!(target: "archiver", path=%base_path.display(), "Using filesystem as the archival storage location");
                 Arc::new(FilesystemArchiver::open(base_path.as_path())?)
+            }
+            ArchivalStorageLocation::GCloud { bucket } => {
+                tracing::info!(target: "archiver", bucket=%bucket, "Using Google Cloud Storage as the archival storage location");
+                Arc::new(gcloud::GoogleCloudArchiver::open(bucket))
             }
         };
         let cold_store = Store::new(cold_db.clone());
@@ -78,7 +86,7 @@ impl Archiver {
     }
 
     pub fn write(&self, batch: DBTransaction) -> io::Result<()> {
-        self.storage.write(batch)
+        self.storage.execute(batch)
     }
 
     pub fn cold_db(&self) -> Arc<ColdDB> {
@@ -87,7 +95,53 @@ impl Archiver {
 }
 
 pub trait ArchivalStorage: Sync + Send {
-    fn write(&self, batch: DBTransaction) -> io::Result<()>;
+    fn execute(&self, transaction: DBTransaction) -> io::Result<()> {
+        for op in transaction.ops {
+            match op {
+                DBOp::Set { col, key, value } => self.put(col, &key, &value),
+                DBOp::Insert { col, key, value } => {
+                    if cfg!(debug_assertions) {
+                        if let Some(old_value) = self.get(col, &key)? {
+                            assert_no_overwrite(col, &key, &value, &*old_value)
+                        }
+                    }
+                    self.put(col, &key, &value)
+                }
+                DBOp::UpdateRefcount { col, key, value } => {
+                    let existing = self.get(col, &key).unwrap();
+                    let operands = [value.as_slice()];
+                    let merged =
+                        refcount::refcount_merge(existing.as_ref().map(Vec::as_slice), operands);
+                    if merged.is_empty() {
+                        self.delete(col, &key)
+                    } else {
+                        debug_assert!(
+                            refcount::decode_value_with_rc(&merged).1 > 0,
+                            "Inserting value with non-positive refcount"
+                        );
+                        self.put(col, &key, &merged)
+                    }
+                }
+                DBOp::Delete { .. } | DBOp::DeleteAll { .. } | DBOp::DeleteRange { .. } => {
+                    unreachable!("Delete operations unsupported")
+                }
+            }
+            .unwrap();
+        }
+        Ok(())
+    }
+
+    fn put(&self, _col: DBCol, _key: &[u8], _value: &[u8]) -> io::Result<()> {
+        unimplemented!()
+    }
+
+    fn get(&self, _col: DBCol, _key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        unimplemented!()
+    }
+
+    fn delete(&self, _col: DBCol, _key: &[u8]) -> io::Result<()> {
+        unimplemented!()
+    }
 }
 
 struct ColdDBArchiver {
@@ -101,7 +155,7 @@ impl ColdDBArchiver {
 }
 
 impl ArchivalStorage for ColdDBArchiver {
-    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    fn execute(&self, transaction: DBTransaction) -> io::Result<()> {
         self.cold_db.write(transaction)
     }
 }

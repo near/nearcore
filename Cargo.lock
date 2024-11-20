@@ -4875,6 +4875,7 @@ dependencies = [
  "borsh",
  "bs58 0.4.0",
  "bytesize",
+ "cloud-storage",
  "crossbeam",
  "derive-where",
  "derive_more",
