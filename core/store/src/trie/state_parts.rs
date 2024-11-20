@@ -526,6 +526,7 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use near_primitives::state::ValueRef;
     use std::collections::{HashMap, HashSet};
     use std::fmt::Debug;
     use std::hash::Hash;
@@ -540,9 +541,7 @@ mod tests {
     use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
     use crate::trie::iterator::CrumbStatus;
-    use crate::trie::{
-        TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
-    };
+    use crate::trie::{TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction};
 
     use super::*;
     use crate::MissingTrieValueContext;
@@ -677,7 +676,7 @@ mod tests {
             if self.root == Trie::EMPTY_ROOT {
                 return Ok(());
             }
-            let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
+            let mut stack: Vec<(CryptoHash, RawTrieNodeWithSize, CrumbStatus)> = Vec::new();
             let Some((_, root_node)) = self.retrieve_raw_node(&self.root, true, true)? else {
                 return Ok(());
             };
@@ -686,23 +685,14 @@ mod tests {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
                 }
-                let mut on_enter_value = |value: &ValueHandle| {
-                    if let ValueHandle::HashAndSize(value) = value {
-                        on_enter(&value.hash)
-                    } else {
-                        unreachable!("only possible while mutating")
-                    }
-                };
+                let mut on_enter_value = |value: &ValueRef| on_enter(&value.hash);
                 match &node.node {
-                    TrieNode::Leaf(_, value) => {
+                    RawTrieNode::Leaf(_, value) => {
                         on_enter_value(value)?;
                         continue;
                     }
-                    TrieNode::Branch(children, value) => match position {
+                    RawTrieNode::BranchNoValue(children) => match position {
                         CrumbStatus::Entering => {
-                            if let Some(ref value) = value {
-                                on_enter_value(value)?;
-                            }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
                             continue;
                         }
@@ -711,12 +701,12 @@ mod tests {
                                 stack.push((hash, node, CrumbStatus::Exiting));
                                 break;
                             }
-                            if let Some(NodeHandle::Hash(ref h)) = children[i] {
-                                let h = *h;
-                                let Some((_, child)) = self.retrieve_raw_node(&h, true, true)?
+                            if let Some(ref h) = children[i] {
+                                let Some((_, child)) = self.retrieve_raw_node(h, true, true)?
                                 else {
                                     continue;
                                 };
+                                let h = *h;
                                 stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                 stack.push((h, child, CrumbStatus::Entering));
                                 break;
@@ -730,12 +720,42 @@ mod tests {
                             continue;
                         }
                     },
-                    TrieNode::Extension(_key, child) => {
+                    RawTrieNode::BranchWithValue(value, children) => match position {
+                        CrumbStatus::Entering => {
+                            on_enter_value(&value)?;
+                            stack.push((hash, node, CrumbStatus::AtChild(0)));
+                            continue;
+                        }
+                        CrumbStatus::AtChild(mut i) => loop {
+                            if i >= 16 {
+                                stack.push((hash, node, CrumbStatus::Exiting));
+                                break;
+                            }
+                            if let Some(ref h) = children[i] {
+                                let Some((_, child)) = self.retrieve_raw_node(h, true, true)?
+                                else {
+                                    continue;
+                                };
+                                let h = *h;
+                                stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
+                                stack.push((h, child, CrumbStatus::Entering));
+                                break;
+                            }
+                            i += 1;
+                        },
+                        CrumbStatus::Exiting => {
+                            continue;
+                        }
+                        CrumbStatus::At => {
+                            continue;
+                        }
+                    },
+                    RawTrieNode::Extension(_key, h) => {
                         if let CrumbStatus::Entering = position {
-                            let NodeHandle::Hash(h) = child.clone();
                             let Some((_, child)) = self.retrieve_raw_node(&h, true, true)? else {
                                 continue;
                             };
+                            let h = *h;
                             stack.push((h, node, CrumbStatus::Exiting));
                             stack.push((h, child, CrumbStatus::Entering));
                         }
