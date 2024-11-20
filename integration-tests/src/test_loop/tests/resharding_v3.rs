@@ -128,7 +128,7 @@ struct TestReshardingParameters {
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
-    loop_action: Option<LoopActionFn>,
+    loop_actions: Vec<LoopActionFn>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
     // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
     // epoch length, but it's good to also check what happens with shorter ones.
@@ -212,13 +212,8 @@ impl TestReshardingParameters {
     }
 
     #[allow(unused)]
-    fn loop_action(
-        mut self,
-        loop_action: Option<
-            Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>,
-        >,
-    ) -> Self {
-        self.loop_action = loop_action;
+    fn add_loop_action(mut self, loop_action: LoopActionFn) -> Self {
+        self.loop_actions.push(loop_action);
         self
     }
 
@@ -250,9 +245,7 @@ impl TestReshardingParameters {
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
-fn fork_before_resharding_block(
-    double_signing: bool,
-) -> Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
     let done = Cell::new(false);
@@ -290,12 +283,57 @@ fn fork_before_resharding_block(
     )
 }
 
-/// Returns a loop action that invokes a costly method from a contract multiple times per block height.
+enum ReceiptKind {
+    Delayed,
+    Buffered,
+}
+
+/// Checks that the shard containing `account` has a non empty set of receipts of type `kind` at the
+/// resharding block.
+fn check_receipts_presence_at_resharding_block(
+    account: AccountId,
+    kind: ReceiptKind,
+) -> LoopActionFn {
+    Box::new(
+        move |_: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_handle: TestLoopDataHandle<ClientActorInner>| {
+            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            if !next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip) {
+                return;
+            }
+
+            let epoch_manager = &client_actor.client.epoch_manager;
+            let shard_id = epoch_manager.account_id_to_shard_id(&account, &tip.epoch_id).unwrap();
+            let shard_uid = &ShardUId::from_shard_id_and_layout(
+                shard_id,
+                &epoch_manager.get_shard_layout(&tip.epoch_id).unwrap(),
+            );
+            let congestion_info = &client_actor
+                .client
+                .chain
+                .chain_store()
+                .get_chunk_extra(&tip.last_block_hash, shard_uid)
+                .unwrap()
+                .congestion_info()
+                .unwrap();
+            match kind {
+                ReceiptKind::Delayed => assert_ne!(congestion_info.delayed_receipts_gas(), 0),
+                ReceiptKind::Buffered => assert_ne!(congestion_info.buffered_receipts_gas(), 0),
+            }
+        },
+    )
+}
+
+/// Returns a loop action that invokes a costly method from a contract `CALLS_PER_BLOCK_HEIGHT` times per block height.
+/// The account invoking the contract is taken in sequential order from `signed_ids`.
 fn call_burn_gas_contract(
     signer_ids: Vec<AccountId>,
     receiver_id: AccountId,
     gas_burnt_per_call: Gas,
-) -> Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)> {
+) -> LoopActionFn {
     const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
 
@@ -303,6 +341,8 @@ fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
+    // TODO: to be fixed when all shard tracking gets disabled.
+    let rpc_id: AccountId = "account0".parse().unwrap();
 
     Box::new(
         move |node_datas: &[TestData],
@@ -334,23 +374,6 @@ fn call_burn_gas_contract(
                 {
                     tracing::debug!(target: "test", height=tip.height, "resharding height set");
                     resharding_height.set(Some(tip.height));
-                    // Verify that delayed receipts are indeed in the queue.
-                    let epoch_manager = &client_actor.client.epoch_manager;
-                    let shard_id =
-                        epoch_manager.account_id_to_shard_id(&signer_id, &tip.epoch_id).unwrap();
-                    let shard_uid = &ShardUId::from_shard_id_and_layout(
-                        shard_id,
-                        &epoch_manager.get_shard_layout(&tip.epoch_id).unwrap(),
-                    );
-                    let congestion_info = &client_actor
-                        .client
-                        .chain
-                        .chain_store()
-                        .get_chunk_extra(&tip.last_block_hash, shard_uid)
-                        .unwrap()
-                        .congestion_info()
-                        .unwrap();
-                    assert_ne!(congestion_info.delayed_receipts_gas(), 0);
                 }
             }
             // Before resharding and one block after: call the test contract a few times per block.
@@ -378,7 +401,7 @@ fn call_burn_gas_contract(
                         tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
                         txs_vec.push((tx.get_hash(), tip.height));
                         txs.set(txs_vec);
-                        submit_tx(&node_datas, &"account0".parse().unwrap(), tx);
+                        submit_tx(&node_datas, &rpc_id, tx);
                     }
                 }
             }
@@ -504,9 +527,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         params
-            .loop_action
-            .as_ref()
-            .map(|action| action(&node_datas, test_loop_data, client_handles[0].clone()));
+            .loop_actions
+            .iter()
+            .for_each(|action| action(&node_datas, test_loop_data, client_handles[0].clone()));
 
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
@@ -604,7 +627,7 @@ fn test_resharding_v3_drop_chunks_all() {
 fn test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
         TestReshardingParameters::with_clients(1)
-            .loop_action(Some(fork_before_resharding_block(false))),
+            .add_loop_action(fork_before_resharding_block(false)),
     );
 }
 
@@ -617,7 +640,7 @@ fn test_resharding_v3_resharding_block_in_fork() {
 fn test_resharding_v3_double_sign_resharding_block() {
     test_resharding_v3_base(
         TestReshardingParameters::with_clients(1)
-            .loop_action(Some(fork_before_resharding_block(true))),
+            .add_loop_action(fork_before_resharding_block(true)),
     );
 }
 
@@ -639,7 +662,11 @@ fn test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
-        .loop_action(Some(call_burn_gas_contract(vec![account.clone()], account, 275 * TGAS)));
+        .add_loop_action(call_burn_gas_contract(vec![account.clone()], account.clone(), 275 * TGAS))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            account,
+            ReceiptKind::Delayed,
+        ));
     test_resharding_v3_base(params);
 }
 
@@ -650,22 +677,32 @@ fn test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
-        .loop_action(Some(call_burn_gas_contract(vec![account.clone()], account, 275 * TGAS)));
+        .add_loop_action(call_burn_gas_contract(vec![account.clone()], account.clone(), 275 * TGAS))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            account,
+            ReceiptKind::Delayed,
+        ));
     test_resharding_v3_base(params);
 }
 
 #[test]
 // TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
 #[ignore]
-fn test_resharding_v3_buffered_receipts() {
-    let account: AccountId = "account0".parse().unwrap();
+fn test_resharding_v3_split_parent_buffered_receipts() {
+    let receiver_account: AccountId = "account0".parse().unwrap();
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
-        .deploy_test_contract(account.clone())
+        .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
-        .loop_action(Some(call_burn_gas_contract(
-            vec![account.clone(), "account4".parse().unwrap(), "account6".parse().unwrap()],
-            account,
+        .add_loop_action(call_burn_gas_contract(
+            vec![receiver_account.clone(), account_in_left_child, account_in_right_child.clone()],
+            receiver_account.clone(),
             75 * TGAS,
-        )));
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            account_in_right_child,
+            ReceiptKind::Buffered,
+        ));
     test_resharding_v3_base(params);
 }
