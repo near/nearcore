@@ -405,7 +405,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError>;
@@ -1005,7 +1005,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {

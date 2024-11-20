@@ -955,15 +955,15 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
-        let epoch_valset = self.get_valset_for_epoch(&epoch_id).unwrap();
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let epoch_valset = self.get_valset_for_epoch(epoch_id).unwrap();
+        let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset, shard_index);
         for validator in chunk_producers {
