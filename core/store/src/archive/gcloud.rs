@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use std::io;
 
-use crate::DBCol;
-
 use super::ArchivalStorage;
 
 pub(crate) struct GoogleCloudArchiver {
@@ -18,11 +16,11 @@ impl GoogleCloudArchiver {
 }
 
 impl ArchivalStorage for GoogleCloudArchiver {
-    fn put(&self, col: DBCol, key: &[u8], value: &[u8]) -> io::Result<()> {
+    fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         let async_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
         let _ = async_runtime.block_on(async {
             let location = "fake";
-            tracing::debug!(target: "archiver", key_len=key.len(), data_len = value.len(), ?location, "Writing to GCS");
+            tracing::debug!(target: "archiver", ?path, data_len = value.len(), ?location, "Writing to GCS");
             self.gcs_client
                     .object()
                     .create(&self.bucket, value.to_vec(), location, "application/octet-stream")
@@ -31,11 +29,11 @@ impl ArchivalStorage for GoogleCloudArchiver {
         Ok(())
     }
 
-    fn get(&self, _col: DBCol, _key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>> {
         unimplemented!()
     }
 
-    fn delete(&self, _col: DBCol, _key: &[u8]) -> io::Result<()> {
+    fn delete(&self, _path: &std::path::Path) -> io::Result<()> {
         unimplemented!()
     }
 }
