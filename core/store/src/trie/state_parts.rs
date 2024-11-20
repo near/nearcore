@@ -20,9 +20,7 @@ use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
-use crate::trie::{
-    ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
-};
+use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
 use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
 use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
@@ -35,7 +33,7 @@ use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::TrieRefcountDeltaMap;
+use super::{RawTrieNode, TrieRefcountDeltaMap};
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -69,7 +67,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
-        let root_node = self.retrieve_node(&self.root)?;
+        let root_node = self.retrieve_raw_node(&self.root, true, true)?;
         match root_node {
             Some((_, node)) => {
                 let total_size = node.memory_usage;
@@ -343,30 +341,24 @@ impl Trie {
     fn find_child_in_dfs_order(
         &self,
         memory_threshold: u64,
-        node: &mut TrieNodeWithSize,
+        node: &mut RawTrieNodeWithSize,
         memory_skipped: &mut u64,
         key_nibbles: &mut Vec<u8>,
     ) -> Result<bool, StorageError> {
-        *memory_skipped += node.node.memory_usage_direct();
+        *memory_skipped += node.memory_usage;
 
         match &node.node {
-            TrieNode::Leaf(key, _) => {
+            RawTrieNode::Leaf(key, _) => {
                 let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
 
                 // Leaf must contain value, so we found the boundary.
                 Ok(false)
             }
-            TrieNode::Branch(children, value_handle) => {
-                if *memory_skipped > memory_threshold && value_handle.is_some() {
-                    // If we skipped enough memory and found some value, we found the boundary.
-                    return Ok(false);
-                }
-
+            RawTrieNode::BranchNoValue(children) => {
                 let mut iter = children.iter();
-                while let Some((index, child)) = iter.next() {
-                    let NodeHandle::Hash(h) = child;
-                    if let Some((_, child)) = self.retrieve_node(h)? {
+                while let Some((index, h)) = iter.next() {
+                    if let Some((_, child)) = self.retrieve_raw_node(h, true, true)? {
                         if *memory_skipped + child.memory_usage > memory_threshold {
                             core::mem::drop(iter);
                             key_nibbles.push(index);
@@ -383,9 +375,33 @@ impl Trie {
                     threshold {memory_threshold} and skipped {memory_skipped}"
                 )))
             }
-            TrieNode::Extension(key, child_handle) => {
-                let NodeHandle::Hash(h) = child_handle;
-                if let Some((_, child)) = self.retrieve_node(h)? {
+            RawTrieNode::BranchWithValue(_, children) => {
+                if *memory_skipped > memory_threshold {
+                    // If we skipped enough memory and found some value, we found the boundary.
+                    return Ok(false);
+                }
+
+                let mut iter = children.iter();
+                while let Some((index, h)) = iter.next() {
+                    if let Some((_, child)) = self.retrieve_raw_node(h, true, true)? {
+                        if *memory_skipped + child.memory_usage > memory_threshold {
+                            core::mem::drop(iter);
+                            key_nibbles.push(index);
+                            *node = child;
+                            return Ok(true);
+                        }
+                        *memory_skipped += child.memory_usage;
+                    }
+                }
+                // This line should be unreachable if we descended into current node.
+                // TODO (#8997): test this case properly by simulating trie data corruption.
+                Err(StorageError::StorageInconsistentState(format!(
+                    "Skipped all children of node {node:?} while searching for memory \
+                    threshold {memory_threshold} and skipped {memory_skipped}"
+                )))
+            }
+            RawTrieNode::Extension(key, h) => {
+                if let Some((_, child)) = self.retrieve_raw_node(h, true, true)? {
                     let (slice, _) = NibbleSlice::from_encoded(key);
                     key_nibbles.extend(slice.iter());
                     *node = child;
@@ -400,7 +416,7 @@ impl Trie {
     /// Returns trie key in nibbles corresponding to this node.
     fn find_node_in_dfs_order(
         &self,
-        root_node: &TrieNodeWithSize,
+        root_node: &RawTrieNodeWithSize,
         memory_threshold: u64,
     ) -> Result<Vec<u8>, StorageError> {
         if root_node.memory_usage <= memory_threshold {
@@ -662,7 +678,7 @@ mod tests {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let Some((_, root_node)) = self.retrieve_node(&self.root)? else {
+            let Some((_, root_node)) = self.retrieve_raw_node(&self.root, true, true)? else {
                 return Ok(());
             };
             stack.push((self.root, root_node, CrumbStatus::Entering));
@@ -697,7 +713,8 @@ mod tests {
                             }
                             if let Some(NodeHandle::Hash(ref h)) = children[i] {
                                 let h = *h;
-                                let Some((_, child)) = self.retrieve_node(&h)? else {
+                                let Some((_, child)) = self.retrieve_raw_node(&h, true, true)?
+                                else {
                                     continue;
                                 };
                                 stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
@@ -716,7 +733,7 @@ mod tests {
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
                             let NodeHandle::Hash(h) = child.clone();
-                            let Some((_, child)) = self.retrieve_node(&h)? else {
+                            let Some((_, child)) = self.retrieve_raw_node(&h, true, true)? else {
                                 continue;
                             };
                             stack.push((h, node, CrumbStatus::Exiting));
