@@ -708,3 +708,25 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         ));
     test_resharding_v3_base(params);
 }
+
+#[test]
+// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore]
+fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
+    let receiver_account: AccountId = "account4".parse().unwrap();
+    let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
+    let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
+    let params = TestReshardingParameters::new()
+        .deploy_test_contract(receiver_account.clone())
+        .limit_outgoing_gas()
+        .add_loop_action(call_burn_gas_contract(
+            vec![account_1_in_stable_shard.clone(), account_2_in_stable_shard],
+            receiver_account,
+            5 * TGAS,
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            account_1_in_stable_shard,
+            ReceiptKind::Buffered,
+        ));
+    test_resharding_v3_base(params);
+}
