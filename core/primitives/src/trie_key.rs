@@ -361,13 +361,13 @@ impl TrieKey {
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::BandwidthSchedulerState => buf.push(col::BANDWIDTH_SCHEDULER_STATE),
-            TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: receiver_shard } => {
+            TrieKey::BufferedReceiptGroupsQueueData { receiving_shard } => {
                 buf.push(col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA);
-                buf.extend(&receiver_shard.to_le_bytes());
+                buf.extend(&receiving_shard.to_le_bytes());
             }
-            TrieKey::BufferedReceiptGroupsQueueItem { receiving_shard: receiver_shard, index } => {
+            TrieKey::BufferedReceiptGroupsQueueItem { receiving_shard, index } => {
                 buf.push(col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM);
-                buf.extend(&receiver_shard.to_le_bytes());
+                buf.extend(&receiving_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
         };
