@@ -72,10 +72,8 @@ impl StateSyncDumper {
 
         let mut shard_ids = HashSet::new();
         for protocol_version in head_protocol_version..=PROTOCOL_VERSION {
-            let shard_layout = self
-                .epoch_manager
-                .get_shard_layout_from_protocol_version(protocol_version)
-                .context("failed getting shard layout from protocol version")?;
+            let shard_layout =
+                self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
             shard_ids.extend(shard_layout.shard_ids());
         }
         Ok(shard_ids)
