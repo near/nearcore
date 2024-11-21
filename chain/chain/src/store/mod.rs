@@ -1020,6 +1020,20 @@ impl ChainStore {
         key
     }
 
+    // pub fn iter_state_sync_dump_progress(
+    //     &self,
+    //     shard_id: ShardId,
+    // ) -> Result<StateSyncDumpProgress, Error> {
+    //     let mut prefix = STATE_SYNC_DUMP_KEY.to_vec();
+    //     prefix.extend(b":".to_vec());
+    //     self.store.iter_prefix_ser(DBCol::BlockMisc, prefix)
+    //     option_to_not_found(
+    //         self.store
+    //             .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
+    //         format!("STATE_SYNC_DUMP:{}", shard_id),
+    //     )
+    // }
+
     /// Retrieves STATE_SYNC_DUMP for the given shard.
     pub fn get_state_sync_dump_progress(
         &self,
