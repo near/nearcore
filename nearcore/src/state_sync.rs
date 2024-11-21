@@ -55,8 +55,8 @@ pub struct StateSyncDumper {
 }
 
 impl StateSyncDumper {
-    /// Starts one a thread per tracked shard.
-    /// Each started thread will be dumping state parts of a single epoch to external storage.
+    /// Starts a thread that periodically checks whether any new parts need to be uploaded, and then spawns
+    /// futures to generate and upload them
     pub fn start(&mut self) -> anyhow::Result<()> {
         assert!(self.handle.is_none(), "StateSyncDumper already started");
 
