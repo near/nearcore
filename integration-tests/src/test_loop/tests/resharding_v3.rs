@@ -389,7 +389,8 @@ fn next_block_has_new_shard_layout(epoch_manager: Arc<dyn EpochManagerAdapter>, 
         && shard_layout != next_shard_layout
 }
 
-/// Asserts that for each child shard (Mem)Trie and FlatState contains the same final state.
+/// Asserts that for each child shard:
+/// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
 fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &Client) {
     let final_head = client.chain.final_head().unwrap();
 
@@ -406,7 +407,8 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             .unwrap()
             .state_root();
 
-        let trie = client
+        // Here memtries will be used as long as client has memtries enabled.
+        let memtrie = client
             .runtime_adapter
             .get_trie_for_shard(
                 child_shard_uid.shard_id(),
@@ -415,6 +417,21 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
                 false,
             )
             .unwrap();
+        assert!(memtrie.has_memtries());
+        let memtrie_state =
+            memtrie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+
+        // To get a view on disk tries we can leverage the fact that get_view_trie_for_shard() never
+        // uses memtries.
+        let trie = client
+            .runtime_adapter
+            .get_view_trie_for_shard(
+                child_shard_uid.shard_id(),
+                &final_head.prev_block_hash,
+                state_root,
+            )
+            .unwrap();
+        assert!(!trie.has_memtries());
         let trie_state =
             trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
 
@@ -443,14 +460,16 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             .collect::<Result<HashSet<_>, _>>()
             .unwrap();
 
-        let diff = trie_state.symmetric_difference(&flat_store_state);
+        let diff_memtrie_flat_store = memtrie_state.symmetric_difference(&flat_store_state);
+        let diff_memtrie_trie = memtrie_state.symmetric_difference(&trie_state);
+        let diff = diff_memtrie_flat_store.chain(diff_memtrie_trie);
         if diff.clone().count() == 0 {
             continue;
         }
         for (key, value) in diff {
-            tracing::error!(target: "test", shard=?child_shard_uid, key=ALL_COLUMNS_WITH_NAMES[key[0] as usize].1, ?value, "Difference between trie and flat state!");
+            tracing::error!(target: "test", shard=?child_shard_uid, key=ALL_COLUMNS_WITH_NAMES[key[0] as usize].1, ?value, "Difference in state between trie, memtrie and flat store!");
         }
-        assert!(false, "trie and flat state mismatch!");
+        assert!(false, "trie, memtrie and flat store state mismatch!");
     }
 }
 
